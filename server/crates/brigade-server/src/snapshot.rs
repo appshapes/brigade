@@ -30,6 +30,11 @@ use serde::{Deserialize, Serialize};
 /// team with none: the ticket would stop admitting without a record that says so, and that build's own
 /// snapshot would then say the same to this one. It reads formats 1 and 2, so it passes a format 3
 /// snapshot over, and it refuses the log's record of a move instead.
+///
+/// What a principal's bounds count, since server 0.6.0, is in the state without a format of its own: the
+/// times of the teams it created and the sessions it opened in the last hour. A build before that drops
+/// them, and it has no bound to hold against them. A snapshot without them reads as nobody having created
+/// a team or opened a session in that hour.
 const FORMAT: u32 = 3;
 
 /// The oldest snapshot format this build reads. A snapshot of format 1 holds no secret version and no ban,
@@ -230,6 +235,7 @@ mod tests {
                 format!("p{index}"),
                 Principal {
                     created_at: Timestamp(index as i64),
+                    ..Principal::default()
                 },
             );
         }
@@ -319,6 +325,9 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((position, state.entries), (70, 2));
+        // It holds nothing a principal's bounds count, and reads as nobody having used any of them.
+        let principal = &state.principals["p1"];
+        assert!(principal.teams_created_at.is_empty() && principal.sessions_opened_at.is_empty());
         let team = &state.teams["t"];
         assert_eq!((team.secret_version, team.owner()), (1, Some("p1")));
         let member = &team.members["p1"];

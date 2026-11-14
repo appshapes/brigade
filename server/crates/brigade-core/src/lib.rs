@@ -9,11 +9,14 @@
 //!
 //! - [`wire`] reads and checks a request.
 //! - [`answer`] answers it against the [`state::State`] and makes its [`record::Entry`] of records.
+//! - [`JoinFailures`] is the one count no record holds, a principal's failed joins: [`answer`] is handed it
+//!   beside the state.
 //! - [`import_team`] takes in a team that exists elsewhere, [`set_owner`] names a team's owner,
 //!   [`take_back`] takes a team from whoever holds it, and [`open_move`] and [`close_move`] open and close
 //!   the move of a team's members from another backend, for the operator and for no request.
 //! - [`state::State::apply`] is what a restart and a standby run over the same records.
 
+pub mod attempts;
 pub mod error;
 pub mod execute;
 pub mod hash;
@@ -24,6 +27,7 @@ pub mod state;
 pub mod time;
 pub mod wire;
 
+pub use attempts::JoinFailures;
 pub use error::{Code, Error, envelope_error, envelope_ok};
 pub use execute::{
     MOVE_TICKET_DEFAULT_DAYS, MOVE_TICKET_MAX_DAYS, Outcome, Request, answer, close_move, execute,

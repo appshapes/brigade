@@ -7,8 +7,8 @@ use brigade_core::error::Code;
 use brigade_core::hash::sha256_hex;
 use brigade_core::record::Event;
 use brigade_core::{
-    Entropy, Entry, Error, Record, Request, State, Timestamp, answer, close_move, envelope_error,
-    import_team, open_move, set_owner, take_back,
+    Entropy, Entry, Error, JoinFailures, Record, Request, State, Timestamp, answer, close_move,
+    envelope_error, import_team, limits, open_move, set_owner, take_back,
 };
 use serde_json::{Value, json};
 
@@ -30,6 +30,8 @@ const SECOND: i64 = 1_000_000_000;
 /// A state, a clock and every entry of the log made so far.
 struct Rig {
     state: State,
+    /// The joins each principal failed, which the server counts beside the state.
+    failures: JoinFailures,
     entropy: Counter,
     now: Timestamp,
     log: Vec<Entry>,
@@ -50,6 +52,7 @@ impl Rig {
     fn new() -> Self {
         Self {
             state: State::default(),
+            failures: JoinFailures::new(),
             entropy: Counter(0),
             now: Timestamp(1_800_000_000 * SECOND),
             log: Vec::new(),
@@ -75,7 +78,13 @@ impl Rig {
             path,
             body,
         };
-        let outcome = answer(&mut self.state, request, self.now, &mut self.entropy)?;
+        let outcome = answer(
+            &mut self.state,
+            &mut self.failures,
+            request,
+            self.now,
+            &mut self.entropy,
+        )?;
         self.log.extend(outcome.entry);
         Ok(outcome.result)
     }
@@ -923,6 +932,240 @@ fn a_session_and_a_principal_each_have_a_send_budget() {
     rig.advance(61);
     rig.send(&alice, &fourth, &recipients[0], "after the minute")
         .unwrap();
+}
+
+/// One more team for a principal the server knows.
+fn another_team(rig: &mut Rig, member: &Member) -> Result<Value, Error> {
+    rig.call(
+        Some(&member.credential),
+        "/v1/team/create",
+        json!({"team_name": "more", "human_label": "alice"}),
+    )
+}
+
+#[test]
+fn a_principal_creates_a_bounded_number_of_teams_in_an_hour() {
+    // The numbers are the reference backend's (ADR 0004): a team meets the same on either.
+    assert_eq!(
+        (
+            limits::TEAMS_CREATED_PER_HOUR,
+            limits::SESSIONS_OPENED_PER_HOUR,
+            limits::PRINCIPAL_RATE_WINDOW_SECONDS,
+            limits::FAILED_JOINS_PER_WINDOW,
+            limits::FAILED_JOIN_WINDOW_SECONDS,
+            limits::FAILED_JOIN_RETRY_FLOOR_MS,
+        ),
+        (5, 120, 3600, 5, 900, 60_000)
+    );
+    let mut rig = Rig::new();
+    let (alice, secret) = rig.create("alice");
+    for _ in 1..limits::TEAMS_CREATED_PER_HOUR {
+        rig.advance(60);
+        another_team(&mut rig, &alice).unwrap();
+    }
+    rig.advance(60);
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let limited = another_team(&mut rig, &alice).unwrap_err();
+    assert_eq!(
+        (limited.code, reason(&limited)),
+        (Code::RateLimited, "team_create")
+    );
+    // The bound frees when the first team's hour is over, and that team was made five minutes ago.
+    assert_eq!(limited.retry_after_ms, Some((3600 - 300) * 1000));
+    assert_eq!(
+        limited.message,
+        "this principal has created as many teams as one may in an hour"
+    );
+    // The refusal made nothing: no team, no record.
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // A caller with no credential the server knows is a new principal, which has created none.
+    rig.create("bob");
+    // A team counts against the principal that created it, whoever owns it afterwards.
+    let carol = rig.join(&secret, "carol");
+    rig.ok(
+        &alice,
+        "/v1/team/transfer",
+        json!({"team_ref": alice.team_ref, "principal_ref": carol.principal_ref}),
+    );
+    assert_eq!(
+        reason(&another_team(&mut rig, &alice).unwrap_err()),
+        "team_create"
+    );
+    // Once the first team's hour is over there is room for one more, and for one only.
+    rig.advance(3600 - 300 + 1);
+    another_team(&mut rig, &alice).unwrap();
+    assert_eq!(
+        reason(&another_team(&mut rig, &alice).unwrap_err()),
+        "team_create"
+    );
+    // A restart counts what the log holds, and a snapshot carries the count.
+    let mut replayed = State::default();
+    for entry in &rig.log {
+        replayed.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+    }
+    assert_eq!(replayed, rig.state);
+    let snapshot = serde_json::to_vec(&rig.state).unwrap();
+    rig.state = serde_json::from_slice(&snapshot).unwrap();
+    assert_eq!(
+        reason(&another_team(&mut rig, &alice).unwrap_err()),
+        "team_create"
+    );
+}
+
+#[test]
+fn a_principal_opens_a_bounded_number_of_sessions_in_an_hour_and_a_resume_is_not_one() {
+    let mut rig = Rig::new();
+    let (alice, secret) = rig.create("alice");
+    let first = rig.register(&alice, "s0");
+    for n in 1..limits::SESSIONS_OPENED_PER_HOUR {
+        rig.register(&alice, &format!("s{n}"));
+    }
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let limited = rig.err(
+        &alice,
+        "/v1/session/register",
+        registration(&alice, "one too many"),
+    );
+    assert_eq!(
+        (limited.code, reason(&limited)),
+        (Code::RateLimited, "register_session")
+    );
+    assert_eq!(limited.retry_after_ms, Some(3_600_000));
+    assert_eq!(
+        limited.message,
+        "this principal has opened as many sessions as one may in an hour"
+    );
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // The sessions of a principal are counted over all its teams.
+    let elsewhere = another_team(&mut rig, &alice).unwrap();
+    let mut other = registration(&alice, "in the other team");
+    other["team_ref"] = elsewhere["team_ref"].clone();
+    assert_eq!(
+        reason(&rig.err(&alice, "/v1/session/register", other)),
+        "register_session"
+    );
+    // Another member of the team has a count of its own.
+    let bob = rig.join(&secret, "bob");
+    rig.register(&bob, "b0");
+    // A resume opens no session: one that comes back is not refused, and is not counted.
+    rig.ok(&alice, "/v1/session/close", json!({"session_id": first}));
+    let mut resume = registration(&alice, "s0");
+    resume["resume"] = json!({"session_id": first});
+    assert_eq!(
+        rig.ok(&alice, "/v1/session/register", resume)["resumed"],
+        json!(true)
+    );
+    let opened = |rig: &Rig| {
+        rig.state.principals[&alice.principal_ref]
+            .sessions_opened_at
+            .len()
+    };
+    assert_eq!(opened(&rig), limits::SESSIONS_OPENED_PER_HOUR);
+    // An hour after the sessions were opened there is room again, and their times are let go of.
+    rig.advance(3601);
+    rig.register(&alice, "after the hour");
+    assert_eq!(opened(&rig), 1);
+    let mut replayed = State::default();
+    for entry in &rig.log {
+        replayed.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+    }
+    assert_eq!(replayed, rig.state);
+}
+
+#[test]
+fn a_principals_failed_joins_are_bounded_and_a_join_that_succeeds_clears_them() {
+    let mut rig = Rig::new();
+    let (alice, secret) = rig.create("alice");
+    // Bob is a principal the server knows: he has a team of his own.
+    let (bob, _) = rig.create("bob");
+    let wrong = secret_of(&alice.team_ref, "not-the-secret-of-the-team");
+    let unknown = secret_of("no-such-team", "whatever-it-is");
+    let fail = |rig: &mut Rig, secret: &str| rig.err(&bob, "/v1/team/join", json!({"join_secret": secret}));
+    let rejected = wire(&Error::secret_rejected());
+    // A wrong secret and an unknown team each count, over all teams.
+    for n in 0..limits::FAILED_JOINS_PER_WINDOW {
+        rig.advance(60);
+        let secret = if n % 2 == 0 { &wrong } else { &unknown };
+        assert_eq!(wire(&fail(&mut rig, secret)), rejected);
+    }
+    // The next join is refused unheard, the right secret included, and nothing is made.
+    rig.advance(60);
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let limited = fail(&mut rig, &secret);
+    assert_eq!(
+        (limited.code, reason(&limited)),
+        (Code::RateLimited, "join_attempts")
+    );
+    // The first failure was five minutes ago, and leaves the window ten minutes from now.
+    assert_eq!(limited.retry_after_ms, Some(600_000));
+    assert_eq!(
+        limited.message,
+        "this principal has failed too many joins, and its next is not heard yet"
+    );
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // A request that cannot be read is told so, held or not, as the reference backend tells it first.
+    let unread = rig.err(&bob, "/v1/team/join", json!({"join_secret": 7}));
+    assert_eq!(unread.code, Code::InvalidInput);
+    // A refusal for the bound is not a failed join: it does not push the wait out.
+    rig.advance(60);
+    assert_eq!(fail(&mut rig, &secret).retry_after_ms, Some(540_000));
+    // The wait is never told shorter than a minute.
+    rig.advance(539);
+    assert_eq!(fail(&mut rig, &secret).retry_after_ms, Some(60_000));
+    // A request that cannot be read is no attempt on a secret.
+    rig.advance(2);
+    let unread = rig.err(&bob, "/v1/team/join", json!({"join_secret": 7}));
+    assert_eq!(unread.code, Code::InvalidInput);
+    // With the first failure out of the window the join is heard, and a join that succeeds clears the rest.
+    let joined = rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
+    assert_eq!(joined["rejoined"], json!(false));
+    for _ in 1..limits::FAILED_JOINS_PER_WINDOW {
+        assert_eq!(wire(&fail(&mut rig, &wrong)), rejected);
+    }
+    rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
+    // A caller with no credential the server knows has no principal to count against.
+    for _ in 0..=limits::FAILED_JOINS_PER_WINDOW {
+        let stranger = rig
+            .call(None, "/v1/team/join", json!({"join_secret": wrong}))
+            .unwrap_err();
+        assert_eq!(wire(&stranger), rejected);
+    }
+    // One principal's failures hold nobody else.
+    for _ in 0..limits::FAILED_JOINS_PER_WINDOW {
+        fail(&mut rig, &wrong);
+    }
+    assert_eq!(reason(&fail(&mut rig, &secret)), "join_attempts");
+    rig.ok(&alice, "/v1/team/join", json!({"join_secret": secret}));
+    // The count is the process's own: a server that starts again has none.
+    rig.failures = JoinFailures::new();
+    rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
+
+    // A gateway's join is made inside the server and may not own. It tries again each minute with the file
+    // its operator keeps, so its failures are not counted, and it is let in the minute the file is right.
+    rig.may_own = false;
+    for _ in 0..=limits::FAILED_JOINS_PER_WINDOW {
+        assert_eq!(wire(&fail(&mut rig, &wrong)), rejected);
+    }
+    rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
+    rig.may_own = true;
+
+    // A principal the team banned is told what a wrong secret is told, and its joins are counted as one.
+    let carol = rig.join(&secret, "carol");
+    revoke(&mut rig, &alice, &carol.principal_ref, Some(true)).unwrap();
+    let right = json!({"join_secret": secret});
+    for _ in 0..limits::FAILED_JOINS_PER_WINDOW {
+        assert_eq!(wire(&rig.err(&carol, "/v1/team/join", right.clone())), rejected);
+    }
+    assert_eq!(reason(&rig.err(&carol, "/v1/team/join", right)), "join_attempts");
+
+    // No record holds these times, so the clock they were read from may be set back. A failure that then
+    // lies ahead of the clock is let go of, and does not hold its principal for as long as the clock went.
+    for _ in 0..limits::FAILED_JOINS_PER_WINDOW {
+        fail(&mut rig, &wrong);
+    }
+    assert_eq!(reason(&fail(&mut rig, &secret)), "join_attempts");
+    rig.now = rig.now.minus_seconds(3600);
+    rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
 }
 
 #[test]

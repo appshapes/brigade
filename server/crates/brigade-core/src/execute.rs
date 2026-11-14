@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
 
+use crate::attempts::JoinFailures;
 use crate::error::Error;
 use crate::hash::{Entropy, new_credential, new_ref, same, sha256_hex};
 use crate::json::Document;
@@ -81,6 +82,7 @@ impl Outcome {
 /// state is unchanged.
 pub fn answer(
     state: &mut State,
+    failures: &mut JoinFailures,
     request: Request<'_>,
     now: Timestamp,
     entropy: &mut dyn Entropy,
@@ -108,7 +110,15 @@ pub fn answer(
         owned_team(state, &team_ref, principal_ref.unwrap_or_default())?;
     }
     let command = Command::read(request.path, &document)?;
-    execute(state, request.caller, request.may_own, &command, now, entropy)
+    execute(
+        state,
+        failures,
+        request.caller,
+        request.may_own,
+        &command,
+        now,
+        entropy,
+    )
 }
 
 /// Answers one request that was already read. `may_own` is the request's own
@@ -118,6 +128,7 @@ pub fn answer(
 /// The failure to answer with. The state is unchanged.
 pub fn execute(
     state: &mut State,
+    failures: &mut JoinFailures,
     caller: Option<&str>,
     may_own: bool,
     command: &Command,
@@ -125,8 +136,8 @@ pub fn execute(
     entropy: &mut dyn Entropy,
 ) -> Result<Outcome, Error> {
     match command {
-        Command::TeamCreate(request) => Ok(team_create(state, caller, request, now, entropy)),
-        Command::TeamJoin(request) => team_join(state, caller, may_own, request, now, entropy),
+        Command::TeamCreate(request) => team_create(state, caller, request, now, entropy),
+        Command::TeamJoin(request) => team_join(state, failures, caller, may_own, request, now, entropy),
         Command::TeamLeave(team_ref) => team_leave(state, caller, team_ref, now),
         Command::TeamMembers(team_ref) => team_members(state, caller, team_ref, now),
         Command::TeamRotateSecret(team_ref) => team_rotate_secret(state, caller, team_ref, now, entropy),
@@ -521,7 +532,22 @@ fn team_create(
     request: &TeamCreate,
     now: Timestamp,
     entropy: &mut dyn Entropy,
-) -> Outcome {
+) -> Result<Outcome, Error> {
+    // A principal the server knows creates a bounded number of teams in an hour. A caller with no
+    // credential it knows is a new principal, which has created none: what holds a stranger is a limit by
+    // address, and that is the proxy's in front of the server.
+    if let Some(principal) = caller
+        .and_then(|hash| state.principal_of(hash))
+        .and_then(|principal_ref| state.principals.get(principal_ref))
+    {
+        within_budget(
+            principal.teams_created_at.iter(),
+            now,
+            limits::PRINCIPAL_RATE_WINDOW_SECONDS,
+            limits::TEAMS_CREATED_PER_HOUR,
+            "team_create",
+        )?;
+    }
     let mut events = Vec::new();
     let (principal_ref, credential) = principal_or_new(state, caller, entropy, &mut events);
     let team_ref = new_ref(entropy);
@@ -544,20 +570,34 @@ fn team_create(
     result.insert("team_name".into(), json!(request.team_name));
     result.insert("join_secret".into(), json!(join_secret));
     result.insert("principal_ref".into(), json!(principal_ref));
-    Outcome {
+    Ok(Outcome {
         result: with_credential(result, credential),
         entry,
-    }
+    })
 }
 
 fn team_join(
     state: &mut State,
+    failures: &mut JoinFailures,
     caller: Option<&str>,
     may_own: bool,
     request: &TeamJoin,
     now: Timestamp,
     entropy: &mut dyn Entropy,
 ) -> Result<Outcome, Error> {
+    // The joins a principal fails are bounded: after as many as it may fail in the window, its next is
+    // refused here, before the secret is looked at, the right one included. What is counted is a member's
+    // join by a principal the server knows. A caller with no credential it knows has no principal until its
+    // join succeeds. And a gateway's join, which is made inside the server and is the one that may not own,
+    // is not counted: a gateway that was put out tries again each minute with the file its operator keeps,
+    // and is let in the minute that file is right.
+    let counted = may_own
+        .then(|| caller.and_then(|hash| state.principal_of(hash)))
+        .flatten()
+        .map(str::to_owned);
+    if let Some(principal_ref) = &counted {
+        failures.admit(principal_ref, now)?;
+    }
     // The hash is taken before the team is looked up, so a wrong secret and an unknown team cost the same.
     // A secret the team had before a rotation is a wrong secret: only the hash of the one it has is kept.
     let presented = sha256_hex(request.join_secret.expose());
@@ -565,15 +605,14 @@ fn team_join(
     // ticket, until the ticket ends. What was presented is held against both, whichever it is, and a
     // ticket that has ended, one whose move was closed, one that another took the place of and one of
     // another team are each a wrong secret, with the answer a wrong secret has.
-    let (team, by_move_ticket) = state
-        .teams
-        .get(request.join_secret.team_ref())
-        .and_then(|team| {
-            let by_secret = same(&team.join_secret_hash, &presented);
-            let by_ticket = ticket_admits(team, &presented, now);
-            (by_secret | by_ticket).then_some((team, !by_secret))
-        })
-        .ok_or_else(Error::secret_rejected)?;
+    let admitted = state.teams.get(request.join_secret.team_ref()).and_then(|team| {
+        let by_secret = same(&team.join_secret_hash, &presented);
+        let by_ticket = ticket_admits(team, &presented, now);
+        (by_secret | by_ticket).then_some((team, !by_secret))
+    });
+    let Some((team, by_move_ticket)) = admitted else {
+        return Err(failures.rejected(counted.as_deref(), now));
+    };
     // A banned principal is told what a wrong secret is told, although its secret is right, and nothing
     // is made for it. A caller with no credential the server knows is a new principal, which nobody
     // banned: the ban is on the principal, and the secret is what keeps a stranger out.
@@ -582,7 +621,11 @@ fn team_join(
         .and_then(|principal_ref| team.members.get(principal_ref))
         .is_some_and(|member| member.banned);
     if banned {
-        return Err(Error::secret_rejected());
+        return Err(failures.rejected(counted.as_deref(), now));
+    }
+    // The join is let in, and what its principal failed before it is forgotten.
+    if let Some(principal_ref) = &counted {
+        failures.succeeded(principal_ref);
     }
     let (team_ref, team_name) = (team.team_ref.clone(), team.team_name.clone());
     let ownerless = team.owner().is_none();
@@ -903,6 +946,17 @@ fn session_register(
             )
         }
         None => {
+            // A principal opens a bounded number of sessions in an hour, over all its teams. A resume
+            // opens none, so a session that comes back is never refused for it.
+            if let Some(principal) = state.principals.get(&principal_ref) {
+                within_budget(
+                    principal.sessions_opened_at.iter(),
+                    now,
+                    limits::PRINCIPAL_RATE_WINDOW_SECONDS,
+                    limits::SESSIONS_OPENED_PER_HOUR,
+                    "register_session",
+                )?;
+            }
             let session_id = new_ref(entropy);
             let opened = Event::SessionOpened {
                 team_ref,
@@ -1054,9 +1108,11 @@ fn hop_count(sender: &Session, request: &Send, now: Timestamp) -> Result<u32, Er
     Ok(hop)
 }
 
-/// One send budget: at most `limit` sends in the `window_seconds` before `now`.
-fn within_budget<'a>(
-    sent_at: impl Iterator<Item = &'a Timestamp>,
+/// One budget: at most `limit` of what `times` are the times of, in the `window_seconds` before `now`. A
+/// send budget counts sends; a principal's counts the teams it created, the sessions it opened or the joins
+/// it failed.
+pub(crate) fn within_budget<'a>(
+    times: impl Iterator<Item = &'a Timestamp>,
     now: Timestamp,
     window_seconds: i64,
     limit: usize,
@@ -1065,7 +1121,7 @@ fn within_budget<'a>(
     let window_start = now.minus_seconds(window_seconds);
     let mut count = 0;
     let mut oldest: Option<Timestamp> = None;
-    for at in sent_at.filter(|at| **at > window_start) {
+    for at in times.filter(|at| **at > window_start) {
         count += 1;
         oldest = Some(oldest.map_or(*at, |oldest| oldest.min(*at)));
     }

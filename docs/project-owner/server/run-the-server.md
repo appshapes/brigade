@@ -53,6 +53,27 @@ To require a token, put one line of your choosing in a file only the server's us
 with `--create-token-file <file>`. Creating a team then needs that token, and the Team Admin gives `team create`
 the path of a file that holds it ([Hand over the values](hand-over-the-values.md)).
 
+## What one member may do in an hour
+
+From server 0.6.0 one member's installation, which the server knows by its credential, is held to the numbers a
+team in a Supabase project meets. They are the server's own and there is no option for them.
+
+| | |
+| --- | --- |
+| Teams created | 5 in an hour |
+| Sessions opened | 120 in an hour, over all its teams; a session that comes back is not counted |
+| Joins that failed | after 5 in fifteen minutes its next join is refused, the right secret included, until the oldest is fifteen minutes old; a join that succeeds clears them |
+
+- A member who meets one is told `rate_limited`, which bound it was and how long to wait.
+- The teams and the sessions are counted from the server's log, so a restart keeps the count. The failed joins
+  are counted in memory, and a restart forgets them.
+- The server's own gateways are not held by the failed joins: one that was put out of its team still joins
+  again within about a minute of its secret file being replaced ([Open the gateways](gateways.md)).
+- **None of this holds a stranger.** A caller with no credential is a new member with each request, so a server
+  that strangers can reach can still be filled by them. What holds them is a creation token (above), a server
+  that is not on the public internet, or a limit by address in the proxy in front of it, which is the one place
+  that sees the address.
+
 ## As a service
 
 A unit for systemd, `/etc/systemd/system/brigade-server.service`:

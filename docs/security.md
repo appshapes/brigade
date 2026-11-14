@@ -1337,7 +1337,9 @@ what differs. The server is experimental in its 0.1.0.
 - **Who may create a team.** Anyone who can reach the server, unless its operator started it with a creation
   token. That is deliberate: Brigade is open by design and closed by choice. Creating a team gives no way into
   another one; a team's boundary is its join secret, as everywhere else. Nothing bounds how many teams a server
-  holds, how many members a join secret admits or how many sessions a member registers, so a server that
+  holds or how many members a join secret admits, and what bounds one member from server 0.6.0 (five teams
+  created and 120 sessions opened in an hour, five failed joins in fifteen minutes; ADR 0004) does not hold a
+  stranger, who arrives as a new member with each request, so a server that
   strangers can reach can be filled by them. An operator who minds starts it with a creation token or keeps it
   off the public internet.
 - **The credential.** The server gives each member a credential of its own when they create or join a team, and

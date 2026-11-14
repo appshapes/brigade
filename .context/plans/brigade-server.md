@@ -653,7 +653,10 @@ any stack can stand behind it.
    `--create-token-file` lets anyone who reaches it create a team. The option stays for an operator who wants a
    token, read from a file, never argv. Still open beside it: nothing bounds the sessions a member registers or
    the principals a join secret makes (`docs/developer/change/server.md`, "Known limits"; work item 313 since
-   2026-11-13, the numbers being the owner's).
+   2026-11-13, the numbers being the owner's). **Built 2026-11-14** (ADR 0004, execution log P100-2): one
+   principal is held to the reference backend's numbers, five teams created and 120 sessions opened in an
+   hour and five failed joins in fifteen minutes. A caller with no credential is a new principal each time and
+   is held by none of them, and nothing caps a total: a limit by address is the proxy's.
 3. **TLS.** Ruled 2026-11-12 (§2 item 6): the default, and an option for TLS that ends in front of the server.
 4. **The server's dependencies.** Ruled 2026-11-12 (§2 item 7): hyper, tokio and tokio-rustls, and the allowlist
    in `server/deny.toml` stays.
@@ -725,4 +728,5 @@ keep theirs where the board had them free; and step 2 came before step 4. What i
 item 89 (its week of real use ends 2026-11-20, and the hosted project's fate is asked after it), 273 (step 5),
 289 and 290 (two frictions of the join, found in the cut-over), 312 (phase 4) and 313 (the one node's known
 gaps: what it logs, who hears of a failed nightly copy, the bounds, recovery, the members not yet proven on a
-team on a server). The thinktech team's move gets a work item of its own once step 5 is ruled.
+team on a server). The thinktech team's move is work item 320 since 2026-11-14, and waits on the owner's word
+for where its server runs.

@@ -910,7 +910,7 @@ what the record is.
 | 5 | `unauthorized` | `false` | authenticated but not an active member of the team (including a revoked membership); watch join refused; join secret rejected (identical text for a wrong secret, an unknown team and a banned principal) |
 | 6 | `not_found` | `false` | unknown, foreign or not-owned session or message id (uniform text) |
 | 7 | `conflict` | `false` | idempotency key reused with a different payload; session closed; resume of a live session (`details.reason = "session_live"`); profile already bound to a team (`details.reason = "profile_bound"`); `profile init` on a configured profile without `--force` |
-| 8 | `rate_limited` | `true` | `retry_after_ms` present; `details.reason` is one of `send_per_minute`, `send_per_hour`, `principal_per_minute`, `principal_per_hour`, `sender_quota_for_recipient`, `recipient_inbox_full`, `join_attempts`, `register_session`, `realtime` |
+| 8 | `rate_limited` | `true` | `retry_after_ms` present; `details.reason` is one of `send_per_minute`, `send_per_hour`, `principal_per_minute`, `principal_per_hour`, `sender_quota_for_recipient`, `recipient_inbox_full`, `join_attempts`, `register_session`, `team_create`, `realtime` |
 | 9 | `unavailable` | `true` | backend unreachable, 5xx, timeout, paused project (`details.reason = "project_paused"` when detectable) |
 | 10 | `protocol_mismatch` | `false` | harness and adapter protocol majors differ |
 | 11 | `config` | `false` | profile missing, invalid or world-readable; backend not configured; credential present but no team bound |

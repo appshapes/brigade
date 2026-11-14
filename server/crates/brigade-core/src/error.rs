@@ -27,7 +27,8 @@ pub enum Code {
     Conflict,
     /// The reply chain reached the hop-count cap.
     LoopDetected,
-    /// A send budget or an inbox cap is exhausted.
+    /// A send budget, an inbox cap or a principal's bound is exhausted: its teams created or its sessions
+    /// opened in an hour, or the joins it failed.
     RateLimited,
     /// A failure of the server itself.
     Internal,
@@ -155,20 +156,24 @@ impl Error {
         Self::new(Code::Conflict, message).with("reason", reason)
     }
 
-    /// A send budget or an inbox cap that is exhausted, with the reason token of BAP/1 4.6 and a wait that
-    /// is always above zero.
+    /// A send budget, an inbox cap or a principal's bound that is exhausted, with the reason token of BAP/1
+    /// 4.6 and a wait that is always above zero.
     #[must_use]
     pub fn rate_limited(reason: &'static str, retry_after_ms: u64) -> Self {
-        let subject = match reason {
-            "principal_per_minute" | "principal_per_hour" => "principal",
-            "sender_quota_for_recipient" | "recipient_inbox_full" => "recipient inbox",
-            _ => "session",
+        let send_limit = |subject: &str| format!("the send rate limit for this {subject} is exhausted");
+        let message = match reason {
+            "team_create" => "this principal has created as many teams as one may in an hour".to_owned(),
+            "register_session" => {
+                "this principal has opened as many sessions as one may in an hour".to_owned()
+            }
+            "join_attempts" => {
+                "this principal has failed too many joins, and its next is not heard yet".to_owned()
+            }
+            "principal_per_minute" | "principal_per_hour" => send_limit("principal"),
+            "sender_quota_for_recipient" | "recipient_inbox_full" => send_limit("recipient inbox"),
+            _ => send_limit("session"),
         };
-        let mut error = Self::new(
-            Code::RateLimited,
-            format!("the send rate limit for this {subject} is exhausted"),
-        )
-        .with("reason", reason);
+        let mut error = Self::new(Code::RateLimited, message).with("reason", reason);
         error.retry_after_ms = Some(retry_after_ms.max(1));
         error
     }

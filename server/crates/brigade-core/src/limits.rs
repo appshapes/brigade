@@ -53,6 +53,23 @@ pub const MAX_HOP_COUNT: u32 = 32;
 /// The window in which an unlabelled answer counts as a reply, in seconds.
 pub const IMPLICIT_REPLY_WINDOW_SECONDS: i64 = 600;
 
+/// The window one principal's teams and sessions are counted over, in seconds.
+pub const PRINCIPAL_RATE_WINDOW_SECONDS: i64 = 3600;
+/// The teams one principal may create in an hour: the reference backend's number. A caller with no
+/// credential the server knows is a new principal with each request, and no count of a principal's holds
+/// it: that is a limit by address, which the proxy in front of a server keeps.
+pub const TEAMS_CREATED_PER_HOUR: usize = 5;
+/// The sessions one principal may open in an hour, over all its teams: the reference backend's number. A
+/// resume opens no session and is not counted.
+pub const SESSIONS_OPENED_PER_HOUR: usize = 120;
+/// The joins one principal may fail in [`FAILED_JOIN_WINDOW_SECONDS`], over all teams, before its next
+/// join is refused unheard: the reference backend's number.
+pub const FAILED_JOINS_PER_WINDOW: usize = 5;
+/// The window one principal's failed joins are counted over, in seconds.
+pub const FAILED_JOIN_WINDOW_SECONDS: i64 = 900;
+/// The shortest wait a join refused for its principal's failures is told, in milliseconds.
+pub const FAILED_JOIN_RETRY_FLOOR_MS: u64 = 60_000;
+
 /// The lease granted when a registration names none, in seconds.
 pub const LEASE_DEFAULT_SECONDS: i64 = 90;
 /// The shortest lease, in seconds.

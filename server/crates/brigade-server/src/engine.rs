@@ -22,8 +22,8 @@ use std::thread::JoinHandle;
 use brigade_core::hash::hex;
 use brigade_core::record::LONGEST_ENCODED_BYTES;
 use brigade_core::{
-    Entropy, Entry, Error, Request, State, Timestamp, answer, close_move, import_team, open_move, set_owner,
-    take_back,
+    Entropy, Entry, Error, JoinFailures, Request, State, Timestamp, answer, close_move, import_team,
+    open_move, set_owner, take_back,
 };
 use brigade_log::{FileLog, KEY_BYTES, Log, LogError, Position, Sealer};
 use hyper::body::Bytes;
@@ -303,6 +303,8 @@ struct Engine {
     log: Box<dyn Log>,
     sealer: Sealer,
     entropy: SystemEntropy,
+    /// The joins each principal failed lately: counted in memory, because a refusal makes no record.
+    join_failures: JoinFailures,
     snapshots: PathBuf,
     snapshot_every: u64,
     /// The position after the last record applied.
@@ -462,6 +464,7 @@ impl Engine {
             log,
             sealer,
             entropy: SystemEntropy(SystemRandom::new()),
+            join_failures: JoinFailures::new(),
             snapshots,
             snapshot_every: settings.snapshot_every,
             position: end,
@@ -543,7 +546,13 @@ impl Engine {
                             path,
                             body,
                         };
-                        answer(&mut self.state, request, now, &mut self.entropy)
+                        answer(
+                            &mut self.state,
+                            &mut self.join_failures,
+                            request,
+                            now,
+                            &mut self.entropy,
+                        )
                     }
                     Work::Import {
                         team_name,

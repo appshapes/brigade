@@ -256,9 +256,13 @@ There is no standby instance (phase 4).
 
 Found by two reviews of the code on 2026-11-12 and left for a decision or a measurement:
 
-- Nothing bounds the sessions a member registers, the principals a join secret or a move ticket makes or the
-  teams a server holds. BAP/1 names `register_session` and `join_attempts` as reasons for `rate_limited`; the numbers are a
-  product decision, and they weigh more now that anyone may create a team.
+- One principal is bounded from 0.6.0 (ADR 0004; `brigade-core`'s `limits.rs`): five teams created and 120
+  sessions opened in an hour, both counted in the state from the log's record times, and five failed joins in
+  fifteen minutes, counted in the process's memory by `attempts.rs` because a refusal makes no record; a
+  gateway's join, the one that may not own, is not counted. A caller
+  with no credential is a new principal each time and is held by none of them, and nothing bounds the
+  principals a join secret or a move ticket makes or the teams a server holds: a limit by address is the
+  proxy's.
 - An entry that fails its seal refuses the start, wherever it is in the log. Whether a power loss can leave such
   an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here.
 - The seal has one key and no rotation. Nonces are random, which is sound for about four thousand million

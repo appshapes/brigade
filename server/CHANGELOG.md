@@ -4,6 +4,33 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.6.0] — 2026-11-14
+
+### Added
+
+- **One member's installation is bounded, with the numbers a team in a Supabase project meets** (work item
+  313, ADR 0004). A principal the server knows by its credential creates at most five teams in an hour, and
+  opens at most 120 sessions in an hour over all its teams; a session that is resumed opens none and is never
+  refused for it. After five joins that failed for their secret within fifteen minutes, over all teams, its
+  next join is refused before the secret is looked at, the right one included, until the oldest of them is
+  fifteen minutes old; a join that succeeds clears them. Each refusal is `rate_limited` (429) with the reason
+  the Supabase backend sends, `team_create`, `register_session` or `join_attempts`, and the wait in
+  `retry_after_ms`, which for a join is never under a minute. The numbers are the server's own: there is no
+  option for them.
+- **Where each is counted.** The teams and the sessions are counted from the record times of the log, so a
+  restart keeps the count and a snapshot carries it. The snapshot's format stays 3: a server before 0.6.0
+  reads such a snapshot and drops the counts, having no bound to hold against them, and a snapshot written
+  before 0.6.0 reads as nobody having created a team or opened a session in the last hour. The failed joins
+  are counted in the memory of the process, because a request that is refused makes no record: a restart
+  forgets them.
+- **What is not counted as a failed join.** A join that cannot be read is told `invalid_input`, held or not.
+  And a gateway's join is never counted: a gateway that was put out of its team tries again each minute with
+  the file its operator keeps, and joins the minute that file holds the right secret, as before.
+- **A caller with no credential is held by none of the three.** It is a new member with each request, so a
+  server that strangers can reach can still be filled by them. What holds a stranger is a creation token, a
+  server that is not on the public internet, or a limit by address in the proxy in front of it
+  (`docs/project-owner/server/run-the-server.md`, "What one member may do in an hour").
+
 ## [0.5.0] — 2026-11-13
 
 ### Added

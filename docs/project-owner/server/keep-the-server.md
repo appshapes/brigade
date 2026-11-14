@@ -130,6 +130,7 @@ label, which is often an email address, so keep the journal as private as the da
 
 ## What it does not do yet
 
-One instance; nothing bounds the teams on a server or the sessions a member registers.
+One instance. One member's installation is bounded ([Run the server](run-the-server.md#what-one-member-may-do-in-an-hour));
+nothing bounds the teams on a server or the members a join secret admits.
 [Change the server](../../developer/change/server.md#known-limits) lists the limits the reviews of the code left
 open.

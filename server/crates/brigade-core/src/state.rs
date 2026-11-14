@@ -58,6 +58,16 @@ pub struct State {
 pub struct Principal {
     /// When its first credential was issued.
     pub created_at: Timestamp,
+    /// The record times of the teams it created, oldest first, none of them older than an hour when the
+    /// newest was added: what the bound on a principal's teams counts. A snapshot written before the bound has none, and reads as a principal
+    /// that created none in that hour, and a principal that created none is written as it was before.
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub teams_created_at: VecDeque<Timestamp>,
+    /// The record times of the sessions it opened, over all its teams, oldest first, none of them older
+    /// than an hour when the newest was added: what the bound on a principal's sessions counts. A resume
+    /// opens none.
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub sessions_opened_at: VecDeque<Timestamp>,
 }
 
 /// One team.
@@ -477,7 +487,10 @@ impl State {
             } => {
                 self.principals
                     .entry(principal_ref.clone())
-                    .or_insert(Principal { created_at: at });
+                    .or_insert_with(|| Principal {
+                        created_at: at,
+                        ..Principal::default()
+                    });
                 self.credentials
                     .insert(credential_hash.clone(), principal_ref.clone());
             }
@@ -490,17 +503,26 @@ impl State {
                 join_secret_hash,
                 created_by,
             } => {
-                self.teams.entry(team_ref.clone()).or_insert_with(|| Team {
-                    team_ref: team_ref.clone(),
-                    team_name: team_name.clone(),
-                    join_secret_hash: join_secret_hash.clone(),
-                    created_by: created_by.clone(),
-                    created_at: at,
-                    secret_version: FIRST_SECRET_VERSION,
-                    move_ticket: None,
-                    members: BTreeMap::new(),
-                    sessions: BTreeMap::new(),
+                let mut created = false;
+                self.teams.entry(team_ref.clone()).or_insert_with(|| {
+                    created = true;
+                    Team {
+                        team_ref: team_ref.clone(),
+                        team_name: team_name.clone(),
+                        join_secret_hash: join_secret_hash.clone(),
+                        created_by: created_by.clone(),
+                        created_at: at,
+                        secret_version: FIRST_SECRET_VERSION,
+                        move_ticket: None,
+                        members: BTreeMap::new(),
+                        sessions: BTreeMap::new(),
+                    }
                 });
+                // The team counts against the principal that created it, whoever owns it later. A team
+                // that was taken in has no creator here, and counts against nobody.
+                if created && let Some(principal) = self.principals.get_mut(created_by) {
+                    count(&mut principal.teams_created_at, at);
+                }
             }
             Event::MemberJoined {
                 team_ref,
@@ -622,6 +644,9 @@ impl State {
                     team.sessions.insert(session_id.clone(), session);
                     team.adopt_label(principal_ref, human_label.as_ref());
                     self.session_teams.insert(session_id.clone(), team_ref.clone());
+                    if let Some(principal) = self.principals.get_mut(principal_ref) {
+                        count(&mut principal.sessions_opened_at, at);
+                    }
                 }
             }
             Event::SessionResumed {
@@ -759,6 +784,14 @@ impl State {
             }
         }
     }
+}
+
+/// Adds one time to what a principal's bound counts, and lets go of the times that have left its window.
+/// A list is trimmed when it is added to and never by the sweep, which would otherwise visit every principal
+/// a server ever made: a principal that goes quiet keeps the few times it had, and a bound reads past them.
+fn count(times: &mut VecDeque<Timestamp>, at: Timestamp) {
+    trim(times, at.minus_seconds(limits::PRINCIPAL_RATE_WINDOW_SECONDS));
+    times.push_back(at);
 }
 
 /// Drops the times at or before `horizon` from the front of a list that is in time order.

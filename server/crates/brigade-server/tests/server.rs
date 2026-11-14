@@ -618,6 +618,83 @@ fn a_stop_answers_what_is_being_answered_and_a_lost_key_is_never_replaced() {
 }
 
 #[test]
+fn a_principals_bounds_are_told_as_a_limit_and_a_restart_forgets_only_its_failed_joins() {
+    let scratch = Scratch::new("bounds");
+    let arguments = log_arguments("file", &scratch);
+    let server = Server::start(&scratch, &arguments);
+    let (alice, _bob, secret) = team_of_two(&server);
+    let limit = |error: &Value| {
+        (
+            error["code"].clone(),
+            error["details"]["reason"].clone(),
+            error["retryable"].clone(),
+        )
+    };
+    // The teams one principal creates in an hour: the one it has, four more, and the sixth is refused as
+    // the contract tells a limit, with the wait until the first leaves the hour.
+    let more = json!({"team_name": "more", "human_label": "alice"});
+    for _ in 1..5 {
+        let (status, made) = server.post(Some(&alice.credential), "/v1/team/create", &more);
+        assert_eq!(status, 200, "{made}");
+    }
+    let (status, error) = refused(&server, Some(&alice.credential), "/v1/team/create", &more);
+    assert_eq!(
+        (status, limit(&error)),
+        (429, (json!("rate_limited"), json!("team_create"), json!(true))),
+        "{error}"
+    );
+    let wait = error["retry_after_ms"].as_u64().unwrap();
+    assert!((3_000_000..=3_600_000).contains(&wait), "{error}");
+    // The joins one principal fails: five wrong secrets, and the sixth join is refused unheard although its
+    // secret is the right one.
+    let (carol, _) = join(&server, &secret, "carol");
+    let wrong = format!(
+        "{}.not-the-secret-of-the-team",
+        secret.rsplit_once('.').unwrap().0
+    );
+    for _ in 0..5 {
+        let (_, error) = refused(
+            &server,
+            Some(&carol),
+            "/v1/team/join",
+            &json!({"join_secret": wrong}),
+        );
+        assert_eq!(error["code"], json!("unauthorized"), "{error}");
+    }
+    let right = json!({"join_secret": secret});
+    let (status, error) = refused(&server, Some(&carol), "/v1/team/join", &right);
+    assert_eq!(
+        (status, limit(&error)),
+        (429, (json!("rate_limited"), json!("join_attempts"), json!(true))),
+        "{error}"
+    );
+    let wait = error["retry_after_ms"].as_u64().unwrap();
+    assert!((60_000..=900_000).contains(&wait), "{error}");
+    // A caller with no credential is held by neither: it is a new principal each time.
+    for _ in 0..6 {
+        let (_, error) = refused(&server, None, "/v1/team/join", &json!({"join_secret": wrong}));
+        assert_eq!(error["code"], json!("unauthorized"), "{error}");
+    }
+
+    // A kill and a start. The teams are in the log, so their count is what it was. The failed joins were
+    // in the memory of the process that was killed, so the next join is heard.
+    server.kill();
+    let server = Server::start(&scratch, &arguments);
+    let (status, error) = refused(&server, Some(&alice.credential), "/v1/team/create", &more);
+    assert_eq!(
+        (status, error["details"]["reason"].clone()),
+        (429, json!("team_create"))
+    );
+    let (status, joined) = server.post(Some(&carol), "/v1/team/join", &right);
+    assert_eq!(
+        (status, joined["result"]["rejoined"].clone()),
+        (200, json!(true)),
+        "{joined}"
+    );
+    server.stop();
+}
+
+#[test]
 fn one_directory_has_one_server() {
     let scratch = Scratch::new("one");
     let arguments = log_arguments("file", &scratch);
