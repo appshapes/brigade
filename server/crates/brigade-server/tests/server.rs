@@ -574,6 +574,36 @@ fn a_creation_token_is_needed_where_the_operator_set_one() {
             assert_eq!(envelope, uniform);
         }
     }
+    // The order is a creation's (the contract's section 3b): that the body is one JSON object, then the
+    // token, then what the object holds. So a caller without the token is told of a body that is no JSON
+    // object, as on any path, and of nothing that is in one: members of the wrong type, which the caller
+    // with the token is told of, read to it as the refusal of the token does.
+    let raw = |path: &str, body: &str, headers: &[(&str, &str)]| {
+        let mut stream = TcpStream::connect(&authority).unwrap();
+        stream
+            .write_all(&request(&authority, None, path, body, headers))
+            .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        parse(&response)
+    };
+    let mistyped = r#"{"join_secret":7,"team_name":{"a":1}}"#;
+    for path in ["/v1/team/create", "/v1/team/take-in"] {
+        let (status, envelope) = raw(path, "{not json", &[]);
+        assert_eq!(
+            (status, text(&envelope["error"]["details"], "reason").as_str()),
+            (400, "malformed_json"),
+            "{path}"
+        );
+        let (status, envelope) = raw(path, mistyped, &[]);
+        assert_eq!((status, &envelope), (403, &uniform), "{path}");
+        let (status, envelope) = raw(path, mistyped, &[("Brigade-Create-Token", "let-me-make-a-team")]);
+        assert_eq!(
+            (status, text(&envelope["error"], "code").as_str()),
+            (400, "invalid_input"),
+            "{path}"
+        );
+    }
     let (status, envelope) = take_in(&elsewhere, &[("Brigade-Create-Token", "let-me-make-a-team")]);
     assert_eq!(status, 200, "{envelope}");
     assert_eq!(
@@ -586,8 +616,17 @@ fn a_creation_token_is_needed_where_the_operator_set_one() {
     assert_eq!(opened["replaced"], json!(false));
     let closed = server.ok(&owner, "/v1/team/close-move", &json!({"team_ref": ELSEWHERE}));
     assert_eq!(closed["closed"], json!(true));
-    // Nothing the server wrote about itself holds the token, the secret or the ticket.
+    // Nothing the server wrote about itself holds the token, the secret or the ticket. It is the server's
+    // own lines that are read: they say that the team was taken in and that its move was opened.
     let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    assert!(
+        said.contains(&format!("took in team ops ({ELSEWHERE})")),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!("opened the move of team ops ({ELSEWHERE})")),
+        "{said}"
+    );
     assert!(!said.contains("let-me-make-a-team"), "{said}");
     assert!(!said.contains("kept-from-the-other-backend"), "{said}");
     let ticket = text(&opened, "ticket");
@@ -2452,6 +2491,10 @@ fn a_team_taken_in_by_request_stays_owned(log: &str) {
     assert!(!said.contains("another-secret-for-the-reference"), "{said}");
     for held in [&ticket, &text(&reopened, "ticket")] {
         assert!(!said.contains(held.rsplit('.').next().unwrap()), "{said}");
+    }
+    // Nor the hash of either, which is what the log keeps of them.
+    for held in [&secret, &other, &ticket, &text(&reopened, "ticket")] {
+        assert!(!said.contains(&brigade_core::hash::sha256_hex(held)), "{said}");
     }
 }
 
