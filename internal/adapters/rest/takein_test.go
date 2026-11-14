@@ -51,6 +51,16 @@ func ticketIn(t *testing.T, path, team string) string {
 	return ticket
 }
 
+// half is the secret half of a join secret or a move ticket: what follows
+// its last dot. A test that looks for a ticket on a stream looks for this
+// as well as for the whole. The redactor replaces every text of a join
+// secret's form in a log line, so the whole ticket can be found on stderr
+// by no test, whatever the code does; the half is not of that form, and is
+// found wherever any part of the ticket was written.
+func half(secret string) string {
+	return secret[strings.LastIndexByte(secret, '.')+1:]
+}
+
 // TestTeamTakeIn: a team the server does not hold is taken in under the
 // reference inside its secret and the caller owns it; the profile is
 // bound and holds the credential the server issued; the same command
@@ -240,8 +250,9 @@ func TestTeamTakeInRefusals(t *testing.T) {
 		}
 	}
 	// A server that breaks the contract and repeats the secret in its
-	// refusal cannot make the adapter print it: the secret is on the
-	// redactor before the request is made.
+	// refusal cannot make the adapter print it: a refusal's text goes
+	// through the redactor, which replaces every text of a join secret's
+	// form (readEnvelope).
 	b.answerWith(only(pathTeamTakeIn, http.StatusConflict,
 		`{"ok":false,"protocol_version":"1","error":{"code":"conflict","message":"no team for `+secret+
 			`","retryable":false,"details":{"reason":"other_join_secret","presented":"`+secret+`"}}}`))
@@ -341,8 +352,8 @@ func TestTeamOpenAndCloseMove(t *testing.T) {
 	if ticket == secret {
 		t.Errorf("the ticket is the join secret")
 	}
-	if strings.Contains(alice.output(), ticket) || strings.Contains(got.stdout, `"ticket"`) {
-		t.Errorf("the ticket, or a ticket member, reached stdout or stderr")
+	if out := alice.output(); strings.Contains(out, ticket) || strings.Contains(out, half(ticket)) || strings.Contains(got.stdout, `"ticket"`) {
+		t.Errorf("the ticket, a part of it, or a ticket member, reached stdout or stderr")
 	}
 	if !strings.Contains(got.stderr, "--ticket-file") {
 		t.Errorf("stderr %q does not say where the ticket went", got.stderr)
@@ -403,8 +414,17 @@ func TestTeamOpenAndCloseMove(t *testing.T) {
 		t.Errorf("the roster after the move was closed: %d members, want the four that came in", len(members))
 	}
 	for _, r := range []*rig{alice, bob, carol, stranger} {
-		if out := r.output(); strings.Contains(out, ticket) || strings.Contains(out, next) {
-			t.Errorf("a move ticket is on stdout or stderr")
+		out := r.output()
+		// Positive control: the debug lines are in what is searched.
+		if !strings.Contains(out, `"level":"DEBUG"`) {
+			t.Errorf("the output that is searched for a ticket holds no debug line")
+		}
+		// A rig that presented a ticket on its own stdin never prints it;
+		// the owner's rig never held one but in the server's answer.
+		for _, held := range []string{ticket, next} {
+			if strings.Contains(out, held) || strings.Contains(out, half(held)) {
+				t.Errorf("a move ticket, or its secret half, is on stdout or stderr")
+			}
 		}
 	}
 }
@@ -455,8 +475,12 @@ func TestTeamOpenMoveRefusals(t *testing.T) {
 	} {
 		b.answerWith(only(pathTeamOpenMove, http.StatusOK, body))
 		got := alice.fails(protocol.CodeInternal, "", "team", "open-move", "--ticket-file", path)
-		if strings.Contains(got.stdout+got.stderr, here) || strings.Contains(got.stdout+got.stderr, foreign) {
-			t.Errorf("%s: the refused answer's ticket reached a stream", name)
+		// The whole, the secret half, and the text of a ticket that is no
+		// join secret in form, which no pattern of the redactor knows.
+		for _, held := range []string{here, half(here), foreign, half(foreign), "not-a-ticket"} {
+			if strings.Contains(got.stdout+got.stderr, held) {
+				t.Errorf("%s: the refused answer's ticket, or a part of it, reached a stream", name)
+			}
 		}
 		if !strings.Contains(got.stderr, lostLine) {
 			t.Errorf("%s: stderr does not say the move was opened and its ticket lost: %q", name, got.stderr)
@@ -490,6 +514,28 @@ func TestTeamOpenMoveRefusals(t *testing.T) {
 	}
 	if strings.Contains(lost.stdout+lost.stderr, protocol.JoinSecretPrefix+elsewhereRef+".") {
 		t.Errorf("the lost ticket reached stdout or stderr")
+	}
+	// The same loss with a ticket this test knows, so that its secret half
+	// can be looked for: the stand-in's own ticket is in no hand but the
+	// adapter's, and the redactor hides the whole of it from the check above.
+	again := filepath.Join(t.TempDir(), "gone-again")
+	if err := os.Mkdir(again, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	b.answerWith(func(r *seenRequest) *canned {
+		if r.Path != pathTeamOpenMove {
+			return nil
+		}
+		_ = os.Remove(again)
+		return &canned{status: http.StatusOK, body: answer(elsewhereRef, here)}
+	})
+	known := alice.fails(protocol.CodeConfig, "", "team", "open-move", "--ticket-file", filepath.Join(again, "t"))
+	b.answerWith(nil)
+	if details(t, known.stdout)["reason"] != reasonTicketFile {
+		t.Errorf("a write that failed after the move was opened: %s", known.stdout)
+	}
+	if out := known.stdout + known.stderr; strings.Contains(out, here) || strings.Contains(out, half(here)) {
+		t.Errorf("the lost ticket, or its secret half, reached stdout or stderr")
 	}
 	// The move was opened all the same: the next open replaces it.
 	if again := alice.ok("", "team", "open-move", "--ticket-file", path); again["replaced"] != true {
