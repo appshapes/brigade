@@ -413,6 +413,119 @@ adapter had them. Work item 274 fixes their shapes and brings them to the server
   so one team's owner cannot stop Slack for the rest.
 - **Four records** and snapshot format 2. A 0.3.0 does not start on a data directory that holds one of them.
 
+### 4.9 A member's session follows a team that moved (roadmap step 5; work item 273, part 2)
+
+Designed 2026-11-13 by the session `89-server-4`. **Not ruled, and nothing of it is built until it is**: the
+owner's ruling is asked on work item 315, which carries the question, the options and the evidence, and the ADR
+lands with the build.
+
+**What stands in the way** (read from the code that day).
+
+- A member's consent is a pin for each checkout (`projects.json`: adapter, URL, publishable key, certificate,
+  reference). A team file that differs prints the drift line, and a change of adapter, URL or reference goes down
+  the first join's path, which needs the secret file (`reconsent`, `internal/harness/commands/teamsetup.go`).
+  `docs/security.md` argues it: "a change of team still needs the secret file".
+- Only a command writes the pin and the binding: the lint rule `hook-reads-the-store` keeps the hooks from the
+  store's writer.
+- No machine keeps the join secret, and the server admits by the SHA-256 of the whole secret and knows no
+  identity of another backend.
+- What a member's machine still holds of the old team once the team file has changed: `teams/<old key>/`, with
+  `team.json` (the URL, the publishable key, its principal, its label) and a live Supabase session. No join path
+  deletes it.
+- The Supabase schema has no row a team's administrator writes and its members read: `brigade.teams` grants a
+  member four columns, and the gateway settings are closed to members.
+
+**What was measured** (the local stack, Supabase CLI 2.116.0, 2026-11-13; no hosted project was asked).
+
+- A session is signed with ES256, and the public keys are served without a credential at
+  `/auth/v1/.well-known/jwks.json`. So a server could check a signature. Supabase's pages add that a project may
+  still sign with its legacy shared secret, which signs the service keys too and can never be given to a server;
+  such a project serves no key, and its Auth server has to be asked (`GET /auth/v1/user`).
+- An anonymous sign-up with the publishable key alone returned a valid session with a life of one hour and a
+  refresh token. Every committed team file carries that key. So a valid session proves an account of the
+  project, never a member of a team: a server would have to ask the project about the membership as well, with
+  the member's own token.
+
+**Two things any design needs.** An anchor: something the member's machine already trusts has to say that the
+team went *there*. The commit cannot be it, because a hostile URL in a commit, or in the branch of a pull
+request a member checks out, must be sent nothing. The one thing the machine trusts is the old backend, which the
+member consented to and still holds a session on. And an admission: something the server takes in place of the
+join secret.
+
+**The design recommended: the old backend's word, and a ticket.**
+
+1. **The operator opens the move.** With the import, or later for a team already taken in, a command on the
+   stopped server makes a move ticket and writes it to a file: a second join secret of that team, in the join
+   secret's own format so that `/v1/team/join` carries it unchanged, with an end date (30 days unless told
+   otherwise). The server keeps its hash. A join by ticket never makes an owner, as a gateway's never does.
+2. **The administrator joins first**, with the secret file, as in work item 272, and so owns the team.
+3. **The administrator records the move on the old backend**: where the team went (adapter, URL, certificate)
+   and the ticket, from its file. Only the team's creator may, like the three administration commands, and from a
+   terminal. A second command clears it.
+4. **The team file changes** in each repository, as in part 1.
+5. **A member's next session follows.** The start hook finds the checkout's pin drifted to another backend with
+   the same reference and the old binding still on the machine. It asks the old backend, with the session the
+   member already holds there, whether the team moved. Only when the record names exactly what the team file
+   names (adapter, URL, certificate, reference) does it join that server with the ticket, under the label the
+   member had on the old team, write the binding and the pin, and attach. One line says what happened: the team,
+   the server, its certificate, that the administrator recorded the move, and how to leave.
+6. **Anything else is today's path.** No record, a record that names something else, an old session that has
+   ended, a server that refuses the ticket, or the member's own option turned off: the drift line, and
+   `/brigade:join <path>`.
+7. **The move ends** when the ticket does. The old team is ended as it is today
+   (`docs/team-admin/delete/end-a-team.md`), which takes the record with it.
+
+**What it never sends.** Nothing goes to a URL the old backend did not name. The one request the follow adds is
+to the backend the member already consented to. The member's Supabase session never reaches the server. The
+ticket goes only to the recorded URL, under the recorded certificate or the machine's authorities.
+
+**What a member gives up, and what the owner is asked to rule.** Today nobody can point a member's sessions at
+another backend without that member's own command. With this, a team's administrator can, and so can whoever
+controls the old backend, because they can write the record. The server they choose is read by its operator, as
+`docs/security.md` section 2 says of any backend, and that goes on after the old project is gone. The member
+gets a line at session start in place of a confirmation, and a plugin option to turn the follow off. That
+changes what `docs/security.md` argues and the reason the hook does not write the store, so it is the owner's.
+
+**What else it opens.** Whoever can read the old database can read the ticket, and join the new team with it
+until it ends, as a new member and never as its owner. Every active member of the old team can read it too;
+each of them already holds the join secret. A member revoked or banned on the old team reads no record. The
+join secret they may still hold works on the server as it does after part 1, until it is rotated there.
+
+**What carries over.**
+
+- **The label**: the one in the old binding's `team.json`, sent with the join. Unverified text, as every label.
+- **The owner**: step 2. A ticket never makes one.
+- **Session names**: a name is the session's own and is registered again on the server. To hold in the build.
+- **Waiting messages: no.** What waits on the old backend when a session follows stays there until its
+  retention ends. The page tells the administrator to move at a quiet moment.
+- **A session running at the moment of the move** stays on the old team until it ends, and is told once at its
+  next prompt that the team moved and that a new or resumed session follows. Work item 289 is its wording.
+- **Another checkout of the team on the same machine** follows by the same rule and joins nothing, the machine
+  holding the server's credential by then. That is work item 290's case for a team that moved.
+
+**The alternatives**, with why each lost, are on work item 315: the member's Supabase session as the voucher
+(needs the record anyway, a membership check against the project, a new request in the frozen contract, and
+puts every member's live session of the old team on the server); the join secret itself in the record (the old
+database would hold it in the clear); and one join for each machine, as today.
+
+**What is built, once ruled.**
+
+| Where | What |
+| --- | --- |
+| `supabase/` | One migration: the move's record, closed to every role; a function that records or clears it, for the creator only; a function that answers it to an active member. An adapter on a schema without them reads "no move". |
+| BAP/1 | Capability `team.move` and two commands, `team move` (the ticket from a file, never on argv) and `team moved` (the ticket into a 0600 file, never in the result): types, schema, conformance cases and the Supabase adapter in one commit, as work item 274 did. |
+| The harness | A command that follows (the writer of the pin and the binding), run by the start hook; the session-start line; the option; the prompt hook's one line for a session left on the old team. |
+| The server | The ticket: the operator's commands that open and close a move, a record and a snapshot format, the join that takes it and never makes an owner. No new request and no new shape, so contract version 1 stays as it is. A server release. |
+| The pages | `docs/security.md`, a new section and the sentences the follow changes; the Project Owner's and the Team Admin's pages of the move; the options page; `take-in-a-team.md`'s plugin version (0.53.1, not 0.52.0). A plugin release. |
+
+**Proof.** In `make server-test`, through the built binary: a team on the local stack, a member joined, the
+move opened and recorded, the team file changed, the member's next session attached with no command run and a
+message delivered; and the same session attaching to nothing when the team file names a URL the record does
+not. Then on a real team, which the work item's done criterion asks for: the test team left on the hosted
+project the old teams were on. That needs the migration applied to that project, at the owner's word, and it is
+why that project is not deleted before this is proven. The thinktech project gets the migration at that team's
+move, at the owner's word, and not before.
+
 ## 5. The repository
 
 Rjae's direction is to start here. The reason it is right is that the contract does not exist yet, and the
@@ -557,7 +670,7 @@ for the server. Everything before it changes nothing for anyone; nothing in it i
 | 3 | 89 | Ready for the cut-over: the owner's host on the release that has steps 1 and 2; the `appshapes` team taken in there with its existing secret; the gateways' configuration written with that secret's file and the mail team's inbox; the Slack app's bot token and signing secret in their files on the host (the owner). | the 89 session, and the owner for the two Slack files | done 2026-11-13: the host on 0.4.0 with the team taken in and the gateways configured and off (execution log P86-9); the two Slack files placed that day by the 89 session at the owner's word, the bot token accepted by Slack |
 | | | **Here work item 272 can start, and the owner is told** (below). | | |
 | 4 | 272 | First the check that file sync and the board work on a team on the server, and the board's carry-over tried on a scratch folder. Then the cut-over, once, in the order 272 gives: the team file in the four repositories; the gateways go live (the Slack app's two addresses moved by the owner, the mail provider's webhook added by the 89 session); the board carried over; each member joins once with the secret file they have; the check. | the roadmap's session leads all of it since 2026-11-13 (the owner's decisions on work item 272, its comment of that day), with one follower session per other repository | the preparation is under way, the cut-over waits for the owner's go. Done 2026-11-13: file sync and the board shown working on a team on the server (§7, execution log P86-10); work item 275 found, fixed and released as plugin 0.53.1 (P87-1, P87-2); the board's carry-over built and tried on a scratch folder (P88-1). The nightly copy of the server's data to the owner's host `bar` runs since 2026-11-13 (P88-2), and the account-level credentials are out of Cavalry's synced file since the same day (P88-3). Every precondition was met and the session `89-server-3` leads from the hand-off of that day. The owner gave the go on 2026-11-13 and **the cut-over was done that day, all ten steps** (execution log P89-1 and P89-2): five repositories, a fifth, `appshapes-www`, having been found on the old `appshapes` team, are on the one team on the server; the board holds brigade's work items and Cavalry's cards; Slack and mail carry; the three old teams on Supabase are ended and their gateways removed from the project. Each repository's skills and rules followed the same day, by a follower session per repository and by this one for brigade (execution log P90-1, P90-2 and P91-1), and work item 272 is in Done |
-| 5 | 273, part 2 | A member's next session attaches with no command run: a voucher the server trusts. A security design and the owner's ruling first. Before the thinktech team moves. | the session `89-server-4`, to which `89-server-3` handed the roadmap on 2026-11-13 | next; what the cut-over showed for its design is on work item 273 |
+| 5 | 273, part 2 | A member's next session attaches with no command run: a voucher the server trusts. A security design and the owner's ruling first. Before the thinktech team moves. | the session `89-server-4`, to which `89-server-3` handed the roadmap on 2026-11-13 | designed 2026-11-13 (§4.9, execution log P98-1); the owner's ruling is asked on work item 315, and nothing is built before it |
 
 **Why 274 comes before the cut-over.** A team on the server cannot rotate its join secret or remove a member
 until 274 ships. The move keeps an old secret on purpose, and every member, one of them from another
