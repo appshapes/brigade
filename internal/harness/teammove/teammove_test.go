@@ -571,3 +571,24 @@ func TestCandidateAndJoinBackendAndHost(t *testing.T) {
 		}
 	}
 }
+
+// TestOlderThanFollow: a session is named as one that will not follow only
+// when the version it reports can be read and is before 0.55.0, the first
+// that follows a recorded move. A development build's suffix is left out;
+// anything that is not three runs of digits says nothing about the session.
+func TestOlderThanFollow(t *testing.T) {
+	t.Parallel()
+	for v, want := range map[string]bool{
+		"0.54.9": true, "0.9.1": true, "0.0.0": true, "0.54.99": true, "0.54.0-dev": true, "0.1.0+build.7": true,
+		"0.55.0": false, "0.55.0-dev": false, "0.55.1": false, "0.56.0": false, "1.0.0": false, "10.0.0": false,
+		"": false, "unknown": false, "0.54": false, "0.54.9.1": false, "v0.54.9": false, "0.54.x": false, "0..9": false,
+		"-0.54.9": false, "0.54.9 ": false, "0.5 4.9": false, "0.54.99999999999999999999": false, "٠.٥٤.٩": false,
+	} {
+		if got := teammove.OlderThanFollow(v); got != want {
+			t.Errorf("OlderThanFollow(%q) = %v, want %v", v, got, want)
+		}
+	}
+	if teammove.OlderThanFollow(teammove.FollowsFromVersion) || !teammove.OlderThanFollow("0.54.999") {
+		t.Errorf("FollowsFromVersion %q is not the first version that follows", teammove.FollowsFromVersion)
+	}
+}

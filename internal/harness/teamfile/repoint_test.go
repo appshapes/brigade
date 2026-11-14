@@ -1,0 +1,137 @@
+package teamfile
+
+import (
+	"errors"
+	"strings"
+	"testing"
+)
+
+const (
+	repointURL = "https://brigade.example.com:8743"
+	repointPin = "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+)
+
+// TestToServerKeepsEverythingElse: the file a move rewrites names the
+// server, its pin when there is one and no key, and every other byte of it
+// is the byte it was: the order of its members, the members this version
+// does not define, the white space a person gave it.
+func TestToServerKeepsEverythingElse(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, in, pin, want string
+	}{
+		{
+			name: "the one line team create writes",
+			in:   `{"adapter":"supabase","publishable_key":"sb_publishable_x","team_name":"ops","team_ref":"t_9","url":"https://abc.supabase.co","version":1}` + "\n",
+			pin:  repointPin,
+			want: `{"adapter":"rest","team_name":"ops","team_ref":"t_9","url":"` + repointURL + `","certificate":"` + repointPin + `","version":1}` + "\n",
+		},
+		{
+			name: "no pin",
+			in:   `{"adapter":"supabase","publishable_key":"sb_publishable_x","team_ref":"t_9","url":"https://abc.supabase.co","version":1}`,
+			want: `{"adapter":"rest","team_ref":"t_9","url":"` + repointURL + `","version":1}`,
+		},
+		{
+			name: "a file a person indented, with members of its own",
+			in: "{\n" +
+				"  \"version\": 1,\n" +
+				"  \"adapter\": \"supabase\",\n" +
+				"  \"url\": \"https://abc.supabase.co\",\n" +
+				"  \"publishable_key\": \"sb_publishable_x\",\n" +
+				"  \"team_ref\": \"t_9\",\n" +
+				"  \"team_name\": \"ops\",\n" +
+				"  \"sync\": { \"folders\": [\".brigade\"] },\n" +
+				"  \"gateway\": {\"email\": \"ops@example.com\"},\n" +
+				"  \"later\": [1,  2]\n" +
+				"}\n",
+			pin: repointPin,
+			want: "{\n" +
+				"  \"version\": 1,\n" +
+				"  \"adapter\": \"rest\",\n" +
+				"  \"url\": \"" + repointURL + "\",\n" +
+				"  \"certificate\": \"" + repointPin + "\",\n" +
+				"  \"team_ref\": \"t_9\",\n" +
+				"  \"team_name\": \"ops\",\n" +
+				"  \"sync\": { \"folders\": [\".brigade\"] },\n" +
+				"  \"gateway\": {\"email\": \"ops@example.com\"},\n" +
+				"  \"later\": [1,  2]\n" +
+				"}\n",
+		},
+		{
+			name: "the key is the first member",
+			in:   "{\t\"publishable_key\": \"sb_publishable_x\",\t\"adapter\": \"supabase\",\t\"url\": \"https://abc.supabase.co\",\t\"team_ref\": \"t_9\",\t\"version\": 1 }",
+			pin:  repointPin,
+			want: "{\t\"adapter\": \"rest\",\t\"url\": \"" + repointURL + "\",\t\"certificate\": \"" + repointPin + "\",\t\"team_ref\": \"t_9\",\t\"version\": 1 }",
+		},
+		{
+			name: "the key is the last member, and url the first",
+			in:   `{"url":"http://127.0.0.1:1", "adapter":"fs", "team_ref":"t_9", "version":1, "publishable_key":"placeholder"}`,
+			pin:  repointPin,
+			want: `{"url":"` + repointURL + `", "certificate":"` + repointPin + `", "adapter":"rest", "team_ref":"t_9", "version":1}`,
+		},
+		{
+			name: "a pin the file had is replaced where it stood",
+			in:   `{"version":1,"certificate":"sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824","adapter":"rest","url":"https://old.example.com","team_ref":"t_9"}`,
+			pin:  repointPin,
+			want: `{"version":1,"certificate":"` + repointPin + `","adapter":"rest","url":"` + repointURL + `","team_ref":"t_9"}`,
+		},
+		{
+			name: "a pin the file had goes when the server has none, with the key before it",
+			in:   `{"publishable_key":"k","certificate":"sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824","version":1,"adapter":"other","url":"https://old.example.com","team_ref":"t_9"}`,
+			want: `{"version":1,"adapter":"rest","url":"` + repointURL + `","team_ref":"t_9"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := toServer([]byte(tc.in), repointURL, tc.pin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("the rewritten file:\n%s\nwant:\n%s", got, tc.want)
+			}
+			f, err := parseBytes(FileName, got)
+			if err != nil || f.Adapter != RestAdapter || f.URL != repointURL || f.Certificate != tc.pin || f.PublishableKey != "" || f.TeamRef != "t_9" {
+				t.Fatalf("the rewritten file parses to %+v, %v", f, err)
+			}
+			// A second move to the same server changes nothing.
+			again, err := toServer(got, repointURL, tc.pin)
+			if err != nil || string(again) != string(got) {
+				t.Fatalf("rewriting the rewritten file: %v\n%s", err, again)
+			}
+		})
+	}
+}
+
+// TestToServerRefusesWhatItCannotRewrite: a file that does not parse is
+// refused with the parser's own answer, and a destination the result could
+// not name is refused before anything is returned.
+func TestToServerRefusesWhatItCannotRewrite(t *testing.T) {
+	t.Parallel()
+	valid := `{"adapter":"supabase","publishable_key":"k","team_ref":"t_9","url":"https://abc.supabase.co","version":1}`
+	for name, tc := range map[string]struct{ in, url, pin string }{
+		"not a team file":            {`[1]`, repointURL, ""},
+		"a file with no team":        {`{"adapter":"supabase","publishable_key":"k","url":"https://abc.supabase.co","version":1}`, repointURL, ""},
+		"a server over plain http":   {valid, "http://brigade.example.com", ""},
+		"a pin that is not one":      {valid, repointURL, "sha256:abc"},
+		"a pin beside a loopback":    {valid, "http://127.0.0.1:8743", repointPin},
+		"a url that is not one":      {valid, "not a url", ""},
+		"a destination with no url":  {valid, "", ""},
+		"a secret where the url is":  {valid, "https://brg1.t_9.abababababababab", ""},
+		"a file that carries a join": {strings.Replace(valid, `"k"`, `"brg1.t_9.abababababababab"`, 1), repointURL, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got, err := toServer([]byte(tc.in), tc.url, tc.pin)
+			if err == nil || got != nil {
+				t.Fatalf("toServer answered %q, %v", got, err)
+			}
+			if strings.Contains(err.Error(), "abababab") {
+				t.Fatalf("the refusal carries the file's text: %v", err)
+			}
+		})
+	}
+	if _, err := toServer([]byte(valid), "http://brigade.example.com", ""); !errors.Is(err, errRepoint) {
+		t.Fatalf("a destination the file may not name: %v, want errRepoint", err)
+	}
+}

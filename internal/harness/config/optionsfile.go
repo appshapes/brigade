@@ -76,6 +76,7 @@ var optionsFileKeys = map[string]string{
 	"message_interval":       OptionMessageInterval,
 	"claude_inbound_setting": OptionClaudeInboundSetting,
 	"follow_team_move":       OptionFollowTeamMove,
+	"team_move_in_session":   OptionTeamMoveInSession,
 }
 
 // OptionsPath is the options file's path for environ: the host's file

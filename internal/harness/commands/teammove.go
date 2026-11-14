@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
@@ -17,12 +18,14 @@ import (
 )
 
 // RefusalMoveInSession is the whole message of the `usage` refusal of
-// `team move`'s two writing forms inside a session (work item 273, ADR
-// 0003). A record sends every member's sessions to another backend, whose
-// operator reads what they send: it is the administrator's own act, and a
-// session reading untrusted teammate text must not be talked into it (4.5
-// rule 15), as it must not be talked into `team revoke-member`.
-const RefusalMoveInSession = "run this in your own terminal: recording where a team moved, or clearing that record, is not driven from a session (`brigade team move --show` reads it anywhere)"
+// `team move`'s writing forms inside a session whose member set the option
+// `team_move_in_session` to `off` (work item 328, ADR 0006). Until that
+// decision the refusal was unconditional (work item 273, ADR 0003): a move
+// sends every member's sessions to another backend, whose operator reads
+// what they send. It is now a member's choice, on by default, because the
+// refusal never was a boundary: a command run with the session's variables
+// removed passes it.
+const RefusalMoveInSession = "run this in your own terminal: the option team_move_in_session is off here, so a session does not move a team, record where one went or clear that record (`brigade team move --show` reads the record anywhere)"
 
 // moveFlags is the argv of `brigade team move`.
 type moveFlags struct {
@@ -30,11 +33,21 @@ type moveFlags struct {
 	from       string
 	clear      bool
 	show       bool
+	// The one command of a move (work item 328): where the team goes, the
+	// file that holds its join secret, and what the server may need.
+	to              string
+	secretFile      string
+	certificate     string
+	createTokenFile string
+	ticketDays      int
+	ticketDaysSet   bool
 }
 
-// parseMoveFlags reads the three forms: `--ticket-file <path>` records,
-// `--clear` clears and `--show` reads, each with an optional `--from
-// <url>`. Exactly one form goes on a command line.
+// parseMoveFlags reads the four forms: `--to <server url> --secret-file
+// <path>` moves the team, `--ticket-file <path>` records a move whose
+// ticket the server's operator wrote, `--clear` clears the record and
+// `--show` reads it, each with an optional `--from <url>`. Exactly one form
+// goes on a command line, and what belongs to `--to` goes with it only.
 func parseMoveFlags(args []string) (moveFlags, error) {
 	var m moveFlags
 	fs := flag.NewFlagSet("team move", flag.ContinueOnError)
@@ -43,13 +56,20 @@ func parseMoveFlags(args []string) (moveFlags, error) {
 	fs.StringVar(&m.from, "from", "", "")
 	fs.BoolVar(&m.clear, "clear", false, "")
 	fs.BoolVar(&m.show, "show", false, "")
-	const forms = "team move takes --ticket-file <path> to record where this project's " + teamfile.FileName +
-		" says the team went, --clear to clear the record, or --show to read it; --from <url> names the backend the team is leaving when this machine has joined the team on more than one"
+	fs.StringVar(&m.to, "to", "", "")
+	fs.StringVar(&m.secretFile, "secret-file", "", "")
+	fs.StringVar(&m.certificate, "certificate", "", "")
+	fs.StringVar(&m.createTokenFile, "create-token-file", "", "")
+	fs.IntVar(&m.ticketDays, "ticket-days", 0, "")
+	const forms = "team move takes --to <server url> --secret-file <path> to move this project's team to a Brigade server " +
+		"(with --certificate <sha256:…>, --create-token-file <path> and --ticket-days <n> when the server needs them), " +
+		"--ticket-file <path> to record a move whose ticket the server's operator wrote, --clear to clear the record, or --show to read it; " +
+		"--from <url> names the backend the team is leaving when this machine has joined the team on more than one"
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return m, usage(forms)
 	}
 	given := 0
-	for _, on := range []bool{m.ticketFile != "", m.clear, m.show} {
+	for _, on := range []bool{m.to != "", m.ticketFile != "", m.clear, m.show} {
 		if on {
 			given++
 		}
@@ -57,36 +77,55 @@ func parseMoveFlags(args []string) (moveFlags, error) {
 	if given != 1 {
 		return m, usage(forms)
 	}
+	fs.Visit(func(f *flag.Flag) { m.ticketDaysSet = m.ticketDaysSet || f.Name == "ticket-days" })
+	if m.to == "" && (m.secretFile != "" || m.certificate != "" || m.createTokenFile != "" || m.ticketDaysSet) {
+		return m, usage(forms)
+	}
 	return m, nil
 }
 
-// teamMove implements `brigade team move` (work item 273, ADR 0003), the
-// administrator's half of a team's move to another backend:
+// teamMove implements `brigade team move`, the administrator's half of a
+// team's move to another backend:
 //
-//	brigade team move --ticket-file <path>   record the move
-//	brigade team move --clear                clear the record
-//	brigade team move --show                 read it
+//	brigade team move --to <url> --secret-file <path>   move the team
+//	brigade team move --ticket-file <path>              record a move
+//	brigade team move --clear                           clear the record
+//	brigade team move --show                            read it
 //
-// The destination is never typed: it is the backend this project's team
-// file names, so the record names exactly what every member's session will
-// compare it with. The source is the backend this machine joined the team
-// on before: the one other membership of the same team it holds. So the
-// command is run after the administrator pointed the team file at the new
-// backend and joined it there with the secret file, which is also what
-// makes the administrator the team's owner there: a record is refused
-// until this machine holds that membership, because a member the move's
+// `--to` is the whole move in one command (work item 328; teammoveto.go).
+// The other three are the record alone (work item 273, ADR 0003), for a
+// server that takes no team in by request: its operator takes the team in
+// and opens the move, and the administrator points the team file at the
+// server, joins there and records the move with the operator's ticket.
+//
+// For `--ticket-file` the destination is never typed: it is the backend
+// this project's team file names, so the record names exactly what every
+// member's session will compare it with. The source is the backend this
+// machine joined the team on before: the one other membership of the same
+// team it holds. A record is refused until this machine holds the
+// membership on the backend the file names, because a member the move's
 // ticket lets in never becomes the owner.
 //
 // The ticket is the file the new backend's operator wrote. It is read
 // from that file by the adapter, checked here first so a wrong file fails
 // before anything is asked, and is never an argument and never printed.
+//
+// Inside a session the three writing forms run unless the member set the
+// option `team_move_in_session` to `off` (ADR 0006). Nobody is there to
+// answer a question, so what a terminal would ask is printed as a
+// statement, as a join's is, and the command proceeds.
 func (inv Invocation) teamMove(rest []string) error {
 	flags, err := parseMoveFlags(rest)
 	if err != nil {
 		return err
 	}
 	if inv.inSession() && !flags.show {
-		return inSessionRefusal(RefusalMoveInSession)
+		if err := inv.moveAllowedInSession(); err != nil {
+			return err
+		}
+	}
+	if flags.to != "" {
+		return inv.moveTo(flags)
 	}
 	top, err := inv.requireToplevel("team move")
 	if err != nil {
@@ -264,16 +303,8 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 	}
 	line := "record that team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ") moved from " + attrLine(hostOf(source.URL)) +
 		" to " + moveDestination(f.Adapter, f.URL, f.Certificate)
-	ok, err := inv.confirm(line + "? Every member's next session follows it there with no command of theirs. [y/N] ")
-	if err != nil {
+	if err := inv.consentToMove(line, "Every member's next session follows it there with no command of theirs.", "not recorded; nothing was changed"); err != nil {
 		return err
-	}
-	if !ok {
-		return &protocol.Error{
-			Code:    protocol.CodeUsage,
-			Message: "not recorded; nothing was changed",
-			Details: map[string]string{"reason": "declined"},
-		}
 	}
 	req := &protocol.TeamMoveRequest{Adapter: f.Adapter, URL: f.URL, Certificate: f.Certificate}
 	res, err := inv.callMove(t, "move", []string{"--ticket-file", ticketFile}, req)
@@ -292,6 +323,58 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 		"next: commit and push "+teamfile.FileName+" in every repository of the team; a member's session follows at its next start, "+
 			"for as long as the new backend keeps the move open (`brigade team move --clear` stops this backend from saying where the team went)",
 	)
+}
+
+// moveAllowedInSession reads the option `team_move_in_session` for a
+// command run inside a session, from the start facts SessionStart wrote:
+// a plugin option never reaches the Bash tool (P7-11), so the facts are
+// the one place such a command can read it. Off, or a value that is
+// neither word, is the in-session refusal. A session with no facts is
+// refused with what the facts' reader says: without them the command could
+// not know which store to act on either.
+func (inv Invocation) moveAllowedInSession() error {
+	stateDir, err := config.BrigadeStateDir(inv.Environ)
+	if err != nil {
+		return err
+	}
+	facts, err := inv.startFacts(stateDir)
+	if err != nil {
+		return err
+	}
+	if on, _ := config.ParseTeamMoveInSession(facts.TeamMoveInSession); !on {
+		return inSessionRefusal(RefusalMoveInSession)
+	}
+	return nil
+}
+
+// consentToMove shows what a writing form of `team move` is about to do.
+// At a terminal it asks, and an answer that is not yes is the `usage`
+// refusal declined says. Inside a session nobody is there to ask, stdin
+// being /dev/null, so the invocation is the consent, as it is for a join
+// (confirmGate): the same line is printed, as a statement, and the command
+// proceeds. With --json the statement goes to stderr, where the question
+// goes at a terminal, so stdout stays one envelope.
+func (inv Invocation) consentToMove(line, consequence, declined string) error {
+	if inv.inSession() {
+		said := line + ". " + consequence + " Consented by this invocation."
+		if inv.JSON {
+			_, err := io.WriteString(inv.Err, said+"\n")
+			return err
+		}
+		return writeLines(inv.Out, said)
+	}
+	ok, err := inv.confirm(line + "? " + consequence + " [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &protocol.Error{
+			Code:    protocol.CodeUsage,
+			Message: declined,
+			Details: map[string]string{"reason": "declined"},
+		}
+	}
+	return nil
 }
 
 // checkTicketFileOutside is the join secret file's rule for a move's ticket

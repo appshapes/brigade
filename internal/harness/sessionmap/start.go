@@ -42,6 +42,14 @@ type StartFacts struct {
 	// no member's email is ever written to this file. Omitted when the
 	// option is absent, so a map written before it existed still reads.
 	LabelOption string `json:"label_option,omitzero"`
+	// TeamMoveInSession is the `team_move_in_session` option as the hook
+	// resolved it (work item 328, ADR 0006), here for the reason
+	// LabelOption is: `brigade team move` runs in the Bash tool, which no
+	// plugin option reaches. The hook writes "off" when the member turned
+	// the option off, or set it to a value that is neither word, and omits
+	// the member otherwise, so facts written before the option existed
+	// read as its default, on.
+	TeamMoveInSession string `json:"team_move_in_session,omitzero"`
 	// WrittenAt is the hook's clock at the write.
 	WrittenAt time.Time `json:"written_at"`
 }
