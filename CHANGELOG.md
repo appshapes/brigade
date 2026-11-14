@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.55.1] — 2026-11-14
+
 ### Fixed
 
 - **The end-of-turn ask for a note no longer says a turn made a commit it
