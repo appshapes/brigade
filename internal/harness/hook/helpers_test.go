@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -232,9 +233,29 @@ type spawnRecorder struct {
 	// (a watcher that never came up).
 	watcherPID int
 	err        error
+	// follows are the `hook follow` children a prompt hook started (move.go,
+	// work item 327), kept apart from the watchers so that count and last
+	// speak of watchers only. onFollow, when set, is called with each as it
+	// is started: a test that sets it to the fixture's runFollow has the
+	// child finish before the hook that started it returns.
+	follows  []SpawnSpec
+	onFollow func(SpawnSpec)
 }
 
+// followPID is the pid the recorder answers for a follow child.
+const followPID = 4343
+
 func (s *spawnRecorder) Spawn(_ context.Context, spec SpawnSpec) (int, error) {
+	if len(spec.Args) > 1 && spec.Args[0] == "hook" && spec.Args[1] == SubFollow {
+		s.mu.Lock()
+		s.follows = append(s.follows, spec)
+		run := s.onFollow
+		s.mu.Unlock()
+		if run != nil {
+			run(spec)
+		}
+		return followPID, nil
+	}
 	var seen *sessionmap.ByPID
 	if w, err := config.FromWatcherEnv(spec.Env); err == nil {
 		seen, _ = sessionmap.Store{StateDir: w.StateDir}.ReadByPID(w.ClaudePID)
@@ -295,6 +316,13 @@ func (s *spawnRecorder) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.specs)
+}
+
+// followed is the follow children started so far.
+func (s *spawnRecorder) followed() []SpawnSpec {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.follows)
 }
 
 func (s *spawnRecorder) last(t *testing.T) SpawnSpec {
@@ -733,6 +761,24 @@ func (f *fixture) run(sub, stdin string, extraEnv ...string) (int, string, strin
 	var out, errOut bytes.Buffer
 	code := Run(f.hookArgs(sub), cli.Streams{In: strings.NewReader(stdin), Out: &out, Err: &errOut}, f.env(extraEnv...), f.deps)
 	return code, out.String(), errOut.String()
+}
+
+// runFollow runs a follow child the way the spawner would have started
+// it: `brigade hook follow` with the arguments and the environment the
+// hook gave it and nothing else, in process, against the fixture's seams.
+// It fails the test when the child exits with anything but 0, prints
+// anything (both of a real child's streams are its log file) or logs the
+// move's ticket.
+func (f *fixture) runFollow(spec SpawnSpec) {
+	f.t.Helper()
+	var out, errOut bytes.Buffer
+	code := Run(spec.Args[1:], cli.Streams{In: strings.NewReader(""), Out: &out, Err: &errOut}, spec.Env, f.deps)
+	if code != 0 || out.Len() != 0 {
+		f.t.Errorf("the follow child: exit %d, stdout %q\n%s", code, out.String(), errOut.String())
+	}
+	if strings.Contains(errOut.String(), moveTicket) {
+		f.t.Errorf("the follow child logged the move's ticket")
+	}
 }
 
 // hookArgs is the hook's argv for this fixture's host: the subcommand

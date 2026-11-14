@@ -202,10 +202,28 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	verdict := r.checkPidfile(f)
 	now := r.deps.Now()
 
+	// A map that names another team key is a session registered on another
+	// backend: the team moved, and this run resolved the backend it is on
+	// now (work item 327, ADR 0007). That session does not continue here.
+	// The backend this run talks to has never heard of its id, so the id is
+	// neither heartbeated there nor offered as a resume hint: before this
+	// rule a /clear after a move did both, and any answer to the heartbeat
+	// but not_found left a map naming the new backend and the old session.
+	// The watcher of the old session is left running until the new
+	// registration is made: the watcher this run starts retires it, and it
+	// closes its session where it registered it.
+	elsewhere := existing != nil && existing.TeamKey != res.teamKey
+	watcherOfExisting := existing != nil && verdict.Found && verdict.Alive && verdict.Entry.BrigadeSessionID == existing.BrigadeSessionID
+	if elsewhere && r.moving && existing.SessionName != "" {
+		// A prompt's document names no title, and the name a running session
+		// has is the map's, which the prompt hook keeps level with a rename.
+		res.id.name = existing.SessionName
+	}
+
 	// Idempotent per CLAUDE_PID (E0-8: SessionStart re-fires on /clear;
 	// D9): a live watcher for this pid that serves the session the map
 	// names means the session continues.
-	watcherLive := existing != nil && verdict.Found && verdict.Alive && verdict.Entry.BrigadeSessionID == existing.BrigadeSessionID
+	watcherLive := watcherOfExisting && !elsewhere
 	continueGrok := existing != nil && sameGrok
 	if existing != nil && (watcherLive || continueGrok) {
 		// The continue path has no describe, so the capability half of
@@ -275,11 +293,21 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		r.stopWatcher(verdict.Entry, f)
 		verdict = pidfile.Verdict{}
 	}
-	if verdict.Found && verdict.Alive {
+	if verdict.Found && verdict.Alive && !elsewhere {
 		// A live watcher serving another session for this pid (the map
 		// was replaced): it must not keep draining the old inbox.
 		r.log.Info("retiring a watcher of another session", slog.Int("watcher_pid", verdict.Entry.PID))
 		r.stopWatcher(verdict.Entry, f)
+	}
+	// The request `brigade inbound` recorded lasts for the session's process
+	// (card 126), and a move is not its end: a quiet session stays quiet on
+	// the backend its team went to. It is carried only from a map that is
+	// this process's beyond doubt: its watcher is alive, or it names the
+	// conversation this document names. A map a dead process left under the
+	// same pid gives a new session no request.
+	request := ""
+	if elsewhere && (watcherOfExisting || (in.SessionID != "" && existing.ClaudeSessionID == in.SessionID)) {
+		request = existing.InboundRequest
 	}
 
 	dctx, dcancel := context.WithTimeout(ctx, adapterclient.DescribeTimeout)
@@ -303,11 +331,13 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		HarnessVersion: res.id.harnessVersion,
 		SessionName:    res.id.name,
 		Activity:       res.id.activity,
-		Inbound:        res.dec.Policy.String(),
+		Inbound:        sessionmap.TightenInbound(res.dec.Policy.String(), request),
 		LeaseSeconds:   &lease,
 		BrigadeVersion: r.deps.BrigadeVersion(),
 		SyncPeer:       r.deps.SyncPeer(),
-		Resume:         r.resumeHint(f, in, res.store, existing),
+	}
+	if !elsewhere {
+		reg.Resume = r.resumeHint(f, in, res.store, existing, res.teamKey)
 	}
 	if res.id.model != "" {
 		model := res.id.model
@@ -333,6 +363,9 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	if existing != nil && existing.BrigadeSessionID == m.BrigadeSessionID && !existing.RegisteredAt.IsZero() {
 		m.RegisteredAt = existing.RegisteredAt
 	}
+	if request != "" {
+		m.SetInboundRequest(request)
+	}
 	if err := r.adoptGrokBacklog(f.stateDir, prior, m); err != nil {
 		// The move renames one file at a time and stops at the first
 		// failure, so the error can arrive with part of the backlog already
@@ -353,6 +386,9 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		return
 	}
 	spawned := r.spawnWatcher(ctx, f, m, pidfileWait)
+	if elsewhere {
+		r.leftBehind(ctx, f, existing, now)
+	}
 	r.finish(ctx, f, in, res, m, now, spawned)
 }
 
@@ -449,10 +485,11 @@ func respawnReason(e pidfile.Entry, f facts) string {
 // is never trusted alone); (4) only then is the adapter resolved — by
 // the file's NAME, strictly user-side — and the frozen chain runs with
 // the team key as the profile. The hook can not join on a team file's
-// word: the one path that transmits a secret or writes the store is
-// followMove, which acts only on the record of the backend the member
-// consented to (work item 273, ADR 0003), and the refusal lines echo
-// nothing from a mismatched file.
+// word: the one path that transmits a secret or writes the store is the
+// follow of a move, in followMove or in the child a prompt starts
+// (move.go), which acts only on the record of the backend the member
+// consented to (work item 273, ADR 0003; work item 327, ADR 0007), and the
+// refusal lines echo nothing from a mismatched file.
 func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 	opts, err := r.options()
 	if err != nil {
@@ -983,6 +1020,8 @@ func pathValue(environ []string) string {
 // pin that does not match the file is the drift line, with one exception:
 // a team that moved to another backend on its administrator's record is
 // followed there (followMove), and the gates go on against the new pin.
+// A pin that matches because a follow outside a session's start wrote it
+// earns that follow's line here (tellFollowed).
 func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in input) (*teamfile.File, string, bool) {
 	path, found := teamfile.Discover(in.Cwd)
 	if !found {
@@ -1009,7 +1048,11 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		r.say(notJoinedLine(tf.TeamName, r.commandName(f)))
 		return nil, "", false
 	}
-	if !pin.Matches(tf) && !r.followMove(ctx, f, opts, tf, canon, pin) {
+	if pin.Matches(tf) {
+		// A follow that ran outside a session's start had nobody to tell:
+		// the first hook of the checkout after it says its line.
+		r.tellFollowed(f, opts, tf, canon, pin)
+	} else if !r.followMove(ctx, f, opts, tf, canon, pin) {
 		// The drift line deliberately echoes NOTHING from the file: the
 		// file in front of us is unconsented input until a human reviews
 		// the change in a terminal, or until the backend the member joined
@@ -1037,16 +1080,17 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 // which is where the comparison and the store's one hook-reached writer
 // live). It reports whether the pin now matches the file, and says the one
 // line of a follow before any other. Nothing is asked of any backend
-// unless this is a session's start, the file names the SAME team at
-// another backend, the option follow_team_move is on, and the session
-// names no adapter command of its own: a session that does has one adapter
-// for everything, and a follow asks two. The prompt hook's registration
-// retry, which runs the same resolution in a few seconds, never follows:
-// a session that started before the move was recorded follows when it is
-// started again. Every other outcome is silence here and the drift line in the
-// caller, with the reason in the log and never in a line: the file is
-// unconsented input, and why it was not followed is the member's to read
-// in their own terminal.
+// unless the file names the SAME team at another backend, the option
+// follow_team_move is on, and the session names no adapter command of its
+// own: a session that does has one adapter for everything, and a follow
+// asks two. A session's start follows here, in its own run. The prompt
+// hook's registration retry, which runs the same resolution in a few
+// seconds, does not: it starts the follow as a child (startFollow, work
+// item 327, ADR 0007), reports the pin as it is, and a later prompt finds
+// the pin the child wrote. Every other outcome is silence here and the
+// drift line in the caller, with the reason in the log and never in a
+// line: the file is unconsented input, and why it was not followed is the
+// member's to read in their own terminal.
 func (r *run) followMove(ctx context.Context, f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin) bool {
 	if !teammove.Candidate(pin, tf) {
 		return false
@@ -1054,23 +1098,25 @@ func (r *run) followMove(ctx context.Context, f facts, opts config.Options, tf *
 	if opts.FollowTeamMoveWarning != "" {
 		r.say(opts.FollowTeamMoveWarning)
 	}
-	if !r.starting || !opts.FollowTeamMove || opts.AdapterCommand != "" {
+	if !followAllowed(opts) {
 		r.log.Info("the team file names another backend for this team; this run does not follow a move",
-			slog.Bool("session_start", r.starting), slog.Bool("follow_team_move", opts.FollowTeamMove), slog.Bool("adapter_command", opts.AdapterCommand != ""))
+			slog.Bool("follow_team_move", opts.FollowTeamMove), slog.Bool("adapter_command", opts.AdapterCommand != ""))
+		return false
+	}
+	if !r.starting {
+		if f.host == config.HostGrok {
+			// Grok Build discards what a prompt hook prints, so a session
+			// there could not be told that it followed: it follows when it
+			// starts.
+			return false
+		}
+		r.startFollow(ctx, f, opts, canon)
 		return false
 	}
 	out, err := teammove.Follow(ctx, teammove.Inputs{
 		ConfigDir: opts.ConfigDir, Checkout: canon, File: tf, Pin: pin,
-		Client: func(name, profile string) (teammove.Caller, error) {
-			// By the adapter's NAME, strictly user-side, as a terminal join
-			// resolves one: adapters.json, or a bundled adapter.
-			adapter, aerr := config.ResolveAdapter(config.Options{}, opts.ConfigDir, name)
-			if aerr != nil {
-				return nil, aerr
-			}
-			return r.client(adapter, profile, opts.ConfigDir, f.stateDir), nil
-		},
-		Now: r.deps.Now, Log: r.log,
+		Client: r.moveClient(opts.ConfigDir, f.stateDir),
+		Now:    r.deps.Now, Log: r.log,
 	})
 	if !out.Followed {
 		attrs := []any{slog.String("reason", out.Reason)}
@@ -1082,7 +1128,29 @@ func (r *run) followMove(ctx context.Context, f facts, opts config.Options, tf *
 	}
 	r.log.Info("followed the team's recorded move", slog.Bool("joined", out.Joined))
 	r.say(followedLine(tf, pin, out.Joined, r.commandName(f)))
+	// This start said the line: nothing is left for a later hook to say.
+	r.dropFollowedMark(f, opts, canon)
 	return true
+}
+
+// followAllowed reports whether the member's options let a session follow
+// a move: the option follow_team_move is on, and the session does not name
+// its adapter itself.
+func followAllowed(opts config.Options) bool {
+	return opts.FollowTeamMove && opts.AdapterCommand == ""
+}
+
+// moveClient builds the adapter clients of a follow: by the adapter's
+// NAME, strictly user-side, as a terminal join resolves one (adapters.json,
+// or a bundled adapter), for the member's store configDir.
+func (r *run) moveClient(configDir, stateDir string) func(name, profile string) (teammove.Caller, error) {
+	return func(name, profile string) (teammove.Caller, error) {
+		adapter, err := config.ResolveAdapter(config.Options{}, configDir, name)
+		if err != nil {
+			return nil, err
+		}
+		return r.client(adapter, profile, configDir, stateDir), nil
+	}
 }
 
 // frameInstruction resolves the frame's instruction paragraph (P5-12): the
@@ -1244,13 +1312,17 @@ func (r *run) register(ctx context.Context, c *adapterclient.Client, reg *protoc
 // (f)): the by-native entry for this native id (any source), else the
 // session this pid's own map named (its watcher died, or the server said
 // the session was gone); skipped when a live pidfile of ANOTHER pid names
-// that session, because the original process is still running.
-func (r *run) resumeHint(f facts, in input, store sessionmap.Store, existing *sessionmap.ByPID) *protocol.ResumeRef {
+// that session, because the original process is still running. An id is a
+// hint only to the backend that issued it: a by-native entry written under
+// another team key, which is what a team that moved leaves behind, is not
+// offered (work item 327), and the caller offers none at all for a map
+// that names another key.
+func (r *run) resumeHint(f facts, in input, store sessionmap.Store, existing *sessionmap.ByPID, teamKey string) *protocol.ResumeRef {
 	if f.host == config.HostGrok && in.Source != "load" {
 		return nil
 	}
 	hint := ""
-	if bn, err := store.ReadByNative(in.SessionID); err == nil && bn.BrigadeSessionID != "" {
+	if bn, err := store.ReadByNative(in.SessionID); err == nil && bn.BrigadeSessionID != "" && (bn.TeamKey == "" || bn.TeamKey == teamKey) {
 		hint = bn.BrigadeSessionID
 	} else if existing != nil {
 		hint = existing.BrigadeSessionID
@@ -1504,6 +1576,7 @@ func (r *run) writeByNative(store sessionmap.Store, nativeID string, m *sessionm
 	err := store.WriteByNative(nativeID, &sessionmap.ByNative{
 		BrigadeSessionID: m.BrigadeSessionID,
 		TeamRef:          m.TeamRef,
+		TeamKey:          m.TeamKey,
 		SessionName:      m.SessionName,
 		UpdatedAt:        now,
 	})

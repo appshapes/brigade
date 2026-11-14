@@ -31,6 +31,54 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   opened its move with two commands on a stopped server; those commands
   stay. No `brigade` command makes the three requests yet.
 
+### Changed
+
+- **A session that is already running follows its team when the team
+  moves** (work item 327, ADR 0007). Until now only a session's start
+  followed a team to another backend: a session that was running stayed
+  on the backend the team left until it ended, and in a real move the
+  new server had no member session for hours. Now a running session
+  follows at its next prompts, in two steps. The first prompt after the
+  project's `.brigade.json` changed says once that the file names another
+  backend and starts the follow beside the session, so the prompt is not
+  held up; the follow asks the backend the member joined whether the
+  team's administrator recorded that move, as a session's start does, and
+  joins the new backend only on that record. A later prompt says the
+  follow's line and moves the session: it is registered on the new
+  backend under the name it had, its watcher there replaces the old one,
+  and the old session is closed. A session that asked for quiet stays
+  quiet. A session that holds messages for its member's review stays
+  where it is until they are released, and says so once: a held message
+  does not move. A session that started before the move was recorded and
+  is connected to nothing follows the same way, where it used to wait for
+  a new start.
+
+  What made a session follow has not changed. A `.brigade.json` with no
+  record behind it still sends a session nowhere and is sent nothing: the
+  backend the member joined is asked at most once a minute for a checkout
+  while its sessions are prompted. The option `follow_team_move` turns
+  this off as it turns off the follow at a start; a member who joins the
+  moved team themselves, with `/brigade:join <path>`, has their running
+  session move at its next prompt. A Grok Build session still follows
+  only when it starts, because Grok Build shows nothing a prompt hook
+  prints. `docs/security.md`, section 21, says what this changes, and
+  the page is [When your team moves](docs/team-member/join/follow-a-move.md).
+
+### Fixed
+
+- **`/clear` after a team moved registers the session on the backend the
+  team is on** (work item 327). `/clear` runs the session's start again in
+  the same process, and that start followed the team and then sent a
+  heartbeat for the session of the old backend to the new one. Any answer
+  but "no such session" left the session named by its old id on the new
+  backend, with no watcher that could serve it, until the session was
+  started again. A session whose team key changed is now registered anew,
+  with no heartbeat and no resume hint for an id the new backend never
+  issued, and a request for quiet made in the session is kept.
+- **A join inside a session that is on the backend its team left no
+  longer says the session is already attached** (work item 327). It says
+  that the session moves at its next prompt, which it now does.
+
 ## [0.55.0] — 2026-11-13
 
 ### Added

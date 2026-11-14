@@ -441,6 +441,58 @@ func TestFollowInAnotherCheckoutJoinsNothing(t *testing.T) {
 	}
 }
 
+// TestFollowLeavesWordBeforeThePin: a follow that has nobody to tell (the
+// child a prompt hook starts, work item 327) leaves word for the next hook
+// of the checkout through BeforePin. It is called once, with whether this
+// call joined, and before the pin is written: the pin is what says the
+// checkout followed, so a hook that finds the pin finds the word too. A
+// follow that is refused never calls it. And two follows of one checkout
+// can be under way at once, a session's start and a child: the one that
+// comes second holds the pin it read before the other wrote the new one,
+// finds the checkout followed, asks the old backend nothing and leaves no
+// word of its own.
+func TestFollowLeavesWordBeforeThePin(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	follow := func(word *[]bool) (teammove.Outcome, error) {
+		t.Helper()
+		return teammove.Follow(t.Context(), teammove.Inputs{
+			ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin, Client: r.b.client,
+			Now: func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) },
+			BeforePin: func(joined bool) {
+				if pin := r.currentPin(); pin.Adapter != "supabase" {
+					t.Errorf("the word was left after the pin was written: %+v", pin)
+				}
+				*word = append(*word, joined)
+			},
+		})
+	}
+	var word []bool
+	// No record: nothing is followed, and no word is left.
+	recorded := r.b.moved
+	r.b.moved = &protocol.TeamMoveResult{TeamRef: teamRef}
+	if out, _ := follow(&word); out.Followed || len(word) != 0 {
+		t.Fatalf("a follow with no record: %+v, word %v", out, word)
+	}
+	r.b.moved = recorded
+	if out, err := follow(&word); err != nil || !out.Followed || !slices.Equal(word, []bool{true}) {
+		t.Fatalf("the first follow: %+v, %v, word %v", out, err, word)
+	}
+	written := r.currentPin()
+	r.b.calls = nil
+	// r.pin is still the pin the second follow read: the old backend's.
+	out, err := follow(&word)
+	if err != nil || !out.Followed || out.Joined || len(word) != 1 {
+		t.Fatalf("the second follow: %+v, %v, word %v", out, err, word)
+	}
+	if got := r.b.verbs(); slices.Contains(got, "supabase:team moved") || slices.Contains(got, "rest:team join") {
+		t.Fatalf("the second follow asked a backend: %v", got)
+	}
+	if pin := r.currentPin(); pin != written {
+		t.Fatalf("the second follow rewrote the pin: %+v", pin)
+	}
+}
+
 // TestFollowLeavesAMemberThatLeftTheNewBackendOut: `team leave` is the way
 // out the follow's own line names. A machine that was a member at the new
 // backend and left has a profile there that names its principal and no
