@@ -729,4 +729,5 @@ item 89 (its week of real use ends 2026-11-20, and the hosted project's fate is 
 289 and 290 (two frictions of the join, found in the cut-over), 312 (phase 4) and 313 (the one node's known
 gaps: what it logs, who hears of a failed nightly copy, the bounds, recovery, the members not yet proven on a
 team on a server). The thinktech team's move is work item 320 since 2026-11-14, and waits on the owner's word
-for where its server runs.
+for where its server runs. Since 2026-11-14 the owner's host runs server 0.6.0 and the session `89-server-7`
+holds this roadmap, handed on by `89-server-6` (execution log P100-3).
