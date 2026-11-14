@@ -9,6 +9,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A join no longer says `/reload-plugins` moves a session to the team it
+  just joined** (work item 289). A session that is on one team and joins
+  another stays where it is, and the join's last line named two ways out:
+  `/reload-plugins` or a new session. The reload is not one. It runs no
+  start hook for a plugin whose files did not change, so the session stayed
+  on the old team, as two members found when the `appshapes` team moved on
+  2026-11-13. The line now reads `this session stays on team "<name>" until
+  you start a new session or exit and resume this one`, and the Claude Code
+  package's join and setup skills and its join page say the same. They also
+  no longer send a member who joined from a terminal to `/reload-plugins`:
+  a session already open in the checkout, on no team, attaches at a prompt
+  within a minute.
+
 ## [0.54.0] — 2026-11-13
 
 ### Added

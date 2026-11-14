@@ -20,6 +20,7 @@ if they named none. The path is always **theirs**: never one you chose, guessed 
    Bash call. If it is empty, run exactly `brigade team join`. Nothing else: never read the file, never print or ask
    for its contents, never choose or guess a path, never retry with a different one.
 2. Relay the command's output as it is. On success it names the team and says when this session attaches — at the
-   next prompt, or, for a session already attached to another team, after `/reload-plugins`; repeat that to the
+   next prompt, or, for a session already attached to another team, in a new session or in this one once it is
+   exited and resumed (`/reload-plugins` does not move it); repeat that to the
    user. On a refusal — a relative path, a file inside the repository, a missing file, a secret for another team —
    relay the message and stop: the user fixes the path or the file.

@@ -905,13 +905,17 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 		pid, perr := config.StateKey(inv.Environ, sessionmap.Store{StateDir: t.stateDir})
 		if perr == nil {
 			// A session that already has a map is attached — to this team
-			// (nothing to do) or to another (the prompt hook only registers
-			// an UNmapped session, so only a restart moves it).
+			// (nothing to do) or to another. The prompt hook only registers
+			// an UNmapped session, and a SessionStart that fires again in
+			// the same process continues the session its map names, so
+			// only a new process moves it: a new session, or this one
+			// exited and resumed. A plugin reload is not one (work item
+			// 289: it ran no start hook in the cut-over of 2026-11-13).
 			if m, merr := config.Session(inv.Environ, t.stateDir); merr == nil {
 				if m.TeamRef == f.TeamRef {
 					return writeLines(inv.Out, head+"; this session is already attached to it")
 				}
-				return writeLines(inv.Out, head+"; this session stays on team \""+nameLine(m.TeamName)+"\" until /reload-plugins or a new session")
+				return writeLines(inv.Out, head+"; this session stays on team \""+nameLine(m.TeamName)+"\" until you start a new session or exit and resume this one")
 			}
 			// The prompt hook re-registers an unmapped session once a
 			// minute (P5-18); without its stamp the very next prompt

@@ -296,7 +296,8 @@ func TestTeamJoinInSessionCrossTeamRepoint(t *testing.T) {
 	// would never perform.
 	out := f.out.String()
 	if !strings.Contains(out, "team: t_old → "+setupTeamRef) || strings.Count(out, "consented by this invocation") != 1 ||
-		!strings.Contains(out, "joined team \"devs\" ("+setupTeamRef+"); this session stays on team \""+fixtureTeamName+"\" until /reload-plugins or a new session") {
+		!strings.Contains(out, "joined team \"devs\" ("+setupTeamRef+"); this session stays on team \""+fixtureTeamName+"\" until you start a new session or exit and resume this one") ||
+		strings.Contains(out, "reload-plugins") {
 		t.Fatalf("stdout = %q", out)
 	}
 	if pin, ok, _ := teamstore.LookupPin(persona, canon); !ok || pin.TeamRef != setupTeamRef {

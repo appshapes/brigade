@@ -100,7 +100,8 @@ session in the checkout, and join:
 That runs `brigade team join --secret-file ~/brigade-<team>.secret` and relays the output. `team join` reads the
 project's `.brigade.json`, prints the team and backend host it is joining (invoking it is the consent), reads the
 secret from the file and joins; its output never carries the secret, and this session attaches at your next prompt
-(one already attached to another team stays there until `/reload-plugins`). Delete the file once every machine
+(one already attached to another team stays there until a new session, or until it is exited and resumed).
+Delete the file once every machine
 that needs it has joined.
 
 **The join sends your Claude account email as your display label**, unless you say otherwise. Brigade reads the
@@ -126,9 +127,9 @@ Either way the secret never reaches your scrollback, your shell history or a cha
 - The URL in the file must be `https://`; the adapter refuses anything else except a loopback host.
 - If your Claude Code sessions run with the Bash sandbox on, add the project host (`<ref>.supabase.co`) to
   `sandbox.network.allowedDomains`, or the first send is refused.
-- Joined from a terminal, start a Claude Code session in the checkout, or run `/reload-plugins` in one you
-  already have; joined from a session, it attaches at your next prompt. The session-start line names your team,
-  this session's name and id, and the inbound policy.
+- Joined from a terminal, start a Claude Code session in the checkout; one you already have there that is on
+  no team attaches at a prompt within a minute. Joined from a session, it attaches at your next prompt. The
+  session-start line names your team, this session's name and id, and the inbound policy.
 - A second checkout of the same project on this machine needs `team join` once too, but no secret. One team can
   span several repositories: commit the same `.brigade.json` in each and join each checkout once; a different
   `.brigade.json` is a different team. Either way, `cd` between checkouts — nothing is shared or switched.
