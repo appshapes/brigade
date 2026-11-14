@@ -711,9 +711,10 @@ func (c *command) teamTakeIn() (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The secret is registered on the redactor before anything else is done
-	// with it, so no line this command writes can carry it.
-	c.redactor.Add(taken.Secret.Secret())
+	// Nothing registers the secret on the redactor: the redactor replaces
+	// every text of a join secret's form wherever it finds one
+	// (adapterkit/log), the whole of this one included, so a registration of
+	// the same text would change no line.
 	if present && p.TeamRef != "" && p.TeamRef != taken.Secret.TeamRef() {
 		return nil, errConflict("this profile is already bound to another team", reasonProfileBound)
 	}
@@ -786,9 +787,10 @@ func (c *command) teamOpenMove() (any, error) {
 		}
 		return nil, err
 	}
-	// The ticket is registered on the redactor before anything else is done
-	// with the answer, so no line this command writes can carry it.
-	c.redactor.Add(answer.Ticket)
+	// The ticket is a join secret in form, which the redactor replaces
+	// wherever it finds one; one that is not is refused below in fixed words.
+	// Nothing after this line writes any part of the answer but the result,
+	// which has no ticket member.
 	if answer.TeamRef != c.profile.TeamRef {
 		c.ticketLost()
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")

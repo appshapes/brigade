@@ -14,9 +14,14 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
   backend it leaves, a name and, when it has one, a label. It needs no credential, as a creation needs none,
   and it is allowed exactly as a creation is: a server started with `--create-token-file` asks for that token
   in the `Brigade-Create-Token` header, and refuses a take-in without it in a creation's words, before it
-  reads the request. A team the server does not hold is taken in under the reference inside the secret, with
-  the secret's hash and never the secret, and in the same entry of the log the caller becomes a member and
-  the team's owner.
+  reads anything of the request beyond that its body is one JSON object. A team the server does not hold is
+  taken in under the reference inside the secret, with the secret's hash and never the secret, and in the
+  same entry of the log the caller becomes a member and the team's owner.
+- **The reference of a team that is taken in is held to 256 code points.** The caller chose it, the server
+  keeps it, in its state, in every record of the team and in every snapshot, and BAP/1 gives it no cap:
+  without one, a caller the server does not know could have it keep a megabyte with one request. A longer
+  one is `invalid_input` naming `join_secret`, in fixed words. A join keeps nothing of what it presents and
+  is answered as before, and `--import-team` is the operator's own and has no cap.
 - **Whoever takes a team in by request owns it.** The server cannot check who administered a team where it
   came from, so the rule is the one a creation has. The rule of the first join, by which the first member to
   join a team that has no owner owns it, stays for a team `--import-team` took in and for one `--take-back`
