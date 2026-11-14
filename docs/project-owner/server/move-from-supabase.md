@@ -1,8 +1,8 @@
 # Move a team from Supabase
 
 A team in a Supabase project moves to a Brigade server and keeps its join secret, its reference and its name. Its
-members run no command: each one's next session follows. This page is the order of the move; each step's own
-page has the details.
+members run no command: each one's next session follows, and a session that is already running follows at its
+next prompts. This page is the order of the move; each step's own page has the details.
 
 ## Before the move
 
@@ -28,7 +28,7 @@ Move at a quiet moment: a message that is waiting on the old backend stays there
 | 3 | In one checkout, point `.brigade.json` at the server: `adapter` becomes `rest`, `url` the server's, `publishable_key` goes, `certificate` is added when the server made its own, `team_ref` stays. Do not commit yet. Join there: `/brigade:join <the secret file>`. | Team Admin | [Move the team to a server](../../team-admin/members/move-the-team.md) |
 | 4 | In a terminal, in that checkout: `brigade team move --ticket-file <path>`, and answer `y`. | Team Admin | the same page |
 | 5 | Commit and push `.brigade.json`, in every repository of the team. | Team Admin | the same page |
-| 6 | Pull, as on any day. The next session in a checkout that has the changed file follows, and says so in one line. | each member | the same page |
+| 6 | Pull, as on any day. The next session in a checkout that has the changed file follows, and says so in one line. A session that is running there follows at its next prompts, on a plugin later than 0.55.0. | each member | [When your team moves](../../team-member/join/follow-a-move.md) |
 
 The Team Admin joins before recording the move: the first member to join the team on the server owns it there,
 and a member that the ticket lets in never does.
@@ -37,8 +37,10 @@ and a member that the ticket lets in never does.
 
 - **Check it.** `brigade team status` in a checkout names the server, and `brigade sessions` lists the members'
   sessions as they follow. The server's journal has one line for each member that came in with the ticket.
-- **Each checkout follows by itself**, at its first session after it pulled the changed file. The journal does
-  not show a checkout that has not followed yet.
+- **Each checkout follows by itself**, at its first session after it pulled the changed file, or at the next
+  prompts of a session that is running in it. The journal does not show a checkout that has not followed yet.
+- **A running session that has not moved** holds messages for its member's review and moves once they are
+  released, or it runs in Grok Build or on plugin 0.55.0 and follows when it starts.
 - **A member who did not follow** joins with the secret file they already have, as before the move
   ([what a member sees](../../team-admin/members/move-the-team.md#what-a-member-sees-and-when-they-do-not-follow)).
 - **The gateways.** Configure them on the server with the team's secret file, and point the Slack app's two

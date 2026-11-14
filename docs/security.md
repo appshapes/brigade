@@ -1393,7 +1393,9 @@ Until 0.55.0 nothing could point your sessions at another backend without a comm
 `.brigade.json` that named one stopped matching what you had joined, your next session connected to nothing, and
 `team join` asked for the secret file. From 0.55.0 one thing can, and this section states it plainly (work item
 273; the owner's ruling of 2026-11-13 is on work item 315, and the decision is
-[ADR 0003](decisions/0003-follow-a-team-that-moved-on-the-old-backends-record.md)).
+[ADR 0003](decisions/0003-follow-a-team-that-moved-on-the-old-backends-record.md)). From the release after 0.55.0
+a session that is already running follows too, at its next prompts (work item 327,
+[ADR 0007](decisions/0007-follow-a-move-from-a-running-session-at-its-next-prompts.md)).
 
 **What happens.** When a team moves from a Supabase project to a Brigade server, its administrator records the
 move on the project the team is leaving: the server's address, its certificate fingerprint when the team file
@@ -1412,10 +1414,10 @@ the session connects to nothing, says that the file does not match, and `team jo
   (section 2), because they can write anything in it.
 - **What you give up.** A confirmation. The team's administrator, or whoever controls the old backend, can now
   send your sessions for that team to a server of their choosing, and that server's operator reads what they
-  send, as section 20 says of any server. Before, that took your own command. You get a line at session start
-  instead, and an option, `follow_team_move`: set it to `off` and a session never follows; you join a moved team
-  yourself, with the secret file, when you have decided to. A value that is neither `on` nor `off` is read as
-  off, and the session says so.
+  send, as section 20 says of any server. Before, that took your own command. You get a line in the session
+  instead, at its start or at the prompt that finds the checkout followed, and an option, `follow_team_move`:
+  set it to `off` and a session never follows; you join a moved team yourself, with the secret file, when you
+  have decided to. A value that is neither `on` nor `off` is read as off, and the session says so.
 - **What is sent, and where.** One question goes to the backend you already joined, with the session you hold
   there. Nothing goes to the new address until the old backend has named it. Then one join goes there, carrying
   the ticket and your label, under the certificate the record named or the machine's authorities. Your session on
@@ -1430,8 +1432,15 @@ the session connects to nothing, says that the file does not match, and `team jo
   secret file, and `team move` refuses to record anything until they have. The ticket is read from a file and
   written to a file of mode 0600 inside your credential directory, which is removed as soon as the join has been
   sent; it is in no argument, no output and no log line.
-- **Only a session's start follows.** A session that started before the move was recorded stays unconnected,
-  however many prompts it takes, until it is started again.
+- **A session that is running follows at its next prompts**, in two steps. A prompt that finds the file naming
+  another backend for the session's team starts the same follow as a process of its own, which has no session:
+  no inbox socket, no messaging token. It asks the question above, and at most one such process a minute is
+  started for a checkout, so a file with no record behind it has the old backend asked once a minute while you
+  prompt and is sent nothing itself. When the checkout has followed, a later prompt says the line, registers the
+  session anew on the new backend under the name it has, and its watcher there replaces the old one, which
+  closes the old session. A session that asked for quiet stays quiet. A session that started before the move
+  was recorded, and is connected to nothing, follows the same way. A Grok Build session, whose prompt hook can
+  say nothing, follows only when it starts.
 - **Leaving holds.** The line names the way out, `brigade team leave`. A machine that left the team at the server
   is not joined again by a session in another checkout of the team: you come back with `team join`, yourself.
 - **How it ends.** The operator closes the move, or the ticket runs out, or the team's owner rotates the join
@@ -1439,13 +1448,15 @@ the session connects to nothing, says that the file does not match, and `team jo
   saying where the team went; it does not end the ticket. Ending the team on the old backend removes the record
   with it.
 - **What does not come over.** Messages that were waiting on the old backend stay there until their retention
-  ends, so an administrator moves a team at a quiet moment. A session that was running when the file changed
-  stays on the old backend until it ends, and is told once, at its next prompt, that a new session follows.
+  ends, so an administrator moves a team at a quiet moment. A running session that holds messages for your
+  review stays on the old backend until you release them, and says so once: a held message does not move with
+  it.
 - **A session that sets `adapter_command`** names its adapter itself and never follows.
 - **The hook writes the store here.** Everywhere else a session's hooks only read your team store, and every
-  change to it is made by a command that was run. This is the one exception: the session-start hook writes the
-  new membership and the checkout's pin, in the one place and behind the one comparison this section describes.
-  The pin records the backend it moved from, so you can tell a pin a command wrote from one a session followed.
+  change to it is made by a command that was run. This is the one exception: the session-start hook, and the
+  process a prompt hook starts for a running session, write the new membership and the checkout's pin, in the
+  one place and behind the one comparison this section describes. The pin records the backend it moved from, so
+  you can tell a pin a command wrote from one a session followed.
 - **Other backends.** The record is a capability of an adapter (`team.move`), which the Supabase adapter
   carries. A backend whose adapter lacks it is asked nothing about a move, and a team on it, or on a Supabase
   project without the migration that adds the record, is never followed anywhere: its members join as before. A migration is applied to a hosted project

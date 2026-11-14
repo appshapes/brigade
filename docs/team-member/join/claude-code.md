@@ -25,8 +25,9 @@ There is no `--profile`, no `--url` and no `--key`: the project file supplies al
   first send is refused.
 - Joined from inside a session, that session attaches at your next prompt. A session already attached to another
   team stays there until you start a new session or exit and resume that one, and the join says so;
-  `/reload-plugins` does not move it. Joined from a terminal, start a session in the checkout; one you already
-  have there that is on no team attaches at a prompt within a minute.
+  `/reload-plugins` does not move it. A session attached to this team on the backend the team left moves at its
+  next prompt ([When your team moves](follow-a-move.md)). Joined from a terminal, start a session in the
+  checkout; one you already have there that is on no team attaches at a prompt within a minute.
 - A project that syncs folders (its `.brigade.json` carries a `sync` member) needs Syncthing on your PATH:
   `brew install syncthing`, `sudo apt install syncthing`. Without it the session connects and a prompt soon after
   says file sync is off.

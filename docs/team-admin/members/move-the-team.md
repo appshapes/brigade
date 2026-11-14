@@ -50,9 +50,11 @@ brigade team move --ticket-file ~/<team>.ticket
 
 Commit and push `.brigade.json`, in every repository of the team. From then on a member's next session, in a
 checkout that was joined to the team on the old backend, follows: it says in one line that it followed the team,
-where to, and that you recorded the move. A session that was already running stays where it is until it ends, and
-is told once that a new session follows. Move at a quiet moment: messages that are waiting on the old backend
-stay there.
+where to, and that you recorded the move. A session that was already running follows at its next prompts once
+its checkout has the changed file, on a plugin later than 0.55.0: the first prompt starts the follow, a later
+one moves the session and says the same line. On 0.55.0 it stays where it is until it ends. Move at a quiet
+moment: messages that are waiting on the old backend stay there, and a running session that holds any stays
+with them until its member releases them.
 
 ## What a member sees, and when they do not follow
 
@@ -64,6 +66,7 @@ A member's session does not follow, says that `.brigade.json` does not match, an
 before when:
 
 - they set the option `follow_team_move` to `off`, or their plugin is older than 0.55.0;
+- the session runs in Grok Build and was running when the file changed: it follows when it starts;
 - the record names anything other than what the file they pulled names: check with `brigade team move --show`;
 - the ticket has ended, the operator closed the move, or you rotated the join secret on the server;
 - their session on the old backend has ended (they left the team there, or were revoked).
