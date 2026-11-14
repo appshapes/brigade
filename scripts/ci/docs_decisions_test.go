@@ -95,6 +95,13 @@ func checkDecisionFinding(t *testing.T, name string, got []string, want string) 
 	t.Errorf("%s: the gate reported %v; want a finding that says %q", name, got, want)
 }
 
+// partly is the planted ADR with a Status that names the ADRs that supersede a part of it (ADR 0008). The
+// repository's own ADRs 0001 to 0003 are the ones a case names.
+func partly(t *testing.T, text, by string) string {
+	t.Helper()
+	return mustChange(t, text, "- **Status:** Accepted", "- **Status:** Accepted; superseded in part by "+by)
+}
+
 // mustChange is strings.Replace that fails when it replaced nothing: a case that changes nothing proves nothing.
 func mustChange(t *testing.T, text, old, replacement string) string {
 	t.Helper()
@@ -131,6 +138,13 @@ func TestDocsGateHoldsACommittedADR(t *testing.T) {
 		want string // part of the finding the gate must report; "" when it must report none
 	}{
 		{"the Status line alone", mustChange(t, committed, "- **Status:** Accepted", "- **Status:** Rejected"), ""},
+		{"a Status that names two ADRs that supersede a part", partly(t, committed, "0001 and 0002"), ""},
+		{"a Status that names three", partly(t, committed, "0001, 0002 and 0003"), ""},
+		{"a Status list that names an ADR that is not there", partly(t, committed, "0001 and 9998"), "which is not in"},
+		{"a Status list out of order", partly(t, committed, "0002 and 0001"), "the lowest number first"},
+		{"a Status list that names an ADR twice", partly(t, committed, "0001, 0001 and 0002"), "the lowest number first"},
+		{"a Status list with no `and`", partly(t, committed, "0001, 0002"), "never Proposed"},
+		{"a Status list of three with no comma", partly(t, committed, "0001 and 0002 and 0003"), "never Proposed"},
 		{"a fact corrected under a Corrected entry", corrected, ""},
 		{"a link in the Decision repointed", mustChange(t, committed, "(README.md)", "(0000-template.md)"), ""},
 		{"a titled link repointed", mustChange(t, committed, "(0000-template.md \"the template\")", "(README.md \"the template\")"), ""},
