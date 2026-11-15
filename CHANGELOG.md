@@ -30,7 +30,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   administrator as its owner, under the label they have on the old backend
   and never one read from the terminal's Claude profile; the move is opened,
   its ticket in a private file under Brigade's state directory that is
-  removed when the command ends; the old backend records where the team
+  removed when the command ends (a command that Ctrl-C or a kill ends there
+  leaves the file, mode 0600, for the next run of the same move to write
+  over and remove); the old backend records where the team
   went; and only then is `.brigade.json` rewritten, with every other member
   and the file's own layout kept. One address, the one that was typed, goes
   to the record and to the file, so the two cannot differ. The command ends
@@ -47,6 +49,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   operator's two commands and `brigade team move --ticket-file`, which
   stay), a server that asks for a creation token, and a team that the server
   already holds for another owner (the server's operator names its owner).
+  A team file that could not be rewritten to name the server, an address
+  longer than a move's record can hold, and a secret file or a creation
+  token file that is in the checkout or is a link into it, stop it before
+  either backend is asked anything. When a move that was recorded is run
+  again and its record fails, the refusal says that the record still hands
+  out the ticket this run replaced.
 
   **A skill, `move`**, in all four packages (`/brigade:move` in Claude Code
   and Grok Build, `$brigade:move` in Codex CLI, the move skill in Muse Code)

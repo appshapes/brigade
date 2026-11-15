@@ -1469,7 +1469,8 @@ the session connects to nothing, says that the file does not match, and `team jo
   written to a file of mode 0600 inside your credential directory, which is removed as soon as the join has been
   sent; it is in no argument, no output and no log line. On the administrator's machine `team move --to` keeps
   it the same way, in a file of mode 0600 under Brigade's state directory, from the server's answer to the
-  record, and removes it.
+  record, and removes it when it ends. A command that Ctrl-C or a kill ends in between cannot: the file stays
+  until the next run of the same move, which writes over it and removes it.
 - **A session can move a team.** Until 0.56.0 `brigade team move` refused inside a session when it recorded or
   cleared a move, so the administrator ran it in a terminal. From 0.56.0 it runs inside a session, and a skill
   there asks the administrator for the server's address and the path of the join secret's file and runs the one

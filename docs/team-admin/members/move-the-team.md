@@ -45,7 +45,9 @@ What it does, in this order:
    same line and proceeds.
 3. **Takes the team in on the server**, with you as its owner, under the label you have on the old backend.
 4. **Opens the move.** The ticket goes to a private file under Brigade's state directory and is removed when the
-   command ends. You never see it.
+   command ends. You never see it. A command that Ctrl-C or a kill ends between this step and the next cannot
+   remove the file: it stays there, mode 0600, until the next run of the same move writes over it and removes
+   it.
 5. **Records the move** on the old backend, with the destination you typed.
 6. **Only then rewrites `.brigade.json`**: `adapter` becomes `rest`, `url` the server's, `certificate` is added
    when you gave one, `publishable_key` goes, and everything else stays as it was. This checkout is joined to the
@@ -53,8 +55,11 @@ What it does, in this order:
 7. **Says what was done and what is left.**
 
 Run the same command again after a failure: every step is safe to repeat, and the command says so when it stops
-part way. Move at a quiet moment: messages that are waiting on the old backend stay there, and a running session
-that holds any stays with them until its member releases them.
+part way. Each run opens the move again, which replaces its ticket on the server, so run a move that is finished
+again only for a reason: if that run stops before it has recorded the new ticket, the record hands out the one
+that was replaced, and a member who has not followed yet does not follow until you run the command once more.
+Move at a quiet moment: messages that are waiting on the old backend stay there, and a running session that
+holds any stays with them until its member releases them.
 
 ## 2. Push the team file
 

@@ -185,7 +185,10 @@ func (inv Invocation) moveTo(flags moveFlags) error {
 	if err != nil {
 		return m.stopped(err, "the team is taken in on "+m.toHost()+", and its move was not opened")
 	}
-	// The ticket's file is gone when the command ends, however it ends.
+	// The ticket's file is gone when the command returns, whichever way it
+	// returns. A command that a signal ends here returns nowhere and
+	// leaves the file, private as it is: the next run for the same team
+	// writes over it and removes it (moveTicketDir).
 	defer func() { _ = os.Remove(ticketFile) }()
 	opened, err := inv.openMove(m, ticketFile)
 	if err != nil {

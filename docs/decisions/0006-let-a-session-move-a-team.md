@@ -167,6 +167,13 @@ no hosted project was asked.
 - One more option to keep the same in four packages, and one more member in the start facts.
 - `brigade team move` has two ways to say where a team went: typed, for `--to`, and read from the team file, for
   `--ticket-file`. A change to either is a change to what `docs/security.md` section 21 argues.
+- Each run of the one command opens the move again, and a second open replaces the ticket. A move that is
+  finished and run again, when that run stops between its open and its record, leaves the old backend handing
+  out a ticket that admits nobody: a member who has not followed yet does not follow until the command is run
+  once more, which is what it says to do.
+- The ticket's file is removed when the command ends. A command that Ctrl-C or a kill ends between the open and
+  the record cannot remove it: the file stays under the state directory, mode 0600, until the next run of the
+  same move writes over it and removes it.
 - We would revisit this if a session-led move were ever made on text the administrator did not write, or if a
   harness gave a command a way to know that a person, and not a model, confirmed it.
 
