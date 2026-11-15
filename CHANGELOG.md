@@ -248,6 +248,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   conversation, and in Muse Code the new conversation's shell found no
   session. The session is now kept as after any `/clear` and says its
   context line; a `.brigade.json` there that was refused is still said.
+
+  The same for a `/clear` beside settings of yours that the start
+  refuses: a `frame` level that is no level, a `frame_file` that fails a
+  check, an `adapter_command` that is no command. It said `not
+  connected` of a session that stayed attached, under the frame it had.
+  The session is kept, and one line after the context line says what
+  could not be used and why, that it is not in force, that the session
+  goes on with the frame and the options it had, and to fix the option
+  and `/clear` or start a new session. A session that starts anew beside
+  such a setting still connects to nothing and says why, as before.
 - **A Codex CLI thread that is resumed in another checkout registers
   there** (work item 327), as it did before a session's checkout was
   recorded.

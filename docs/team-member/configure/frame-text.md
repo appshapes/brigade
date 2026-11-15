@@ -39,6 +39,16 @@ level's sentence and nothing else.
   check, the session starts without Brigade and prints why, for example
   `Brigade: not connected (config: frame_file_unreadable); fix the frame or frame_file option in your settings`.
   The path is never printed.
+- A session that is already running is not disconnected by such a file, or by a `frame` level that is none of the
+  three: its `/clear` keeps it connected, and team messages go on reaching it under the frame it had, which may
+  be a weaker one than you meant to set. From the plugin release after 0.55.0 it says so after its context line,
+  where it used to say the line above:
+
+  ```text
+  Brigade: this session stays connected as it was. The `frame_file` option cannot be used (frame_file_unreadable), so the frame your options name now is not in force here: team messages still reach this session under the frame it had. Fix the `frame` or `frame_file` option, then `/clear` or start a new session.
+  ```
+
+  Fix the option, then `/clear` or start a new session, and the frame you set applies.
 - The file is read once, when the session starts. An edit takes effect at the next session, `/clear` or
   `/reload-plugins`.
 

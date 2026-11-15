@@ -100,16 +100,21 @@ start follows on.
    checkout, as a start in it always has. From a directory that resolves no team (a checkout that is not joined,
    no team file, a team file with no record behind it) it says nothing of a session that is not connected. From
    such a directory, and from a checkout that is on another backend than the session, it keeps the map and the
-   watcher for the conversation that begins and says the context line of the session where it is. From another
-   checkout on the backend the session is on, it continues the session as a `/clear` there always has, with what
-   that start resolved (the workspace label, file sync, and a new watcher when file sync changed); the map goes
-   on naming the checkout the session registered in. With no watcher alive, a start in another checkout is of a
-   session that begins there: it registers where it is and is that checkout's, which is what a Codex CLI thread
-   that is resumed in another checkout is. In its own checkout a pin that matches the team file is the member's
-   consent however it was written: after `brigade team join` there, the running session moves at its next
-   prompt, and says so in a line of its own. A map written before it named a checkout is given the first one a
-   prompt or a start comes from that is joined on this machine to the session's team, and is that checkout's
-   from then on.
+   watcher for the conversation that begins and says the context line of the session where it is. It keeps the
+   session in the same way, wherever it comes from, when what it could not use was the member's own settings and
+   not the team: an option that cannot be read, a `frame_file` that fails a check, an adapter that cannot be
+   resolved. Nothing of such settings reaches the session, whose watcher goes on with the frame, the options and
+   the adapter the session had, and the start says so in one line after the context line: what could not be used
+   and the refusal's own reason, that it is not in force and what holds instead, and to fix it and `/clear` or
+   start a new session. From another checkout on the backend the session is on, it continues the session as a
+   `/clear` there always has, with what that start resolved (the workspace label, file sync, and a new watcher
+   when file sync changed); the map goes on naming the checkout the session registered in. With no watcher
+   alive, a start in another checkout is of a session that begins there: it registers where it is and is that
+   checkout's, which is what a Codex CLI thread that is resumed in another checkout is. In its own checkout a
+   pin that matches the team file is the member's consent however it was written: after `brigade team join`
+   there, the running session moves at its next prompt, and says so in a line of its own. A map written before
+   it named a checkout is given the first one a prompt or a start comes from that is joined on this machine to
+   the session's team, and is that checkout's from then on.
 9. **A resume hint goes only to the backend that issued it**, at a prompt and at a session's start: the map that
    remembers a session by its native id now carries the team key, and a map that names another key is neither
    resumed nor heartbeated. This is the fix of the `/clear` path.
@@ -241,13 +246,21 @@ start follows on.
   spared by a membership the team file does not describe, Grok Build not left out of the starts that keep a
   session, and two that change nothing a session can show. The tests added since catch nine; the one left that
   matters is Grok Build's, where a start that resolved no team ended the same with the rule taken out. It found
-  three things more, which it did not change. A start that keeps a session drops what its resolution said also
-  when what was refused was the member's own settings and not the team (an option that cannot be read, a
-  `frame_file` that fails a check, an adapter that is not resolved), where such a start said why before, though
-  of a session it called not connected. A session with no watcher, which takes its messages at its prompts
-  (`poll_on_prompt`), moves without a last poll of the backend it leaves, and what was sent to it there since
-  its last prompt stays there. And a quiet session whose move was cut short before its watcher started loses its
-  request for quiet at a `/clear` that comes before its next prompt, as any session with no watcher alive does.
+  three things more. One was ruled on and built on 2026-11-15: a start that keeps a session dropped what its
+  resolution said also when what was refused was the member's own settings and not the team (an option that
+  cannot be read, a `frame_file` that fails a check, an adapter that is not resolved), where such a start said
+  why before, though of a session it called not connected. Point 8 now has it say what holds. What that is was
+  read from a run first: after such a start the map held the frame, the inbound policy and the adapter it had
+  held, no watcher was started or stopped, a prompt beside an option that cannot be parsed polled for nothing,
+  and a session that started anew beside the same setting connected to nothing. The tests (`move_start_test.go`)
+  hold a frame level that is no level, a `frame_file` that is not there and an `adapter_command` that is no
+  command, in Claude Code and in Muse Code, and an adapter that a team file names and `adapters.json` does not
+  hold; of twelve one-line changes to the rule they catch eleven, the line dropped among them, and the one left
+  is the refusal of a resolved adapter's command, which no option and no registry entry reaches. The other two
+  it did not change. A session with no watcher, which takes its messages at its prompts (`poll_on_prompt`),
+  moves without a last poll of the backend it leaves, and what was sent to it there since its last prompt stays
+  there. And a quiet session whose move was cut short before its watcher started loses its request for quiet at
+  a `/clear` that comes before its next prompt, as any session with no watcher alive does.
 - The same day, 35 one-line changes to the rules above, in the hook, the follow and the join's last line, were
   each caught by a test. One of them, the map of another backend treated as a session that continues, was also
   run through the built binary: the test failed, and the hook's log showed the server answering `not_found` to
@@ -310,10 +323,19 @@ start follows on.
   holds messages is still registered anew by `/clear`, which begins another conversation.
 - A `/clear` of a running session that resolves no team where it comes from no longer ends with the line of a
   session that is not connected, or with none: the session is kept and says its context line. What the
-  resolution said is dropped, but for a team file that was refused (one that does not match what the member
-  joined, one that holds what looks like a secret), which the start says in the words of a session that stays
-  where it is. A session with no live watcher, and one whose member left its team, end such a start as they
-  did: `not connected: .brigade.json does not match`, or `not joined`.
+  resolution said is dropped, but for two things the start says in the words of a session that stays where it
+  is: a team file that was refused (one that does not match what the member joined, one that holds what looks
+  like a secret), and settings of the member's own that were (the next consequence). A session with no live
+  watcher, and one whose member left its team, end such a start as they did: `not connected: .brigade.json does
+  not match`, or `not joined`.
+- A start that keeps a session beside settings it refused leaves the session on the frame it had. A session that
+  starts anew with the same settings connects to nothing and takes no message, so a member who meant to tighten
+  the frame and mistyped the level, or named a file that fails its check, has a running session that goes on
+  taking team messages under the weaker frame until the option is fixed and the session is cleared or started
+  again. It was so before this decision, when such a `/clear` said `not connected` of a session that stayed
+  attached; the start now says that the frame the session had still holds. While an option cannot be parsed at
+  all, the session's prompts read none of them: the inbound policy is not decided again, nothing is polled and
+  no move is followed, and the line says that too.
 - A start that keeps a session tells the backend the session is on of the conversation that begins, as a start
   that continues does: one heartbeat with the name the session has now and, when the conversation changed, an
   empty doing line. Nothing is sent to the backend the team went to.
