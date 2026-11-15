@@ -1,6 +1,7 @@
 //! The state of a server: what its records add up to.
 //!
-//! The state is held in memory and written whole in a snapshot. [`State::apply`] is the only thing that
+//! The state is held in memory and written in a snapshot, whole but for the one member that is read off the
+//! rest whenever a state is read ([`Principal::retry_key_in`]). [`State::apply`] is the only thing that
 //! changes it. It cannot fail, reads no clock and draws nothing, so a restart and a standby that apply the
 //! same records in the same order hold the same state.
 //!
