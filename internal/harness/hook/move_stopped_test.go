@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -219,5 +220,41 @@ func TestAMoveSaidFromItsNoticeNamesTheSessionsOwnCheckout(t *testing.T) {
 	want := []string{followedLineOf(startedCheckout, tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
 	if !slices.Equal(got, want) {
 		t.Fatalf("the prompt after the hook that was stopped, from a checkout of another team:\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestAMoveSaidFromItsNoticeEchoesNoFileThePinDoesNotMatch: the arrival
+// line carries the team file's values (the team's name, the server, its
+// certificate), and may because the checkout's pin matches the file: the
+// member, or the backend they joined, consented to them. Between the hook
+// that was stopped and the next prompt the file can change again. Its
+// values are then nobody's consent, and the prompt says the context line of
+// the session as it is and nothing from the file.
+func TestAMoveSaidFromItsNoticeEchoesNoFileThePinDoesNotMatch(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	f.moveTeamFile("team-1")
+	f.prompted()
+	held := stoppedAtTheWatcher{watchers: f.spawner, reached: make(chan struct{}), release: make(chan struct{}), once: &sync.Once{}}
+	stopped := *f
+	stopped.deps.Spawner = held
+	heldHook(t, &stopped, held.reached, held.release)
+	if f.mustMap().BrigadeSessionID != "brigade-sess-2" {
+		t.Fatalf("the hook stands at the watcher with the map of %q", f.mustMap().BrigadeSessionID)
+	}
+	// The file is pointed somewhere else, under a name of its own choosing.
+	const elsewhere = "unconsented.example.net"
+	doc := map[string]any{"version": 1, "adapter": "rest", "url": "https://" + elsewhere + ":8743", "team_ref": "team-1", "team_name": "a name nobody consented to"}
+	if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), mustJSON(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := f.prompted()
+	if len(got) == 0 || got[0] != startLine("payments-api", "brigade-sess-2", teamName, "accept") {
+		t.Fatalf("the prompt after the hook that was stopped: %q", got)
+	}
+	if all := strings.Join(got, "\n"); strings.Contains(all, elsewhere) || strings.Contains(all, "nobody consented") {
+		t.Fatalf("the prompt echoed a team file its checkout's pin does not match: %q", got)
 	}
 }
