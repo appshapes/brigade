@@ -90,6 +90,56 @@ func TestCanWriteAtomic(t *testing.T) {
 	}
 }
 
+// TestCanWriteAtomicToldByTheLengthOfAName: a file system takes a name of
+// so many bytes and no more, and WriteAtomic's temporary file is named
+// after the file it writes, with a dot, `.tmp-` and up to ten digits more.
+// With the 255 bytes most file systems give a name, a name of 239 bytes is
+// the longest the write always takes, and one of 249 the shortest it never
+// takes. The probe says what the write does at both, and at the lengths
+// below the first that it once refused, because its own temporary file was
+// longer than the write's; and it leaves nothing behind at any of them.
+func TestCanWriteAtomicToldByTheLengthOfAName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	named := func(length int) string { return filepath.Join(dir, strings.Repeat("n", length)) }
+	// The numbers hold where a name has 255 bytes: elsewhere the test has
+	// nothing to say.
+	if err := os.WriteFile(named(255), nil, 0o600); err != nil {
+		t.Skipf("this file system takes no name of 255 bytes: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, strings.Repeat("m", 256)), nil, 0o600); err == nil {
+		t.Skip("this file system takes a name of 256 bytes")
+	}
+	if err := os.Remove(named(255)); err != nil {
+		t.Fatal(err)
+	}
+	written := 0
+	for _, length := range []int{1, 22, 23, 24, 200, 222, 225, 230, 238, 239} {
+		if err := adapterkit.CanWriteAtomic(named(length)); err != nil {
+			t.Errorf("a name of %d bytes: the probe refuses what the write takes: %v", length, err)
+		}
+		if left := names(t, dir); len(left) != written {
+			t.Fatalf("a name of %d bytes: the probe left something behind: %d files, want the %d written", length, len(left), written)
+		}
+		if err := adapterkit.WriteAtomic(named(length), []byte("x\n")); err != nil {
+			t.Errorf("a name of %d bytes: the write the probe passed fails: %v", length, err)
+			continue
+		}
+		written++
+	}
+	for _, length := range []int{249, 250, 255} {
+		if err := adapterkit.CanWriteAtomic(named(length)); err == nil {
+			t.Errorf("a name of %d bytes: the probe passes what the write is refused", length)
+		}
+		if err := adapterkit.WriteAtomic(named(length), []byte("x\n")); err == nil {
+			t.Errorf("a name of %d bytes: the write is taken, and the test's numbers are wrong", length)
+		}
+		if left := names(t, dir); len(left) != written {
+			t.Fatalf("a name of %d bytes: something was left behind: %d files, want the %d written", length, len(left), written)
+		}
+	}
+}
+
 // TestTicketFileTargetMustTakeAFile: the check `team open-move` and `team
 // moved` make before any network call refuses a directory that takes no
 // file and a path that names a directory, as `config`
