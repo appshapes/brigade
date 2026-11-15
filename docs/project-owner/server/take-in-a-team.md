@@ -37,7 +37,9 @@ sudo systemctl start brigade-server
 From server 0.7.0 a running server takes a team in when it is asked to, by the request `/v1/team/take-in` of
 [the backend's contract](../../backend-rest-v1.md) (section 3b). The Team Admin's machine makes it through the
 bundled `rest` adapter (`team take-in`), with the team's join secret and its name. The server is not stopped, and
-you run nothing.
+you run nothing. The Team Admin's command for it is `brigade team move --to <url> --secret-file <path>`, which
+takes the team in, opens its move and records it
+([Move the team to a server](../../team-admin/members/move-the-team.md)).
 
 - **Whoever takes the team in owns it**, from that request on: the server cannot check who administered the team
   where it came from. The team's members then join, or follow, as members.

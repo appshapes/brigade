@@ -84,15 +84,17 @@ Details: [Open the gateways](gateways.md).
 
 ## Move a team from Supabase
 
-1. Before: the server at 0.5.0 or later, the migration `20261114120000_team_move` on the Supabase project, and
-   plugin 0.55.0 or later on each member's machine.
-2. The operator takes the team in, opens its move, and gives the ticket's file to the Team Admin.
-3. The Team Admin points `.brigade.json` at the server in one checkout (with `certificate` when the server made
-   its own), joins with the secret file, records the move with `brigade team move --ticket-file <path>`, then
-   commits and pushes the file in every repository.
+1. Before: the server at 0.7.0 or later, the migration `20261114120000_team_move` on the Supabase project,
+   plugin 0.56.0 or later on the Team Admin's machine and 0.55.0 or later on each member's.
+2. The operator gives the Team Admin the server's URL, its certificate's fingerprint when the server made its
+   own, and the creation token's file when the server asks for one.
+3. The Team Admin runs one command in a checkout of the team, `brigade team move --to <url> --secret-file <path>`,
+   then commits and pushes `.brigade.json` in every repository. The operator runs nothing.
 4. Each member pulls as usual, and the next session in each checkout follows. Nobody runs a join.
 5. After: open the gateways on the server and take them out of the Supabase project. When no checkout is left to
    follow, close the move and end the team on the old backend, from a checkout that still names it.
+6. A server older than 0.7.0: the operator takes the team in and opens the move with the server stopped, and the
+   Team Admin joins and records it with `brigade team move --ticket-file <path>`.
 
 Details: [Move a team from Supabase](move-from-supabase.md).
 
@@ -105,6 +107,8 @@ Details: [Move a team from Supabase](move-from-supabase.md).
 3. Each member updates the plugin to 0.53.1 or later, pulls, and joins with the secret file they already have,
    once in each checkout that was joined to the team on the old backend. With a move opened and recorded they
    do nothing instead ([Let a team's members follow it](#let-a-teams-members-follow-it)).
+4. From server 0.7.0 you run none of this: the Team Admin's `brigade team move --to <url> --secret-file <path>`
+   asks the running server to take the team in ([Move a team from Supabase](#move-a-team-from-supabase)).
 
 Details: [Take in a team that exists](take-in-a-team.md).
 
@@ -116,6 +120,8 @@ Details: [Take in a team that exists](take-in-a-team.md).
    `brigade team move --ticket-file <path>`.
 3. Once the changed `.brigade.json` is pushed, each member's next session follows; nobody runs a join.
 4. `--close-move <team_ref>` ends it, as does the ticket's end after 30 days.
+5. From server 0.7.0 the Team Admin's `brigade team move --to <url> --secret-file <path>` opens the move by
+   request, and no ticket file changes hands.
 
 Details: [Let a team's members follow it](open-a-move.md).
 

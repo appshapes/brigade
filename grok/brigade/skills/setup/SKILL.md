@@ -19,3 +19,8 @@ Grok options are in `~/.config/brigade/grok-options.json`. Set `label` to a lite
 no Claude account is borrowed. Membership joining and monitor readiness are separate. Refer to the member's
 `install/join/configure/update/leave/grok.md` pages for ordered procedures, status and retained local backlog.
 Transfer ownership before an administrator leaves; revoke membership before deleting credential copies.
+
+A team in a Supabase project can move to a Brigade server with its join secret, and its members run no command:
+the `move` skill asks the team's administrator for the server's URL and the path of the team's secret file and
+runs `brigade team move --to <url> --secret-file <path>`. `docs/team-admin/members/move-the-team.md` has the
+procedure.

@@ -263,10 +263,11 @@ Phase 4 run with a real model — 84 headless sessions, the idle-wake and crash-
 interactive sweep — and it produced none of the acts those test messages asked for. Read that number with
 section 3's limits: those runs measured attempts, not effects.
 
-**The one deliberate exception.** Four commands refuse to run inside a Claude Code session: `brigade team
-revoke-member`, `brigade team transfer`, `brigade team move` (when it records or clears where a team went, section
-21; `--show` only reads) and `brigade inbox release`. Each is hard to undo, and each is exactly the
-sort of act a teammate's text could talk a session into. They run in your own terminal instead. Read the refusal
+**The one deliberate exception.** Three commands refuse to run inside a Claude Code session: `brigade team
+revoke-member`, `brigade team transfer` and `brigade inbox release`. Each is hard to undo, and each is exactly the
+sort of act a teammate's text could talk a session into. They run in your own terminal instead. A fourth,
+`brigade team move` when it records or clears where a team went, refused with them until 0.56.0 and runs inside a
+session since, unless you set the option `team_move_in_session` to `off` (section 21). Read the refusal
 for what it is: the command notices it is inside a session by the environment Claude Code gives the Bash tool
 (`CLAUDE_PID`), and a command that strips that environment first — `env -u CLAUDE_PID brigade team revoke-member …`
 — runs as if from a terminal (measured 2026-09-08). The gate that holds is Claude Code's own: that command text
@@ -1414,6 +1415,10 @@ Until 0.55.0 nothing could point your sessions at another backend without a comm
 move on the project the team is leaving: the server's address, its certificate fingerprint when the team file
 pins one, and a move ticket that the server made, for its operator or, from server 0.7.0, for the team's owner
 there by request ([ADR 0005](decisions/0005-take-a-team-in-and-open-its-move-by-request.md)).
+From 0.56.0 one command of the administrator's does all of it, `brigade team move --to`: the server takes the
+team in with the administrator as its owner, the move is opened and recorded, and only then is `.brigade.json`
+rewritten, from the one address the administrator typed (work item 328;
+[ADR 0006](decisions/0006-let-a-session-move-a-team.md)).
 When your next session starts in a checkout whose
 `.brigade.json` names a new backend for the team you joined there, the session asks the backend you joined
 whether that team moved. If the record names exactly what the file names — the adapter, the address, the
@@ -1449,7 +1454,29 @@ the session connects to nothing, says that the file does not match, and `team jo
   the secret file, and `team move` refuses to record anything until the administrator's machine has joined the
   server. The ticket is read from a file and
   written to a file of mode 0600 inside your credential directory, which is removed as soon as the join has been
-  sent; it is in no argument, no output and no log line.
+  sent; it is in no argument, no output and no log line. On the administrator's machine `team move --to` keeps
+  it the same way, in a file of mode 0600 under Brigade's state directory, from the server's answer to the
+  record, and removes it.
+- **A session can move a team.** Until 0.56.0 `brigade team move` refused inside a session when it recorded or
+  cleared a move, so the administrator ran it in a terminal. From 0.56.0 it runs inside a session, and a skill
+  there asks the administrator for the server's address and the path of the join secret's file and runs the one
+  command; set the option `team_move_in_session` to `off` and it refuses in your sessions as before. A value that
+  is neither `on` nor `off` is read as off, and the session says so. What this costs, stated plainly: whatever
+  steers the administrator's session, a teammate's message or a file or a page the session read, can send every
+  member's sessions, and the join secret, to a server of its choosing. What still stands in its way is four
+  things. Only the team's creator on the old backend can record a move there. The command needs the path of the
+  join secret's file, which is outside the repository and which the skill is told and never chooses. The
+  harness's own permission prompt asks before the command runs, in a mode that asks and where nothing has
+  allowed `brigade` commands already. The `move` skill allows nothing that writes, and tells the model to move
+  a team only on its user's own ask, which is an instruction to a model and no boundary. But the team-messaging
+  skill's `allowed-tools: Bash(brigade:*)` grant, for the turn that loaded it, and a
+  `permissions.allow: Bash(brigade:*)` rule of your own both cover `brigade team move` now, as they cover the
+  three verbs of section 5; and in a mode that skips prompts nothing stands there, as section 5 says of every
+  command. For a dialog on a move in every mode that asks, add `"ask": ["Bash(brigade team move*)"]` beside the
+  send rule of section 5. And every member is shown the line above when their session follows, and can turn the
+  follow off. What the refusal did, and no more: it read "inside a session" from the environment, so a command
+  run with those variables removed passed it, but that command matched no `Bash(brigade:*)` rule, so a mode that
+  asks did ask about it (section 5). That dialog is what the ask rule above puts back.
 - **Only a session's start follows.** A session that started before the move was recorded stays unconnected,
   however many prompts it takes, until it is started again.
 - **Leaving holds.** The line names the way out, `brigade team leave`. A machine that left the team at the server

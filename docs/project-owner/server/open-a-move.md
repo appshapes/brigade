@@ -67,7 +67,9 @@ sudo systemctl start brigade-server
 From server 0.7.0 a running server opens and closes a team's move when the team's owner asks it to, by the
 requests `/v1/team/open-move` and `/v1/team/close-move` of [the backend's contract](../../backend-rest-v1.md)
 (section 3b). The owner's machine makes them through the bundled `rest` adapter (`team open-move --ticket-file
-<path>` and `team close-move`). The server is not stopped, and you run nothing.
+<path>` and `team close-move`). The server is not stopped, and you run nothing. The Team Admin's
+`brigade team move --to <url> --secret-file <path>` opens the move this way, after it took the team in
+([Move the team to a server](../../team-admin/members/move-the-team.md)).
 
 - **Only the team's owner is answered**, by the credential its machine holds. A member that is not the owner, and
   a member the ticket let in, is refused as a stranger is.

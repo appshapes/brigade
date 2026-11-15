@@ -11,6 +11,74 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **A team moves to a Brigade server with one command, from a terminal or a
+  session** (work item 328, ADR 0006). Until now a move was six steps by two
+  people: the server's operator took the team in and opened its move with
+  the server stopped and handed a ticket back as a file, and the team's
+  administrator edited `.brigade.json` by hand, joined the server and ran
+  `brigade team move --ticket-file` in a terminal. Now the administrator
+  runs, in a checkout of the team, `brigade team move --to <server url>
+  --secret-file <path>`, with `--certificate <sha256:…>` for a server that
+  made its own certificate, `--create-token-file <path>` for one that asks
+  for a creation token and `--ticket-days <n>` to keep the move open for
+  other than 30 days. The command checks first and changes nothing: that the
+  checkout's team file names the backend the team is on and this machine is
+  joined there, that the secret file holds this team's secret, that the old
+  backend can keep a record and the caller created the team, and which
+  sessions are online on a plugin older than 0.55.0. It shows what it is
+  about to do and asks. Then the server takes the team in with the
+  administrator as its owner, under the label they have on the old backend
+  and never one read from the terminal's Claude profile; the move is opened,
+  its ticket in a private file under Brigade's state directory that is
+  removed when the command ends; the old backend records where the team
+  went; and only then is `.brigade.json` rewritten, with every other member
+  and the file's own layout kept. One address, the one that was typed, goes
+  to the record and to the file, so the two cannot differ. The command ends
+  by saying what was done and what is left: the file to commit and push in
+  every repository of the team, the members on an older plugin, the gateways
+  when the team file has a `gateway` member, and how to undo it. After a
+  failure at any step the same command finishes the move.
+
+  Each thing that stops it does so before the record, the team file or the
+  checkout's pin is written, and says what to do: a Supabase project without
+  the migration `20261114120000_team_move` (its Project Owner applies it,
+  `make backend-install project=<ref>`), a member who did not create the
+  team, a secret file of another team, a server older than 0.7.0 (its
+  operator's two commands and `brigade team move --ticket-file`, which
+  stay), a server that asks for a creation token, and a team that the server
+  already holds for another owner (the server's operator names its owner).
+
+  **A skill, `move`**, in all four packages (`/brigade:move` in Claude Code
+  and Grok Build, `$brigade:move` in Codex CLI, the move skill in Muse Code)
+  makes the move from a session. It asks the administrator, one question at
+  a time, for the server's URL, the path of the team's join secret file and,
+  when the server needs them, the path of its creation token file and its
+  certificate's fingerprint; runs the one command; prints what it printed;
+  and commits and pushes `.brigade.json` when the user says so. It never
+  asks for a secret's content, never chooses a path and never writes a
+  secret file. The Claude Code skill pre-approves nothing that writes, so
+  the move itself meets the session's own permission rule.
+
+  **The option `team_move_in_session`** (on by default; `off` restores the
+  refusal) decides whether `brigade team move` may move a team, record a
+  move or clear a record from inside the member's sessions. It is read as
+  `follow_team_move` is, in every harness, and a value that is neither word
+  is off and is said at session start. What a session-led move opens is in
+  `docs/security.md`, section 21: whatever steers the administrator's
+  session can send every member's sessions, and the join secret, to a server
+  of its choosing. What still stands in its way is the creator-only rule on
+  the old backend, the path of the secret's file, the harness's own
+  permission prompt and the line every member is shown when their session
+  follows. That prompt does not ask where `brigade` commands are allowed
+  already, by a `Bash(brigade:*)` rule of the member's own or, in Claude
+  Code, by the `team-messaging` skill in the turn that loaded it; the ask
+  rule `Bash(brigade team move*)` puts the dialog back.
+
+  It needs a Brigade server 0.7.0 or later and plugin 0.55.0 or later on
+  each member's machine. The pages are [Move the team to a
+  server](docs/team-admin/members/move-the-team.md) and [Move a team from
+  Supabase](docs/project-owner/server/move-from-supabase.md).
+
 - **The adapter protocol can ask a backend to take a team in and to open
   and close its move** (work item 328, ADR 0005). BAP/1 gets the
   capability `team.take_in` and three commands (4.4.10). `team take-in`
@@ -29,7 +97,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   asked. Conformance cases C-53, C-54 and C-55 hold an adapter that
   advertises it. Until now the server's operator took a team in and
   opened its move with two commands on a stopped server; those commands
-  stay. No `brigade` command makes the three requests yet.
+  stay. `brigade team move --to`, the entry above, is the command that
+  makes the three requests.
+
+### Changed
+
+- **`brigade team move --ticket-file` and `brigade team move --clear` run
+  inside a session** (work item 328, ADR 0006, which supersedes ADR 0003 in
+  part). They refused there since 0.55.0. The refusal read "inside a
+  session" from the environment, so a command run with those variables
+  removed passed it; it is now a member's choice, the option
+  `team_move_in_session`. At a terminal the record still shows what it is
+  about to do and asks; inside a session, where nobody can be asked, it
+  prints the same line and proceeds. `brigade team revoke-member`, `brigade
+  team transfer` and `brigade inbox release` refuse inside a session as
+  before.
 
 ## [0.55.0] — 2026-11-13
 
