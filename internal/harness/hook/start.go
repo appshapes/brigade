@@ -160,6 +160,12 @@ type resolved struct {
 	soundLine           string
 	messageNotification bool
 	notificationLine    string
+	// ensureLine is the line of the write this resolution made to the
+	// member's user settings file (ensureInboundSetting), "" when it made
+	// none. It is the first of dec.Warnings too, for a start that says
+	// them; a start that keeps a session says none of the decision's
+	// warnings, and still says what was written (finishKept).
+	ensureLine string
 }
 
 // connect registers (or re-attaches to) the Brigade session and prints
@@ -683,6 +689,7 @@ func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 		client:              r.client(adapter, key, opts.ConfigDir, f.stateDir),
 		store:               sessionmap.Store{StateDir: f.stateDir},
 		doingRules:          doingRules,
+		ensureLine:          ensureLine,
 	}, true
 }
 
@@ -1605,28 +1612,7 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 	// session connecting.
 	warnings = append(warnings, teamFileNotes(res.teamFile)...)
 	r.pruneCache(f, now)
-	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
-	switch {
-	case f.host == config.HostGrok:
-		state := "unverified"
-		if m.Grok != nil {
-			switch m.Grok.MonitorState {
-			case "unarmed", "arming-attempted", "unverified", "paused", "armed":
-				state = m.Grok.MonitorState
-			}
-		}
-		r.say("Brigade: monitor " + state + " (last local observation). If unarmed, setup follows the first completed turn; use /brigade:team-messaging for status or explicit retry. Startup notices are UI-only. Local backlog may already be locally ACKed.")
-	case f.muse():
-		// The monitor is what makes a Muse session a peer (card 88): the
-		// arming line follows the context line on every SessionStart but
-		// compact, because a resume starts a new process and the old
-		// monitor died with the old one.
-		r.say(armLine(r.commandName(f)))
-	case f.codex():
-		// Nothing to arm on Codex (card 107): the line says how a message
-		// arrives and where the command is.
-		r.say(codexLine(r.commandName(f)))
-	}
+	r.sayContext(f, m)
 	if line := res.syncLine; line != "" {
 		if res.sync.adapter != "" && !watcherRuns {
 			line = syncOffLine(syncOffNoWatcher)
@@ -1671,6 +1657,36 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 		// A start said the session's context line: the notice of a move
 		// whose hook was stopped has nothing left to tell.
 		r.dropMovedNotice(f)
+	}
+}
+
+// sayContext says the context line of the session m describes and, after
+// it, the host's own line: Grok Build's monitor state, Muse Code's arming
+// line, Codex CLI's line of how a message arrives. It is what every start
+// that leaves a session attached says first, whether it registered the
+// session, continued it or kept it where it is.
+func (r *run) sayContext(f facts, m *sessionmap.ByPID) {
+	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
+	switch {
+	case f.host == config.HostGrok:
+		state := "unverified"
+		if m.Grok != nil {
+			switch m.Grok.MonitorState {
+			case "unarmed", "arming-attempted", "unverified", "paused", "armed":
+				state = m.Grok.MonitorState
+			}
+		}
+		r.say("Brigade: monitor " + state + " (last local observation). If unarmed, setup follows the first completed turn; use /brigade:team-messaging for status or explicit retry. Startup notices are UI-only. Local backlog may already be locally ACKed.")
+	case f.muse():
+		// The monitor is what makes a Muse session a peer (card 88): the
+		// arming line follows the context line on every SessionStart but
+		// compact, because a resume starts a new process and the old
+		// monitor died with the old one.
+		r.say(armLine(r.commandName(f)))
+	case f.codex():
+		// Nothing to arm on Codex (card 107): the line says how a message
+		// arrives and where the command is.
+		r.say(codexLine(r.commandName(f)))
 	}
 }
 

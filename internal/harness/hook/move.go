@@ -871,9 +871,8 @@ func (r *run) stay(ctx context.Context, f facts, in input, res resolved, existin
 // `/clear` fires it for another conversation of the same process, so the
 // map is kept with what a conversation changes — its id, the name, the
 // permission mode, the transcript — and nothing of the backend or the
-// checkout, and the start ends as one that continued does (finish): the
-// pointers, the state entry and the context line are the session's where
-// it is.
+// checkout, and the start ends with the pointers, the state entry and the
+// lines of the session where it is (finishKept).
 //
 // The backend the session is on hears of the conversation that begins, as
 // it does from a start that continues (connect): the name the session has
@@ -895,7 +894,70 @@ func (r *run) keep(ctx context.Context, f facts, in input, res resolved, existin
 		r.say(startLine(existing.SessionName, existing.BrigadeSessionID, existing.TeamName, existing.Inbound))
 		return
 	}
-	r.finish(ctx, f, in, res, kept, now, watcherRuns)
+	r.finishKept(ctx, f, in, res, kept, now, watcherRuns)
+}
+
+// finishKept ends a start that keeps a running session where it is, once
+// the session's map is written (keep): it files the pointers and the state
+// entry of the conversation that begins, as finish does, and says what is
+// true of the session it keeps. That is not what finish says. This start
+// resolved the checkout its own directory is in, which is on another
+// backend than the session, or the session's own checkout after its team
+// file changed; the session took nothing of it. Its watcher was started
+// under the map the session had and reads the inbound policy, the frame,
+// file sync, the polling and the announcements from there, so the notes of
+// the team file this start read, its sync line, its sound and notification
+// lines and the warnings of its inbound decision would each be said of
+// settings the session does not run under: a `/clear` in a checkout of
+// another backend told a session that syncs nothing that file sync was on,
+// and one whose policy is accept that it was refuse.
+//
+// What it says: the context line and the host's line of the session as it
+// is; its file sync as its own map holds it; and of what this start did or
+// read, only what holds for the session whatever was resolved. That is the
+// write this start made to the member's user settings file, a `brigade`
+// that shadows the plugin's on the session's PATH, and the warnings of the
+// two options that are read where they are used and not frozen in the map:
+// follow_team_move, at every prompt, and team_move_in_session, in the
+// start facts this start wrote. A change of the session's inbound policy
+// is said by the prompt that makes it (redecide).
+func (r *run) finishKept(ctx context.Context, f facts, in input, res resolved, kept *sessionmap.ByPID, now time.Time, watcherRuns bool) {
+	r.writeByNative(res.store, in.SessionID, kept, now)
+	r.writeByHost(f, res.store, in.SessionID, kept, now)
+	r.stateStart(ctx, f, res.opts, kept, now)
+	r.pruneCache(f, now)
+	r.sayContext(f, kept)
+	if line := r.keptSyncLine(f, kept, watcherRuns); line != "" {
+		r.say(line)
+	}
+	said := []string{res.ensureLine}
+	if path, ok := r.shadowing(f); ok {
+		said = append(said, shadowLine(path))
+	}
+	for _, line := range append(said, res.opts.FollowTeamMoveWarning, res.opts.TeamMoveInSessionWarning) {
+		if line != "" {
+			r.say(line)
+		}
+	}
+	// The context line is said: a move's notice has nothing left to tell.
+	r.dropMovedNotice(f)
+}
+
+// keptSyncLine is the file sync line of a session a start keeps, from the
+// session's own map: what its watcher was started to sync, never what the
+// team file this start read lists. A session whose map syncs nothing says
+// nothing: why it does not is the word of the start that resolved it. With
+// no watcher running the line says off, as finish's does.
+func (r *run) keptSyncLine(f facts, m *sessionmap.ByPID, watcherRuns bool) string {
+	switch {
+	case m.SyncAdapter == "":
+		return ""
+	case watcherRuns:
+		return syncOnLine(len(m.SyncFolders), m.BoardFolder != "", m.SyncAdapter)
+	case !r.canInject(f):
+		return syncOffLine(syncOffNoSocket)
+	}
+	return syncOffLine(syncOffNoWatcher)
 }
 
 // keptMap is the map of a session that a start keeps where it is: the map
@@ -1000,13 +1062,7 @@ func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *s
 			r.stateStart(ctx, f, opts, kept, now)
 		}
 	}
-	r.say(startLine(kept.SessionName, kept.BrigadeSessionID, kept.TeamName, kept.Inbound))
-	switch {
-	case f.muse():
-		r.say(armLine(r.commandName(f)))
-	case f.codex():
-		r.say(codexLine(r.commandName(f)))
-	}
+	r.sayContext(f, kept)
 	if r.fileRefused != "" {
 		r.say(keptFileLine(r.fileRefused))
 	}
