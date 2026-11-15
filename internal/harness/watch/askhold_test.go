@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/state"
@@ -24,8 +26,10 @@ import (
 // The watcher's clock is the case's own and stands still until the test
 // moves it (work items 333 and 336, state_test.go): a held ask's wait ends
 // when the test says it has, with waitOver, and not while the test is still
-// writing what the wait was meant to find. And what a test says did not
-// happen, it says of checks that ran (checks.pass).
+// writing what the wait was meant to find. What a test says did not happen,
+// it says of checks that ran (checks.pass). And while a test waits for the
+// watcher to send, the clock runs (sent), so that an ask it could not send
+// at once is tried again.
 type holdCase struct {
 	fx     *fixture
 	folder string
@@ -36,14 +40,16 @@ type holdCase struct {
 	giveUp time.Duration
 	clock  *fakeClock
 	checks *checkCount
+	// spawn, when set, stands between the watcher and its adapter for the
+	// calls it makes one at a time: a test refuses one of them.
+	spawn adapterclient.SpawnFunc
 }
 
-// holdWait is how long askNow's ask is held, and holdAgain a time past the
-// watcher's hold-back of a due ask it could not send and far short of the
-// give-up: both by the watcher's clock, so neither is waited for.
+// holdWait is how long askNow's ask is held, by the watcher's clock: it is
+// not waited for. holdEvery is the watcher's check interval.
 const (
 	holdWait  = time.Minute
-	holdAgain = time.Minute
+	holdEvery = 100 * time.Millisecond
 )
 
 // newHoldCase lays the session out, its entry last prompted at
@@ -107,6 +113,13 @@ func (c *holdCase) askNow(t *testing.T) time.Time {
 // waitOver moves the watcher's clock to the end of askNow's wait.
 func (c *holdCase) waitOver() { c.clock.Advance(holdWait) }
 
+// sent waits until the watcher's log has n lines of an ask sent with the
+// attributes, the watcher's clock running meanwhile (acts).
+func (c *holdCase) sent(t *testing.T, n int, attrs map[string]any) {
+	t.Helper()
+	acts(t, c.clock, holdEvery, func() bool { return c.fx.logCount("decision: held ask sent", attrs) == n })
+}
+
 // subscribe writes the owner's subscription with the recipients.
 func (c *holdCase) subscribe(t *testing.T, recipients string) {
 	t.Helper()
@@ -121,13 +134,13 @@ func (c *holdCase) start(t *testing.T) {
 	t.Helper()
 	deps := c.fx.deps()
 	deps.SyncCommand = []string{filepath.Join(t.TempDir(), "no-such-sync-adapter")}
-	deps.StateCheckInterval = 100 * time.Millisecond
+	deps.StateCheckInterval = holdEvery
 	deps.StatePruneDelay = time.Hour
 	deps.HoldGiveUp = time.Hour
 	if c.giveUp > 0 {
 		deps.HoldGiveUp = c.giveUp
 	}
-	deps.Clock, deps.StateChecked = c.clock.Now, c.checks.checked
+	deps.Clock, deps.StateChecked, deps.Spawn = c.clock.Now, c.checks.checked, c.spawn
 	c.fx.start(deps, c.fx.args()...)
 }
 
@@ -200,7 +213,7 @@ func TestHeldAskIsSentAfterTheWait(t *testing.T) {
 		t.Fatalf("the ask went out before its wait had passed: %+v", *d)
 	}
 	c.waitOver()
-	testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.fx.logHas("decision: held ask sent", map[string]any{"how": "slack"}) })
+	c.sent(t, 1, map[string]any{"how": "slack"})
 	d := c.decision(t)
 	if d.Held() || d.Sent != state.SentSlack || d.SentTo != "@owner" || d.HoldEnded != "" || !d.Open() || d.UpdatedAt.Before(until) {
 		t.Fatalf("decision after the release: %+v (the wait ended %s)", *d, until)
@@ -304,7 +317,7 @@ func TestHeldAskWithNoGateway(t *testing.T) {
 		}
 		c.askNow(t)
 		c.waitOver()
-		testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.fx.logHas("decision: held ask sent", map[string]any{"how": "session"}) })
+		c.sent(t, 1, map[string]any{"how": "session"})
 		if d := c.decision(t); d.Sent != state.SentSession || d.SentTo != other.SessionID || d.Held() {
 			t.Fatalf("decision %+v", *d)
 		}
@@ -356,7 +369,9 @@ func TestHeldAskWithNoGateway(t *testing.T) {
 // ended carries it; and while reports.json cannot be read, so that the
 // member's recipients are unknown, the ask waits — it does not go to
 // another session of theirs — and goes through the gateway once the file
-// reads again.
+// reads again. A send the backend refuses is the same: held back for some
+// checks, then sent, once (work item 336, where a clock that stood still
+// showed that no test had the watcher try a send again).
 func TestHeldAskWaitsForARoad(t *testing.T) {
 	t.Parallel()
 	t.Run("the gateway comes back", func(t *testing.T) {
@@ -371,8 +386,7 @@ func TestHeldAskWaitsForARoad(t *testing.T) {
 			t.Fatalf("the hold ended with no road: %+v", *d)
 		}
 		gw := c.gateway(t)
-		c.clock.Advance(holdAgain)
-		testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.fx.logHas("decision: held ask sent", map[string]any{"how": "slack"}) })
+		c.sent(t, 1, map[string]any{"how": "slack"})
 		if msgs := c.inbox(t, c.fx.peer, gw); len(msgs) != 1 || !strings.HasPrefix(msgs[0].Body, "to: @owner\n\n") {
 			t.Fatalf("the gateway's inbox: %+v", msgs)
 		}
@@ -403,13 +417,44 @@ func TestHeldAskWaitsForARoad(t *testing.T) {
 			t.Fatalf("the ask went to another session of the member while their recipients were unknown: %+v", msgs)
 		}
 		c.subscribe(t, `"@owner"`)
-		c.clock.Advance(holdAgain)
-		testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.fx.logHas("decision: held ask sent", map[string]any{"how": "slack"}) })
+		c.sent(t, 1, map[string]any{"how": "slack"})
 		if msgs := c.inbox(t, c.fx.peer, gw); len(msgs) != 1 {
 			t.Fatalf("the gateway's inbox: %+v", msgs)
 		}
 		if msgs := c.inbox(t, c.fx.owner, other.SessionID); len(msgs) != 0 {
 			t.Fatalf("the other session's inbox: %+v", msgs)
+		}
+	})
+	t.Run("the backend refuses the send once", func(t *testing.T) {
+		t.Parallel()
+		c := newHoldCase(t, time.Now().UTC().Add(-time.Minute))
+		gw := c.gateway(t)
+		c.subscribe(t, `"@owner"`)
+		var refused atomic.Bool
+		c.spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+			if strings.Contains(strings.Join(spec.Argv, " "), " message send") && refused.CompareAndSwap(false, true) {
+				return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend is busy"}
+			}
+			return adapterkit.Spawn(ctx, spec)
+		}
+		c.askNow(t)
+		c.waitOver()
+		// Until the refusal the clock runs a millisecond at a look: enough for
+		// a roster read that failed to be tried again, and too little to move
+		// past the hold-back that the refusal starts.
+		acts(t, c.clock, time.Millisecond, func() bool {
+			return c.fx.logHas("decision: the held ask was not sent", map[string]any{"how": "slack"})
+		})
+		// Held back, by the watcher's clock, which now stands still: the
+		// checks that run neither send it again nor give it up.
+		c.checks.pass(t)
+		if d := c.decision(t); !d.Held() || c.fx.logHas("decision: held ask sent", nil) {
+			t.Fatalf("an ask whose send was refused, before its hold-back had passed: %+v", *d)
+		}
+		// And tried again when it has: one message, whatever the attempts.
+		c.sent(t, 1, map[string]any{"how": "slack"})
+		if msgs := c.inbox(t, c.fx.peer, gw); len(msgs) != 1 {
+			t.Fatalf("the gateway's inbox: %+v", msgs)
 		}
 	})
 }
@@ -423,14 +468,12 @@ func TestHeldAsksEachGetTheirNotice(t *testing.T) {
 	c.gateway(t)
 	c.subscribe(t, `"@owner"`)
 	until := c.askNow(t)
-	// The second is asked a moment after the first and waits a second
-	// longer: two releases, at two checks.
+	// The second is asked a moment after the first and waits a little
+	// longer.
 	second := "d-20261110-fedcba"
-	c.askAs(t, second, c.clock.Now().Add(10*time.Millisecond), until.Add(time.Second))
+	c.askAs(t, second, c.clock.Now().Add(10*time.Millisecond), until.Add(300*time.Millisecond))
 	c.waitOver()
-	testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.fx.logCount("decision: held ask sent", nil) == 1 })
-	c.clock.Advance(time.Second)
-	testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.fx.logCount("decision: held ask sent", nil) == 2 })
+	c.sent(t, 2, nil)
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
 		n := c.fx.notice()
 		return strings.Contains(n, "Brigade decision "+c.id+": your user did not answer here within their wait") &&

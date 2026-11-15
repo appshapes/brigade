@@ -28,9 +28,10 @@ import (
 // machine the work outlasted the window and the watcher did the next thing
 // first. So the clock is the test's (stateWaits), and stands still until
 // the test moves it: a window is open for as long as the test needs it and
-// closes when the test says so. And where a test says that nothing
-// happened, it says it of checks that ran (checkCount), not of a time that
-// passed.
+// closes when the test says so. Where a test says that nothing happened, it
+// says it of checks that ran (checkCount), not of a time that passed. And
+// where a test waits for the watcher to do something, the clock runs
+// (acts): a watcher whose backend refused it tries again by its own clock.
 
 // A checkCount counts the checks the watcher's state goroutine has made
 // (Deps.StateChecked): one for each tick, counted when the check has ended.
@@ -46,6 +47,26 @@ func (c *checkCount) pass(t *testing.T) {
 	t.Helper()
 	from := c.n.Load()
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.n.Load() >= from+2 })
+}
+
+// acts waits until the watcher has done what cond tells of, as
+// testutil.Eventually waits, and moves the watcher's clock on by one check
+// interval at each look. A watcher that could not do it at once, its
+// backend busy or its roster unread, tries again after some check intervals
+// by its own clock: under a clock that stood still it would wait for ever,
+// where in real time it tries again. (The first proof of work item 336 met
+// it: an adapter's lock timed out under load, the watcher held the ask back
+// for three intervals of a clock that no longer moved, and the test timed
+// out.) Nothing may be held open across a call: the watcher's time runs.
+func acts(t *testing.T, clock *fakeClock, every time.Duration, cond func() bool) {
+	t.Helper()
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		if cond() {
+			return true
+		}
+		clock.Advance(every)
+		return false
+	})
 }
 
 // stateWaits gives the watcher a clock that stands at now until the test
@@ -291,8 +312,10 @@ func TestStateRankHandsOver(t *testing.T) {
 				}
 				return
 			}
+			// The delay passes, and the clock runs on: a send that failed is
+			// tried again.
 			clock.Advance(deps.StateCheckInterval)
-			testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.logHas("state: digest produced", map[string]any{"how": "session"}) })
+			acts(t, clock, deps.StateCheckInterval, func() bool { return fx.logHas("state: digest produced", map[string]any{"how": "session"}) })
 			marker, err := digest.ReadMarker(folder, "peer@example.com")
 			if err != nil || marker.SessionID != fx.sessionID {
 				t.Fatalf("marker %+v %v", marker, err)
