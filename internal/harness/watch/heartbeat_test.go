@@ -572,29 +572,61 @@ func TestInboundChangeIsHeartbeatedAtOnce(t *testing.T) {
 // clamp rule (card 53): the ticker runs at the session's interval, never
 // slower than a third of the lease asked for, whatever the configured
 // heartbeat. A heartbeat of an hour against a 3 s lease beats every
-// second: the fs store's last_seen_at moves on at least twice within 5 s
-// of the heartbeat at ready, and the session stays online.
+// second: after the heartbeat at ready the watcher sends at least two
+// more, two of them less than two thirds of the lease apart, and the fs
+// store's last_seen_at moves on.
+//
+// What is waited for is the watcher's own word, the `heartbeat` lines of
+// its log and their times, under the long hang catcher (work item 336).
+// The test gave the store's last_seen_at 5 s of real time to move twice,
+// and beside a second `make test` two heartbeats, each a store write synced
+// to disk, did not come in them (2026-11-15). A ticker left at the hour
+// sends nothing after ready, and one at the whole lease never sends two
+// that close: both fail here, saying how many came. The interval's value
+// is TestHeartbeatTimingFollowsTheLease's.
 func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
 	t.Parallel()
+	const lease = 3 * time.Second
 	fx := newFixture(t, fixtureOptions{})
 	fx.useFS()
 	fx.writeMap()
 	deps := fx.deps()
-	deps.HeartbeatInterval, deps.LeaseSeconds = time.Hour, 3
+	deps.HeartbeatInterval, deps.LeaseSeconds = time.Hour, int(lease/time.Second)
 	r := fx.start(deps)
 	fx.waitLog("watch ready", nil)
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+	await(t, "the store to show the session under a lease of 3s", func() bool {
 		s := fx.session()
-		return s.LeaseUntil.Sub(s.LastSeenAt) == 3*time.Second
+		return s.LeaseUntil.Sub(s.LastSeenAt) == lease
 	})
 	base := fx.session().LastSeenAt
-	seen := map[time.Time]bool{}
-	testutil.Eventually(t, 5*time.Second, pollEvery, func() bool {
-		if at := fx.session().LastSeenAt; at.After(base) {
-			seen[at] = true
+	// sent is when the watcher said it sent each heartbeat, and closest the
+	// least time between two that follow each other.
+	sent := func() (at []time.Time, closest time.Duration) {
+		closest = -1
+		for _, l := range fx.logLines() {
+			text, _ := l["time"].(string)
+			when, err := time.Parse(time.RFC3339Nano, text)
+			if l["msg"] != "heartbeat" || err != nil {
+				continue
+			}
+			if n := len(at); n > 0 && (closest < 0 || when.Sub(at[n-1]) < closest) {
+				closest = when.Sub(at[n-1])
+			}
+			at = append(at, when)
 		}
-		return len(seen) >= 2
+		return at, closest
+	}
+	awaitFor(t, waitLong, "two heartbeats after the one at ready, two of them less than two thirds of the lease apart", func() bool {
+		at, closest := sent()
+		return len(at) >= 3 && closest < 2*lease/3
+	}, func() string {
+		at, closest := sent()
+		if len(at) < 2 {
+			return fmt.Sprintf("%d heartbeat(s) came, the one at ready among them", len(at))
+		}
+		return fmt.Sprintf("%d heartbeats came, the one at ready among them, the closest two %v apart", len(at), closest)
 	})
+	await(t, "the store's last_seen_at to move past the heartbeat at ready", func() bool { return fx.session().LastSeenAt.After(base) })
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
