@@ -490,9 +490,16 @@ func learnedNothing(reason string) bool {
 }
 
 // dropNotFollowedMark removes the checkout's mark of why its last follow
-// did not follow: the checkout has nothing to follow now.
-func (r *run) dropNotFollowedMark(f facts, opts config.Options, canon string) {
-	path := config.MoveNotFollowedMark(f.stateDir, opts.ConfigDir, canon)
+// did not follow: the checkout has nothing to follow now. It is what a
+// follow left of a backend the team file named then, and it must not
+// outlive that: said the next time the file names that backend, it would
+// speak of records as they were (work item 341). A session's start takes
+// it back where the checkout's pin matches its file (resolveTeam), and so
+// does the prompt of a running session, in a checkout where no session
+// starts (moveSession). It reads nothing: it removes one path, which as a
+// rule is not there.
+func (r *run) dropNotFollowedMark(stateDir, configDir, canon string) {
+	path := config.MoveNotFollowedMark(stateDir, configDir, canon)
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		r.log.Debug("the mark of a follow that did not follow was not removed", log.Err(err))
 	}
@@ -594,7 +601,10 @@ func (r *run) leaveFollowedMark(a hookArgs, canon, teamKey string, joined bool) 
 // act on. The file is read at every prompt of an attached session and costs
 // about 27 microseconds (measured 2026-11-13 on this repository's own team
 // file, from three directories down), which is why nothing is kept to avoid
-// it.
+// it. A file that names the backend the session is on costs one thing
+// more, the removal of one path that is as a rule not there: what a follow
+// left for the checkout's prompts of a backend the file no longer names
+// (dropNotFollowedMark).
 //
 // The checkout is the session's own: the one its map names
 // (sessionmap.ByPID.Checkout), whose team file and pin its registration
@@ -640,6 +650,14 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 	here := teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef) == m.TeamKey
 	if here && m.Checkout != "" {
 		// The common prompt: the file names the backend the session is on.
+		// What a follow left for the checkout's prompts is of another
+		// backend, one the file named then and names no longer: it is taken
+		// back, as a start takes it back, or a checkout whose sessions are
+		// all running would keep it until the file names that backend again
+		// and say it of records that have changed since (work item 341).
+		// The store is the one the session registered with, which its map
+		// names, so nothing is read for it: one path is removed.
+		r.dropNotFollowedMark(f.stateDir, m.ConfigDir, checkout)
 		return nil
 	}
 	opts, err := r.options()
@@ -655,9 +673,15 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		return nil
 	}
 	if here {
+		// The common prompt, for a map that has just been given its checkout.
+		r.dropNotFollowedMark(f.stateDir, opts.ConfigDir, checkout)
 		return nil
 	}
 	if pin.Matches(tf) {
+		// The checkout is where its team file says, and the session is not
+		// yet: what a follow left of a backend the file named before is
+		// nothing to say of it, whether or not this prompt moves the session.
+		r.dropNotFollowedMark(f.stateDir, opts.ConfigDir, checkout)
 		return r.reattach(ctx, f, in, m, opts, tf, checkout, pin)
 	}
 	if !teammove.Candidate(pin, tf) {

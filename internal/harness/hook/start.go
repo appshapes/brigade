@@ -1186,7 +1186,7 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		// left for its prompts, of a backend the file named then, is nothing
 		// to say of it now, and would be said falsely the next time the file
 		// names that backend (work item 341).
-		r.dropNotFollowedMark(f, opts, canon)
+		r.dropNotFollowedMark(f.stateDir, opts.ConfigDir, canon)
 		// A follow that ran outside a session's start had nobody to tell:
 		// the first hook of the checkout after it says its line.
 		r.tellFollowed(f, opts, tf, canon, pin)

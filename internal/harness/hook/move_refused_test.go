@@ -5,6 +5,7 @@ package hook
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -494,5 +496,125 @@ func TestAStartThatCouldNotAskTellsOfARefusalNobodyWasTold(t *testing.T) {
 		if exit != 0 || !slices.Equal(lines(out), []string{want}) || joins.Load() != 1 {
 			t.Fatalf("start %d while the backend the member joined does not answer: exit %d, lines %q, %d joins; want %q\n%s", i+1, exit, lines(out), joins.Load(), want, errOut)
 		}
+	}
+}
+
+// TestAPromptTakesBackWhatAFollowLeftOfABackendTheFileNoLongerNames (work
+// item 341): a follow that a running session's prompt started found the
+// server the team file names and the backend the session is on naming each
+// other, and left that for the checkout's prompts. The file then goes back
+// to naming the backend the session is on, and no session starts in the
+// checkout, which is where such a mark was taken back. Until this the mark
+// stayed for as long as only running sessions were prompted there, and the
+// next time the file named that server, after the record that was out of
+// date was cleared and the team really moved, a running session said that
+// the two name each other and that it follows neither, of records that no
+// longer did. The prompt of a session whose checkout's file names the
+// backend the session is on takes the mark back, as a start does, so the
+// prompt at the real move says nothing of the two and the session follows.
+// A session whose map names no checkout yet does the same at the prompt
+// that gives it one.
+func TestAPromptTakesBackWhatAFollowLeftOfABackendTheFileNoLongerNames(t *testing.T) {
+	t.Parallel()
+	for name, old := range map[string]bool{"a session whose map names its checkout": false, "a session whose map names no checkout": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+			f.memberOf("team-1")
+			file := filepath.Join(f.cwd, teamfile.FileName)
+			original, err := os.ReadFile(file) //nolint:gosec // the fixture's own checkout
+			if err != nil {
+				t.Fatal(err)
+			}
+			// While back is true the server records that the team moved to the
+			// backend the session is on.
+			var back atomic.Bool
+			back.Store(true)
+			inner, server, before := f.deps.Spawn, teamstore.Key("rest", movedURL, "team-1"), f.checkoutPin()
+			f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+				if i := slices.Index(spec.Argv, "--profile"); back.Load() && i >= 0 && i+1 < len(spec.Argv) && spec.Argv[i+1] == server && verbOf(spec.Argv) == "team moved" {
+					return okResult(mustJSON(map[string]any{"team_ref": "team-1", "moved": true, "adapter": before.Adapter, "url": before.URL, "recorded_at": "2026-11-15T12:00:00Z"})), nil
+				}
+				return inner(ctx, spec)
+			}
+			f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+			mark := config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+
+			// The file names the server: the prompt starts the follow, which
+			// finds the two naming each other and leaves that for the next prompt.
+			f.moveTeamFile("team-1")
+			if got := f.prompted(); !slices.Equal(got, []string{movedLine}) || !exists(mark) {
+				t.Fatalf("the prompt whose follow found the two naming each other: %q; a mark is left: %v", got, exists(mark))
+			}
+			// The file goes back to naming the backend the session is on, before
+			// any prompt said what the follow found.
+			if err := os.WriteFile(file, original, 0o600); err != nil { //nolint:gosec // G703: the team file of the fixture's own checkout
+				t.Fatal(err)
+			}
+			if old {
+				f.withoutCheckout()
+			}
+			if got := f.prompted(); len(got) != 0 || exists(mark) {
+				t.Errorf("the prompt with the file back on the backend the session is on: %q; the mark of a backend the file no longer names is still there: %v", got, exists(mark))
+			}
+			// The record that was out of date is cleared, and the team moves to
+			// the server for good.
+			back.Store(false)
+			f.moveTeamFile("team-1")
+			tf := f.movedFile()
+			f.now = f.now.Add(followInterval)
+			if got := f.prompted(); len(got) != 0 {
+				t.Fatalf("the prompt at the real move: %q, want nothing: the conversation heard that Brigade is asking, and the two no longer name each other", got)
+			}
+			if pin := f.checkoutPin(); !pin.Matches(tf) {
+				t.Fatalf("the follow that prompt started did not follow: %+v", pin)
+			}
+			got := f.prompted()
+			if m := f.mustMap(); m.TeamKey != server || m.BrigadeSessionID != "brigade-sess-2" || len(got) == 0 || got[0] != followedLine(tf, &before, false, "brigade") {
+				t.Fatalf("the prompt after the follow: %q\nmap %+v", got, m)
+			}
+		})
+	}
+}
+
+// TestAPromptThatFindsItsCheckoutWhereTheFileSaysTakesTheMarkBack (work item
+// 341): the checkout followed, so its pin matches its team file, and the
+// session has not moved yet. What an earlier follow left for the checkout's
+// prompts, when the file named another backend, is nothing to say of the
+// checkout now. A prompt that registers the session takes it back on its
+// way (resolveTeam). One that does not get that far does too: here the
+// server could not be reached a moment ago, so this prompt tries nothing,
+// and a session that messages are held for stays in the same way.
+func TestAPromptThatFindsItsCheckoutWhereTheFileSaysTakesTheMarkBack(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	seam := attachedMember(t, f, movedDoc(movedURL, movedPin), map[string][]fakeadapter.Response{
+		"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false)), errResp(protocol.CodeUnavailable, "network")},
+	})
+	before := f.checkoutPin()
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	got := f.prompted()
+	if pin := f.checkoutPin(); !slices.Equal(got, []string{movedLine}) || !pin.Matches(tf) {
+		t.Fatalf("the prompt whose follow followed: %q, pin %+v", got, pin)
+	}
+	if got = f.prompted(); !slices.Equal(got, []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine}) {
+		t.Fatalf("the prompt that could not register the session: %q", got)
+	}
+	// What a follow left when the file named another backend, laid out by hand.
+	mark := config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+	left := mustJSON(followedMark{Version: followedMarkVersion, TeamKey: teamstore.Key("rest", "https://another.example.test", "team-1"), FollowedAt: f.now, Reason: teammove.ReasonEachOther})
+	if err := adapterkit.WriteAtomic(mark, append(left, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	// Within the minute the registration is not tried again.
+	registers := len(seam.callsFor("session register"))
+	if got = f.prompted(); len(got) != 0 || len(seam.callsFor("session register")) != registers {
+		t.Fatalf("a prompt within the minute: lines %q, %d registrations", got, len(seam.callsFor("session register"))-registers)
+	}
+	if m := f.mustMap(); m.TeamKey != f.teamKey || exists(mark) {
+		t.Fatalf("the session is on %q, want %q where it was; the mark is still there: %v", m.TeamKey, f.teamKey, exists(mark))
 	}
 }

@@ -1537,3 +1537,106 @@ func TestWhatASessionWasToldOfTwoServersThatNameEachOtherIsKeptAndTakenBackThrou
 	}
 	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 }
+
+// TestWhatARunningSessionWasToldOfTwoServersIsTakenBackWhenTheFileGoesBackThroughTheRealBinary:
+// two sessions of a member's run on the server the team is on. The team
+// file comes to name the server the team left, the two servers each record
+// that the team moved to the other, and the follow a prompt of the first
+// session starts leaves that for the checkout's prompts. The file goes
+// back, and no session starts in the checkout, which is where such a mark
+// was taken back. Later the administrator clears the record that was out
+// of date and moves the team for good. Until this the second session,
+// which had heard nothing, then said that the two servers name each other
+// and that it follows neither, of records that no longer did, before it
+// followed.
+//
+//  1. The first session's prompt after the follow says that the two name
+//     each other.
+//  2. With the file back on the server the sessions are on, a prompt of a
+//     running session takes back what the follow left.
+//  3. After the real move the second session says nothing of the two, and
+//     follows.
+func TestWhatARunningSessionWasToldOfTwoServersIsTakenBackWhenTheFileGoesBackThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b := startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	fileOfA := r.teamFile()
+	r.movedTo(b, r.secretFile)
+	fileOfB := r.teamFile()
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	const eachOther = "each record that the team moved to the other"
+	first, second := r.newSession("bob", bobName, "", "", ""), r.newSession("bob", "billing-2", "", "", "")
+	for _, s := range []session{first, second} {
+		r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+		if !r.mapExists(s) || r.mustMap(s).TeamKey != r.keyAt(b) {
+			t.Fatalf("a session of the member's did not attach on B")
+		}
+	}
+	// B is made to record a move back to A, by its adapter alone: the two
+	// servers name each other, which no command of Brigade's leaves.
+	ticket := filepath.Join(r.dirs.Root, "back.ticket")
+	if res := r.adapterAs(r.configDir, r.keyAt(a), "team", "open-move", "--ticket-file", ticket); res.exit != 0 {
+		t.Fatalf("the move opened on A: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	record := []string{"team", "move", "--ticket-file", ticket, "--adapter", "rest", "--url", a.url}
+	if a.certificate != "" {
+		record = append(record, "--certificate", a.certificate)
+	}
+	if res := r.adapterAs(r.configDir, r.keyAt(b), record...); res.exit != 0 {
+		t.Fatalf("the record made on B by its adapter: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+
+	// --- 1. the file names A: the follow finds the two naming each other, and the next prompt says so -------
+	r.putTeamFile(fileOfA)
+	r.promptedUntilAFollowStarts(first, r.configDirB, canon)
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		logged, rerr := os.ReadFile(moveLog) //nolint:gosec // G304: a log under the test's own state directory
+		return rerr == nil && strings.Contains(string(logged), `"reason":"backends_name_each_other"`)
+	})
+	if res := r.restPrompt(first); !strings.Contains(res.stdout, eachOther) || r.mustMap(first).TeamKey != r.keyAt(b) {
+		t.Fatalf("the first session's prompt after the follow: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	if _, err := os.Stat(mark); err != nil {
+		t.Fatalf("the follow left nothing for the checkout's prompts: %v", err)
+	}
+
+	// --- 2. the file goes back to B, and no session starts: a running session's prompt takes the mark back ---
+	r.putTeamFile(fileOfB)
+	if res := r.restPrompt(first); strings.Contains(res.stdout, eachOther) {
+		t.Fatalf("the first session's prompt with the file back on B: stdout %q", res.stdout)
+	}
+	if _, err := os.Stat(mark); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("with the file back on the server the sessions are on, a running session's prompt left what the follow had left of the other server: %v", err)
+	}
+
+	// --- 3. the record that was out of date is cleared, and the team really moves to A ------------------------
+	if res := r.runIn(r.checkout, term, "", "team", "move", "--clear", "--from", hostOf(b)); res.exit != 0 {
+		t.Fatalf("the clear on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	r.movedTo(a, r.secretFile)
+	if onA, onB := r.recordOn(r.configDir, a), r.recordOn(r.configDir, b); onA.Moved || !onB.Moved || onB.URL != a.url {
+		t.Fatalf("the records after the real move: A %+v, B %+v", onA, onB)
+	}
+	if res := r.restPrompt(second); strings.Contains(res.stdout, eachOther) || !strings.Contains(res.stdout, "now names another backend") {
+		t.Fatalf("the second session's first prompt after the real move says that the two servers name each other, of records that no longer do: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	said := r.promptedUntilMoved(second, r.keyAt(a), func(s session) result {
+		r.aMinuteLater(s, r.configDirB, canon)
+		return r.restPrompt(s)
+	})
+	if strings.Contains(said.stdout, eachOther) || !strings.Contains(said.stdout, "followed team") {
+		t.Fatalf("the prompts that moved the second session: stdout %q\nstderr %s", said.stdout, said.stderr)
+	}
+	for _, s := range []session{first, second} {
+		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+	}
+}

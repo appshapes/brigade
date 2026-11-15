@@ -74,7 +74,11 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   the other, and a session does not rely on that: when the backend it
   would follow to itself records that the team went back to the backend
   it is on, it follows neither, says so once, and stays where it is. The
-  administrator clears the record that is out of date.
+  administrator clears the record that is out of date. What a follow
+  left of the two for the checkout's next prompts is taken back when the
+  file names the backend the checkout is on again, at a session's start
+  and at a running session's prompt, so it is not said later of records
+  that have changed.
 - **A member who was revoked on a server follows the team back there.**
   A team that returns to a server finds its members' machines holding the
   memberships they had there, which the administrator may have ended
