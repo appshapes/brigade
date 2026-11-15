@@ -579,6 +579,7 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 		"a relative creation token file":                      "--create-token-file must be an absolute path",
 		"a creation token file inside the checkout":           "--create-token-file must be a plainly spelled path outside this project",
 		"the secret of another team":                          "name the file `team create` wrote for this team",
+		"a url longer than a record holds":                    "--to is longer than the record of a move can hold",
 		"a team file too large to name the server as well":    "cannot be rewritten to name the server",
 		"a url that a team file may not carry":                "cannot be rewritten to name that server",
 	}
@@ -623,6 +624,10 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 			return []string{"--to", "https://user:pw@" + r.newHost, "--secret-file", r.secretFile}
 		}, protocol.CodeUsage, ""},
 		{"a url with no host", func(r *moveToRig) []string { return []string{"--to", "https://", "--secret-file", r.secretFile} }, protocol.CodeUsage, ""},
+		// The record's own limit (4.4.10): the old backend would refuse it, after the server took the team in.
+		{"a url longer than a record holds", func(r *moveToRig) []string {
+			return []string{"--to", r.newURL + "/" + strings.Repeat("a", protocol.MaxMoveURLChars), "--secret-file", r.secretFile}
+		}, protocol.CodeUsage, ""},
 		// The file that would be written is tried before anything is asked: step e comes after the record.
 		{"a team file too large to name the server as well", func(r *moveToRig) []string {
 			r.writeFile(r.original + strings.Repeat(" ", teamfile.MaxBytes-len(r.original)))

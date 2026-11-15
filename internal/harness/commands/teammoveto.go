@@ -221,6 +221,9 @@ func (inv Invocation) checkMove(flags moveFlags) (*serverMove, error) {
 		}
 		certificate = pin
 	}
+	if err := checkMoveDestination(to, certificate); err != nil {
+		return nil, err
+	}
 	if flags.ticketDaysSet && (flags.ticketDays < 1 || flags.ticketDays > protocol.MoveTicketMaxDays) {
 		return nil, usage("--ticket-days must be between 1 and " + strconv.Itoa(protocol.MoveTicketMaxDays))
 	}
@@ -378,6 +381,20 @@ func thisMachine(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && (ip.Equal(net.IPv4(127, 0, 0, 1)) || ip.Equal(net.IPv6loopback))
+}
+
+// checkMoveDestination holds the destination to the limits of the record it
+// goes into (4.4.10). The old backend would refuse to record a destination
+// past them, and it is asked only after the server took the team in and
+// opened its move: so the limits are held here, before anyone is asked.
+// The adapter's name and a pin in its one spelling are always within
+// theirs; the address is what can be too long.
+func checkMoveDestination(to, certificate string) error {
+	record := &protocol.TeamMoveRequest{Adapter: config.BundledRestName, URL: to, Certificate: certificate}
+	if record.Validate() != nil {
+		return usage("--to is longer than the record of a move can hold: " + strconv.Itoa(protocol.MaxMoveURLChars) + " characters at most")
+	}
+	return nil
 }
 
 // rewritable tries step e's rewrite of the team file on the file as it is,
