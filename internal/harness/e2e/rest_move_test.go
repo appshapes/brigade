@@ -466,7 +466,8 @@ func (m *movingTeam) movedFile(backend restBackend) {
 // that keeps the record, and a team that someone else already owns on the
 // server. Then the administrator declines, then moves the team with the one
 // command, and runs it again; a member's next session follows with no
-// command, and a message is delivered.
+// command, and a message is delivered; and the record is cleared, which is
+// the way back the command names.
 func TestATeamMovesToAServerByOneCommandThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
@@ -668,6 +669,17 @@ func teamMovesByOneCommand(t *testing.T, m *movingTeam, fsBackend bool) {
 	m.noSecrets(ticket, allowed...)
 	if hits := tokenHits(t, first, r.dirs.Root); len(hits) != 0 {
 		t.Errorf("the ticket a second open replaced is still in %v", hits)
+	}
+
+	// --- 10. the way back the command named: the record is cleared, and the old backend says nothing ----
+	// It also leaves the backend the team left as the test found it: the local Supabase stack's own tests
+	// count the records it holds.
+	res = m.move(m.terminal, "", "team", "move", "--clear", "--from", m.oldHost)
+	if res.exit != 0 || !strings.Contains(res.stdout, "cleared: "+m.oldHost+" no longer says") {
+		t.Fatalf("the clear: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if said := m.record(); !strings.Contains(said, "no move recorded on "+m.oldHost) {
+		t.Fatalf("the record after the clear: %s", said)
 	}
 }
 
