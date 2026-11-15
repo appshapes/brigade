@@ -128,7 +128,10 @@ type moveToResult struct {
 	RecordedAt     time.Time      `json:"recorded_at"`
 	TeamFile       string         `json:"team_file"`
 	OlderSessions  []olderSession `json:"older_sessions"`
-	Gateway        bool           `json:"gateway"`
+	// RosterTruncated says that older_sessions was read from a roster the
+	// backend cut short, and may lack sessions.
+	RosterTruncated bool `json:"roster_truncated"`
+	Gateway         bool `json:"gateway"`
 }
 
 // A serverMove is one `team move --to` as its checks worked it out.
@@ -167,10 +170,12 @@ type serverMove struct {
 	// older lists the team's sessions that will not follow, and replaces is
 	// a record the old backend already holds of a move somewhere else.
 	// recorded says that it holds a record of this very move, which a run
-	// before this one made.
-	older    []olderSession
-	replaces *protocol.TeamMoveResult
-	recorded bool
+	// before this one made. rosterCut says that the backend answered a
+	// roster it had cut short, so older may lack sessions.
+	older     []olderSession
+	rosterCut bool
+	replaces  *protocol.TeamMoveResult
+	recorded  bool
 }
 
 // moveTo runs the move.
@@ -565,7 +570,7 @@ func requireTakeIn(t *target) error {
 // Then the roster: the sessions that are online on a plugin older than the
 // first that follows a recorded move. Their members join the server
 // themselves, or update first; a member with no session online is not
-// seen here.
+// seen here, and a roster the backend cut short is said to be one.
 func (inv Invocation) checkOldBackend(m *serverMove) error {
 	record, err := inv.callMove(m.from, "moved", nil, nil)
 	if err != nil {
@@ -591,6 +596,7 @@ func (inv Invocation) checkOldBackend(m *serverMove) error {
 	if err != nil {
 		return err
 	}
+	m.rosterCut = list.Truncated
 	for i := range list.Sessions {
 		s := &list.Sessions[i]
 		if s.BrigadeVersion == nil || !teammove.OlderThanFollow(*s.BrigadeVersion) {
@@ -755,17 +761,25 @@ func (m *serverMove) consequence() string {
 		out += " This replaces the record " + m.fromHost() + " holds of a move to " +
 			moveDestination(m.replaces.Adapter, m.replaces.URL, m.replaces.Certificate) + "."
 	}
-	if older := olderLine(m.older); older != "" {
+	if older := olderLine(m.older, m.rosterCut); older != "" {
 		out += " " + older + "."
 	}
 	return out
 }
 
 // olderLine names the sessions that will not follow, "" when there is
-// none.
-func olderLine(older []olderSession) string {
+// none. A roster the backend cut short may lack some: the line then says
+// that the list is not complete, and says it where no session was named.
+func olderLine(older []olderSession, cut bool) string {
+	const notAll = "the roster it was read from was cut short, so this list is not complete"
 	if len(older) == 0 {
+		if cut {
+			return "no session that is online was seen on a plugin older than " + teammove.FollowsFromVersion + ", but " + notAll
+		}
 		return ""
+	}
+	if cut {
+		return olderLine(older, false) + "; " + notAll
 	}
 	names := make([]string, 0, olderShown)
 	for i, s := range older {
@@ -1068,16 +1082,17 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 		}
 		return writeJSON(inv.Out, moveToResult{
 			TeamRef: sanitizeID(m.file.TeamRef), TeamName: protocol.SanitizeName(taken.TeamName),
-			From:           moveEnd{Adapter: attrLine(m.source.Adapter), URL: attrLine(m.source.URL)},
-			To:             moveEnd{Adapter: m.dest.Adapter, URL: m.dest.URL, Certificate: m.dest.Certificate},
-			TakenIn:        taken.TakenIn,
-			PrincipalRef:   sanitizeID(taken.PrincipalRef),
-			MoveEndsAt:     opened.EndsAt,
-			TicketReplaced: opened.Replaced,
-			RecordedAt:     recorded.RecordedAt,
-			TeamFile:       m.filePath,
-			OlderSessions:  older,
-			Gateway:        gateway,
+			From:            moveEnd{Adapter: attrLine(m.source.Adapter), URL: attrLine(m.source.URL)},
+			To:              moveEnd{Adapter: m.dest.Adapter, URL: m.dest.URL, Certificate: m.dest.Certificate},
+			TakenIn:         taken.TakenIn,
+			PrincipalRef:    sanitizeID(taken.PrincipalRef),
+			MoveEndsAt:      opened.EndsAt,
+			TicketReplaced:  opened.Replaced,
+			RecordedAt:      recorded.RecordedAt,
+			TeamFile:        m.filePath,
+			OlderSessions:   older,
+			RosterTruncated: m.rosterCut,
+			Gateway:         gateway,
 		})
 	}
 	ends := opened.EndsAt.UTC().Format("2006-01-02")
@@ -1102,7 +1117,7 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 		"left to do:",
 		"  commit and push " + teamfile.FileName + " in every repository of the team: a member's next session in a checkout that has the new file follows, with no command of theirs, until " + ends,
 	}
-	if older := olderLine(m.older); older != "" {
+	if older := olderLine(m.older, m.rosterCut); older != "" {
 		lines = append(lines, "  "+older)
 	}
 	if gateway {

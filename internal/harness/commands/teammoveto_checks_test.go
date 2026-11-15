@@ -585,3 +585,72 @@ func TestTeamMoveToReadsTheDaysInDecimal(t *testing.T) {
 	r := newMoveToRig(t)
 	wantCode(t, Team(r.inv(true, "--show", "--ticket-days", "010")), protocol.CodeUsage, "")
 }
+
+// TestTeamMoveToSaysThatTheRosterWasCutShort: the sessions on an older
+// plugin are read from the old backend's roster, and a roster the backend
+// cut short may lack some. The question and the lines then say that the
+// list is not complete, where sessions are named and where none is, and
+// the --json result says it; a whole roster says nothing of the kind.
+func TestTeamMoveToSaysThatTheRosterWasCutShort(t *testing.T) {
+	t.Parallel()
+	const notAll = "the roster it was read from was cut short, so this list is not complete"
+	cut := func(doc string) string {
+		if !strings.Contains(doc, `"truncated":false`) {
+			t.Fatalf("the rig's roster has no truncated member to turn: %s", doc)
+		}
+		return strings.Replace(doc, `"truncated":false`, `"truncated":true`, 1)
+	}
+	t.Run("sessions are named", func(t *testing.T) {
+		t.Parallel()
+		r := newMoveToRig(t)
+		r.f.rec.on("session list", okAnswer(cut(r.sessions())))
+		if err := Team(r.inv(true, r.args()...)); err != nil {
+			t.Fatal(err)
+		}
+		named := "billing (bob@example.com, 0.54.9), ci ([cccccccc], 0.9.1); " + notAll
+		if len(r.prompts) != 1 || !strings.Contains(r.prompts[0], named+".") || !strings.Contains(r.f.out.String(), "  2 sessions that are online run a plugin older than 0.55.0") ||
+			!strings.Contains(r.f.out.String(), named) {
+			t.Fatalf("the confirmation: %v\nthe lines:\n%s", r.prompts, r.f.out.String())
+		}
+	})
+	t.Run("no session is named", func(t *testing.T) {
+		t.Parallel()
+		r := newMoveToRig(t)
+		none := `{"team_ref":"` + setupTeamRef + `","team_name":"devs","server_time":"2026-11-14T12:00:00Z","truncated":true,"sessions":[]}`
+		r.f.rec.on("session list", okAnswer(none))
+		if err := Team(r.inv(true, r.args()...)); err != nil {
+			t.Fatal(err)
+		}
+		said := "no session that is online was seen on a plugin older than 0.55.0, but " + notAll
+		if len(r.prompts) != 1 || !strings.Contains(r.prompts[0], said+".") || !strings.Contains(r.f.out.String(), "  "+said) {
+			t.Fatalf("the confirmation: %v\nthe lines:\n%s", r.prompts, r.f.out.String())
+		}
+	})
+	t.Run("with --json", func(t *testing.T) {
+		t.Parallel()
+		for _, truncated := range []bool{true, false} {
+			r := newMoveToRig(t)
+			if truncated {
+				r.f.rec.on("session list", okAnswer(cut(r.sessions())))
+			}
+			iv := r.inv(true, r.args()...)
+			iv.JSON = true
+			if err := Team(iv); err != nil {
+				t.Fatal(err)
+			}
+			if ok, result := envelopeOf(t, r.f.out.String()); !ok || result["roster_truncated"] != truncated {
+				t.Fatalf("the result of a roster cut short=%v: %v", truncated, result)
+			}
+		}
+	})
+	t.Run("a whole roster", func(t *testing.T) {
+		t.Parallel()
+		r := newMoveToRig(t)
+		if err := Team(r.inv(true, r.args()...)); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(r.prompts[0]+r.f.out.String(), "cut short") {
+			t.Fatalf("a whole roster is said to be cut short:\n%s\n%s", r.prompts[0], r.f.out.String())
+		}
+	})
+}
