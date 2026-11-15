@@ -578,6 +578,37 @@ func TestTeamJoinFindsTheMembershipAFollowMade(t *testing.T) {
 	}
 }
 
+// TestTeamJoinPresentsItsSecretBesideAMembershipTheFileDoesNotDescribe: the
+// membership that appeared while the member was asked spares the join only
+// when it is one the team file describes, member by member. One that names
+// the file's team under another key (or, on a Brigade server, another
+// certificate) is of a file that has changed since: a pin written beside it
+// would be a pin no session's start accepts. The join is sent with the
+// secret, as it would have been, and the binding is the file's afterwards.
+func TestTeamJoinPresentsItsSecretBesideAMembershipTheFileDoesNotDescribe(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
+	tf, err := teamfile.Parse(filepath.Join(top, teamfile.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	iv := joinInv(f, top, setupSecret, true, nil)
+	iv.Deps.Confirm = func(string) (bool, error) {
+		return true, write.EnsureBinding(f.dirs.BrigadeConfig, key, tf.Adapter, tf.URL, "sb_publishable_of_an_earlier_file", tf.Certificate, tf.TeamRef, tf.TeamName, "p_followed")
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOf(f.rec.verbs(), "team join"); n != 1 {
+		t.Fatalf("%d joins were sent beside a membership the file does not describe, want 1", n)
+	}
+	binding, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key)
+	if err != nil || teamstore.VerifyBinding(binding, tf) != nil {
+		t.Fatalf("the membership after the join is not the one the file describes: %+v, %v", binding, err)
+	}
+}
+
 // countOf is how often verb is among verbs.
 func countOf(verbs []string, verb string) int {
 	n := 0

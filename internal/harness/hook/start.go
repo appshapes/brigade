@@ -178,7 +178,9 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// the resolution says of such a directory (`not joined`, `not
 	// connected`) is not true of the session, so it is held until it is
 	// known whether a team was resolved, and dropped when the session is
-	// kept (keepUnresolved).
+	// kept (keepUnresolved). The same when what the resolution refused was
+	// the member's own settings (an option, the frame text, the adapter): the
+	// session is kept with what it had, and says so (settingRefused).
 	running := r.runningSession(f)
 	var said []string
 	if running != nil {
@@ -189,7 +191,11 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		r.held = nil
 	}
 	if !ok && running != nil && stillMember(running) {
-		r.log.Info("this start resolved no team where it comes from; the running session is kept where it is", slog.Int("lines_dropped", len(said)))
+		why := "this start resolved no team where it comes from"
+		if r.settingRefused != "" {
+			why = "this start could not use the member's settings"
+		}
+		r.log.Info(why+"; the running session is kept where it is", slog.Int("lines_dropped", len(said)))
 		r.keepUnresolved(ctx, f, in, running)
 		return
 	}
@@ -596,6 +602,7 @@ func respawnReason(e pidfile.Entry, f facts) string {
 func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 	opts, err := r.options()
 	if err != nil {
+		r.settingRefused = keptOptionLine(err)
 		r.fail("session-start: options", err, optionsLine(err))
 		return resolved{}, false
 	}
@@ -610,11 +617,13 @@ func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 	}
 	adapter, err := config.ResolveAdapter(opts, opts.ConfigDir, tf.Adapter)
 	if err != nil {
+		r.settingRefused = keptAdapterLine(tf.Adapter, err)
 		r.fail("session-start: adapter resolution", err, adapterLine(tf.Adapter, err))
 		return resolved{}, false
 	}
 	argv, err := adapterArgv(adapter)
 	if err != nil {
+		r.settingRefused = keptAdapterLine(tf.Adapter, err)
 		r.fail("session-start: adapter command", err, adapterLine(tf.Adapter, err))
 		return resolved{}, false
 	}
@@ -646,6 +655,7 @@ func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 	}
 	instruction, err := r.frameInstruction(opts)
 	if err != nil {
+		r.settingRefused = keptFrameLine(err)
 		r.fail("session-start: frame text", err, frameLine(err))
 		return resolved{}, false
 	}

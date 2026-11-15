@@ -169,7 +169,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   wherever it works. The `.brigade.json` and the membership that are read
   at its prompts are that checkout's, so a session that was started in a
   main checkout and works in a worktree, or after a `cd` into another
-  repository, follows when its own checkout does. Another checkout of
+  repository, follows when its own checkout does, and the line it says
+  there names the checkout it was started in. Another checkout of
   the member's does not move it, whatever its `.brigade.json` names, and
   neither does a `/clear` there: while a move is under way a member can
   have one checkout that has the changed file and one that has not, and
@@ -179,7 +180,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   prompt printed when the prompt runs out of time, so the prompt that
   moves a session leaves a notice first, and a prompt that was cut short
   after the session moved is made good by the next one, which says the
-  move and the session's new id.
+  move and the session's new id. That prompt also starts the watcher
+  that serves the session, which delivers what was sent to its new id
+  meanwhile, and in Muse Code and Codex CLI it files the session for the
+  commands of its shell, which are refused until then.
 
   What made a session follow has not changed. A `.brigade.json` with no
   record behind it still sends a session nowhere and is sent nothing: the
@@ -264,6 +268,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   conversation, and in Muse Code the new conversation's shell found no
   session. The session is now kept as after any `/clear` and says its
   context line; a `.brigade.json` there that was refused is still said.
+
+  The same for a `/clear` beside settings of yours that the start
+  refuses: a `frame` level that is no level, a `frame_file` that fails a
+  check, an `adapter_command` that is no command. It said `not
+  connected` of a session that stayed attached, under the frame it had.
+  The session is kept, and one line after the context line says what
+  could not be used and why, that it is not in force, that the session
+  goes on with the frame and the options it had, and to fix the option
+  and `/clear` or start a new session. A session that starts anew beside
+  such a setting still connects to nothing and says why, as before.
 - **A Codex CLI thread that is resumed in another checkout registers
   there** (work item 327), as it did before a session's checkout was
   recorded.

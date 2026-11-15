@@ -535,6 +535,15 @@ type run struct {
 	// (keepUnresolved): a team file that holds a secret, or that was pointed
 	// elsewhere, is the member's to hear of in any case.
 	fileRefused string
+	// settingRefused is the line a start that keeps a running session says
+	// when what its resolution refused was the member's own settings and not
+	// the team: an option that cannot be read, a frame text that fails a
+	// check, an adapter that cannot be resolved (resolve). It is written in
+	// the words of a session that stays connected (keptSettingLine), where
+	// the refusal itself says `not connected`: the kept session goes on
+	// with what it had, and the member has to hear that what they set is
+	// not in force.
+	settingRefused string
 	// optionsEnv is the environment ParseOptions reads: environ itself on
 	// Claude Code; on a host with an options file (Muse Code, Codex CLI)
 	// environ plus the entries the file supplies (config.OptionsEnviron),
@@ -999,6 +1008,23 @@ const driftLine = "Brigade: not connected: .brigade.json does not match the team
 // input; it is sanitised all the same. The label the machine joined under
 // is not in the line: it is often an address.
 func followedLine(tf *teamfile.File, pin *teamstore.Pin, joined bool, command string) string {
+	return followedLineOf(thisCheckout, tf, pin, joined, command)
+}
+
+// The two ways a line names the checkout that followed. A start, and the
+// registration retry of a session attached to nothing, resolve the checkout
+// their document's directory is in: "this checkout". A prompt of a session
+// that is running speaks of the session's own checkout, the one its map
+// names, from wherever the prompt comes (work item 327, ADR 0007): sent
+// from another checkout, or from a repository of another team, "this
+// checkout" would be said of a directory that followed nothing.
+const (
+	thisCheckout    = "this checkout"
+	startedCheckout = "the checkout this session was started in"
+)
+
+// followedLineOf is followedLine with the words that name the checkout.
+func followedLineOf(checkout string, tf *teamfile.File, pin *teamstore.Pin, joined bool, command string) string {
 	where := attr(teammove.Host(tf.URL))
 	if tf.Certificate != "" {
 		where += ", trusting the server certificate " + certLine(tf.Certificate)
@@ -1007,7 +1033,7 @@ func followedLine(tf *teamfile.File, pin *teamstore.Pin, joined bool, command st
 	if !joined {
 		how = "this machine had joined it there already"
 	}
-	return "Brigade: this checkout followed team \"" + attr(tf.TeamName) + "\" to " + where +
+	return "Brigade: " + checkout + " followed team \"" + attr(tf.TeamName) + "\" to " + where +
 		": the team's administrator recorded that move on " + attr(teammove.Host(pin.URL)) +
 		", the backend you joined it on, and " + how + ". To leave the team run `" + command +
 		" team leave`; to stay put until you join a moved team yourself, set the option follow_team_move to off."

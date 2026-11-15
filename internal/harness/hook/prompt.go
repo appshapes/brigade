@@ -109,7 +109,7 @@ func (r *run) prompt() int {
 	}
 	// A move this session's hook made and was stopped before saying: this
 	// prompt says it.
-	r.sayMoved(f, m)
+	r.sayMoved(ctx, f, in, m)
 	// The team's move (move.go, work item 327): a session whose team file
 	// names another backend for its team starts the follow, or, once the
 	// checkout followed, is registered anew where the team is. A session
@@ -503,7 +503,9 @@ func policyNowLine(p policy.Policy) string {
 // is dead here and replaced by the watcher itself. Without a socket (and
 // no sink) there is nothing to inject into and nothing is spawned. With
 // replace set, a live watcher of this version is replaced too: the inbound
-// policy it was started under has changed (card 50).
+// policy it was started under has changed (card 50). A live watcher that
+// serves another session than the map names is no watcher of this session:
+// the session's own is started beside it, and retires it (work item 327).
 func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, replace bool) bool {
 	if !r.canInject(f) {
 		r.log.Debug("prompt: no inbox socket; the watcher is not needed")
@@ -513,6 +515,18 @@ func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, r
 	switch {
 	case err != nil:
 		r.log.Warn("prompt: watcher pidfile unreadable; spawning anyway", log.Err(err))
+	case v.Found && v.Alive && v.Entry.BrigadeSessionID != m.BrigadeSessionID:
+		// A live watcher of another session than the map names: the one the
+		// session had before a hook moved it and was stopped before it
+		// started the watcher of the session it has now (reattach). That
+		// watcher ends by itself once it sees the map, after its tick and
+		// its `session close` on the backend the team left, and until then
+		// it stood for a watcher here: a prompt in that time started none,
+		// and the session waited for another prompt to be served. The
+		// watcher that is started retires it (its guard), as the one the
+		// hook that moves a session starts does, and neither is waited for.
+		r.log.Info("prompt: the live watcher serves another session; starting this session's", slog.Int("watcher_pid", v.Entry.PID))
+		return r.spawnWatcher(ctx, f, m, 0)
 	case v.Found && v.Alive && v.Entry.Version == buildinfo.String() && !replace:
 		return false
 	case v.Found && v.Alive:

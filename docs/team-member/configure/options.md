@@ -29,3 +29,6 @@ values are read from your own settings only, never from a project.
 Where an option is read in Claude Code: your user settings, `--settings` and managed settings. In Muse Code:
 `~/.config/brigade/muse-options.json`; in Codex CLI: `~/.config/brigade/codex-options.json`. A value Brigade cannot use is named in one line at session start and the
 default is used; a `frame_file` that fails a check leaves the session without Brigade, with one line saying why.
+A session that is already running stays connected when its `/clear` meets a value that would leave a new session
+without Brigade: it goes on with the frame and the options it had, and says so in one line
+([Choose the frame text](frame-text.md)).

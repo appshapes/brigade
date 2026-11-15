@@ -57,6 +57,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 const (
@@ -127,16 +128,31 @@ func moveWaitsLine(n int) string {
 	return "Brigade: this session stays on the backend it is on for now: " + what + " held for it there, and a held message does not move with a session. Run `brigade inbox` in your own terminal to read " + it + ", then `brigade inbox release` to deliver " + it + "; this session moves at its next prompt after that."
 }
 
-// rejoinedLine is the line of a session that moves because its member
-// joined the team's new backend in this checkout with a command of their
-// own: nothing was followed, so the follow's line would not be true. The
-// file's values are consented to by then, and sanitised all the same.
-func rejoinedLine(tf *teamfile.File) string {
+// rejoinedLineOf is the line of a session that moves because its member
+// joined the team's new backend in the session's checkout with a command of
+// their own: nothing was followed, so the follow's line would not be true.
+// The file's values are consented to by then, and sanitised all the same.
+// checkout is how the line names the checkout (followedLineOf).
+func rejoinedLineOf(checkout string, tf *teamfile.File) string {
 	where := attr(teammove.Host(tf.URL))
 	if tf.Certificate != "" {
 		where += ", trusting the server certificate " + certLine(tf.Certificate)
 	}
-	return "Brigade: this checkout is joined to team \"" + attr(tf.TeamName) + "\" at " + where + " now, and this session moves there with it."
+	return "Brigade: " + checkout + " is joined to team \"" + attr(tf.TeamName) + "\" at " + where + " now, and this session moves there with it."
+}
+
+// checkoutWords names the session's own checkout, canon, in a line a prompt
+// says: "this checkout" when the prompt comes from it, and what it is to
+// the session when the prompt comes from anywhere else. A prompt's
+// directory follows the model, and the lines of a move are said from
+// wherever the session works.
+func checkoutWords(in input, canon string) string {
+	if path, found := teamfile.Discover(in.Cwd); found {
+		if from, err := teamfile.Canonicalize(filepath.Dir(path)); err == nil && from == canon {
+			return thisCheckout
+		}
+	}
+	return startedCheckout
 }
 
 // A followedMark is what a follow that ran outside a session's start leaves
@@ -538,9 +554,10 @@ func (r *run) adoptCheckout(f facts, m *sessionmap.ByPID, canon string, pin *tea
 // team file names, for a session m that is still on the one the team left:
 // the follow's line when the pin says it moved from the backend the session
 // is on, with how the machine joined when a follow left word of it, and the
-// line of the member's own join otherwise.
-func (r *run) arrivalLine(f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin, m *sessionmap.ByPID) string {
-	return arrivalLineFrom(opts.ConfigDir, tf, pin, m.TeamKey, r.joinedByFollow(f, opts, tf, canon), r.commandName(f))
+// line of the member's own join otherwise. checkout is how the line names
+// the checkout (followedLineOf).
+func (r *run) arrivalLine(f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin, m *sessionmap.ByPID, checkout string) string {
+	return arrivalLineFrom(opts.ConfigDir, tf, pin, m.TeamKey, r.joinedByFollow(f, opts, tf, canon), r.commandName(f), checkout)
 }
 
 // joinedByFollow reports whether a follow left word, for the checkout, that
@@ -554,12 +571,12 @@ func (r *run) joinedByFollow(f facts, opts config.Options, tf *teamfile.File, ca
 // arrivalLineFrom is arrivalLine for a session that was on the backend the
 // team key from names: the follow's line when the pin moved from that
 // backend, the line of the member's own join otherwise.
-func arrivalLineFrom(configDir string, tf *teamfile.File, pin *teamstore.Pin, from string, joined bool, command string) string {
+func arrivalLineFrom(configDir string, tf *teamfile.File, pin *teamstore.Pin, from string, joined bool, command, checkout string) string {
 	old, err := teamstore.LoadBinding(configDir, from)
 	if err != nil || pin.MovedFrom == "" || pin.MovedFrom != old.URL {
-		return rejoinedLine(tf)
+		return rejoinedLineOf(checkout, tf)
 	}
-	return followedLine(tf, &teamstore.Pin{URL: pin.MovedFrom}, joined, command)
+	return followedLineOf(checkout, tf, &teamstore.Pin{URL: pin.MovedFrom}, joined, command)
 }
 
 // A movedNotice is what the prompt that moves a session leaves before it
@@ -613,10 +630,13 @@ func (r *run) dropMovedNotice(f facts) {
 // discards what a hook printed when it stops it, so nothing was said: this
 // prompt says how the checkout arrived, when the conversation was owed
 // that, and the context line of the session as it is now, with the host's
-// own line after it. A notice over a map that still names the session it
+// own line after it. It also does what that hook does after the map is
+// written and so may not have done: the roads to the session are filed for
+// the session as it is now, and the state entry of the session the move
+// left ends (endLeft). A notice over a map that still names the session it
 // was left for is of a registration that was not recorded: the session is
 // where it was, and the notice goes. A notice that cannot be read goes too.
-func (r *run) sayMoved(f facts, m *sessionmap.ByPID) {
+func (r *run) sayMoved(ctx context.Context, f facts, in input, m *sessionmap.ByPID) {
 	path := config.MovedNotice(f.stateDir, f.pid)
 	data, err := adapterkit.ReadStrict(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -637,8 +657,20 @@ func (r *run) sayMoved(f facts, m *sessionmap.ByPID) {
 	// The notice stays until this hook ends, as the one that left it meant
 	// it to: were this hook stopped too, the next would say the lines.
 	r.movedSaid = true
+	// The roads to the session first, which that hook files after the map
+	// and so may not have filed (finish): the resume hint of the
+	// conversation the map names and, on Muse Code and Codex CLI, the pointer
+	// a command in the model's shell finds the session by. A pointer that
+	// still names the session the move left is refused beside a map that
+	// names another (config.Session), and no hook but a session's start
+	// writes one: without this every `brigade` command of the session was
+	// refused until it started again. Written again harmlessly when that
+	// hook got that far.
+	store, now := sessionmap.Store{StateDir: f.stateDir}, r.deps.Now()
+	r.writeByNative(store, m.ClaudeSessionID, m, now)
+	r.writeByHost(f, store, m.ClaudeSessionID, m, now)
 	if n.Arrival {
-		if line, canon, opts, ok := r.arrivalAfter(f, m, n); ok && r.fits(line) {
+		if line, canon, opts, ok := r.arrivalAfter(f, in, m, n); ok && r.fits(line) {
 			r.say(line)
 			r.dropFollowedMark(f, opts, canon)
 		}
@@ -657,12 +689,34 @@ func (r *run) sayMoved(f facts, m *sessionmap.ByPID) {
 	r.forgetTold(f)
 	_ = os.Remove(retryStampPath(f.stateDir, f.pid))
 	_ = os.Remove(doingStampPath(f.stateDir, f.pid))
+	// Last, because it may ask git: the lines are out by now.
+	r.endLeft(ctx, f, m, n.Was, now)
+}
+
+// endLeft ends the state entry of the session a move left, for the prompt
+// that makes good a hook that was stopped (sayMoved). That hook ends the
+// entry after it starts the watcher (leftBehind); one that was stopped
+// before left an entry that never ends, and the digest reports a session's
+// commits and its last note when it ends. The entry is in the state folder
+// the session's map names, under the id the notice kept. One that has its
+// end is left as it is: the hook that was stopped got that far.
+func (r *run) endLeft(ctx context.Context, f facts, m *sessionmap.ByPID, was string, now time.Time) {
+	s, ok := stateStore(f, m)
+	if !ok {
+		return
+	}
+	if e, err := s.Load(was); err != nil || !e.EndedAt.IsZero() {
+		return
+	}
+	left := *m
+	left.BrigadeSessionID = was
+	r.stateEnd(ctx, f, &left, "moved", now)
 }
 
 // arrivalAfter is the arrival line of a move that was made, for sayMoved:
 // read again from the team file and the pin of the session's checkout,
 // with the backend and the follow's word the notice kept.
-func (r *run) arrivalAfter(f facts, m *sessionmap.ByPID, n movedNotice) (line, canon string, opts config.Options, ok bool) {
+func (r *run) arrivalAfter(f facts, in input, m *sessionmap.ByPID, n movedNotice) (line, canon string, opts config.Options, ok bool) {
 	if m.Checkout == "" {
 		return "", "", opts, false
 	}
@@ -678,7 +732,7 @@ func (r *run) arrivalAfter(f facts, m *sessionmap.ByPID, n movedNotice) (line, c
 	if err != nil || !pinned || !pin.Matches(tf) {
 		return "", "", opts, false
 	}
-	return arrivalLineFrom(opts.ConfigDir, tf, pin, n.From, n.Joined, r.commandName(f)), m.Checkout, opts, true
+	return arrivalLineFrom(opts.ConfigDir, tf, pin, n.From, n.Joined, r.commandName(f), checkoutWords(in, m.Checkout)), m.Checkout, opts, true
 }
 
 // sayArrival says line, the arrival line, once in a conversation, and
@@ -727,7 +781,7 @@ func moveContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // that failed is.
 func (r *run) reattach(ctx context.Context, f facts, in input, m *sessionmap.ByPID, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin) *sessionmap.ByPID {
 	newKey := teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)
-	line := r.arrivalLine(f, opts, tf, canon, pin, m)
+	line := r.arrivalLine(f, opts, tf, canon, pin, m, checkoutWords(in, canon))
 	// The member is told how the checkout got there at the first prompt that
 	// knows it, whether or not the session can move yet.
 	if held := r.heldCount(f, m); held > 0 {
@@ -805,7 +859,8 @@ func (r *run) stay(ctx context.Context, f facts, in input, res resolved, existin
 	if r.saidFollowed {
 		r.note(f, in, toldFollowed)
 	} else if pin, pinned, err := teamstore.LookupPin(res.opts.ConfigDir, res.checkout); err == nil && pinned {
-		r.sayArrival(f, in, res.opts, res.checkout, r.arrivalLine(f, res.opts, res.teamFile, res.checkout, pin, existing))
+		// A start resolved the checkout its own directory is in.
+		r.sayArrival(f, in, res.opts, res.checkout, r.arrivalLine(f, res.opts, res.teamFile, res.checkout, pin, existing, thisCheckout))
 	}
 	r.tell(f, in, word, line)
 	r.keep(ctx, f, in, res, existing, now, watcherRuns)
@@ -907,7 +962,10 @@ func stillMember(m *sessionmap.ByPID) bool {
 // comes from, over a session that is running (runningSession) and whose
 // member is still in its team (stillMember): `/clear` in a checkout that is
 // not joined, in a directory with no team file, or over a team file with no
-// record behind it. Such a start used to return before it read the map,
+// record behind it. It ends the same way a start whose resolution refused
+// the member's own settings, wherever it comes from: an option that cannot
+// be read, a frame text that fails a check, an adapter that cannot be
+// resolved. Such a start used to return before it read the map,
 // with the line of a session that is not connected, or none. The session
 // was attached all the same, and its map went on naming the conversation
 // that ended: the doing line was not asked for in the one that began, that
@@ -918,9 +976,11 @@ func stillMember(m *sessionmap.ByPID) bool {
 // session is on is told, and the line is the context line of the session
 // where it is. Nothing of what was resolved is in the map, because nothing
 // was. What the resolution said is dropped, being said of a session that
-// is not connected or not joined, but for one thing the member has to hear
+// is not connected or not joined, but for two things the member has to hear
 // whatever session they are in: that the team file there was refused
-// (keptFileLine).
+// (keptFileLine), and that their own settings were, so that what they set
+// is not in force and the session goes on with what it had
+// (keptSettingLine).
 func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *sessionmap.ByPID) {
 	now := r.deps.Now()
 	store := sessionmap.Store{StateDir: f.stateDir}
@@ -950,6 +1010,9 @@ func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *s
 	if r.fileRefused != "" {
 		r.say(keptFileLine(r.fileRefused))
 	}
+	if r.settingRefused != "" {
+		r.say(r.settingRefused)
+	}
 	// The context line is said: a move's notice has nothing left to tell.
 	r.dropMovedNotice(f)
 }
@@ -962,6 +1025,73 @@ func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *s
 func keptFileLine(refusal string) string {
 	rest := strings.TrimPrefix(strings.TrimPrefix(refusal, "Brigade: not connected: "), "Brigade: not connected ")
 	return "Brigade: this session stays where it is. In the directory this conversation began in: " + rest
+}
+
+// keptSettingLine is what a start that keeps a running session says when
+// what its resolution refused was the member's own settings and not the
+// team (work item 327, ADR 0007): what could not be used, the refusal's own
+// reason (a fixed word, never a value or a path), what is in force instead,
+// and the remedy. The refusal's own line says `not connected` and, for most
+// options, `run brigade team join`: neither is true of a session that is
+// kept. What is in force is what the session had. The start wrote nothing
+// of what it resolved into the map and started no watcher, so the watcher
+// that runs goes on reading the frame, the inbound policy and the adapter
+// the map held, and it read file sync and the polling intervals when it
+// started. A session that starts anew with the same settings connects to
+// nothing: the kept one can so be on a weaker frame than the one its
+// member tried to set, and the line says which frame holds.
+func keptSettingLine(what, reason, effect, remedy string) string {
+	if reason == "" {
+		reason = "unusable"
+	}
+	return "Brigade: this session stays connected as it was. " + what + " cannot be used (" + attr(reason) + "), so " + effect +
+		". " + remedy + ", then `/clear` or start a new session."
+}
+
+// keptOptionLine is keptSettingLine for options that could not be parsed.
+// One option that cannot be read is all of them unread: the start resolved
+// nothing, and a prompt hook that cannot parse the options does not decide
+// the inbound policy again, polls for nothing and follows no move, until
+// the option is fixed.
+func keptOptionLine(err error) string {
+	_, reason := codeOf(err)
+	what, remedy := "Your Brigade options", "Fix them"
+	var perr *protocol.Error
+	if errors.As(err, &perr) && perr.Details["option"] != "" {
+		what, remedy = "The `"+attr(perr.Details["option"])+"` option", "Fix the option"
+	}
+	return keptSettingLine(what, reason,
+		"no change to your options is in force here: the session's watcher goes on with the frame and the options the session had, and its prompts read no option until this one is fixed",
+		remedy)
+}
+
+// keptFrameLine is keptSettingLine for a frame_file whose text could not be
+// read or failed a check. The options themselves were read, so only the
+// frame is not the member's new one: the watcher, and a prompt's poll, go
+// on framing messages as the map says, which is as before.
+func keptFrameLine(err error) string {
+	_, reason := codeOf(err)
+	if reason == "" {
+		reason = "frame_file_unreadable"
+	}
+	return keptSettingLine("The `frame_file` option", reason,
+		"the frame your options name now is not in force here: team messages still reach this session under the frame it had",
+		"Fix the `frame` or `frame_file` option")
+}
+
+// keptAdapterLine is keptSettingLine for an adapter that could not be
+// resolved: the adapter_command option, or the adapter the team file of the
+// start's directory names, which adapters.json has to hold. The session's
+// watcher and its commands go on through the adapter the map names.
+func keptAdapterLine(name string, err error) string {
+	_, reason := codeOf(err)
+	const goesOn = "the session goes on through the adapter it had"
+	var perr *protocol.Error
+	if errors.As(err, &perr) && perr.Details["source"] == config.SourceOption {
+		return keptSettingLine("The `adapter_command` option", reason, "the adapter it names is not in force here: "+goesOn, "Fix the option")
+	}
+	return keptSettingLine("The adapter \""+attr(name)+"\" that the team file in the directory this conversation began in names", reason,
+		"this start changed nothing: "+goesOn, "Run `brigade team status` in a terminal to see why and fix it")
 }
 
 // heldCount is how many messages wait for the session in its pending file:

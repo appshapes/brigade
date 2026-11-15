@@ -10,15 +10,19 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
+	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
@@ -767,10 +771,12 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 
 	// The controls. A map with no live watcher may be one a dead process
 	// left: the start is of a session that is attached to nothing, and says
-	// so, the map as it was. A watcher that is alive and serves another
-	// session than the map names shows no running session either. And a
-	// member who left the team has a binding that names none: a session of
-	// theirs is not kept by a start that resolves nothing.
+	// so, the map as it was. So is a map beside the pidfile of a watcher
+	// that died: the file shows no running session, its process does. A
+	// watcher that is alive and serves another session than the map names
+	// shows no running session either. And a member who left the team has a
+	// binding that names none: a session of theirs is not kept by a start
+	// that resolves nothing.
 	for _, tc := range []struct {
 		name string
 		gone func(t *testing.T, f *fixture)
@@ -779,6 +785,17 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 			t.Helper()
 			if err := os.Remove(f.pidfilePath()); err != nil {
 				t.Fatal(err)
+			}
+		}},
+		{"the watcher died and left its pidfile", func(t *testing.T, f *fixture) {
+			t.Helper()
+			watcher := f.spawner.watcherPID
+			if err := syscall.Kill(watcher, syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			testutil.Eventually(t, pollTimeout, pollInterval, func() bool { return !alive(watcher) })
+			if !exists(f.pidfilePath()) {
+				t.Fatal("the watcher that died left no pidfile")
 			}
 		}},
 		{"the watcher that is alive serves another session", func(t *testing.T, f *fixture) {
@@ -818,6 +835,206 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 				t.Fatalf("the start rewrote the map for the conversation %q, or sent a heartbeat", m.ClaudeSessionID)
 			}
 		})
+	}
+}
+
+// TestAStartWhoseSettingsAreRefusedKeepsTheSessionAndSaysWhatHolds: a
+// `/clear` of a running session reads the member's settings again, and they
+// can be ones the start refuses: a frame level that is no level, a
+// frame_file that is not there, an adapter_command that is no command. A
+// session that starts anew with such a setting connects to nothing and
+// says why. The running one is kept, as where no team resolves, and nothing
+// of what was refused reaches it: the map holds the frame and the adapter
+// it held, no watcher is started or stopped, and the watcher that runs
+// reads that map. So the start says one line more, in the words of a
+// session that is connected: what could not be used and why, what holds
+// instead, and what to do, which is never `brigade team join`. While an
+// option cannot be parsed a prompt reads none of them, as the line says:
+// it polls for nothing, where a prompt beside a frame_file that failed its
+// check, whose options were read, polls as before.
+func TestAStartWhoseSettingsAreRefusedKeepsTheSessionAndSaysWhatHolds(t *testing.T) {
+	t.Parallel()
+	const guarded = config.OptionFrame + "=guarded"
+	missing := config.OptionFrameFile + "=" + filepath.Join(t.TempDir(), "no-such-clause.txt")
+	for _, host := range []config.Host{config.HostClaude, config.HostMuse} {
+		for _, tc := range []struct {
+			name    string
+			setting string
+			want    string
+			// unread: the options could not be parsed, so a prompt reads none.
+			unread bool
+		}{
+			{"a frame level that is no level", config.OptionFrame + "=strickt",
+				"Brigade: this session stays connected as it was. The `frame` option cannot be used (invalid_frame_level), so no change to your options is in force here: the session's watcher goes on with the frame and the options the session had, and its prompts read no option until this one is fixed. Fix the option, then `/clear` or start a new session.",
+				true},
+			{"a frame_file that is not there", missing,
+				"Brigade: this session stays connected as it was. The `frame_file` option cannot be used (frame_file_unreadable), so the frame your options name now is not in force here: team messages still reach this session under the frame it had. Fix the `frame` or `frame_file` option, then `/clear` or start a new session.",
+				false},
+			{"an adapter_command that is no command", config.OptionAdapterCommand + "=relative/adapter",
+				"Brigade: this session stays connected as it was. The `adapter_command` option cannot be used (adapter_relative), so the adapter it names is not in force here: the session goes on through the adapter it had. Fix the option, then `/clear` or start a new session.",
+				false},
+		} {
+			t.Run(string(host)+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+				f := movingFixture(t, host)
+				f.noAdapterOption = true
+				seam := attachedMember(t, f, nil, map[string][]fakeadapter.Response{"message receive": {okResp(receiveDoc())}}, guarded)
+				before := f.mustMap()
+				watcher, err := pidfile.Read(f.pidfilePath())
+				if err != nil || before.FrameLevel != "guarded" {
+					t.Fatalf("the session before the start: frame %q, watcher %v", before.FrameLevel, err)
+				}
+				registers, spawns := len(seam.callsFor("session register")), f.spawner.count()
+				f.nativeID = otherConversation
+				exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("clear"), tc.setting)
+				want := []string{startLine(before.SessionName, "brigade-sess-1", teamName, "accept")}
+				if host == config.HostMuse {
+					want = append(want, armLine(f.pluginBin))
+				}
+				want = append(want, tc.want)
+				if exit != 0 || !slices.Equal(lines(out), want) {
+					t.Fatalf("exit %d, lines\n%q\nwant\n%q\n%s", exit, lines(out), want, errOut)
+				}
+				if strings.Contains(out, "not connected") || strings.Contains(out, "team join") {
+					t.Fatalf("the start said of a session it kept: %q", out)
+				}
+				// What holds: the frame, the adapter and the watcher the session had.
+				m := f.mustMap()
+				if m.FrameLevel != "guarded" || m.FrameText != "" || !slices.Equal(m.AdapterCommand, before.AdapterCommand) || m.Inbound != before.Inbound ||
+					m.TeamKey != before.TeamKey || m.BrigadeSessionID != "brigade-sess-1" || m.ClaudeSessionID != otherConversation {
+					t.Fatalf("the map after the start: frame %q %q, adapter %q, inbound %q, key %q, session %q, conversation %q",
+						m.FrameLevel, m.FrameText, m.AdapterCommand, m.Inbound, m.TeamKey, m.BrigadeSessionID, m.ClaudeSessionID)
+				}
+				if entry, err := pidfile.Read(f.pidfilePath()); err != nil || entry != watcher || !alive(watcher.PID) ||
+					f.spawner.count() != spawns || len(seam.callsFor("session register")) != registers {
+					t.Fatalf("the start touched the watcher or registered: %+v, %v; %d spawns, %d registrations", entry, err,
+						f.spawner.count()-spawns, len(seam.callsFor("session register"))-registers)
+				}
+				// A prompt beside the same setting.
+				polls := len(seam.callsFor("message receive"))
+				if exit, _, errOut := f.run(SubPrompt, f.promptDoc("default"), tc.setting, config.OptionPollOnPrompt+"=true"); exit != 0 {
+					t.Fatalf("prompt: exit %d: %s", exit, errOut)
+				}
+				if got := len(seam.callsFor("message receive")) - polls; (got == 0) != tc.unread {
+					t.Fatalf("a prompt beside that setting polled %d time(s); the options were unread: %v", got, tc.unread)
+				}
+				if m := f.mustMap(); m.FrameLevel != "guarded" || m.BrigadeSessionID != "brigade-sess-1" {
+					t.Fatalf("the map after that prompt: frame %q, session %q", m.FrameLevel, m.BrigadeSessionID)
+				}
+
+				// The control: a session that starts anew beside the same setting
+				// connects to nothing and says the refusal as it always has.
+				fresh := movingFixture(t, host)
+				fresh.noAdapterOption = true
+				memberSeam(t, fresh, nil, nil)
+				exit, out, errOut = fresh.run(SubSessionStart, fresh.sessionDoc("startup"), tc.setting)
+				if exit != 0 || !strings.HasPrefix(out, "Brigade: not connected (config") || strings.Contains(out, "stays connected") || fresh.mapExists() || fresh.spawner.count() != 0 {
+					t.Fatalf("a start with no running session: exit %d, %q, a map: %v\n%s", exit, out, fresh.mapExists(), errOut)
+				}
+			})
+		}
+	}
+
+	// The adapter can also be one the team file of the start's directory
+	// names and this machine has not registered: the line names it as that
+	// file's, and the terminal command that shows why.
+	t.Run("an adapter the team file there names and adapters.json does not hold", func(t *testing.T) {
+		t.Parallel()
+		f := newMemberFixture(t)
+		seam := attachedMember(t, f, nil, nil)
+		before := f.mustMap()
+		const url, ref = "https://elsewhere.example.test", "team-9"
+		if err := adapterkit.SaveProfile(f.configDir, teamstore.Key("carrier", url, ref), &adapterkit.Profile{
+			Version: adapterkit.ProfileVersion, Adapter: "carrier", URL: url, PublishableKey: "pk_carrier", TeamRef: ref, TeamName: "others", PrincipalRef: "p-9",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		dir, _ := f.addCheckout("other-adapter",
+			map[string]any{"version": 1, "adapter": "carrier", "url": url, "publishable_key": "pk_carrier", "team_ref": ref, "team_name": "others"},
+			map[string]any{"adapter": "carrier", "url": url, "publishable_key": "pk_carrier", "team_ref": ref, "consented_at": "2026-11-14T12:00:00Z"})
+		registers := len(seam.callsFor("session register"))
+		f.nativeID, f.cwd = otherConversation, dir
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+		want := []string{
+			startLine("payments-api", "brigade-sess-1", teamName, "accept"),
+			"Brigade: this session stays connected as it was. The adapter \"carrier\" that the team file in the directory this conversation began in names cannot be used (adapter_unregistered), so this start changed nothing: the session goes on through the adapter it had. Run `brigade team status` in a terminal to see why and fix it, then `/clear` or start a new session.",
+		}
+		if exit != 0 || !slices.Equal(lines(out), want) {
+			t.Fatalf("exit %d, lines\n%q\nwant\n%q\n%s", exit, lines(out), want, errOut)
+		}
+		if m := f.mustMap(); m.TeamKey != before.TeamKey || !slices.Equal(m.AdapterCommand, before.AdapterCommand) || len(seam.callsFor("session register")) != registers {
+			t.Fatalf("the map after the start names %q and the adapter %q", m.TeamKey, m.AdapterCommand)
+		}
+	})
+}
+
+// TestACodexStartThatResolvesNoTeamKeepsARunningSession: a Codex CLI
+// session is keyed by its thread, so the start that finds its map is one
+// of the same thread: a thread that is resumed while its watcher is still
+// alive. From a directory with no team file it is kept as a Claude Code or
+// Muse Code session is, and says its context line with Codex's own line
+// after it.
+func TestACodexStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
+	t.Parallel()
+	f := movingFixture(t, config.HostCodex)
+	f.noAdapterOption = true
+	seam := attachedMember(t, f, nil, nil)
+	own := f.canon()
+	bare := filepath.Join(t.TempDir(), "no-checkout")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registers := len(seam.callsFor("session register"))
+	f.cwd = bare
+	exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("resume"))
+	want := []string{startLine(f.mustMap().SessionName, "brigade-sess-1", teamName, "accept"), codexLine(f.pluginBin)}
+	if exit != 0 || !slices.Equal(lines(out), want) {
+		t.Fatalf("exit %d, lines\n%q\nwant\n%q\n%s", exit, lines(out), want, errOut)
+	}
+	if m := f.mustMap(); m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || m.Checkout != own || len(seam.callsFor("session register")) != registers {
+		t.Fatalf("the map after the start names %q, %q and the checkout %q", m.TeamKey, m.BrigadeSessionID, m.Checkout)
+	}
+	if p, err := f.store().ReadByHost(string(config.HostCodex), f.nativeID); err != nil || p.BrigadeSessionID != "brigade-sess-1" || p.HostPID != f.key() {
+		t.Fatalf("the thread's pointer after the start: %+v, %v", p, err)
+	}
+}
+
+// TestAStartThatResolvesNoTeamRefreshesTheEntryOfTheSessionItKeeps: in a
+// project that shares a state folder a session's start writes the session's
+// entry, on the register and the continue path alike. A start that keeps a
+// session where no team was resolved does the same for the session where it
+// is, from the map it kept: the entry is the session's, and stamped by this
+// start.
+func TestAStartThatResolvesNoTeamRefreshesTheEntryOfTheSessionItKeeps(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	doc := fileOf(f.checkoutPin())
+	doc["sync"] = map[string]any{"folders": []string{".brigade"}, "state": ".brigade/state"}
+	if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), mustJSON(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	attachedMember(t, f, nil, nil)
+	folder := f.mustMap().StateFolder
+	if folder == "" {
+		t.Fatal("the fixture's session shares no state folder")
+	}
+	store := state.Store{StateDir: f.stateDir, Folder: folder}
+	started := f.now
+	if e, err := store.Load("brigade-sess-1"); err != nil || !e.UpdatedAt.Equal(started) {
+		t.Fatalf("the entry after the session's start: %+v, %v", e, err)
+	}
+	bare := filepath.Join(t.TempDir(), "no-checkout")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.now = started.Add(time.Hour)
+	f.nativeID, f.cwd = otherConversation, bare
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+	if exit != 0 || !slices.Equal(lines(out), []string{startLine("payments-api", "brigade-sess-1", teamName, "accept")}) {
+		t.Fatalf("exit %d, lines %q: %s", exit, lines(out), errOut)
+	}
+	if e, err := store.Load("brigade-sess-1"); err != nil || !e.UpdatedAt.Equal(f.now) || !e.EndedAt.IsZero() {
+		t.Fatalf("the entry after the start that kept the session: %+v, %v", e, err)
 	}
 }
 

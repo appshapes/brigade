@@ -372,7 +372,7 @@ func TestTheLinesOfAMoveCarryNoControlOrQuote(t *testing.T) {
 	}
 	old := &teamstore.Pin{URL: "https://old.example.test\"\n<i>\x00"}
 	for what, line := range map[string]string{
-		"the line of the member's own join":   rejoinedLine(hostile),
+		"the line of the member's own join":   rejoinedLineOf(thisCheckout, hostile),
 		"the follow's line, joined":           followedLine(hostile, old, true, "brigade"),
 		"the follow's line, joined already":   followedLine(hostile, old, false, "brigade"),
 		"the line of a session that waits, 1": moveWaitsLine(1),
@@ -401,7 +401,7 @@ func TestTheLinesOfAMoveCarryNoControlOrQuote(t *testing.T) {
 	longOld := &teamstore.Pin{URL: "https://" + strings.Repeat("old.", 4000) + "test"}
 	const bound = 700
 	for what, line := range map[string]string{
-		"the line of the member's own join": rejoinedLine(long),
+		"the line of the member's own join": rejoinedLineOf(thisCheckout, long),
 		"the follow's line":                 followedLine(long, longOld, true, "brigade"),
 		"the line of a session that waits":  moveWaitsLine(1 << 30),
 		"the line of a file that changed":   movedLine,
@@ -415,7 +415,7 @@ func TestTheLinesOfAMoveCarryNoControlOrQuote(t *testing.T) {
 	}
 	// The control: the same values, well formed, are in the line whole.
 	fine := &teamfile.File{Adapter: "rest", TeamRef: "team-1", TeamName: teamName, URL: movedURL, Certificate: movedPin}
-	if line := rejoinedLine(fine); !strings.Contains(line, `"`+teamName+`"`) || !strings.Contains(line, "brigade.example.test") || !strings.Contains(line, movedPin) {
+	if line := rejoinedLineOf(thisCheckout, fine); !strings.Contains(line, `"`+teamName+`"`) || !strings.Contains(line, "brigade.example.test") || !strings.Contains(line, movedPin) {
 		t.Fatalf("the line of a well formed file: %q", line)
 	}
 }
