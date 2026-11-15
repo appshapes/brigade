@@ -644,6 +644,16 @@ func (r *run) stay(ctx context.Context, f facts, in input, res resolved, existin
 // checkout, and the start ends as one that continued does (finish): the
 // pointers, the state entry and the context line are the session's where
 // it is.
+//
+// The backend the session is on hears of the conversation that begins, as
+// it does from a start that continues (connect): the name the session has
+// now, and that a doing line of the conversation before has ended, a doing
+// line living inside one conversation (blankDoingLine). Without it the
+// roster went on showing what the cleared conversation was doing for as
+// long as the session was kept. The heartbeat goes through a client of the
+// map's own adapter and team key, never this start's: the session's id is
+// one only the backend that issued it knows. One that fails is the
+// watcher's to repeat, and a line it would have blanked stands.
 func (r *run) keep(ctx context.Context, f facts, in input, res resolved, existing *sessionmap.ByPID, now time.Time, watcherRuns bool) {
 	kept := *existing
 	kept.ClaudeSessionID = in.SessionID
@@ -653,6 +663,16 @@ func (r *run) keep(ctx context.Context, f facts, in input, res resolved, existin
 	}
 	kept.TranscriptPath = transcriptPath(in)
 	kept.UpdatedAt = now
+	adapter, err := config.AdapterFromArgv(existing.AdapterCommand)
+	if err != nil {
+		r.log.Warn("the map's adapter command is unusable; the backend this session is on is not told of the conversation that begins", log.Err(err))
+	} else {
+		where := res
+		where.client = r.client(adapter, existing.TeamKey, existing.ConfigDir, f.stateDir)
+		if herr := r.heartbeat(ctx, where, existing.BrigadeSessionID, existing.Inbound, blankDoingLine(in, existing, existing.DoingMode)); herr != nil {
+			r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(herr))
+		}
+	}
 	r.finish(ctx, f, in, res, &kept, now, watcherRuns)
 }
 

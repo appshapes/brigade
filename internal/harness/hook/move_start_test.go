@@ -3,6 +3,7 @@
 package hook
 
 import (
+	json "encoding/json/v2"
 	"os"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
+	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
 
 // A session's start in a process whose session is running where its team
@@ -43,6 +45,113 @@ func (f *fixture) keptWhereItWas(when string) {
 	}
 }
 
+// heartbeatsOn are the heartbeats the seam saw under the team key of one
+// backend.
+func heartbeatsOn(seam *adapterSeam, key string) []adapterCall {
+	var out []adapterCall
+	for _, c := range seam.callsFor("session heartbeat") {
+		if profileOf(c) == key {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// TestAStartThatKeepsASessionTellsItsBackendOfTheConversationThatBegins: a
+// start that keeps a running session where it is, because messages wait
+// for it there or because the start comes from another checkout, is still
+// a start: `/clear` began another conversation. The map takes what a
+// conversation changes (its id, the name the session has now, the
+// permission mode, the transcript) and nothing of the backend. And the
+// backend the session is on is told, as a start that continues tells it:
+// one heartbeat, under the team key the map names and for the id it
+// issued, with the name and, when the conversation changed, an empty doing
+// line, because a doing line lives inside one conversation. The backend
+// the team went to is sent nothing.
+func TestAStartThatKeepsASessionTellsItsBackendOfTheConversationThatBegins(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		// foreign: the start comes from another checkout of the team, one
+		// that is on the server; otherwise from the session's own, which
+		// followed, with a message waiting.
+		foreign bool
+		// same: the start names the conversation the map names.
+		same bool
+	}{
+		{"messages wait for it, and another conversation begins", false, false},
+		{"the start comes from another checkout, and another conversation begins", true, false},
+		{"messages wait for it, and the conversation is the one it was", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+			seam := memberSeam(t, f, movedDoc(movedURL, movedPin), nil)
+			// Both backends keep a doing line.
+			var described protocol.DescribeResult
+			if err := json.Unmarshal(seam.describe, &described); err != nil {
+				t.Fatal(err)
+			}
+			described.Capabilities = append(described.Capabilities, doingCapability)
+			seam.describe = mustJSON(&described)
+			startMember(t, f)
+			home, newKey := f.cwd, teamstore.Key("rest", movedURL, "team-1")
+			from := home
+			if tc.foreign {
+				f.memberOf("team-1")
+				from, _ = f.addCheckout("followed", serverFile("team-1"), serverPin("team-1", f.checkoutPin().URL))
+			} else {
+				f.moveTeamFile("team-1")
+				if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+					t.Fatalf("lines = %q", got)
+				}
+				if err := pendingStoreOf(f).Save(inbound.PendingFile{Entries: heldEntries(1, "payments-api"), UpdatedAt: fixedTime}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// The session was renamed since it started.
+			f.deps.Registry = fakeregistry.New(t, map[int]string{f.pid: fakeregistry.Observed(f.pid, "renamed", "busy", f.socket)})
+			if !tc.same {
+				f.nativeID = otherConversation
+			}
+			beats := len(seam.callsFor("session heartbeat"))
+			exit, out, errOut := f.run(SubSessionStart, f.doc(map[string]any{
+				"session_id": f.nativeID, "cwd": from, "hook_event_name": "SessionStart", "source": "clear",
+				"permission_mode": "plan", "transcript_path": "/another/transcript.jsonl",
+			}))
+			if exit != 0 || strings.Contains(out, "not connected") {
+				t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+			}
+			m := f.mustMap()
+			if m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || m.Checkout != f.canon() {
+				t.Fatalf("the start did not keep the session: %+v", m)
+			}
+			if m.ClaudeSessionID != f.nativeID || m.SessionName != "renamed" || m.PermissionMode != "plan" || m.TranscriptPath != "/another/transcript.jsonl" {
+				t.Fatalf("the map after the start names the conversation %q, the name %q, the mode %q and the transcript %q", m.ClaudeSessionID, m.SessionName, m.PermissionMode, m.TranscriptPath)
+			}
+			if !slices.Contains(lines(out), startLine("renamed", "brigade-sess-1", teamName, m.Inbound)) {
+				t.Fatalf("the start's lines: %q", lines(out))
+			}
+			sent := seam.callsFor("session heartbeat")[beats:]
+			if len(sent) != 1 || profileOf(sent[0]) != f.teamKey || !slices.Contains(sent[0].Argv, "brigade-sess-1") || len(heartbeatsOn(seam, newKey)) != 0 {
+				t.Fatalf("the start sent %d heartbeat(s), %d of them to the backend the team went to: want one, to the backend the session is on, for its id", len(sent), len(heartbeatsOn(seam, newKey)))
+			}
+			var hb protocol.HeartbeatRequest
+			if err := json.Unmarshal(sent[0].Stdin, &hb); err != nil {
+				t.Fatalf("the heartbeat's document: %v", err)
+			}
+			if hb.SessionName == nil || *hb.SessionName != "renamed" || hb.Inbound == nil || *hb.Inbound != m.Inbound {
+				t.Fatalf("the heartbeat's name and policy: %s", sent[0].Stdin)
+			}
+			// A doing line ends with its conversation, and only then.
+			if blanked := hb.SessionDescription != nil && *hb.SessionDescription == ""; blanked == tc.same {
+				t.Fatalf("the heartbeat blanked the doing line: %v; the conversation is the same: %v\n%s", blanked, tc.same, sent[0].Stdin)
+			}
+		})
+	}
+}
+
 // TestAStartKeepsARunningSessionWhoseMessagesWait: messages wait for the
 // session on the backend its team left, and `/clear` fires its start. A
 // start that registered it anew would leave them behind: the map would name
@@ -65,8 +174,10 @@ func TestAStartKeepsARunningSessionWhoseMessagesWait(t *testing.T) {
 	// prompts that follow.
 	after := func(t *testing.T, f *fixture, seam *adapterSeam, entries []inbound.PendingEntry, registers, spawns int) {
 		t.Helper()
-		if n := len(seam.callsFor("session register")); n != registers || f.spawner.count() != spawns || len(seam.callsFor("session heartbeat")) != 0 {
-			t.Fatalf("the start registered %d time(s), started %d watcher(s) and heartbeated %d time(s)", n-registers, f.spawner.count()-spawns, len(seam.callsFor("session heartbeat")))
+		// The backend the team went to has never heard of the session's id:
+		// nothing is registered there and nothing heartbeated.
+		if n := len(seam.callsFor("session register")); n != registers || f.spawner.count() != spawns || len(heartbeatsOn(seam, teamstore.Key("rest", movedURL, "team-1"))) != 0 {
+			t.Fatalf("the start registered %d time(s), started %d watcher(s) and heartbeated the new backend %d time(s)", n-registers, f.spawner.count()-spawns, len(heartbeatsOn(seam, teamstore.Key("rest", movedURL, "team-1"))))
 		}
 		f.keptWhereItWas("after the start")
 		if pending, err := pendingStoreOf(f).Load(); err != nil || len(pending.Entries) != len(entries) || f.mustMap().BrigadeSessionID != heldSession {
