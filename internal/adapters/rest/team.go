@@ -241,6 +241,7 @@ func (c *command) teamJoin() (any, error) {
 	if answer.TeamRef != secret.TeamRef() {
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the secret names")
 	}
+	c.hideInAnswer(&answer.TeamName, &answer.PrincipalRef)
 	if err := c.keepCredential(answer.Credential, answer.PrincipalRef); err != nil {
 		return nil, err
 	}
@@ -476,7 +477,9 @@ const minHiddenHalfChars = 16
 // the request (`team join`, `team take-in`), and with what an answer
 // carries, before anything else is done with the answer (`team
 // rotate-secret`, `team open-move`). A text with no dot has no half and
-// registers nothing.
+// registers nothing. What is registered is hidden from every log line,
+// from the text of a refusal, and from the names of an answer
+// (hideInAnswer).
 func (c *command) hideSecretHalf(secret string) {
 	dot := strings.LastIndexByte(secret, '.')
 	if dot < 0 {
@@ -484,6 +487,22 @@ func (c *command) hideSecretHalf(secret string) {
 	}
 	if half := secret[dot+1:]; len(half) >= minHiddenHalfChars {
 		c.redactor.Add(half)
+	}
+}
+
+// hideInAnswer passes the names a server chose in an answer through the
+// redactor, as the text of a refusal is passed (readEnvelope). A result is
+// printed on stdout, and the team's name and the principal's reference of
+// a join and a take-in are kept in team.json and credential.json: a server
+// that broke the contract's rule and put into one of them the secret half
+// of what the command presented, or of what its own answer carries, gets
+// a marker in its place, on stdout and in the files. It is called once the
+// half is registered, for the commands that register one: `team join`,
+// `team take-in`, `team rotate-secret` and `team open-move`. The team's
+// reference needs none: each of them holds it against the one it knows.
+func (c *command) hideInAnswer(names ...*string) {
+	for _, name := range names {
+		*name = c.redactor.Redact(*name)
 	}
 }
 
@@ -599,6 +618,7 @@ func (c *command) teamRotateSecret() (any, error) {
 	// so is its secret half, which is not of a join secret's form.
 	c.redactor.Add(answer.JoinSecret)
 	c.hideSecretHalf(answer.JoinSecret)
+	c.hideInAnswer(&answer.TeamName)
 	if answer.TeamRef != c.profile.TeamRef {
 		c.rotationLost()
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
@@ -747,7 +767,10 @@ func (c *command) requireTeamTakeIn() error {
 // it, and the server answers for the principal the first request made,
 // with a new credential. On an answer the credential is written first and
 // the key file removed only then; on anything else the key stays where it
-// is, for the next run.
+// is, for the next run. It stays as well when the answer was for a
+// credential this profile holds that does not own the team, and the key
+// was an earlier run's: the server never looked at it
+// (keptForAnEarlierTakeIn).
 func (c *command) teamTakeIn() (any, error) {
 	fs := newFlags()
 	flags := adapterkit.NewTeamTakeInFlags(fs)
@@ -790,7 +813,7 @@ func (c *command) teamTakeIn() (any, error) {
 	if humanLabel == "" {
 		humanLabel = c.profile.HumanLabel
 	}
-	key, err := c.takeInRetryKey(taken.Secret.TeamRef())
+	key, kept, err := c.takeInRetryKey(taken.Secret.TeamRef())
 	if err != nil {
 		return nil, err
 	}
@@ -804,11 +827,17 @@ func (c *command) teamTakeIn() (any, error) {
 	if answer.TeamRef != taken.Secret.TeamRef() {
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the secret names")
 	}
+	c.hideInAnswer(&answer.TeamName, &answer.PrincipalRef)
 	if err := c.keepCredential(answer.Credential, answer.PrincipalRef); err != nil {
 		return nil, err
 	}
-	// The credential is kept: the key has nothing left to repeat.
-	c.dropRetryKey()
+	// The credential is kept: the key has nothing left to repeat, unless it
+	// is an earlier take-in's that this answer never looked at.
+	if keptForAnEarlierTakeIn(kept, &answer) {
+		c.leaveRetryKey()
+	} else {
+		c.dropRetryKey()
+	}
 	if err := c.bind(answer.TeamRef, answer.TeamName, answer.PrincipalRef, humanLabel); err != nil {
 		return nil, err
 	}
@@ -853,8 +882,9 @@ func (c *command) teamOpenMove() (any, error) {
 	// wherever it finds one; one that is not is refused below in fixed words.
 	// Its secret half is not of that form, and is registered. Nothing after
 	// this line writes any part of the answer but the result, which has no
-	// ticket member.
+	// ticket member, and the name in it goes through the redactor first.
 	c.hideSecretHalf(answer.Ticket)
+	c.hideInAnswer(&answer.TeamName)
 	if answer.TeamRef != c.profile.TeamRef {
 		c.ticketLost()
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")

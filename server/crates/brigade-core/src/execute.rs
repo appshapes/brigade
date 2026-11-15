@@ -26,7 +26,8 @@
 //! So a take-in may carry a retry key that its client minted and keeps: the server keeps the key's hash
 //! with the record that makes the owner, and the request made again with the team's join secret and that
 //! key is answered for the principal the first one made, with a new credential in the place of the lost
-//! one. A rotation of the team's join secret ends the key.
+//! one. The key ends with the first record that principal's own request makes, with its credential, and
+//! with a rotation of the team's join secret ([`State::apply`]).
 
 use std::collections::BTreeMap;
 
@@ -307,6 +308,7 @@ pub fn take_back(
     if moving {
         events.push(Event::TeamMoveClosed {
             team_ref: team_ref.to_owned(),
+            by_owner: false,
         });
     }
     if revoked > 0 {
@@ -367,6 +369,19 @@ pub fn open_move(
     now: Timestamp,
     entropy: &mut dyn Entropy,
 ) -> Result<Outcome, Error> {
+    open_a_move(state, team_ref, days, false, now, entropy)
+}
+
+/// Opens a team's move. `by_owner` says whose it is: the request of the team's owner, which the record
+/// then says, or the operator's command.
+fn open_a_move(
+    state: &mut State,
+    team_ref: &str,
+    days: u32,
+    by_owner: bool,
+    now: Timestamp,
+    entropy: &mut dyn Entropy,
+) -> Result<Outcome, Error> {
     let team = state.teams.get(team_ref).ok_or_else(Error::no_such_team)?;
     if !(1..=MOVE_TICKET_MAX_DAYS).contains(&days) {
         return Err(Error::out_of_range(
@@ -385,6 +400,7 @@ pub fn open_move(
         team_ref: team_ref.to_owned(),
         ticket_hash: sha256_hex(&ticket),
         ends_at,
+        by_owner,
     };
     let entry = commit(state, now, vec![opened]);
     Ok(Outcome {
@@ -409,12 +425,18 @@ pub fn open_move(
 /// # Errors
 /// `not_found` when the server holds no team of that reference. The state is unchanged.
 pub fn close_move(state: &mut State, team_ref: &str, now: Timestamp) -> Result<Outcome, Error> {
+    close_a_move(state, team_ref, false, now)
+}
+
+/// Closes a team's move. `by_owner` says whose it is, as for [`open_a_move`].
+fn close_a_move(state: &mut State, team_ref: &str, by_owner: bool, now: Timestamp) -> Result<Outcome, Error> {
     let team = state.teams.get(team_ref).ok_or_else(Error::no_such_team)?;
     let closed = team.move_ticket.is_some();
     let result = json!({"team_ref": team.team_ref, "team_name": team.team_name, "closed": closed});
     let entry = if closed {
         let closed = Event::TeamMoveClosed {
             team_ref: team_ref.to_owned(),
+            by_owner,
         };
         commit(state, now, vec![closed])
     } else {
@@ -503,9 +525,11 @@ fn principal_or_new(
 /// The principal a take-in made, when a request is that take-in made again (the contract's section 3b):
 /// it carries the join secret the team has now, and the key whose hash the team keeps.
 ///
-/// The ticket of a move is not the team's join secret and repeats nothing, and a team whose secret was
-/// rotated keeps no key. The secret and the key are both compared whatever the first says. A request
-/// with no key, and a team that keeps none, is no repeat.
+/// The ticket of a move is not the team's join secret and repeats nothing. A team keeps no key once its
+/// owner has made a request of its own, with its credential, that left a record, nor once its secret was
+/// rotated ([`State::apply`]): the same request is then the join of a new principal. The secret and the
+/// key are both compared whatever the first says. A request with no key, and a team that keeps none, is
+/// no repeat.
 fn repeated_take_in(team: &Team, join_secret: &JoinSecret, key_hash: Option<&str>) -> Option<String> {
     let kept = team.take_in_retry.as_ref()?;
     let key_hash = key_hash?;
@@ -777,9 +801,14 @@ fn join(
     };
     let rejoined = state.teams[&team_ref].members.contains_key(&principal_ref);
     // The key of a take-in is kept where the request made a principal and made it the team's owner: that
-    // is the owner whose credential nobody holds when the answer is lost. Any other join keeps none, so
-    // no later take-in can put another key in the place of the owner's.
-    let retry_key_hash = key_hash.filter(|_| made && owns).unwrap_or_default();
+    // is the owner whose credential nobody holds when the answer is lost. The take-in made again keeps
+    // it once more: its entry makes the credential before it unknown, which ends a key, and its own
+    // answer may be lost as the first was. Any other join keeps none, so no later take-in can put
+    // another key in the place of the owner's, and the join of a caller the server knows, which carries
+    // none, ends the key a team keeps for that caller.
+    let retry_key_hash = key_hash
+        .filter(|_| (made && owns) || repeated)
+        .unwrap_or_default();
     events.push(Event::MemberJoined {
         team_ref: team_ref.clone(),
         principal_ref: principal_ref.clone(),
@@ -828,9 +857,10 @@ fn join(
 /// lost: the hash of the key is kept with the record that makes the member. The same request again, with
 /// the team's join secret, that key and no credential the server knows, is the join of that principal and
 /// not of a new one, and its answer carries a new credential, in the place of every credential that named
-/// the principal ([`repeated_take_in`]). `owner` says whether it owns the team when it is answered. A wrong
-/// key and no key are the join of a new principal, as before, and nothing in the answer says that the
-/// team keeps a key.
+/// the principal ([`repeated_take_in`]). It can be made again as often as its answer is lost, and no
+/// longer than that: the first record that principal's own request makes ends the key. A wrong key, no
+/// key and a key that has ended are the join of a new principal, as before, and nothing in the answer
+/// says whether the team keeps a key.
 fn team_take_in(
     state: &mut State,
     failures: &mut JoinFailures,
@@ -939,7 +969,7 @@ fn team_open_move(
 ) -> Result<Outcome, Error> {
     let principal_ref = authenticate(state, caller)?;
     owned_team(state, &request.team_ref, &principal_ref)?;
-    open_move(state, &request.team_ref, request.ticket_days, now, entropy)
+    open_a_move(state, &request.team_ref, request.ticket_days, true, now, entropy)
 }
 
 /// `/v1/team/close-move`: the team's owner closes the move of the team, as the operator's [`close_move`]
@@ -952,7 +982,7 @@ fn team_close_move(
 ) -> Result<Outcome, Error> {
     let principal_ref = authenticate(state, caller)?;
     owned_team(state, team_ref, &principal_ref)?;
-    close_move(state, team_ref, now)
+    close_a_move(state, team_ref, true, now)
 }
 
 fn team_leave(
@@ -1062,6 +1092,7 @@ fn team_rotate_secret(
     if moving {
         events.push(Event::TeamMoveClosed {
             team_ref: team_ref.to_owned(),
+            by_owner: false,
         });
     }
     let entry = commit(state, now, events);

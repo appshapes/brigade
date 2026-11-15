@@ -4,6 +4,7 @@ package rest
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -142,6 +143,95 @@ func TestTheSecretHalfOfAnAnswerIsHidden(t *testing.T) {
 		t.Fatalf("team join with the ticket: exit %d (%s %s)", code, stdout.String(), stderr.String())
 	}
 	hides("team join", redactor, secretIn(t, ticket))
+}
+
+// TestAServerThatPutsTheSecretHalfInASuccessCannotMakeTheAdapterPrintOrKeepIt:
+// a refusal is not the only answer a server chooses the words of. A success
+// carries the team's name and, for a join and a take-in, the principal's
+// reference; the adapter prints them in its result and keeps them in
+// team.json and credential.json. A server that puts the secret half there,
+// of what the command presented or of the secret its own answer carries,
+// gets it on no stream and in no file of the profile: a marker stands where
+// it stood. The command succeeds all the same, and the secret an answer
+// carries is in the file it was asked to be in.
+func TestAServerThatPutsTheSecretHalfInASuccessCannotMakeTheAdapterPrintOrKeepIt(t *testing.T) {
+	t.Parallel()
+	const presented, learned = "kept-from-the-other-backend", "0123456789abcdef0123456789abcdef"
+	secret := secretOf(elsewhereRef, presented)
+	named := `"team_ref":"` + elsewhereRef + `","team_name":"ops `
+	issued := `,"credential":"0123456789abcdef0123456789abcdef0123456789abcdef"`
+	for name, tc := range map[string]struct {
+		path, half, answer, input string
+		args                      []string
+		owned                     bool // the command needs a profile that owns the team
+		file                      string
+	}{
+		"team take-in": {
+			path: pathTeamTakeIn, half: presented, input: takeInDocument(secret, "ops", ""), args: []string{"team", "take-in"},
+			answer: `{` + named + presented + `","principal_ref":"p-` + presented + `","taken_in":true,"owner":true` + issued + `}`,
+		},
+		"team join": {
+			path: pathTeamJoin, half: presented, input: `{"join_secret":"` + secret + `"}`, args: []string{"team", "join"},
+			answer: `{` + named + presented + `","principal_ref":"p-` + presented + `","rejoined":false` + issued + `}`,
+		},
+		"team rotate-secret": {
+			path: pathTeamRotateSecret, half: learned, args: []string{"team", "rotate-secret", "--secret-file"}, owned: true, file: "rotated.secret",
+			answer: `{` + named + learned + `","secret_version":2,"rotated_at":"2026-11-14T10:00:00Z","join_secret":"` + secretOf(elsewhereRef, learned) + `"}`,
+		},
+		"team open-move": {
+			path: pathTeamOpenMove, half: learned, args: []string{"team", "open-move", "--ticket-file"}, owned: true, file: "ops.ticket",
+			answer: `{` + named + learned + `","ticket":"` + secretOf(elsewhereRef, learned) + `","ends_at":"2026-12-14T10:00:00Z","replaced":false}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend(t)
+			r := newRig(t, b.url())
+			args := tc.args
+			if tc.owned {
+				r.takeIn(secret, "ops")
+				args = append(append([]string{}, args...), filepath.Join(t.TempDir(), tc.file))
+			}
+			b.answerWith(only(tc.path, http.StatusOK, okEnvelope(tc.answer)))
+			got := r.exec(tc.input, args...)
+			if got.code != 0 || len(b.seen(tc.path)) != 1 {
+				t.Fatalf("exit %d, with %d requests to the server that answers it: %s%s", got.code, len(b.seen(tc.path)), got.stdout, got.stderr)
+			}
+			if strings.Contains(got.stdout+got.stderr, tc.half) {
+				t.Errorf("the secret half a success carried reached stdout or stderr:\n%s%s", got.stdout, got.stderr)
+			}
+			// Positive control: the result is the server's, with a marker
+			// where the half stood.
+			result, _ := decode(t, got.stdout)["result"].(map[string]any)
+			if result["team_name"] != "ops "+adapterlog.Redacted {
+				t.Errorf("the result names the team %q, want the server's name with the half replaced", result["team_name"])
+			}
+			if ref, carried := result["principal_ref"]; carried && ref != "p-"+adapterlog.Redacted {
+				t.Errorf("the result names the principal %q, want the server's reference with the half replaced", ref)
+			}
+			// No file of the profile holds it, and the profile says the same.
+			for _, kept := range []string{r.profilePath(), r.credentialPath()} {
+				data, err := os.ReadFile(kept) //nolint:gosec // the test's own temp file
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(string(data), tc.half) {
+					t.Errorf("%s holds the secret half a success carried", filepath.Base(kept))
+				}
+			}
+			status := r.exec("", "profile", "status")
+			if strings.Contains(status.stdout+status.stderr, tc.half) {
+				t.Errorf("profile status shows the secret half a success carried: %s", status.stdout)
+			}
+			// The secret an answer carries is where it was asked to be: the
+			// name was hidden, and the file was not.
+			if tc.file != "" {
+				if written := secretIn(t, args[len(args)-1]); half(written) != tc.half {
+					t.Errorf("the file the command wrote does not hold the secret the answer carried")
+				}
+			}
+		})
+	}
 }
 
 // TestTheSecretHalfThatIsHidden: hideSecretHalf registers what follows the

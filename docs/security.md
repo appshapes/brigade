@@ -1392,11 +1392,20 @@ what differs. The server is experimental in its 0.1.0.
   0600 beside its credential, and sends it; the server keeps the key's hash with the take-in, never the key.
   The same command run again sends the same key, and with the team's join secret it is answered for the owner
   the first request made, with a new credential, while the one that was lost admits nobody. What this opens,
-  stated plainly: whoever can read that file while it exists, and holds the join secret, can own the team, as
-  whoever can read the credential beside it can. The adapter removes the file as soon as the credential is
-  written, so it is there only while a take-in has no answer; the server stops honouring the key when the
-  team's join secret is rotated; and the key is in no argument, no output and no log line on either side. A
-  key that is wrong, and none, is a member's join, and no answer says whether a team keeps one.
+  stated plainly: whoever can read that file, and holds the join secret, can own the team, as whoever can
+  read the credential beside it can, and the request that does it makes the credential before it unknown.
+  That is open until the owner first asks the server, with its own credential, for something the server
+  records: a session, the team's move, any change to the team or to its own credential. The server ends the
+  key with that record. From then on a copy of the file opens nothing, whether the file is gone or not, and a
+  take-in that arrives a second time is a stranger's join; one that arrives a second time before it takes
+  the credential out of the owner's hands, and the server's operator names the owner again. A rotation of the
+  team's join secret ends the key as well. The adapter removes the file as soon as a take-in is answered and
+  its credential written. The file stays after an answer that was lost and after a refusal, for the next run
+  of the command, and after one answer more: a machine that joined the team in between holds a member's
+  credential, the server answers for that credential and never looks at the key, so the adapter keeps the
+  file and says that `profile revoke-credentials` and the same take-in make the take-in again. The key is in
+  no argument, no output and no log line on either side. A key that is wrong, a key that has ended and none
+  are a member's join, and no answer says whether a team keeps one.
 - **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
   here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
   revokes or bans a member and transfers the team. Three things differ from section 9. A team that the operator

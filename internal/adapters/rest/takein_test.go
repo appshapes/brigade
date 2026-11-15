@@ -604,6 +604,9 @@ func TestAServerWithoutTeamTakeIn(t *testing.T) {
 		if status := fresh.ok("", "profile", "status"); status["team_ref"] != nil || fresh.storedCredential() != "" {
 			t.Errorf("a refused take-in bound the profile or stored a credential: %v", status)
 		}
+		// No key is minted for a server that takes no team in: the profile
+		// keeps no secret for a request that is never made.
+		fresh.noRetryKey("after a take-in the server does not offer")
 		capabilities, _ := fresh.ok("", "describe")["capabilities"].([]any)
 		named := false
 		for _, c := range capabilities {

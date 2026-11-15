@@ -168,11 +168,22 @@ owner. The operator's three commands stay as they are, and call the same functio
   form is held there. `execute.rs` hashes it before it looks at the team. The hash goes on `member.joined`
   (`retry_key_hash`, written only when it is not empty) when the request made a principal and made it the
   team's owner, in either branch, and applying that record sets `Team.take_in_retry` to the hash and the
-  principal; applying `team.secret_rotated` clears it. `repeated_take_in` tells a take-in made again: no
-  credential the state knows, the team's current secret and the kept hash. `join` then acts for that
-  principal, and `reissue_credential` writes a `credential.revoked` for every credential that names it and one
-  `credential.issued`, in the entry of the join. Nothing in the answer of any other take-in differs by whether
-  the team keeps a key.
+  principal, and `Principal.retry_key_in` to the team: the way back from a record that names the principal.
+  `repeated_take_in` tells a take-in made again: no credential the state knows, the team's current secret
+  and the kept hash. `join` then acts for that principal, and `reissue_credential` writes a
+  `credential.revoked` for every credential that names it and one `credential.issued`, in the entry of the
+  join, whose `member.joined` carries the hash again. Nothing in the answer of any other take-in differs by
+  whether the team keeps a key.
+- **The key ends in `State::apply`**, with the first record that its principal's own request makes. A record
+  that names the principal as the one who acted ends the key that principal has: `session.opened`,
+  `member.left`, a `member.joined` with no hash, and `credential.revoked`, which a take-in made again writes
+  too, so that entry's join keeps the key once more. A record that only the team's owner is answered for ends
+  the key the team keeps: `member.revoked`, `members.revoked_by_version`, and `team.move_opened` and
+  `team.move_closed` when they say `by_owner`, which the owner's request writes and the operator's command
+  does not. `team.owner_changed` to another principal and `team.secret_rotated` end it as well. So a team
+  keeps a key for its owner alone, the same request after the end is a stranger's join, and nothing that
+  leaves no record, a read or a refusal, ends anything. A new request of the owner's that leaves a record of
+  another kind needs its arm here, and `rules.rs` walks twenty thousand requests against the rule.
 - **`taken_in`** is one member more of `team.created`, written only when it is true and read by the journal's
   line alone, as `by_move_ticket` is on `member.joined`. The team is the team a creation makes, so there is no
   new kind of record and no new snapshot format: a 0.6.0 starts on what 0.7.0 wrote.
@@ -185,7 +196,8 @@ owner. The operator's three commands stay as they are, and call the same functio
 - **`said.rs`** has a line for a team taken in, for a move its owner opened and for one its owner closed. A
   `team.move_closed` in an entry that also holds a rotation is the rotation's; alone it is the owner's. A
   `member.joined` in an entry that makes a credential unknown and issues one is a take-in made again, and has
-  a line of its own in the place of the join's.
+  a line of its own in the place of the join's. Such an entry always has a credential to make unknown: a
+  principal that gave its own up ended its key by that.
 - **`/v1/info`** lists `team.take_in` beside `team.admin`, and the conformance suite holds the three with cases
   C-53 to C-55 through the `rest` adapter.
 
@@ -315,8 +327,12 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
   under a reference that is not theirs, with a secret of their own, and the real team's take-in then answers
   `conflict` (ADR 0005; `docs/security.md`, section 20). A creation token keeps a stranger from it.
 - A take-in whose answer is lost is made again with its retry key and owns the team (ADR 0005). Without the
-  key, from a client that sends none or a machine that lost the file, or after the team's secret was rotated,
-  the request made again joins as a member, and the operator names the owner with `--set-owner`.
+  key, from a client that sends none or a machine that lost the file, the request made again joins as a
+  member, and the operator names the owner with `--set-owner`.
+- A take-in made again makes the credential before it unknown. A request that is delivered a second time
+  after its client kept the first answer, by a proxy that sends it again, and before the owner's first
+  request that leaves a record, leaves that client with a credential the server does not know and no key
+  file (ADR 0005). After that record the key has ended, and such a request is a stranger's join.
 - An entry that fails its seal refuses the start, wherever it is in the log. Whether a power loss can leave such
   an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here.
 - The seal has one key and no rotation. Nonces are random, which is sound for about four thousand million

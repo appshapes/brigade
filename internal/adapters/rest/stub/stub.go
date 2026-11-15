@@ -196,16 +196,21 @@ type endpoint struct {
 	// takeIn endpoints are the three of a team's take-in and its move,
 	// which a server may leave out as well.
 	takeIn bool
-	run    func(*Server, *call) (any, *protocol.Error)
+	// reads endpoints change nothing the server holds. A request to any
+	// other, answered for a credential the stub knows, is its principal's
+	// own and ends the retry key a team keeps for that principal
+	// (takein.go).
+	reads bool
+	run   func(*Server, *call) (any, *protocol.Error)
 }
 
 // endpoints is the contract's section 2.
 var endpoints = map[string]endpoint{
-	"/v1/info":               {open: true, run: (*Server).info},
+	"/v1/info":               {open: true, reads: true, run: (*Server).info},
 	"/v1/team/create":        {open: true, run: (*Server).teamCreate},
 	"/v1/team/join":          {open: true, run: (*Server).teamJoin},
 	"/v1/team/leave":         {run: (*Server).teamLeave},
-	"/v1/team/members":       {run: (*Server).teamMembers},
+	"/v1/team/members":       {reads: true, run: (*Server).teamMembers},
 	"/v1/team/rotate-secret": {admin: true, run: (*Server).teamRotateSecret},
 	"/v1/team/revoke-member": {admin: true, run: (*Server).teamRevokeMember},
 	"/v1/team/transfer":      {admin: true, run: (*Server).teamTransfer},
@@ -214,10 +219,10 @@ var endpoints = map[string]endpoint{
 	"/v1/team/close-move":    {takeIn: true, run: (*Server).teamCloseMove},
 	"/v1/session/register":   {run: (*Server).sessionRegister},
 	"/v1/session/heartbeat":  {run: (*Server).sessionHeartbeat},
-	"/v1/session/list":       {run: (*Server).sessionList},
+	"/v1/session/list":       {reads: true, run: (*Server).sessionList},
 	"/v1/session/close":      {run: (*Server).sessionClose},
 	"/v1/message/send":       {run: (*Server).messageSend},
-	"/v1/message/receive":    {run: (*Server).messageReceive},
+	"/v1/message/receive":    {reads: true, run: (*Server).messageReceive},
 	"/v1/message/ack":        {run: (*Server).messageAck},
 	"/v1/credential/revoke":  {run: (*Server).credentialRevoke},
 }
@@ -252,10 +257,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, unknownCredential())
 		return
 	}
+	// The principal the request's own credential names, before the endpoint
+	// runs: a take-in made again is answered for a principal it carried no
+	// credential of.
+	asked := c.who
 	result, perr := ep.run(s, c)
 	if perr != nil {
 		writeError(w, perr)
 		return
+	}
+	if asked != nil && !ep.reads {
+		s.endRetryKeys(asked)
 	}
 	writeResult(w, result)
 }

@@ -106,13 +106,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   team owned by a member nobody could be: the command run again joined
   as a stranger, and only the server's operator, on a stopped server,
   could name the owner. The `rest` adapter now mints a retry key before
-  it asks, keeps it in `take-in-key.json` beside `credential.json`
-  (mode 0600), and sends it; a server 0.7.0 keeps its hash. The same
-  command run again sends the same key and is answered as the owner,
-  with a new credential in the place of the lost one. The key file is
-  removed once the credential is written, is for one server and one
-  team, and is never printed or logged. The adapter protocol does not
-  change: the key is in no request and no result of BAP/1.
+  it asks, keeps it in `take-in-key.json` beside `credential.json` (mode
+  0600), and sends it; a server 0.7.0 keeps its hash until the owner
+  first asks for something with its own credential that the server
+  records, and no longer. The same command run again sends the same key
+  and is answered as the owner, with a new credential in the place of
+  the lost one. The key file is removed once the credential is written,
+  is for one server and one team, and is never printed or logged; a key
+  that was kept for another server or another team is replaced, and
+  stderr says so, because the take-in it was for can then not be made
+  again. A profile that ran `team join` between the two runs holds a
+  member's credential, which the server answers for whatever key the
+  request carries: the adapter then keeps the key file and says on
+  stderr that `profile revoke-credentials` and the same take-in make the
+  take-in again as the owner. The adapter protocol does not change: the
+  key is in no request and no result of BAP/1.
 
 ### Changed
 
@@ -189,9 +197,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   (`adapterkit.CanWriteAtomic`), so a directory that takes no file, and
   a path that names a directory, is `config` with
   `secret_file_unwritable` or `ticket_file_unwritable`, and the backend
-  is not asked. `team create --secret-file` and `team moved
-  --ticket-file`, the filesystem adapter's included, make the same
-  check. What was at the path is left as it is until the write, which
+  is not asked. `team create --secret-file` makes the same check on
+  those two adapters, and `team moved --ticket-file` on the Supabase
+  adapter and the filesystem adapter. What was at the path is left as
+  it is until the write, which
   still replaces a symbolic link there and never follows it.
 - **A server that repeats only the secret half of a join secret cannot
   make the `rest` adapter print it** (work item 328). The adapter passes
@@ -199,14 +208,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `brg1.<team_ref>.<secret>` wherever it finds one and knew nothing of
   the part after the last dot alone, the one part that is secret: a
   team's reference is in its committed team file. A server that broke
-  the contract's rule and repeated that half in a refusal got it
-  printed on stdout and stderr. `team join` and `team take-in` now
-  register the half of what they present before they send it, the
-  team's join secret or the ticket of its move, and `team
-  rotate-secret` and `team open-move` the half of the secret in the
-  server's answer before they do anything else with it. A half shorter
-  than sixteen characters is not registered: no backend mints one, and
-  a short text would be cut out of every line that holds those
+  the contract's rule and repeated that half in a refusal got it printed
+  on stdout and stderr. `team join` and `team take-in` now register the
+  half of what they present before they send it, the team's join secret
+  or the ticket of its move, and `team rotate-secret` and `team
+  open-move` the half of the secret in the server's answer before they
+  do anything else with it. The names a success carries go through the
+  redactor as well, the team's name and the principal's reference: a
+  server that put the half there had it printed in the command's result
+  and kept in `team.json`, and now has a marker in its place. A half
+  shorter than sixteen characters is not registered: no backend mints
+  one, and a short text would be cut out of every line that holds those
   characters.
 - **`/clear` after a team moved registers the session on the backend the
   team is on** (work item 327). `/clear` runs the session's start again in

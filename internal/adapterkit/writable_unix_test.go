@@ -8,6 +8,7 @@ package adapterkit_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -89,6 +90,56 @@ func TestCanWriteAtomic(t *testing.T) {
 	}
 }
 
+// TestCanWriteAtomicToldByTheLengthOfAName: a file system takes a name of
+// so many bytes and no more, and WriteAtomic's temporary file is named
+// after the file it writes, with a dot, `.tmp-` and up to ten digits more.
+// With the 255 bytes most file systems give a name, a name of 239 bytes is
+// the longest the write always takes, and one of 249 the shortest it never
+// takes. The probe says what the write does at both, and at the lengths
+// below the first that it once refused, because its own temporary file was
+// longer than the write's; and it leaves nothing behind at any of them.
+func TestCanWriteAtomicToldByTheLengthOfAName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	named := func(length int) string { return filepath.Join(dir, strings.Repeat("n", length)) }
+	// The numbers hold where a name has 255 bytes: elsewhere the test has
+	// nothing to say.
+	if err := os.WriteFile(named(255), nil, 0o600); err != nil {
+		t.Skipf("this file system takes no name of 255 bytes: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, strings.Repeat("m", 256)), nil, 0o600); err == nil {
+		t.Skip("this file system takes a name of 256 bytes")
+	}
+	if err := os.Remove(named(255)); err != nil {
+		t.Fatal(err)
+	}
+	written := 0
+	for _, length := range []int{1, 22, 23, 24, 200, 222, 225, 230, 238, 239} {
+		if err := adapterkit.CanWriteAtomic(named(length)); err != nil {
+			t.Errorf("a name of %d bytes: the probe refuses what the write takes: %v", length, err)
+		}
+		if left := names(t, dir); len(left) != written {
+			t.Fatalf("a name of %d bytes: the probe left something behind: %d files, want the %d written", length, len(left), written)
+		}
+		if err := adapterkit.WriteAtomic(named(length), []byte("x\n")); err != nil {
+			t.Errorf("a name of %d bytes: the write the probe passed fails: %v", length, err)
+			continue
+		}
+		written++
+	}
+	for _, length := range []int{249, 250, 255} {
+		if err := adapterkit.CanWriteAtomic(named(length)); err == nil {
+			t.Errorf("a name of %d bytes: the probe passes what the write is refused", length)
+		}
+		if err := adapterkit.WriteAtomic(named(length), []byte("x\n")); err == nil {
+			t.Errorf("a name of %d bytes: the write is taken, and the test's numbers are wrong", length)
+		}
+		if left := names(t, dir); len(left) != written {
+			t.Fatalf("a name of %d bytes: something was left behind: %d files, want the %d written", length, len(left), written)
+		}
+	}
+}
+
 // TestTicketFileTargetMustTakeAFile: the check `team open-move` and `team
 // moved` make before any network call refuses a directory that takes no
 // file and a path that names a directory, as `config`
@@ -145,5 +196,44 @@ func TestTicketFileTargetMustTakeAFile(t *testing.T) {
 	}
 	if data, err := os.ReadFile(link); err != nil || string(data) != teamTicket+"\n" { //nolint:gosec // the test's own temp file
 		t.Errorf("the ticket file does not hold the ticket: %v", err)
+	}
+
+	// A link to a directory, and a link to nothing, are links: the path names
+	// no directory, so the check passes, and the write puts the ticket in the
+	// link's place. The directory the first pointed at holds what it held.
+	pointedAt := filepath.Join(dir, "a-directory")
+	if err := os.Mkdir(pointedAt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"a directory": pointedAt, "nothing": filepath.Join(dir, "missing")} {
+		link := filepath.Join(dir, "linked-to-"+filepath.Base(target)+".ticket")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		if err := adapterkit.CheckTicketFileTarget(link); err != nil {
+			t.Errorf("a target that is a symbolic link to %s: %v", name, err)
+			continue
+		}
+		if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("the check replaced the link to %s (%v %v)", name, info, err)
+		}
+		if err := adapterkit.WriteTicketFile(link, teamTicket); err != nil {
+			t.Errorf("the write over a link to %s: %v", name, err)
+			continue
+		}
+		if info, err := os.Lstat(link); err != nil || !info.Mode().IsRegular() || !adapterkit.OwnerReadWriteOnly(info) {
+			t.Errorf("the ticket file is not a regular file for its owner alone in the place of the link to %s: %v %v", name, info, err)
+		}
+	}
+	if left := names(t, pointedAt); len(left) != 0 {
+		t.Errorf("the check or the write put %v in the directory a link pointed at", left)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "missing")); !os.IsNotExist(err) {
+		t.Errorf("the check or the write made the file a link to nothing pointed at (%v)", err)
+	}
+	for _, name := range names(t, dir) {
+		if strings.Contains(name, ".probe-") || strings.Contains(name, ".tmp-") {
+			t.Errorf("the checks left %s behind", name)
+		}
 	}
 }
