@@ -4,6 +4,7 @@ package hook
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -223,8 +224,10 @@ func TestAPromptWhoseNewBackendHangsEndsBeforeItsBudget(t *testing.T) {
 	t.Parallel()
 	// The registration's deadline is written out, a second short of the
 	// budget: a test that took it from the constant would pass whatever the
-	// constant said.
-	const budget, deadline = 2500 * time.Millisecond, 1500 * time.Millisecond
+	// constant said. within is what the hook may take between its start and
+	// its budget's, and timeout is where a hook's timeout stands over the
+	// budget (5 s over 4.5 s).
+	const budget, deadline, within, timeout = 2500 * time.Millisecond, 1500 * time.Millisecond, 250 * time.Millisecond, 3 * time.Second
 	f := newMemberFixture(t)
 	f.deps.PromptBudget = budget
 	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
@@ -235,20 +238,40 @@ func TestAPromptWhoseNewBackendHangsEndsBeforeItsBudget(t *testing.T) {
 	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
 		t.Fatalf("lines = %q", got)
 	}
-	blocked, release := hangingBackend(f, func(spec adapterkit.SpawnSpec) bool {
+	registers := func(spec adapterkit.SpawnSpec) bool {
 		return verbOf(spec.Argv) == "session register" && profileOf(adapterCall{Argv: spec.Argv}) == newKey
-	})
+	}
+	blocked, release := hangingBackend(f, registers)
 	t.Cleanup(release)
+	// When the hook stopped waiting for the registration, as time since the
+	// prompt began.
+	var began time.Time
+	var gaveUp atomic.Int64
+	hanging := f.deps.Spawn
+	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		res, err := hanging(ctx, spec)
+		if registers(spec) {
+			gaveUp.Store(int64(time.Since(began)))
+		}
+		return res, err
+	}
 	spawns := f.spawner.count()
 
+	began = time.Now()
 	got, took := f.timed()
 	if blocked.Load() != 1 {
 		t.Fatalf("%d registrations were sent to the new backend, want 1", blocked.Load())
 	}
-	// It waited for the registration until that one's deadline, and ended
-	// with the second the deadline leaves still unspent.
-	if took < deadline || took >= budget {
-		t.Fatalf("the prompt took %v, want between the registration's deadline at %v and the budget of %v", took, deadline, budget)
+	// It waited for the registration until that one's deadline and no
+	// longer. What it does after that (its stamps, each a file synced to
+	// disk) is what the deadline's second is for, and took 0.25 to 0.7 s on
+	// a busy machine (measured 2026-11-14): the prompt ends before a hook's
+	// timeout, and on a machine with time to spare before its budget.
+	if at := time.Duration(gaveUp.Load()); at < deadline || at >= deadline+within {
+		t.Fatalf("the registration was given up %v after the prompt began, want at its deadline of %v, a second short of the budget of %v", at, deadline, budget)
+	}
+	if took < deadline || took >= timeout {
+		t.Fatalf("the prompt took %v, want between the registration's deadline at %v and the timeout at %v", took, deadline, timeout)
 	}
 	if !slices.Equal(got, []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine}) {
 		t.Fatalf("lines = %q", got)
@@ -280,13 +303,21 @@ func TestAPromptWhoseNewBackendHangsEndsBeforeItsBudget(t *testing.T) {
 // registration has a deadline a second short of the budget. A backend that
 // answers after it, though still inside the budget, is given up on as one
 // that did not answer: the map is as it was, the session is told it could
-// not be registered, and the prompt has ended before its budget. The
-// control is the same backend answering in good time, which moves the
-// session and says so.
+// not be registered. The control is the same backend answering in good
+// time, which moves the session and says so.
+//
+// What is held is the registration's deadline, read where the backend is
+// asked: the deadline its call was made under, and when its caller stopped
+// waiting. How long the whole prompt took is not: after the deadline the
+// hook still writes its stamps, each a file synced to disk, and on a busy
+// machine that took 0.25 to 0.7 s (measured 2026-11-14), which is what the
+// second is for. That a prompt whose registration was given up ends before
+// its budget is TestAPromptWhoseNewBackendHangsEndsBeforeItsBudget's.
 func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 	t.Parallel()
-	// The deadline is written out, a second short of the budget.
-	const budget, deadline = 3 * time.Second, 2 * time.Second
+	// The deadline is written out, a second short of the budget; within is
+	// what the hook may take between its start and its budget's.
+	const budget, deadline, within = 3 * time.Second, 2 * time.Second, 250 * time.Millisecond
 	for _, tc := range []struct {
 		name string
 		// answers is how long the new backend takes to register the session.
@@ -309,21 +340,35 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 				t.Fatalf("lines = %q", got)
 			}
 			// A backend that takes its time, as a real one does: its answer
-			// reaches a caller that is still waiting, and nobody else.
+			// reaches a caller that is still waiting, and nobody else. It notes
+			// the deadline its call was made under and, when the caller stopped
+			// waiting, when: both as time since the prompt began.
+			var began time.Time
+			var due, gaveUp atomic.Int64
 			inner := f.deps.Spawn
 			f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
 				if verbOf(spec.Argv) != "session register" || profileOf(adapterCall{Argv: spec.Argv}) != newKey {
 					return inner(ctx, spec)
 				}
+				if d, ok := ctx.Deadline(); ok {
+					due.Store(int64(d.Sub(began)))
+				}
 				select {
 				case <-time.After(tc.answers):
 					return inner(ctx, spec)
 				case <-ctx.Done():
+					gaveUp.Store(int64(time.Since(began)))
 					return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
 				}
 			}
+			began = time.Now()
 			got, took := f.timed()
 			m := f.mustMap()
+			// The registration was made under a deadline a second short of the
+			// hook's budget, whatever the backend then did.
+			if at := time.Duration(due.Load()); at < deadline || at >= deadline+within {
+				t.Fatalf("the registration's deadline was %v after the prompt began, want %v: a second short of the budget of %v", at, deadline, budget)
+			}
 			if !tc.moves {
 				if m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" {
 					t.Fatalf("a registration answered after its deadline moved the session: %+v", m)
@@ -331,10 +376,18 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 				if !slices.Equal(got, []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine}) {
 					t.Fatalf("lines = %q", got)
 				}
-				if took < deadline || took >= tc.answers {
-					t.Fatalf("the prompt took %v: want it to end at the registration's deadline of %v, before the backend's answer at %v", took, deadline, tc.answers)
+				// The caller stopped waiting at the deadline, before the backend
+				// answered.
+				if at := time.Duration(gaveUp.Load()); at < deadline || at >= tc.answers {
+					t.Fatalf("the registration was given up %v after the prompt began: want at its deadline of %v, before the backend's answer at %v", at, deadline, tc.answers)
+				}
+				if took < deadline {
+					t.Fatalf("the prompt took %v, less than the registration's deadline of %v", took, deadline)
 				}
 				return
+			}
+			if gaveUp.Load() != 0 {
+				t.Fatalf("a registration answered in good time was given up")
 			}
 			if m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" {
 				t.Fatalf("a registration answered in good time did not move the session: %+v", m)
@@ -345,6 +398,83 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAMoveAnsweredAtTheLastMomentWaitsForAPidfileAsAPromptMay is the most
+// that can follow a registration, which is what its deadline's second is
+// for. The backend answers a quarter of a second before the registration's
+// deadline. The session's old watcher is dead and its pidfile gone, and the
+// watcher the hook starts never writes one, so the hook waits for a pidfile
+// as long as a prompt may: promptPidfileWait, half a second, and not the
+// wait of a session's start. The session moves and both lines are said.
+//
+// How long the prompt then takes to end is logged and not held: beside the
+// wait it is the map, the resume hint and the stamps, each a file synced to
+// disk, and with this package's other tests running it was 1.8 s once
+// (2026-11-14), more than the 1.5 s between the registration's deadline and
+// a hook's timeout. A move whose hook is stopped there is made and not said.
+func TestAMoveAnsweredAtTheLastMomentWaitsForAPidfileAsAPromptMay(t *testing.T) {
+	t.Parallel()
+	const budget, lead, startWait = 3 * time.Second, 250 * time.Millisecond, 6 * time.Second
+	f := newMemberFixture(t)
+	f.deps.PromptBudget = budget
+	// A start's wait, made long: a prompt must not take it whole.
+	f.deps.PidfileWait = startWait
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+		t.Fatalf("lines = %q", got)
+	}
+	// The old watcher is gone with its pidfile, and the next never comes up.
+	if err := os.Remove(f.pidfilePath()); err != nil {
+		t.Fatal(err)
+	}
+	f.spawner.watcherPID = 0
+	// The backend answers lead before the deadline its call was made under,
+	// and notes when that was, as time since the prompt began.
+	var began time.Time
+	var answered atomic.Int64
+	inner := f.deps.Spawn
+	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if verbOf(spec.Argv) != "session register" || profileOf(adapterCall{Argv: spec.Argv}) != newKey {
+			return inner(ctx, spec)
+		}
+		due, ok := ctx.Deadline()
+		if !ok {
+			t.Errorf("the registration was made under no deadline")
+			return inner(ctx, spec)
+		}
+		select {
+		case <-time.After(time.Until(due) - lead):
+			answered.Store(int64(time.Since(began)))
+			return inner(ctx, spec)
+		case <-ctx.Done():
+			return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
+		}
+	}
+	began = time.Now()
+	got, took := f.timed()
+	at := time.Duration(answered.Load())
+	if at == 0 {
+		t.Fatalf("the backend's answer was not waited for")
+	}
+	if m := f.mustMap(); m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" {
+		t.Fatalf("a registration answered before its deadline did not move the session: %+v", m)
+	}
+	want := []string{followedLine(tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+	if !slices.Equal(got, want) {
+		t.Fatalf("lines = %q\nwant %q", got, want)
+	}
+	// After the answer it waited for a pidfile as long as a prompt may, and
+	// not as long as a start does.
+	after := took - at
+	if after < promptPidfileWait || after >= startWait {
+		t.Fatalf("the prompt took %v after the backend's answer: want the wait for a pidfile of %v, and less than a start's of %v", after, promptPidfileWait, startWait)
+	}
+	t.Logf("the backend answered %v after the prompt began, and the prompt ended %v after that", at.Round(time.Millisecond), after.Round(time.Millisecond))
 }
 
 // waitFor waits for cond, which another goroutine makes true.
