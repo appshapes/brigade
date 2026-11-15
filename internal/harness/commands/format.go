@@ -208,6 +208,17 @@ func workspaceLine(s string) string { return oneLine(protocol.SanitizeLabel(s)) 
 // a harness name) with the attribute rules: 64 code points, no breakers.
 func attrLine(s string) string { return oneLine(protocol.SanitizeAttribute(s)) }
 
+// addressLine sanitises a backend's address, or its host, where it is
+// printed to be typed or to tell two backends apart: after a flag in a
+// command a line prints for its reader to run, and in a line that says
+// which of two backends on one host is meant. It is made safe as attrLine
+// makes a value safe, rules 1-2 and the attribute breakers dropped, so it
+// can neither quote nor break its line; and it is never cut. An address
+// cut at 64 code points names no backend, and two that differ past the cut
+// print alike (work item 341). A name printed for reading alone keeps
+// attrLine and its cut.
+func addressLine(s string) string { return oneLine(sanitizeID(s)) }
+
 // enumLine keeps a wire enumeration value printable: the adapters
 // validated it against a closed set, so this is belt and braces.
 func enumLine(s string) string { return oneLine(protocol.SanitizeAttribute(s)) }

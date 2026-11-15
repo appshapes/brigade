@@ -524,7 +524,9 @@ func TestTeamMoveClearsTheServersOwnRecordBeforeItRecords(t *testing.T) {
 	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeConflict, reasonBackendsNameEachOther)
 	for _, need := range []string{
 		r.newHost + " records that this team left it for " + r.oldHost, "each saying that the team is on the other",
-		"`brigade team move --clear --from " + r.newHost + "`", "Nothing was recorded",
+		// The command is for the owner of that record, on a machine of
+		// theirs: it names the server by its whole address (work item 341).
+		"`brigade team move --clear --from " + r.newURL + "`", "Nothing was recorded",
 	} {
 		if !strings.Contains(perr.Message, need) {
 			t.Errorf("the refusal lacks %q: %s", need, perr.Message)
@@ -812,5 +814,137 @@ func TestTheRecordsFormDoesNotTellAMemberWhoCannotRecordToRunItAgain(t *testing.
 	perr = wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket, "--from", earlier)), protocol.CodeUnavailable, "")
 	if want := cleared(r) + "the backend could not be reached. " + again; perr.Message != want {
 		t.Errorf("the stop of a record that was not answered:\n%s\nwant\n%s", perr.Message, want)
+	}
+}
+
+// TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole (work item
+// 341): the same for the record's own form, whose commands name the server
+// the team goes to. At a long address it was printed cut at 64 code
+// points, and the command was refused as printed.
+func TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole(t *testing.T) {
+	t.Parallel()
+	left := func(adapter, url string) string {
+		return `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"` + adapter + `","url":"` + url + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	}
+	// rig is a team that goes to a server at a long address, on a host this
+	// machine has joined the team on under another path too.
+	rig := func() (*moveRig, string) {
+		t.Helper()
+		r := newMoveRig(t, true)
+		long := r.newURL + "/the-teams-of-a-company-whose-servers-have-long-addresses/alpha"
+		key := teamstore.Key("rest", long, setupTeamRef)
+		if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, key, "rest", long, "", moveNewPin, setupTeamRef, "devs", "p_long"); err != nil {
+			t.Fatal(err)
+		}
+		doc := `{"version":1,"adapter":"rest","url":"` + long + `","certificate":"` + moveNewPin + `","team_ref":"` + setupTeamRef + `","team_name":"devs"}`
+		//nolint:gosec // G306: a committed team file IS 0644
+		if err := os.WriteFile(filepath.Join(r.top, teamfile.FileName), []byte(doc), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		r.f.rec.delegate(key, r.there, "team moved", "team move")
+		return r, long
+	}
+	lost := failAnswer(protocol.CodeUnavailable, "the backend could not be reached")
+
+	// The server's record names the backend the team is leaving, and its
+	// clear is not answered: the command that reads it.
+	r, long := rig()
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", lost)
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket, "--from", r.oldURL)), protocol.CodeUnavailable, reasonBackendsNameEachOther)
+	if need := "`brigade team move --show --from " + long + "` says"; len(long) <= 64 || !strings.Contains(perr.Message, need) {
+		t.Errorf("the refusal of a clear that was not answered lacks %q: %s", need, perr.Message)
+	}
+
+	// The record names a third place and its clear is not answered: the
+	// commands that read and clear it.
+	r, long = rig()
+	r.there.on("team moved", okAnswer(left("rest", "https://third.example.test"))).on("team move", lost)
+	r.f.rec.on("team move", okAnswer(strings.Replace(r.recorded(), r.newURL, long, 1)))
+	if err := Team(r.inv(true, "--ticket-file", r.ticket, "--from", r.oldURL)); err != nil {
+		t.Fatal(err)
+	}
+	if need := "(`brigade team move --show --from " + long + "` says; `brigade team move --clear --from " + long + "` clears it)"; !strings.Contains(r.f.out.String(), need) {
+		t.Errorf("the line of a record that may stand lacks %q:\n%s", need, r.f.out.String())
+	}
+}
+
+// TestACommandPrintedForTheOwnersMachineCarriesTheWholeAddress (work item
+// 341): two of the commands the record's own form prints are not for the
+// machine that printed them. The record a server holds of a team's
+// leaving is its owner's to clear, and the line names the command for the
+// owner to run, in a checkout of the team on a machine of their own. It
+// named the server as this machine would: by its host, where this machine
+// has joined the team on one backend of that host. The owner's machine
+// may have joined it on two, and there the host is refused as naming more
+// than one. A command printed for another machine carries the whole
+// address, which names one backend on every machine.
+func TestACommandPrintedForTheOwnersMachineCarriesTheWholeAddress(t *testing.T) {
+	t.Parallel()
+	left := func(adapter, url string) string {
+		return `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"` + adapter + `","url":"` + url + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	}
+	refused := failAnswer(protocol.CodeUnauthorized, "not an active member of this team")
+
+	// The server's record names the backend the team is leaving, and its
+	// clear is refused: nothing is recorded, and the owner clears it.
+	r := newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", refused)
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeConflict, reasonBackendsNameEachOther)
+	if need := "The team's owner on " + r.newHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + r.newURL + "`"; !strings.Contains(perr.Message, need) {
+		t.Errorf("the refusal lacks %q: %s", need, perr.Message)
+	}
+
+	// The record names a third place: the move is recorded, and the line
+	// names the command for the owner of the record that stands.
+	r = newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("rest", "https://third.example.test"))).on("team move", refused)
+	r.f.rec.on("team move", okAnswer(r.recorded()))
+	if err := Team(r.inv(true, "--ticket-file", r.ticket)); err != nil {
+		t.Fatal(err)
+	}
+	if need := "that record is its owner's to clear there, with `brigade team move --clear --from " + r.newURL + "`"; !strings.Contains(r.f.out.String(), need) {
+		t.Errorf("the line of a record that stands lacks %q:\n%s", need, r.f.out.String())
+	}
+}
+
+// TestAClearThatIsToldToWaitIsToldAsARecordThatStands (work item 341): the
+// record's own form clears the record a server holds of the team's
+// leaving. A server that answers the clear with a wait has answered, and
+// the record stands: the stop says so, with the server's words as its
+// cause, and does not say that the answer did not arrive or that the
+// record may be cleared all the same.
+func TestAClearThatIsToldToWaitIsToldAsARecordThatStands(t *testing.T) {
+	t.Parallel()
+	r := newMoveRig(t, true)
+	left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"supabase","url":"` + r.oldURL + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	r.there.on("team moved", okAnswer(left)).on("team move", failAnswer(protocol.CodeRateLimited, "slow down"))
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeConflict, reasonBackendsNameEachOther)
+	for _, need := range []string{r.newHost + " records that this team left it for " + r.oldHost, "that record could not be cleared (slow down)", "Nothing was recorded"} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the stop of a clear that was told to wait lacks %q: %s", need, perr.Message)
+		}
+	}
+	if strings.Contains(perr.Message, "did not arrive") || strings.Contains(perr.Message, "may be cleared all the same") {
+		t.Errorf("a clear that was answered with a wait is told as one that was not answered: %s", perr.Message)
+	}
+}
+
+// TestTheOwnerOnlyRefusalIsOneSentence (work item 341): the refusal of a
+// member who does not own the team on a server is written once, with the
+// verb and the closing sentence its callers give it: the one command's
+// words for a move, and the record's own forms' for a record and its
+// clear.
+func TestTheOwnerOnlyRefusalIsOneSentence(t *testing.T) {
+	t.Parallel()
+	const rest = ": where a team went is its owner's to record there. Run this on the owner's machine, or have the owner transfer the team to you first"
+	for _, tc := range []struct{ does, undone, want string }{
+		{"move it", "Nothing was changed", "only the owner of this team on h.example.test can move it" + rest + ". Nothing was changed"},
+		{"clear the record of where it went", "Nothing was changed", "only the owner of this team on h.example.test can clear the record of where it went" + rest + ". Nothing was changed"},
+		{"record where it went", "", "only the owner of this team on h.example.test can record where it went" + rest},
+	} {
+		got := onlyTheOwner("h.example.test", tc.does, tc.undone)
+		if got.Message != tc.want || got.Code != protocol.CodeUnauthorized || got.Details["reason"] != reasonNotTheCreator {
+			t.Errorf("onlyTheOwner(%q, %q): %+v, want %q", tc.does, tc.undone, got, tc.want)
+		}
 	}
 }

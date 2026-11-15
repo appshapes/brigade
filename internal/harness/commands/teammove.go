@@ -322,10 +322,12 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 		return err
 	}
 	// destHost names the backend the team goes to for a reader, and destFrom
-	// is what follows --from in a command a line prints to be run: the host,
-	// and the whole address where the host names two backends of the team
-	// (backendName).
-	destHost, destFrom := attrLine(hostOf(f.URL)), attrLine(backendNameIn(configDir, f.TeamRef, f.URL))
+	// is what follows --from in a command a line prints to be run on this
+	// machine: the host, and the whole address where the host names two
+	// backends of the team (backendName). A command printed for the owner of
+	// a record there is for a machine of theirs, whose memberships this one
+	// cannot see: it carries the whole address (ownersFrom).
+	destHost, destFrom := attrLine(hostOf(f.URL)), addressLine(backendNameIn(configDir, f.TeamRef, f.URL))
 	line := "record that team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ") moved from " + attrLine(hostOf(source.URL)) +
 		" to " + moveDestination(f.Adapter, f.URL, f.Certificate)
 	consequence := "Every member's next session follows it there with no command of theirs."
@@ -386,7 +388,7 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 			": the answer to the clear of that record did not arrive (`brigade team move --show --from "+destFrom+"` says; `brigade team move --clear --from "+destFrom+"` clears it)")
 	case held != nil:
 		lines = append(lines, destHost+" still records that the team left it for "+moveDestination(held.Adapter, held.URL, held.Certificate)+
-			": that record is its owner's to clear there, with `brigade team move --clear --from "+destFrom+"`")
+			": that record is its owner's to clear there, with `brigade team move --clear --from "+ownersFrom(f.URL)+"`")
 	}
 	return writeLines(inv.Out, append(lines,
 		"recorded on "+attrLine(hostOf(source.URL))+": team \""+nameLine(f.TeamName)+"\" ("+sanitizeID(f.TeamRef)+") moved to "+
@@ -396,6 +398,15 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 			"` stops this backend from saying where the team went)",
 	)...)
 }
+
+// ownersFrom is what follows --from in a command a line prints for the
+// owner of a record to run, in a checkout of the team on a machine of
+// their own: the backend's whole address, always. backendName names a
+// backend by its host where this machine has joined the team on one
+// backend of that host; the owner's machine may have joined it on two, and
+// there the host is refused as naming more than one (work item 341). The
+// whole address names one backend on every machine.
+func ownersFrom(url string) string { return addressLine(url) }
 
 // reasonBackendsNameEachOther: recording a move would leave the backend
 // the team goes to and the one it leaves each saying that the team is on
@@ -451,7 +462,7 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 	}
 	destHost, sourceHost := attrLine(hostOf(f.URL)), attrLine(hostOf(source.URL))
 	// What follows --from in the commands printed below (backendName).
-	destFrom := attrLine(backendNameIn(dest.configDir, f.TeamRef, f.URL))
+	destFrom := addressLine(backendNameIn(dest.configDir, f.TeamRef, f.URL))
 	why := "the step failed on this machine"
 	var perr *protocol.Error
 	if errors.As(cause, &perr) {
@@ -482,7 +493,7 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 		Code: protocol.CodeConflict,
 		Message: destHost + " records that this team left it for " + sourceHost + ", and that record could not be cleared (" + why + "). " +
 			"Recording the move on " + sourceHost + " would leave the two each saying that the team is on the other, and a session could be sent back and forth. " +
-			"The team's owner on " + destHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + destFrom + "`; then run this again. Nothing was recorded",
+			"The team's owner on " + destHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + ownersFrom(f.URL) + "`; then run this again. Nothing was recorded",
 		Details: map[string]string{"reason": reasonBackendsNameEachOther},
 	}
 }
@@ -573,7 +584,19 @@ func (inv Invocation) ownerOnly(t *target, source *adapterkit.Profile, err error
 	if _, keeps, rerr := inv.recordOn(t); rerr != nil || !keeps {
 		return err
 	}
-	message := "only the owner of this team on " + attrLine(hostOf(source.URL)) + " can " + does + ": where a team went is its owner's to record there. " +
+	return onlyTheOwner(attrLine(hostOf(source.URL)), does, undone)
+}
+
+// onlyTheOwner is the refusal of a member of a team on a Brigade server
+// who does not own it there and asked for what only its owner may: to move
+// the team, or to record or clear where it went. It is the one place the
+// sentence is written (work item 341): the one command says it of a move
+// (cannotRecord), and the record's own forms of a record and of its clear
+// (ownerOnly). host is the server as a line names it, does what was asked,
+// in the words that follow "can", and undone the sentence that says what
+// came of it, "" for none.
+func onlyTheOwner(host, does, undone string) *protocol.Error {
+	message := "only the owner of this team on " + host + " can " + does + ": where a team went is its owner's to record there. " +
 		"Run this on the owner's machine, or have the owner transfer the team to you first"
 	if undone != "" {
 		message += ". " + undone
@@ -646,9 +669,10 @@ func (inv Invocation) callMove(t *target, verb string, flags []string, stdin any
 // the path prefix of the address when it has one, the adapter, and the
 // certificate pin in full when there is one. The prefix is shown because
 // it is part of where every member's session is sent: two addresses on one
-// host are two servers.
+// host are two servers. So the host and the prefix are printed whole
+// (addressLine): cut, two destinations on one host could print alike.
 func moveDestination(adapter, url, certificate string) string {
-	out := attrLine(hostOf(url)+pathPrefix(url)) + " via adapter \"" + attrLine(adapter) + "\""
+	out := addressLine(hostOf(url)+pathPrefix(url)) + " via adapter \"" + attrLine(adapter) + "\""
 	if certificate != "" {
 		out += ", server certificate " + pinLine(certificate)
 	}

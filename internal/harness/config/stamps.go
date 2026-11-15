@@ -91,8 +91,7 @@ func MoveFollowedMark(stateDir, configDir, checkout string) string {
 // say that the team file does not match. The next follow of the checkout
 // that learns anything takes it back or writes it anew, a refusal from the
 // backend the member joined included; one that could not ask (the lock, a
-// backend the member joined that does not answer) leaves it as it is, and
-// a session's start whose own follow could not ask says what it holds; and
+// backend the member joined that does not answer) leaves it as it is; and
 // the member's own join there removes it.
 // It does not outlive the state it speaks of: a session's start in a
 // checkout whose pin matches its team file removes it, and so does the

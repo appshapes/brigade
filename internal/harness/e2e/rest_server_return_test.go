@@ -1004,25 +1004,28 @@ func TestAFirstJoinTheServerDidNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThro
 	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 }
 
-// TestAStartThatCouldNotAskSaysWhatTheLastFollowLeftThroughTheRealBinary:
+// TestAStartThatCouldNotAskSaysThatTheFileDoesNotMatchThroughTheRealBinary:
 // the server a team moved to does not answer, a session's start says so and
 // leaves that for the checkout's prompts. The next session starts while its
 // own follow cannot ask at all: the server the member joined does not
-// answer either, or another follow of the machine holds the lock. Until
-// this such a start said that `.brigade.json` does not match the team and to
-// run `brigade team join`, though the mark stayed and the prompt after it
-// said that the server did not answer. A start whose follow learned nothing
-// says what the last one that asked left, and leaves it as it was.
+// answer either, or another follow of the machine holds the lock. Such a
+// start says what a start says where no follow left anything, that
+// `.brigade.json` does not match the team and to run `brigade team join`:
+// where the server the member joined is gone for good, which is how a
+// migration ends, that join is the only way in. What the earlier follow
+// left stays as it was, and the session's prompt says it.
 //
 //  1. With nothing left by an earlier follow, a start while the server the
-//     member joined does not answer says what it always said, that the file
-//     does not match, and leaves nothing.
+//     member joined does not answer says that the file does not match, and
+//     leaves nothing.
 //  2. The server the team moved to does not answer: the start says so, and
 //     leaves that.
-//  3. Neither answers: the start says what was left, and so does its prompt.
-//  4. Another follow holds the lock: the start says what was left.
+//  3. Neither answers: the start says that the file does not match, and
+//     its prompt says what was left.
+//  4. Another follow holds the lock: the start says that the file does not
+//     match.
 //  5. Both answer again: the next start follows, and nothing is left.
-func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeftThroughTheRealBinary(t *testing.T) {
+func TestAStartThatCouldNotAskSaysThatTheFileDoesNotMatchThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	downA, downB := &silent{}, &silent{}
 	_, a := startFront(t, startRestBackend(t), downA.before, nil)
@@ -1041,6 +1044,10 @@ func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeftThroughTheRealBinary(t *t
 	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
 	silentWords := func(said string) bool {
 		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+	}
+	// joinWords is the line of a start where no follow left anything.
+	joinWords := func(said string) bool {
+		return strings.Contains(said, "does not match") && strings.Contains(said, "run `brigade team join`") && !strings.Contains(said, "did not answer")
 	}
 	// start starts a session of the member's in the second checkout and ends
 	// it, and holds it to having attached to nothing with the pin where it was.
@@ -1087,11 +1094,11 @@ func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeftThroughTheRealBinary(t *t
 	s := r.newSession("bob", bobName, "", "", "")
 	s.cwd = second
 	res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
-	if r.mapExists(s) || !silentWords(res.stdout) || !strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
+	if r.mapExists(s) || !joinWords(res.stdout) || !strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
 		t.Fatalf("a start while neither server answers: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	same("a start while neither server answers")
-	// Its prompt says the same, and the follow it starts learns nothing either.
+	// Its prompt says what was left, and the follow it starts learns nothing either.
 	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
 	if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || !silentWords(res.stdout) {
 		t.Fatalf("the prompt after that start: stdout %q\nstderr %s", res.stdout, res.stderr)
@@ -1112,7 +1119,7 @@ func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeftThroughTheRealBinary(t *t
 	if err := lock.Unlock(); err != nil {
 		t.Fatal(err)
 	}
-	if key != "" || !silentWords(res.stdout) || !strings.Contains(res.stderr, `"reason":"busy"`) {
+	if key != "" || !joinWords(res.stdout) || !strings.Contains(res.stderr, `"reason":"busy"`) {
 		t.Fatalf("a start while another follow holds the lock: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
 	}
 	same("a start while another follow holds the lock")
@@ -1967,7 +1974,8 @@ func TestARunningSessionLeavesWhatAFollowLeftThatIsStillTrueThroughTheRealBinary
 // A command the move prints names a backend after `--from`, and until this
 // it named it by its host: there the host names every server the team has
 // been on, and the command was refused as printed, with the undo of a move
-// among them.
+// among them. The paths are long, as an organisation's are: an address was
+// then printed cut at 64 code points, and the command refused for that.
 //
 //  1. The first move's undo names no backend: there is one to clear.
 //  2. The second move's undo names the server the team left by its whole
@@ -1977,10 +1985,11 @@ func TestARunningSessionLeavesWhatAFollowLeftThatIsStillTrueThroughTheRealBinary
 //     team left, run as printed, records the move there again.
 func TestTheCommandsAMovePrintsRunAsPrintedWhereOneHostCarriesTheTeamsServersThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
-	behind := startBehindOneHost(t, map[string]restBackend{"a": startRestBackend(t), "b": startRestBackend(t), "c": startRestBackend(t)})
-	a, b, c := behind["a"], behind["b"], behind["c"]
-	if teammove.Host(a.url) != teammove.Host(b.url) || teammove.Host(b.url) != teammove.Host(c.url) {
-		t.Fatalf("the arrangement: the three are not behind one host: %s %s %s", a.url, b.url, c.url)
+	const teams = "the-teams-of-a-company-whose-servers-have-long-addresses/"
+	behind := startBehindOneHost(t, map[string]restBackend{teams + "alpha": startRestBackend(t), teams + "beta": startRestBackend(t), teams + "gamma": startRestBackend(t)})
+	a, b, c := behind[teams+"alpha"], behind[teams+"beta"], behind[teams+"gamma"]
+	if teammove.Host(a.url) != teammove.Host(b.url) || teammove.Host(b.url) != teammove.Host(c.url) || len(b.url) <= 64 {
+		t.Fatalf("the arrangement: the three are not behind one host, at addresses longer than 64 code points: %s %s %s", a.url, b.url, c.url)
 	}
 	r := teamOnAServer(t, a)
 	term := r.terminalEnv(r.configDir)
@@ -2143,16 +2152,17 @@ const slowDown = `{"ok":false,"protocol_version":"` + protocol.ProtocolVersion +
 // to join: a join so answered said that `.brigade.json` does not match the
 // team; the server the team moved to was told as one that refuses the
 // membership; and the server the member joined took back what an earlier
-// follow had left, with the same line as the first. Each is told as a
-// server that did not answer, and nothing is joined, pinned or put on
-// record.
+// follow had left. Each is a server that did not answer: nothing is
+// joined, pinned or put on record, nothing is taken back, and the two that
+// are the server the team moved to are told as that.
 //
 //  1. A member who never was on the server the team moved to: its join is
 //     answered with a wait.
 //  2. A member who holds a membership there: its question is answered with
 //     a wait, and the start leaves that for the checkout's prompts.
 //  3. Over that, the server the member joined answers its question with a
-//     wait: the start says what was left, and leaves it as it was.
+//     wait: the start could not ask, and says what a start says where
+//     nothing was left; what was left stays as it was.
 //  4. Both answer: the next start follows.
 func TestAServerThatSaysToWaitIsNotToldAsOneThatRefusesThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
@@ -2205,9 +2215,16 @@ func TestAServerThatSaysToWaitIsNotToldAsOneThatRefusesThroughTheRealBinary(t *t
 	waitOnB.Store("")
 
 	// --- 3. over that, the question to the server the member joined --------------------------------------------
+	// The start could not ask: it says what a start says where no follow
+	// left anything, takes nothing back, and puts no refusal on record.
 	waitOnA.Store("/v1/team/moved")
 	res, key = r.startsIn("bob", bobName, second)
-	waits("a start whose question to the server he joined is answered with a wait", res, key, "old_backend_failed")
+	if key != "" || !strings.Contains(res.stdout, "does not match") || strings.Contains(res.stdout, "refuses the membership") || !strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
+		t.Fatalf("a start whose question to the server he joined is answered with a wait: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if _, err := os.Stat(r.refusalOf(r.configDirB, b)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a refusal is on record after it: %v", err)
+	}
 	if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // G304: as above
 		t.Fatalf("what the earlier follow left is %q, %v; it was %q", now, err, left)
 	}
@@ -2217,4 +2234,268 @@ func TestAServerThatSaysToWaitIsNotToldAsOneThatRefusesThroughTheRealBinary(t *t
 	if res, key := r.startsIn("bob", bobName, second); key != r.keyAt(b) || !strings.Contains(res.stdout, "followed team") {
 		t.Fatalf("the start after both answered: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
 	}
+}
+
+// markedAt makes what a follow left for a checkout's hooks d old, by the
+// one clock the built binary has: the mark's own time against the
+// machine's. It returns the bytes it wrote.
+func markedAt(t *testing.T, mark string, d time.Duration) string {
+	t.Helper()
+	text, err := os.ReadFile(mark) //nolint:gosec // G304: a file under the test's own state directory
+	if err != nil {
+		t.Fatalf("what the follow left: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(text, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["followed_at"] = time.Now().Add(-d).UTC().Format(time.RFC3339Nano)
+	aged, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mark, append(aged, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return string(aged) + "\n"
+}
+
+// TestAPromptSaysWhatTheLastFollowLeftHoweverLongAgoThroughTheRealBinary:
+// the server a team moved to is down, and the server the member joined
+// answers. A session is prompted every twenty minutes. Each prompt reads
+// what the follow of the prompt before it left, which is that old, and
+// says it: the server did not answer. A mark has no age. A rule that let
+// one speak for fifteen minutes had every such prompt say that
+// `.brigade.json` does not match the team and to run `brigade team join`,
+// which was untrue, each follow being vouched for, and named a join that
+// cannot work while the server is down. What that rule was for is said by
+// a session's start instead: where the server the member joined is gone
+// for good, a start names the join.
+//
+//  1. The session's start says that the server did not answer.
+//  2. Three prompts, each over what was left twenty minutes before, say
+//     the same, and each one's follow leaves its own word anew.
+//  3. The server the member joined goes away: a start says that the file
+//     does not match and to run `brigade team join`, and leaves what was
+//     left as it was.
+func TestAPromptSaysWhatTheLastFollowLeftHoweverLongAgoThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	downA, downB := &silent{}, &silent{}
+	_, a := startFront(t, startRestBackend(t), downA.before, nil)
+	_, b := startFront(t, startRestBackend(t), downB.before, nil)
+	r := teamOnAServer(t, a)
+	second, canon := r.anotherCheckout(r.configDirB, "checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	silentWords := func(said string) bool {
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+	}
+
+	// --- 1. the start ---------------------------------------------------------------------------------------------
+	downB.on.Store(true)
+	s := r.newSession("bob", bobName, "", "", "")
+	s.cwd = second
+	if res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"})); r.mapExists(s) || !silentWords(res.stdout) {
+		t.Fatalf("the start while the server the team moved to is down: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+
+	// --- 2. a prompt every twenty minutes -------------------------------------------------------------------------
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	for i := range 3 {
+		aged := markedAt(t, mark, 20*time.Minute)
+		if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || !silentWords(res.stdout) {
+			t.Fatalf("prompt %d, over what a follow left twenty minutes before: stdout %q\nstderr %s", i+1, res.stdout, res.stderr)
+		}
+		testutil.Eventually(t, waitLong, pollEvery, func() bool {
+			return logLines(moveLog, "the team file names another backend for this team, and the move was not followed") == i+1
+		})
+		if now, err := os.ReadFile(mark); err != nil || string(now) == aged || !strings.Contains(string(now), `"reason":"new_backend_failed"`) { //nolint:gosec // G304: a file under the test's own state directory
+			t.Fatalf("prompt %d: its follow, which reached the server, left %q, %v; it found %q", i+1, now, err, aged)
+		}
+	}
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+
+	// --- 3. the server the member joined goes away: a start names the join -----------------------------------
+	downA.on.Store(true)
+	left := markedAt(t, mark, time.Hour)
+	res, key := r.startsIn("bob", bobName, second)
+	if key != "" || !strings.Contains(res.stdout, "does not match") || !strings.Contains(res.stdout, "run `brigade team join`") || strings.Contains(res.stdout, "did not answer") ||
+		!strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
+		t.Fatalf("a start once the server the member joined is gone: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if now, err := os.ReadFile(mark); err != nil || string(now) != left { //nolint:gosec // G304: as above
+		t.Fatalf("that start left the mark as %q, %v; it was %q", now, err, left)
+	}
+}
+
+// TestAnAdapterThatCannotDescribeItselfTakesNothingBackThroughTheRealBinary:
+// a team on the filesystem backend moves to a server. A member's first
+// follow finds the server down and leaves that for the checkout's hooks.
+// The adapter of the backend he joined then fails to say what it offers,
+// which a follow reads before it asks that backend anything: no backend
+// was asked. Until this such a failure counted as that backend's refusal:
+// what the earlier follow had left was taken back. Only an answer to the
+// question is a refusal: the follow learned nothing, the mark stays as it
+// was for the checkout's prompts, the start says what a start says where
+// it could not ask, and with the adapter back the member follows.
+func TestAnAdapterThatCannotDescribeItselfTakesNothingBackThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	down := &silent{}
+	_, b := startFront(t, startRestBackend(t), down.before, nil)
+	r := newRig(t)
+	r.createTeam()
+	if res := r.runIn(r.checkout, r.terminalEnv(r.configDir), "y\n", moveArgs(b, r.secretFile)...); res.exit != 0 {
+		t.Fatalf("the one command from the filesystem backend: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	down.on.Store(true)
+	if res, key := r.bobStarts(); key != "" || !strings.Contains(res.stdout, "did not answer") {
+		t.Fatalf("the start while the server the team moved to is down: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	left, err := os.ReadFile(mark) //nolint:gosec // G304: a file under the test's own state directory
+	if err != nil {
+		t.Fatalf("that start left nothing for the checkout's hooks: %v", err)
+	}
+	down.on.Store(false)
+
+	// His adapter for the backend he joined answers its describe with a
+	// failure of its own, and is the rig's adapter for everything else.
+	script := filepath.Join(r.dirs.Root, "adapter-undescribed.sh")
+	body := "for a in \"$@\"; do case \"$a\" in describe) printf '%s\\n' " +
+		shellQuote(`{"ok":false,"protocol_version":"`+protocol.ProtocolVersion+`","error":{"code":"config","message":"the adapter is not set up","retryable":false}}`) +
+		"; exit 11;; esac; done\nexec " + shellQuote(r.wrapper) + " \"$@\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.RegisterAdapter(r.configDirB, "fs", []string{"/bin/sh", script, "--root", r.root}); err != nil {
+		t.Fatal(err)
+	}
+	res, key := r.bobStarts()
+	if key != "" || !strings.Contains(res.stdout, "does not match") || !strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
+		t.Fatalf("a start whose adapter cannot describe itself, over what an earlier follow left: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // G304: as above
+		t.Fatalf("what the earlier follow left is %q, %v; it was %q", now, err, left)
+	}
+
+	// With his adapter back, he follows.
+	if err := config.RegisterAdapter(r.configDirB, "fs", r.adapterCmd); err != nil {
+		t.Fatal(err)
+	}
+	if res, key := r.bobStarts(); key != r.keyAt(b) || !strings.Contains(res.stdout, "followed team") {
+		t.Fatalf("the start with his adapter back: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+}
+
+// TestARerunDoesNotLeaveOutAServerThatRefusesTheReadThroughTheRealBinary:
+// a team went from A to C and from C to B. On B the team is handed to
+// another member, who puts the first owner out of B and records that the
+// team goes to C. The first owner, whose checkout is still joined to B,
+// runs the same command to C again. B answers that she may not read what
+// it records. A command that left such a server out of the ones the team
+// may be leaving took A for it, whose record of the first move still
+// names C: it opened the move again, which replaced the ticket B's record
+// hands out, and recorded on A, and a member on B who had not followed was
+// refused. A server that refuses the read is one that could not be read:
+// the command chooses nothing, changes nothing, and says of it that it
+// refuses to say what it records to this machine, not that it did not
+// answer nor to run the command again when it answers.
+func TestARerunDoesNotLeaveOutAServerThatRefusesTheReadThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b, c := startRestBackend(t), startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	term, member := r.terminalEnv(r.configDir), r.terminalEnv(r.configDirB)
+	r.movedTo(c, r.secretFile)
+	fileOfC := r.teamFile()
+	if res, key := r.bobStarts(); key != r.keyAt(c) {
+		t.Fatalf("the member did not follow to C: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	r.movedTo(b, r.secretFile)
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	// A third member joins the team on B, where it is, and starts no session
+	// until the end: she never was on C.
+	carolDir := filepath.Join(r.dirs.Root, "config-carol")
+	if err := os.MkdirAll(carolDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	carol := func() session {
+		s := r.newSession("carol", "carol-session", "", "", "")
+		s.extraEnv = []string{"CLAUDE_PLUGIN_OPTION_CONFIG_DIR=" + carolDir}
+		return s
+	}
+	joining := carol()
+	r.restHook(joining, "session-start", joining.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if res := r.runIn(r.checkout, r.restEnv(joining), "", "team", "join", "--secret-file", r.secretFile, "--label", "carol@example.com"); res.exit != 0 {
+		t.Fatalf("the third member's join on B: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	r.restHook(joining, "session-end", joining.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+
+	// The team on B is handed to the member, who puts the first owner out of
+	// B and records there that the team goes to C, where she owns it still.
+	firstOwner := r.principalOf(r.configDir, b)
+	if res := r.runIn(r.checkout, term, "", "team", "transfer", "--principal", r.principalOf(r.configDirB, b)); res.exit != 0 {
+		t.Fatalf("the transfer on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	if res := r.runIn(r.checkout, member, "", "team", "revoke-member", "--principal", firstOwner); res.exit != 0 {
+		t.Fatalf("the first owner put out of B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	ticket := filepath.Join(r.dirs.Root, "c.ticket")
+	if res := r.adapterAs(r.configDir, r.keyAt(c), "team", "move", "--clear"); res.exit != 0 {
+		t.Fatalf("C's record of the team's leaving cleared: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	if res := r.adapterAs(r.configDir, r.keyAt(c), "team", "open-move", "--ticket-file", ticket); res.exit != 0 {
+		t.Fatalf("the move opened on C: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	record := []string{"team", "move", "--ticket-file", ticket, "--adapter", "rest", "--url", c.url}
+	if c.certificate != "" {
+		record = append(record, "--certificate", c.certificate)
+	}
+	if res := r.adapterAs(r.configDirB, r.keyAt(b), record...); res.exit != 0 {
+		t.Fatalf("the move recorded on B by its new owner: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	r.putTeamFile(fileOfC)
+	onA, onB := r.recordOn(r.configDir, a), r.recordOn(r.configDirB, b)
+	if !onA.Moved || onA.URL != c.url || !onB.Moved || onB.URL != c.url {
+		t.Fatalf("the records before the rerun: A %+v, B %+v", onA, onB)
+	}
+
+	// The first owner runs the same command again, in the checkout joined to B.
+	res := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
+	for _, need := range []string{
+		hostOf(b) + " refuses to say what it records of this team to this machine, which it no longer counts a member",
+		"Run the same command with the backend it leaves named: ", "--from " + hostOf(a), "--from " + hostOf(b), "Nothing was changed",
+	} {
+		if !strings.Contains(res.stderr, need) {
+			t.Errorf("the refusal lacks %q: %s", need, res.stderr)
+		}
+	}
+	if res.exit == 0 || strings.Contains(res.stderr, "[y/N]") || strings.Contains(res.stderr, "did not answer") || strings.Contains(res.stderr, "when it answers") {
+		t.Fatalf("the same command while the server the team is leaving refuses the read: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	// Running it again mends nothing: the refusal is `config`, as the other
+	// refusals that choose no backend are, and not `unavailable`, which a
+	// session that reads it takes for a thing to try again.
+	if res.exit != protocol.CodeConfig.Exit() || !strings.Contains(res.stderr, "brigade team failed (config): ") {
+		t.Fatalf("the refusal's code: exit %d, want %d and `config`\nstderr: %s", res.exit, protocol.CodeConfig.Exit(), res.stderr)
+	}
+	if nowA, nowB := r.recordOn(r.configDir, a), r.recordOn(r.configDirB, b); !nowA.RecordedAt.Equal(onA.RecordedAt) || !nowB.RecordedAt.Equal(onB.RecordedAt) {
+		t.Fatalf("a record was written: A %+v, was %+v; B %+v, was %+v", nowA, onA, nowB, onB)
+	}
+	// B's record still hands out a ticket that admits: the member on B follows.
+	following := carol()
+	got := r.restHook(following, "session-start", following.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if !r.mapExists(following) || r.mustMap(following).TeamKey != r.keyAt(c) || !strings.Contains(got.stdout, "with the move's ticket") {
+		t.Fatalf("the member on B after the refused rerun: stdout %q\nstderr %s", got.stdout, got.stderr)
+	}
+	r.restHook(following, "session-end", following.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 }

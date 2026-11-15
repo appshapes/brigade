@@ -119,17 +119,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   no refusal, and no refusal is put on record for it; a directory for
   the server is in the member's store by then, and the server may have
   carried the join out though its answer did not arrive. A session
-  that starts while it cannot ask at all, because the
-  backend it joined does not answer or another follow of the machine
-  holds the lock, says what the last follow that asked left, as its
-  prompts do; where none left anything it says, as it did, that the
-  file does not match. A backend the member joined that refuses the
-  question, as it refuses a member it has put out, has answered: what an
-  earlier follow left is taken back, and the session says that the file
-  does not match, which names the join that helps. A server the team
-  moved to that answers another refusal, a credential it does not know
-  above all, is told as a server that refuses the membership, with the
-  same command, and not as one to wait for.
+  that starts while it cannot ask at all, because the backend it joined
+  does not answer or another follow of the machine holds the lock, says
+  as it did that the file does not match, which names the join: where
+  that backend is gone for good, the join is the way in. What an
+  earlier follow left stays as it was, and the session's prompts say
+  it, however long ago it was left. A backend the member joined that
+  refuses the question, as it refuses a member it has put out, has
+  answered: what an earlier follow left is taken back, and the session
+  says that the file does not match, which names the join that helps. A
+  server the team moved to that answers another refusal, a credential it
+  does not know above all, is told as a server that refuses the
+  membership, with the same command, and not as one to wait for.
 - **`team rotate-secret` and `team revoke-member` say which backend they
   act on, and take `--on <url or host>`.** After a move a checkout is
   joined to the server the team went to, and a team command goes there
@@ -161,7 +162,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   in the same way. Where one host names two backends of the team, two
   servers on one machine or behind one front under two paths, the host
   names both, so every command a move prints carries the backend's whole
-  address after `--from` there, and runs as it is printed. The same
+  address after `--from` there, and runs as it is printed. An address
+  in a printed command, and one that tells two backends apart, is never
+  cut, however long: it used to be cut at 64 characters. And a command
+  printed for the owner of a record to run on a machine of their own
+  always carries the whole address, since this machine cannot see what
+  that one has joined. The same
   `--to` command run again on a machine that has joined the team on more
   than one other backend finds the one the team is leaving where the
   checkout says which it is: the backend its pin still names, after a
@@ -175,7 +181,11 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   two backends that both record the move, it changes nothing, names the
   backends and prints itself for each with its `--from`; and where one of
   those backends does not answer what it records, it chooses none
-  either, and says to run it again when it answers.
+  either, and says to run it again when it answers. Of a backend that
+  refuses to say what it records to this machine, which it no longer
+  counts a member, it says that, and to name the backend with `--from`:
+  it chooses nothing beside such a backend either, which may be the one
+  the team is leaving.
   The line either refusal prints is the whole command: it carries
   `--certificate sha256:…` for a server that made its own certificate,
   as does the address the command prints for a move back to an earlier

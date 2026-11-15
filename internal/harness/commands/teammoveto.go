@@ -647,13 +647,16 @@ func onThatServerAlready(to, has, typed string) *protocol.Error {
 // A candidate whose record cannot be read is not one that holds none: it
 // may be the very backend the team is leaving. So nothing is chosen while
 // one does not answer either: the command names it, and says to run it
-// again when it answers, or with --from.
+// again when it answers, or with --from. A backend that answers that this
+// member may not read its record is such a candidate too, and nothing is
+// chosen beside it either: the refusal says of it that it refuses, and not
+// that it did not answer (teammove.RefusesCaller).
 func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string, error) {
 	bindings, keys, err := listBindings(m.configDir)
 	if err != nil {
 		return nil, "", err
 	}
-	var candidates, recorded, unread []int
+	var candidates, recorded, unread, refusing []int
 	for i, b := range bindings {
 		if b.TeamRef != m.file.TeamRef || keys[i] == m.destKey {
 			continue
@@ -666,7 +669,15 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		}
 		record, _, rerr := inv.recordOn(t)
 		switch {
+		case teammove.RefusesCaller(rerr):
+			// It answered that this member may not read what it records. It
+			// is a candidate all the same, and one that cannot be read: the
+			// team's owner there may have put this member out, and it may be
+			// the very backend the team is leaving. What differs from one
+			// that did not answer is only what is said of it below.
+			refusing = append(refusing, i)
 		case rerr != nil:
+			// It did not answer, or answered what is no record.
 			unread = append(unread, i)
 		case record != nil && record.Moved && record.Adapter == m.dest.Adapter && teammove.SameAddress(record.URL, m.dest.URL):
 			recorded = append(recorded, i)
@@ -676,7 +687,7 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 	// host names another backend of the team too, the server among them: the
 	// name is what follows --from in the commands printed below.
 	hostOfCandidate := func(i int) string {
-		return attrLine(backendName(bindings, m.file.TeamRef, bindings[i].URL))
+		return addressLine(backendName(bindings, m.file.TeamRef, bindings[i].URL))
 	}
 	sorted := func(named []int) []string {
 		hosts := make([]string, 0, len(named))
@@ -705,16 +716,40 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		slices.Sort(lines)
 		return strings.Join(lines, ", or ")
 	}
-	if len(unread) > 0 {
-		it, did := "it answers", " did not answer what it records of this team"
-		if len(unread) > 1 {
-			it, did = "they answer", " did not answer what they record of this team"
+	if len(unread)+len(refusing) > 0 {
+		// What is said of each: one that did not answer may answer the same
+		// command run again, and one that refuses to say what it records to
+		// this machine will not. Until the two were told apart, a backend
+		// that had put this member out was said not to have answered, and
+		// the command said to run it again when it answers (work item 341).
+		// Either way nothing is chosen, and what helps at once is --from.
+		// The code follows the remedy. Where every backend that could not be
+		// read refuses the read, running the command again mends nothing: it
+		// is `config`, as the other refusals that choose no backend are, and
+		// a session that reads it does not try again. Where at least one did
+		// not answer, the same command may get further once it does: that is
+		// `unavailable`.
+		var could []string
+		code, remedy := protocol.CodeConfig, "Run the same command with the backend it leaves named: "
+		if len(unread) > 0 {
+			it, did := "it answers", " did not answer what it records of this team"
+			if len(unread) > 1 {
+				it, did = "they answer", " did not answer what they record of this team"
+			}
+			could = append(could, subject(unread)+did)
+			code, remedy = protocol.CodeUnavailable, "Run the same command again when "+it+", or with the backend it leaves named: "
+		}
+		if len(refusing) > 0 {
+			refuses := " refuses to say what it records of this team to this machine, which it no longer counts a member"
+			if len(refusing) > 1 {
+				refuses = " refuse to say what they record of this team to this machine, which they no longer count a member"
+			}
+			could = append(could, subject(refusing)+refuses)
 		}
 		return nil, "", &protocol.Error{
-			Code: protocol.CodeUnavailable,
-			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + subject(unread) + did +
-				", so which one the team is leaving is not known: a backend that cannot be read may be the one. Run the same command again when " + it +
-				", or with the backend it leaves named: " + reruns() + ". Nothing was changed",
+			Code: code,
+			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + strings.Join(could, ", and ") +
+				", so which one the team is leaving is not known: a backend that cannot be read may be the one. " + remedy + reruns() + ". Nothing was changed",
 			Details: map[string]string{"reason": "team_ambiguous"},
 		}
 	}
@@ -833,9 +868,9 @@ func (inv Invocation) clearOn(t *target) (teammove.ClearOutcome, error) {
 // a membership names, and the command would refuse it or fail to trust it.
 func toServer(url, certificate string) string {
 	if certificate == "" {
-		return attrLine(url)
+		return addressLine(url)
 	}
-	return attrLine(url) + " --certificate " + pinLine(certificate)
+	return addressLine(url) + " --certificate " + pinLine(certificate)
 }
 
 // checkMoveSecret is checkJoinSecret for the secret a move presents to the
@@ -1065,16 +1100,15 @@ func (m *serverMove) cannotRecord(err error) error {
 			Details: map[string]string{"reason": reasonServerLacksMove},
 		}
 	case perr.Code == protocol.CodeUnauthorized:
-		who, whose, where := "the member who created this team on "+m.fromHost(), "administrator's", "administrator's machine"
 		if m.source.Adapter == config.BundledRestName {
 			// A team on a server has an owner, which a transfer and the
 			// server's operator can change: the creator is not always it.
-			who, whose, where = "the owner of this team on "+m.fromHost(), "owner's", "owner's machine, or have the owner transfer the team to you first"
+			return onlyTheOwner(m.fromHost(), "move it", "Nothing was changed")
 		}
 		return &protocol.Error{
 			Code: protocol.CodeUnauthorized,
-			Message: "only " + who + " can move it: where a team went is its " + whose + " to record there. " +
-				"Run this on the " + where + ". Nothing was changed",
+			Message: "only the member who created this team on " + m.fromHost() + " can move it: where a team went is its administrator's to record there. " +
+				"Run this on the administrator's machine. Nothing was changed",
 			Details: map[string]string{"reason": reasonNotTheCreator},
 		}
 	}
@@ -1477,7 +1511,7 @@ func (m *serverMove) returnNotCleared(err error, held *protocol.TeamMoveResult, 
 		// not known, and where to read it.
 		where = "the team is taken in on " + m.toHost() + ", which recorded that the team left it for " +
 			moveDestination(held.Adapter, held.URL, held.Certificate) + ": the answer to the clear of that record did not arrive, so the record may be cleared all the same " +
-			"(`brigade team move --show --from " + attrLine(backendNameIn(m.configDir, m.file.TeamRef, m.dest.URL)) + "` says)"
+			"(`brigade team move --show --from " + addressLine(backendNameIn(m.configDir, m.file.TeamRef, m.dest.URL)) + "` says)"
 	}
 	out.Message = where + ". Its move was not opened, and " + m.fromHost() + " was asked to record nothing: it holds what it held, and no session follows this move. " +
 		"The cause: " + perr.Message + ". Run the same command again to finish the move: every step of it is safe to repeat"
@@ -1614,7 +1648,7 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 		}
 		return writeJSON(inv.Out, moveToResult{
 			TeamRef: sanitizeID(m.file.TeamRef), TeamName: protocol.SanitizeName(taken.TeamName),
-			From:            moveEnd{Adapter: attrLine(m.source.Adapter), URL: attrLine(m.source.URL)},
+			From:            moveEnd{Adapter: attrLine(m.source.Adapter), URL: sanitizeID(m.source.URL)},
 			To:              moveEnd{Adapter: m.dest.Adapter, URL: m.dest.URL, Certificate: m.dest.Certificate},
 			TakenIn:         taken.TakenIn,
 			PrincipalRef:    sanitizeID(taken.PrincipalRef),
@@ -1707,7 +1741,7 @@ func clearCommandFor(configDir, teamRef, destKey, sourceURL string) string {
 		}
 	}
 	if others > 1 {
-		return "brigade team move --clear --from " + attrLine(backendName(bindings, teamRef, sourceURL))
+		return "brigade team move --clear --from " + addressLine(backendName(bindings, teamRef, sourceURL))
 	}
 	return "brigade team move --clear"
 }

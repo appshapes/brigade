@@ -4,6 +4,7 @@ package hook
 
 import (
 	"context"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -472,18 +473,19 @@ func TestOnlyAFollowThatCouldNotAskLearnedNothing(t *testing.T) {
 	}
 }
 
-// TestAStartThatCouldNotAskSaysWhatTheLastFollowLeft (work item 341): the
+// TestAStartThatCouldNotAskSaysThatTheFileDoesNotMatch (work item 341): the
 // last follow of the checkout reached the server the team moved to and left
 // what it found for the checkout's prompts: the server did not answer, it
 // refuses the membership this machine holds, or it and the backend the
 // member joined each record that the team moved to the other. A session
 // then starts while the backend the member joined does not answer, so its
-// own follow cannot ask and learns nothing. Until this the start said that
-// the team file does not match and to run `brigade team join`, while the
-// mark stayed and the next prompt said the mark's line. A start whose
-// follow learned nothing says what the mark says, as a prompt does, and
-// leaves the mark as it was.
-func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeft(t *testing.T) {
+// own follow cannot ask and learns nothing. Such a start says what a start
+// says where no follow left anything, that the team file does not match and
+// to run `brigade team join`: where that backend is gone for good, which is
+// how a migration ends, the join is the only way in, and a start that said
+// the mark's line instead said it with no end. The mark stays as it was,
+// and the prompt after the start says it, as a prompt does.
+func TestAStartThatCouldNotAskSaysThatTheFileDoesNotMatch(t *testing.T) {
 	t.Parallel()
 	refusal := func(code protocol.Code) func(*fixture) *adapterkit.SpawnResult {
 		return func(*fixture) *adapterkit.SpawnResult {
@@ -532,14 +534,18 @@ func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeft(t *testing.T) {
 			}
 			// From here the backend the member joined does not answer.
 			asked := joinedBackendSilent(f)
-			if got := start(); !slices.Equal(got, []string{tc.line}) {
-				t.Fatalf("a start whose follow could not ask: %q, want what the last follow that reached the server left", got)
+			if got := start(); !slices.Equal(got, []string{driftLine}) {
+				t.Fatalf("a start whose follow could not ask: %q, want what a start says where no follow left anything", got)
 			}
 			if asked.Load() != 1 {
 				t.Fatalf("that start asked the backend the member joined %d times: the test holds nothing", asked.Load())
 			}
 			if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // as above
 				t.Fatalf("the mark after a start that learned nothing: %q, %v; it was %q", now, err, left)
+			}
+			// The prompt of that session says what the mark says.
+			if got := f.prompted(); !slices.Equal(got, []string{movedRetryLine, tc.line}) {
+				t.Fatalf("the prompt after a start that could not ask: %q", got)
 			}
 			if pin := f.checkoutPin(); pin != before {
 				t.Fatalf("the pin moved: %+v", pin)
@@ -548,15 +554,14 @@ func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeft(t *testing.T) {
 	}
 }
 
-// TestAStartThatCouldNotAskTellsOfARefusalNobodyWasTold (work item 341): a
-// follow that ran beside a prompt found that the server refuses the
+// TestAStartThatCouldNotAskLeavesARefusalForAHookThatCanTellIt (work item
+// 341): a follow that ran beside a prompt found that the server refuses the
 // membership this machine holds and the join made under it, and left that
 // on record with nobody to tell. A session then starts while the backend
-// the member joined does not answer. Its follow learned nothing, and it
-// says what a prompt would say in its place: that the server refuses the
-// membership, with the command that joins, once. The start after it says
-// what a team file nobody followed is told.
-func TestAStartThatCouldNotAskTellsOfARefusalNobodyWasTold(t *testing.T) {
+// the member joined does not answer. Its follow learned nothing: it says
+// what a start says where no follow left anything, and the refusal stays
+// untold for the next hook that can tell it, which is the next prompt.
+func TestAStartThatCouldNotAskLeavesARefusalForAHookThatCanTellIt(t *testing.T) {
 	t.Parallel()
 	f := memberOfTheServer(t)
 	var banned atomic.Bool
@@ -571,11 +576,20 @@ func TestAStartThatCouldNotAskTellsOfARefusalNobodyWasTold(t *testing.T) {
 		t.Fatalf("the refused join left no record: %v", err)
 	}
 	joinedBackendSilent(f)
-	for i, want := range []string{membershipRefusedLine, driftLine} {
+	for i := range 2 {
 		exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
-		if exit != 0 || !slices.Equal(lines(out), []string{want}) || joins.Load() != 1 {
-			t.Fatalf("start %d while the backend the member joined does not answer: exit %d, lines %q, %d joins; want %q\n%s", i+1, exit, lines(out), joins.Load(), want, errOut)
+		if exit != 0 || !slices.Equal(lines(out), []string{driftLine}) || joins.Load() != 1 {
+			t.Fatalf("start %d while the backend the member joined does not answer: exit %d, lines %q, %d joins\n%s", i+1, exit, lines(out), joins.Load(), errOut)
 		}
+	}
+	// The next prompt tells of it, once.
+	f.now = f.now.Add(registerRetryInterval)
+	if got := f.prompted(); !slices.Contains(got, membershipRefusedLine) || slices.Contains(got, driftLine) {
+		t.Fatalf("the prompt after those starts: %q, want the refusal that nobody was told", got)
+	}
+	f.now = f.now.Add(registerRetryInterval)
+	if got := f.prompted(); !slices.Equal(got, []string{driftLine}) || joins.Load() != 1 {
+		t.Fatalf("the prompt after the refusal was told: %q, %d joins", got, joins.Load())
 	}
 }
 
@@ -781,10 +795,10 @@ func TestTheLineOfABackendThatDidNotAnswerSaysOnlyWhatIsTrue(t *testing.T) {
 // left that for the checkout's prompts. The backend the member joined then
 // answers the next follow's question with `rate_limited`, which the
 // protocol's table calls retryable: it has said nothing about the member.
-// Until this it counted as a refusal, the mark was taken back, and the
-// session said that the team file does not match and to run `brigade team
-// join`. It is a follow that learned nothing: the start says what the last
-// one left, and the mark stays as it was.
+// Until this it counted as a refusal, and the mark was taken back. It is a
+// follow that learned nothing: the mark stays as it was, and the prompt
+// after the start says it. The start itself, which could not ask, says
+// what a start says where no follow left anything.
 func TestABackendThatSaysToWaitTakesNothingBack(t *testing.T) {
 	t.Parallel()
 	f := memberOfTheServer(t)
@@ -814,13 +828,84 @@ func TestABackendThatSaysToWaitTakesNothingBack(t *testing.T) {
 	}
 	down.Store(false)
 	asked := joinedBackendSays(f, &protocol.ErrorObject{Code: protocol.CodeRateLimited, Message: "slow down", Retryable: true, RetryAfterMS: 1000})
-	if got := start(); !slices.Equal(got, []string{newBackendSilentLine}) || asked.Load() != 1 {
+	// The start could not ask: it says what a start says where no follow
+	// left anything, and what the earlier follow left stays for the prompt.
+	if got := start(); !slices.Equal(got, []string{driftLine}) || asked.Load() != 1 {
 		t.Fatalf("the start whose question was answered with a wait: %q; the backend the member joined was asked %d times", got, asked.Load())
 	}
 	if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // as above
 		t.Fatalf("the mark after it: %q, %v; it was %q", now, err, left)
 	}
+	if got := f.prompted(); !slices.Equal(got, []string{movedRetryLine, newBackendSilentLine}) {
+		t.Fatalf("the prompt after it: %q, want what the earlier follow left", got)
+	}
+	if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // as above
+		t.Fatalf("the mark after a prompt's follow that was answered with a wait: %q, %v; it was %q", now, err, left)
+	}
 	if pin := f.checkoutPin(); pin != before {
 		t.Fatalf("the pin moved: %+v", pin)
+	}
+}
+
+// TestAPromptSaysWhatTheLastFollowLeftHoweverLongAgo (work item 341): the
+// server the team moved to is down and the backend the member joined
+// answers. A session is prompted every twenty minutes. Each prompt reads
+// what the follow of the prompt before it left, which is that old, and
+// says it: the server did not answer. A mark has no age. A rule that let
+// one speak for fifteen minutes had every such prompt say that the team
+// file does not match and to run `brigade team join`, which was untrue,
+// each follow being vouched for, and named a join that cannot work while
+// the server is down.
+func TestAPromptSaysWhatTheLastFollowLeftHoweverLongAgo(t *testing.T) {
+	t.Parallel()
+	f := memberOfTheServer(t)
+	serverSays(f, func(verb string) *protocol.ErrorObject {
+		if verb != "team moved" {
+			return nil
+		}
+		return &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true}
+	})
+	before := f.checkoutPin()
+	if exit, out, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 || !slices.Equal(lines(out), []string{newBackendSilentLine}) {
+		t.Fatalf("the start: exit %d, lines %q", exit, lines(out))
+	}
+	mark := config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+	for i, want := range [][]string{{movedRetryLine, newBackendSilentLine}, {newBackendSilentLine}, {newBackendSilentLine}} {
+		f.now = f.now.Add(20 * time.Minute)
+		if got := f.prompted(); !slices.Equal(got, want) {
+			t.Fatalf("prompt %d, twenty minutes after the last follow: %q, want %q", i+1, got, want)
+		}
+		// The follow that prompt started reached the server, and left its own word.
+		var written followedMark
+		if now, err := os.ReadFile(mark); err != nil || json.Unmarshal(now, &written) != nil || !written.FollowedAt.Equal(f.now) || written.Reason != teammove.ReasonNewBackendFailed { //nolint:gosec // the fixture's own state directory
+			t.Fatalf("the mark after prompt %d: %+v, %v", i+1, written, err)
+		}
+	}
+	if pin := f.checkoutPin(); pin != before {
+		t.Fatalf("the pin moved: %+v", pin)
+	}
+}
+
+// TestARunningSessionIsToldWhatAFollowLeftHoweverLongAgo (work item 341):
+// the same for what a running session says of two backends that name each
+// other. Its prompt says so from the mark, whenever the follow that left
+// it ran.
+func TestARunningSessionIsToldWhatAFollowLeftHoweverLongAgo(t *testing.T) {
+	t.Parallel()
+	for name, age := range map[string]time.Duration{"twenty minutes": 20 * time.Minute, "a day": 24 * time.Hour} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+			f.moveTeamFile("team-1")
+			mark := config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+			left := append(mustJSON(followedMark{Version: followedMarkVersion, TeamKey: teamstore.Key("rest", movedURL, "team-1"), FollowedAt: f.now.Add(-age), Reason: teammove.ReasonEachOther}), '\n')
+			if err := adapterkit.WriteAtomic(mark, left); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.prompted(); !slices.Equal(got, []string{movedEachOtherLine, movedLine}) {
+				t.Fatalf("the prompt over a mark %v old: %q", age, got)
+			}
+		})
 	}
 }

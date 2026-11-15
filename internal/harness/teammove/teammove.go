@@ -131,9 +131,10 @@ const (
 	ReasonNoCapability      = "no_capability"
 	// ReasonOldBackendFailed: the backend the member joined did not answer
 	// the one question a follow asks of it, whether the team moved: it could
-	// not be reached, did not answer in time, or said to wait (unanswered).
-	// The follow learned nothing, of that backend or of the one the team
-	// file names.
+	// not be reached, did not answer in time, or said to wait (unanswered);
+	// or its adapter could not say what it offers, and the question was
+	// never asked. The follow learned nothing, of that backend or of the one
+	// the team file names.
 	ReasonOldBackendFailed = "old_backend_failed"
 	// ReasonOldBackendRefused: the backend the member joined answered that
 	// question, and its answer is no record: a refusal, above all that the
@@ -436,10 +437,13 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		return Outcome{Reason: ReasonLeft}, nil
 	}
 	// An adapter that does not carry the record's two commands is asked
-	// nothing: its describe is answered from local files.
+	// nothing: its describe is answered from local files. A describe that
+	// fails has asked no backend anything, so it is no refusal whatever its
+	// code: only an answer to the question below can be one. Nothing was
+	// learned, and what an earlier follow left stays (work item 341).
 	desc, err := oldClient.Describe(ctx)
 	if err != nil {
-		return Outcome{Reason: oldBackendReason(err)}, err
+		return Outcome{Reason: ReasonOldBackendFailed}, err
 	}
 	if !slices.Contains(desc.Capabilities, Capability) {
 		return Outcome{Reason: ReasonNoCapability}, nil
@@ -743,6 +747,13 @@ const (
 func ClearRecord(ctx context.Context, client Caller) (ClearOutcome, error) {
 	env, err := client.Call(ctx, "team", "move", []string{"--clear"}, nil)
 	if err != nil {
+		// A clear the backend refused before it acted leaves a record that is
+		// known to stand, and an answer that says to wait is such a refusal:
+		// the backend answered, and cleared nothing. This is not the follow's
+		// reading of a question (unanswered), where a wait says nothing about
+		// the member: here it says what became of the record. Only a backend
+		// that could not be reached, one that failed, and an answer that is no
+		// envelope leave that unknown.
 		var perr *protocol.Error
 		if errors.As(err, &perr) && perr.Code != protocol.CodeUnavailable && perr.Code != protocol.CodeInternal && perr.Code != protocol.CodeProtocolMismatch {
 			return ClearRefused, err
@@ -794,9 +805,24 @@ func unanswered(err error) bool {
 	return errors.As(err, &perr) && perr.Code.Retryable()
 }
 
+// RefusesCaller reports whether err is a backend's answer that the caller
+// may not ask what it asked: `unauthorized`, the caller is no active member
+// of the team there, or `unauthenticated`, a credential the backend does
+// not know. It is an answer about the caller, and so never true of a
+// question that was not answered (unanswered), nor of an answer that says
+// nothing of the caller: a failure of the backend, or something that is no
+// envelope.
+func RefusesCaller(err error) bool {
+	if unanswered(err) {
+		return false
+	}
+	var perr *protocol.Error
+	return errors.As(err, &perr) && (perr.Code == protocol.CodeUnauthorized || perr.Code == protocol.CodeUnauthenticated)
+}
+
 // oldBackendReason is the reason of a follow whose question to the backend
-// the member joined failed with err: that backend did not answer
-// (unanswered), or it answered, and its answer was a refusal.
+// the member joined, `team moved`, failed with err: that backend did not
+// answer (unanswered), or it answered, and its answer was a refusal.
 func oldBackendReason(err error) string {
 	if unanswered(err) {
 		return ReasonOldBackendFailed
