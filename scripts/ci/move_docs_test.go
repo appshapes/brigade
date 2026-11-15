@@ -170,6 +170,38 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			files: []string{admin},
 			need:  []string{"names them and the flag", "the record's own form clears that record first"},
 		},
+		{
+			why:   "the checkout's backend is not taken for the one a command that is run again leaves where another backend records the move too: a checkout left behind at an earlier move shows the same, so the skills do not say that the refusal means only that the checkout says nothing",
+			files: skills,
+			gone:  []string{"nothing in this checkout says which backend it is leaving now. The refusal"},
+			need:  []string{"is not the only one that records a move to the server"},
+		},
+		{
+			why:   "the Team Admin's page and the changelog say the same of a checkout whose backend is one of two that record the move",
+			files: []string{admin, "CHANGELOG.md"},
+			need:  []string{"a checkout left behind at an earlier move"},
+		},
+		{
+			why:   "a session says that the team file does not match of a backend it joined that does not answer, of a follow that did not get the lock and of a member who left: the member's page named none of these, and said that nothing vouched for the change",
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			gone:  []string{"Then nothing vouched for the change: the administrator"},
+			need:  []string{"The backend you joined could not be asked", "Another session of yours was following or joining", "You left the team on the backend it moved to"},
+		},
+		{
+			why:   "a join that the backend a team moved to did not answer is told as a backend that did not answer, and a session that could not ask says what the last one that asked was told",
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			need:  []string{"joined it with the move's ticket", "A session that could not ask"},
+		},
+		{
+			why:   "the changelog says the same of a join that was not answered and of a session that starts while it cannot ask",
+			files: []string{"CHANGELOG.md"},
+			need:  []string{"A join that was not answered is no refusal", "while it cannot ask at all"},
+		},
+		{
+			why:   "the Team Admin's page names the backend a member joined not answering among the reasons a session says that the file does not match",
+			files: []string{admin},
+			need:  []string{"the old backend does not answer when their session asks it whether the team moved"},
+		},
 	} {
 		for _, file := range tc.files {
 			said := oneLine(t, file)
