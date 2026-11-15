@@ -351,8 +351,9 @@ server-check: ## rustfmt and clippy on server/ with warnings denied, with and wi
 # made from inside a session, a take-in whose answer is lost and the same command run again, the sessions
 # that are running when the command is run from one of them, a record that exists and is not cleared by a
 # second run or a second move, the command killed in the middle of a step, a finished move run again and
-# stopped, a server that asks for a creation token, and a member who did not create the team. The last thirty-three
-# (work item 341) are a team's move from one server to another, each on two built servers over TLS. `make test`
+# stopped, a server that asks for a creation token, and a member who did not create the team. The last thirty-four
+# are work item 341's. Thirty-three are a team's move from one server to another, each on two built servers
+# over TLS, and one, named at the end of this comment, leaves the filesystem backend for a built server. `make test`
 # runs all but the fifth against two stand-in servers too: the move by its owner with a member's next session
 # following at its start, the sessions that are running following at their next prompts, a team that comes
 # back to a server it left, whose record of the leaving is cleared before the other server records anything,
