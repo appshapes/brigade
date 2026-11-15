@@ -2035,3 +2035,51 @@ func TestTheCommandsAMovePrintsRunAsPrintedWhereOneHostCarriesTheTeamsServersThr
 		t.Fatalf("the server the team left after the printed command ran: %+v", onB)
 	}
 }
+
+// TestAMemberWhoDoesNotOwnTheTeamIsToldThatItsOwnerClearsTheRecordThroughTheRealBinary:
+// a server answers one refusal to everyone who may not clear the record of
+// where a team went, "not an active member of this team". Until this
+// `brigade team move --clear` printed it to an active member who does not
+// own the team, of whom it is untrue. The command asks what the server
+// records, which every active member is answered, and says that only the
+// team's owner there clears the record. A member the server no longer
+// counts one reads the server's own words, which are true of him.
+func TestAMemberWhoDoesNotOwnTheTeamIsToldThatItsOwnerClearsTheRecordThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b := startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	term, member := r.terminalEnv(r.configDir), r.terminalEnv(r.configDirB)
+	onA := r.principalOf(r.configDirB, a)
+	r.movedTo(b, r.secretFile)
+	recorded := r.recordOn(r.configDir, a)
+	if !recorded.Moved || recorded.URL != b.url {
+		t.Fatalf("the record on the server the team left: %+v", recorded)
+	}
+	const ownerOnly, notAMember = "only the owner of this team on ", "not an active member of this team"
+
+	// An active member of the team on the server it left, who does not own it.
+	res := r.runIn(r.checkout, member, "y\n", "team", "move", "--clear")
+	if res.exit == 0 || !strings.Contains(res.stderr, ownerOnly+hostOf(a)+" can clear the record of where it went") || strings.Contains(res.stderr, notAMember) {
+		t.Fatalf("the clear of an active member who does not own the team: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if now := r.recordOn(r.configDir, a); !now.Moved || !now.RecordedAt.Equal(recorded.RecordedAt) {
+		t.Fatalf("the record after a member's clear: %+v, was %+v", now, recorded)
+	}
+	// The read is his all the same.
+	if res := r.runIn(r.checkout, member, "", "team", "move", "--show"); res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(a)) {
+		t.Fatalf("the member's read of the record: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+
+	// Revoked there, he is no active member: the server's own words are true.
+	if res := r.runIn(r.checkout, term, "", "team", "revoke-member", "--on", hostOf(a), "--principal", onA); res.exit != 0 {
+		t.Fatalf("the revocation on the server the team left: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	res = r.runIn(r.checkout, member, "y\n", "team", "move", "--clear")
+	if res.exit == 0 || !strings.Contains(res.stderr, notAMember) || strings.Contains(res.stderr, ownerOnly) {
+		t.Fatalf("the clear of a member who was revoked: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	// The owner's clear is the owner's.
+	if res := r.runIn(r.checkout, term, "", "team", "move", "--clear", "--from", hostOf(a)); res.exit != 0 || r.recordOn(r.configDir, a).Moved {
+		t.Fatalf("the owner's clear: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+}

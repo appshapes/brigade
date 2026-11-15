@@ -688,3 +688,81 @@ func TestTheCommandsTheRecordsFormPrintsNameOneBackendWhereAHostNamesTwo(t *test
 		}
 	}
 }
+
+// TestTheRecordsFormsSayThatOnlyTheOwnerWritesOrClearsARecord (work item
+// 341): a Brigade server answers one refusal to every caller that may not
+// write or clear the record of where a team went, "not an active member of
+// this team", an active member who does not own the team included (ADR
+// 0010). Until this `brigade team move --clear` and `--ticket-file` printed
+// those words as they came, which are untrue of an active member. Every
+// active member reads the record: so on that refusal the command asks what
+// the server records, with nothing new on the wire, and where it answers
+// it says that only the team's owner there clears or records, in the words
+// the one command has. Where the read is refused too, or is not answered,
+// the server's own words stand; and another backend's refusal is its own.
+func TestTheRecordsFormsSayThatOnlyTheOwnerWritesOrClearsARecord(t *testing.T) {
+	t.Parallel()
+	notAMember := failAnswer(protocol.CodeUnauthorized, "not an active member of this team")
+	notMoved := okAnswer(`{"team_ref":"` + setupTeamRef + `","moved":false}`)
+	reads := func(r *spawnRecorder) int { return len(r.specsOf("team moved")) }
+
+	// The clear, of a record a server holds: an active member who does not
+	// own the team there.
+	r := newMoveRig(t, true)
+	r.there.on("team move", notAMember).on("team moved", notMoved)
+	perr := wantCodeErr(t, Team(r.inv(true, "--clear", "--from", r.newHost)), protocol.CodeUnauthorized, reasonNotTheCreator)
+	for _, need := range []string{"only the owner of this team on " + r.newHost + " can clear the record of where it went", "the owner's machine", "transfer the team to you", "Nothing was changed"} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the refusal of an active member's clear lacks %q: %s", need, perr.Message)
+		}
+	}
+	if strings.Contains(perr.Message, "not an active member") || reads(r.there) != 1 {
+		t.Errorf("the refusal of an active member's clear: %s; the server's record was read %d times, want once", perr.Message, reads(r.there))
+	}
+
+	// The read is refused as well, or is not answered: the server's words.
+	for name, read := range map[string]answer{"refused": notAMember, "not answered": failAnswer(protocol.CodeUnavailable, "the backend could not be reached")} {
+		r = newMoveRig(t, true)
+		r.there.on("team move", notAMember).on("team moved", read)
+		perr = wantCodeErr(t, Team(r.inv(true, "--clear", "--from", r.newHost)), protocol.CodeUnauthorized, "")
+		if perr.Message != "not an active member of this team" {
+			t.Errorf("a clear whose read was %s: %s, want the server's own words", name, perr.Message)
+		}
+	}
+
+	// Another backend's refusal is its own words, and it is asked nothing more.
+	r = newMoveRig(t, true)
+	r.f.rec.on("team move", failAnswer(protocol.CodeUnauthorized, "only the member who created this team records where it went"))
+	perr = wantCodeErr(t, Team(r.inv(true, "--clear")), protocol.CodeUnauthorized, "")
+	if perr.Message != "only the member who created this team records where it went" || reads(r.f.rec) != 0 {
+		t.Errorf("a clear on a backend that is no server: %s; its record was read %d times", perr.Message, reads(r.f.rec))
+	}
+
+	// The record itself, on a server the team is leaving.
+	r = newMoveRig(t, true)
+	earlier := "https://earlier.example.test:8743"
+	if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, teamstore.Key("rest", earlier, setupTeamRef), "rest", earlier, "", "", setupTeamRef, "devs", "p_earlier"); err != nil {
+		t.Fatal(err)
+	}
+	r.f.rec.on("team move", notAMember).on("team moved", notMoved)
+	perr = wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket, "--from", earlier)), protocol.CodeUnauthorized, reasonNotTheCreator)
+	for _, need := range []string{"only the owner of this team on earlier.example.test:8743 can record where it went", "the owner's machine", "Nothing was recorded"} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the refusal of an active member's record lacks %q: %s", need, perr.Message)
+		}
+	}
+	if strings.Contains(perr.Message, "not an active member") {
+		t.Errorf("the refusal of an active member's record: %s", perr.Message)
+	}
+
+	// The record a server holds of a team that comes back to it, which the
+	// form clears first: the read that found it was answered, so the refusal
+	// of its clear is the owner's alone to lift, and says so.
+	r = newMoveRig(t, true)
+	left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"supabase","url":"` + r.oldURL + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	r.there.on("team moved", okAnswer(left)).on("team move", notAMember)
+	perr = wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeConflict, reasonBackendsNameEachOther)
+	if !strings.Contains(perr.Message, "that record could not be cleared (only the team's owner there can clear it)") || strings.Contains(perr.Message, "not an active member") {
+		t.Errorf("the refusal of a clear on the server a team returns to: %s", perr.Message)
+	}
+}

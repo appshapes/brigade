@@ -230,7 +230,9 @@ server's side, and you do yours in three steps.
 
 - `brigade team move --clear` removes the record: the old backend no longer says where the team went, so no
   session follows from then on. That is all it undoes, and it is safe to run at any time, before or after your
-  members followed, and more than once. What it does not undo:
+  members followed, and more than once. On a server the record is its owner's alone to clear: to another
+  member of the team there the command says `only the owner of this team on <host> can clear the record of
+  where it went`, and the record stands. What it does not undo:
   - **the ticket.** It still admits at the new server. The move ends when the ticket runs out, when you rotate
     the join secret on the server, or when the server's operator closes it;
   - **anyone who followed.** Their machines are members of the team on the new server, their checkouts are

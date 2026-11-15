@@ -35,7 +35,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   before the new server is asked anything.
 - **Who may, on a server.** The team's owner there, who need not be the
   member who created it: the refusal now says "only the owner of this
-  team on <host> can move it" for a team on a server.
+  team on <host> can move it" for a team on a server. The record's own
+  forms say the same of the record, `--clear` and `--ticket-file` alike:
+  a server answers "not an active member of this team" to everyone who
+  may not write or clear it, which is untrue of a member who does not
+  own the team, so the command reads the record, which every active
+  member may, and says that only the owner clears or records it.
 - **The server a team leaves keeps the team as it is.** Nothing is
   ended, closed or refused there because the team moved, so a member who
   has not followed still reaches it and reads where the team went. The

@@ -344,6 +344,11 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 	req := &protocol.TeamMoveRequest{Adapter: f.Adapter, URL: f.URL, Certificate: f.Certificate}
 	res, err := inv.callMove(t, "move", []string{"--ticket-file", ticketFile}, req)
 	if err != nil {
+		undone := "Nothing was recorded"
+		if cleared {
+			undone = ""
+		}
+		err = inv.ownerOnly(t, source, err, "record where it went", undone)
 		if cleared {
 			var perr *protocol.Error
 			if errors.As(err, &perr) {
@@ -443,6 +448,14 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 	var perr *protocol.Error
 	if errors.As(cause, &perr) {
 		why = perr.Message
+		if perr.Code == protocol.CodeUnauthorized && f.Adapter == config.BundledRestName {
+			// The record was read a moment ago with the membership this
+			// machine holds there (destinationRecord), which only an active
+			// member is answered: so a server's one refusal, "not an active
+			// member of this team", is here that the caller does not own the
+			// team there (ownerOnly).
+			why = "only the team's owner there can clear it"
+		}
 	}
 	if outcome == teammove.ClearUnanswered {
 		code := protocol.CodeUnavailable
@@ -530,6 +543,36 @@ func checkTicketFileOutside(ticketFile, top string) error {
 	return nil
 }
 
+// ownerOnly says truly what a Brigade server's refusal to write or clear
+// the record of where a team went means for this caller. A server answers
+// one `unauthorized`, "not an active member of this team", to every caller
+// that may not write or clear that record, an active member who does not
+// own the team included: the contract gives it no other, so that the
+// refusal tells a stranger nothing of a team (ADR 0010). Of an active
+// member those words are untrue. Every active member reads the record, so
+// on that refusal the command asks what the server records (recordOn),
+// which changes nothing on the wire: where the server answers, the caller
+// is an active member, and the refusal is that only the team's owner there
+// may, in the words the one command has for it (cannotRecord). Where the
+// read is refused too, or is not answered, the server's own words stand,
+// and so do another backend's. does is what was refused, and undone the
+// sentence that says what came of it, "" for none.
+func (inv Invocation) ownerOnly(t *target, source *adapterkit.Profile, err error, does, undone string) error {
+	var perr *protocol.Error
+	if source.Adapter != config.BundledRestName || !errors.As(err, &perr) || perr.Code != protocol.CodeUnauthorized {
+		return err
+	}
+	if _, keeps, rerr := inv.recordOn(t); rerr != nil || !keeps {
+		return err
+	}
+	message := "only the owner of this team on " + attrLine(hostOf(source.URL)) + " can " + does + ": where a team went is its owner's to record there. " +
+		"Run this on the owner's machine, or have the owner transfer the team to you first"
+	if undone != "" {
+		message += ". " + undone
+	}
+	return &protocol.Error{Code: protocol.CodeUnauthorized, Message: message, Details: map[string]string{"reason": reasonNotTheCreator}}
+}
+
 // clearMove clears the record on the backend the team left.
 func (inv Invocation) clearMove(t *target, source *adapterkit.Profile, f *teamfile.File) error {
 	if err := requireMoveRecord(t); err != nil {
@@ -537,7 +580,7 @@ func (inv Invocation) clearMove(t *target, source *adapterkit.Profile, f *teamfi
 	}
 	res, err := inv.callMove(t, "move", []string{"--clear"}, nil)
 	if err != nil {
-		return err
+		return inv.ownerOnly(t, source, err, "clear the record of where it went", "Nothing was changed")
 	}
 	if res.Moved {
 		return protocolMismatch("team move --clear answered a record")
