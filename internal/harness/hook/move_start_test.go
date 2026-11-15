@@ -6,14 +6,17 @@ import (
 	"context"
 	json "encoding/json/v2"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -391,23 +394,34 @@ func TestAStartThatCannotReachTheNewBackendKeepsTheSession(t *testing.T) {
 // it is `not connected`, and the attempt is stamped.
 func TestAStartWhoseNewAdapterCannotDescribeKeepsTheSession(t *testing.T) {
 	t.Parallel()
+	// The server is one no other test names. The adapter client keeps one
+	// describe per adapter and profile for the life of the process, and a
+	// profile is a team key: under the address the other tests move to, a
+	// describe one of them made would answer this start, and its adapter
+	// would never be asked.
+	const server = "https://cannot-describe.example.test"
 	f := newMemberFixture(t)
 	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
-	seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
-	before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
-	f.moveTeamFile("team-1")
+	seam := attachedMember(t, f, movedDoc(server, movedPin), nil)
+	before, newKey := f.checkoutPin(), teamstore.Key("rest", server, "team-1")
+	moved := map[string]any{"version": 1, "adapter": "rest", "url": server, "certificate": movedPin, "team_ref": "team-1", "team_name": teamName}
+	if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), mustJSON(moved), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	tf := f.movedFile()
 	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
 		t.Fatalf("lines = %q", got)
 	}
-	// The new backend's adapter has not been described yet in this process:
-	// the follow asks the old one alone.
+	// The follow asked the old backend alone: the new one's adapter has not
+	// been described.
 	if on := newBackendCalls(seam, newKey); slices.Contains(on, "describe") {
 		t.Fatalf("the follow described the new backend's adapter: %v", on)
 	}
+	var described atomic.Int32
 	inner := f.deps.Spawn
 	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
 		if verbOf(spec.Argv) == "describe" && profileOf(adapterCall{Argv: spec.Argv}) == newKey {
+			described.Add(1)
 			return nil, &protocol.Error{Code: protocol.CodeConfig, Message: "the profile cannot be read"}
 		}
 		return inner(ctx, spec)
@@ -417,6 +431,9 @@ func TestAStartWhoseNewAdapterCannotDescribeKeepsTheSession(t *testing.T) {
 	exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
 	if exit != 0 || strings.Contains(out, "not connected") {
 		t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+	}
+	if described.Load() == 0 {
+		t.Fatalf("the new backend's adapter was not asked to describe: the test holds nothing")
 	}
 	want := []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine, startLine("payments-api", "brigade-sess-1", teamName, "accept")}
 	if got := lines(out); !slices.Equal(got, want) {
