@@ -266,7 +266,8 @@ server's side, and you do yours in three steps.
   After the first nobody new joins it, and the second ends the memberships that joined with the earlier
   secret. Each prints `team … acts on team "<name>" (<team_ref>) at <host>` first: without `--on` that host is
   the server the team lives on, and the two commands would close the move and put out the members who
-  followed. Neither clears the record. A member you revoke there reads no record from then on, so revoke only
+  followed. Where one host names two servers the team is joined on, under two paths, the line carries the
+  whole address in the host's place. Neither clears the record. A member you revoke there reads no record from then on, so revoke only
   those who have followed, in every checkout they have. What the team wrote stays on that server until its
   operator removes the data directory.
 

@@ -156,4 +156,9 @@ func TestOnTellsTwoBackendsOfOneTeamOnOneHostApart(t *testing.T) {
 	if invs := readDump(t, dump); len(invs) != 1 || invs[0].Env["BRIGADE_PROFILE"] != "bob-two" {
 		t.Fatalf("the adapter was asked %+v, want one call under bob-two", invs)
 	}
+	// And the line that says which backend the command acts on names that one:
+	// the host both are behind would not say which.
+	if said := `brigade: team revoke-member acts on team "bobteam" (t_bob) at ` + two + "\n"; !strings.Contains(f.errb.String(), said) {
+		t.Fatalf("stderr = %q, want %q: the whole address, where the host names two backends of the team", f.errb.String(), said)
+	}
 }

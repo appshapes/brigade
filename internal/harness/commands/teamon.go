@@ -65,6 +65,26 @@ func takeOn(rest []string) (on string, out []string, err error) {
 	return on, out, nil
 }
 
+// actsAt names the backend a team command acts on, in the line it prints
+// before the adapter is asked: the backend's host, and its whole address
+// where this machine has joined the same team on another backend that the
+// host names too (two servers behind one host and port, under two paths;
+// work item 341). The host alone would not say which of the two the
+// command acts on, and the whole address is what `--on` takes for either.
+func actsAt(configDir string, binding *adapterkit.Profile) string {
+	host := hostOf(binding.URL)
+	bindings, _, err := listBindings(configDir)
+	if err != nil {
+		return host
+	}
+	for _, other := range bindings {
+		if other.TeamRef == binding.TeamRef && other.URL != binding.URL && hostOf(other.URL) == host {
+			return binding.URL
+		}
+	}
+	return host
+}
+
 // namesBackend reports whether where, a url or a host as a person types
 // one, names the backend of a membership: its url, in any spelling that is
 // trivially the same, or its host as a line prints it.
@@ -203,7 +223,7 @@ func (inv Invocation) teamAdminOn(verb string, raw rawArgs) error {
 		// does the talking.
 		return inv.spawnThrough(t, "team", verb, raw.Rest, nil)
 	}
-	said := "brigade: team " + verb + " acts on team \"" + nameLine(binding.TeamName) + "\" (" + sanitizeID(binding.TeamRef) + ") at " + attrLine(hostOf(binding.URL))
+	said := "brigade: team " + verb + " acts on team \"" + nameLine(binding.TeamName) + "\" (" + sanitizeID(binding.TeamRef) + ") at " + attrLine(actsAt(t.configDir, binding))
 	if _, err := io.WriteString(inv.Err, said+"\n"); err != nil {
 		return err
 	}

@@ -68,7 +68,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **`--on` names two backends of one team apart by their url.** Where a
   host and port name two servers of the team, under two paths, the
   refusal names both urls; it used to say to add `--team`, which was
-  given.
+  given. The line that says which backend `team rotate-secret` or
+  `team revoke-member` acts on then carries the whole address, where the
+  host alone would not say which.
 - **A session goes nowhere between two backends that name each other.**
   No command leaves two backends each recording that the team moved to
   the other, and a session does not rely on that: when the backend it
