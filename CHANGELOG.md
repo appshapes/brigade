@@ -100,10 +100,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   kept out by a ban together with a rotation, which closes the move. A
   server that does not answer changes nothing, and the session says so,
   at its start and at the prompts after it, where it used to say that
-  `.brigade.json` does not match. One that answers another refusal, a
-  credential it does not know above all, is told as a server that
-  refuses the membership, with the same command, and not as one to wait
-  for.
+  `.brigade.json` does not match: whether the server was asked about
+  the membership the machine holds or, where it holds none, was sent the
+  join with the move's ticket. A join that was not answered is no
+  refusal, and nothing is put on record for it. One that answers another
+  refusal, a credential it does not know above all, is told as a server
+  that refuses the membership, with the same command, and not as one to
+  wait for.
 - **`team rotate-secret` and `team revoke-member` say which backend they
   act on, and take `--on <url or host>`.** After a move a checkout is
   joined to the server the team went to, and a team command goes there

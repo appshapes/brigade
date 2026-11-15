@@ -138,9 +138,11 @@ const (
 	ReasonBusy              = "busy"
 	ReasonStore             = "store"
 	// ReasonNewBackendFailed: the backend the team file names did not answer
-	// the question a follow asks of it with the membership this machine
-	// holds there: it could not be reached, or did not answer in time.
-	// Nothing is changed, and the next follow asks again.
+	// what a follow asks of it: the question asked with the membership this
+	// machine holds there, or the join made with the move's ticket, which is
+	// the first thing asked of a backend the machine was never a member of.
+	// It could not be reached, or did not answer in time. Nothing is pinned
+	// and no refusal is put on record, and the next follow asks again.
 	ReasonNewBackendFailed = "new_backend_failed"
 	// ReasonNewBackendRefused: the backend the team file names answered that
 	// question, and its answer is a refusal other than that the caller is no
@@ -526,7 +528,10 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 	// And where the backend refuses the join itself, the refusal is put on
 	// record and no follow presents a ticket there for RejoinPause: the
 	// backend counts the joins a principal fails, and the member's own join
-	// with the right secret must still be heard (ReasonRejoinRefused).
+	// with the right secret must still be heard (ReasonRejoinRefused). A join
+	// that was not answered is no refusal and is not put on record: the
+	// backend did not answer (join), and the next follow presents the ticket
+	// again.
 	held := berr == nil && teamstore.VerifyBinding(existing, in.File) == nil
 	rejoin := false
 	if held {
@@ -825,7 +830,14 @@ func align(ctx context.Context, in Inputs, client Caller, key string, existing *
 
 // join sends the one `team join` of a follow to the new backend and writes
 // the binding. It answers a Reason when the machine did not become a
-// member the file describes, "" when it did.
+// member the file describes, "" when it did. A join that was not answered
+// (unanswered) is no refusal: the backend said nothing of the ticket or of
+// the member, so it is the backend that did not answer
+// (ReasonNewBackendFailed), on a machine's first join there and on the join
+// made under a membership it holds alike. Until this it was a join the
+// backend refused, and a member who never held a membership on a server
+// that was only down was told that the team file does not match (work item
+// 341). Any other failure is the backend's answer, and stays a refusal.
 func join(ctx context.Context, in Inputs, client Caller, key, ticket, label string) (string, error) {
 	backend, err := json.Marshal(JoinBackend(in.File))
 	if err != nil {
@@ -833,6 +845,9 @@ func join(ctx context.Context, in Inputs, client Caller, key, ticket, label stri
 	}
 	req := &protocol.TeamJoinRequest{JoinSecret: ticket, HumanLabel: label, Backend: backend}
 	env, err := client.Call(ctx, "team", "join", nil, req)
+	if unanswered(err) {
+		return ReasonNewBackendFailed, err
+	}
 	if err != nil {
 		return ReasonJoinRefused, err
 	}

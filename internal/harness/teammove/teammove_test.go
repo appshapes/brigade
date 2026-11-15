@@ -1258,6 +1258,72 @@ func TestFollowTellsABackendThatRefusesFromOneThatDidNotAnswer(t *testing.T) {
 	}
 }
 
+// TestAJoinThatWasNotAnsweredIsABackendThatDidNotAnswer (work item 341):
+// the join a follow sends to the backend the team moved to gets no answer:
+// the backend could not be reached, or the caller's time ran out. Until this
+// every failure of that join was a join the backend refused, and a member
+// who never held a membership there was told at a session's start that the
+// team file does not match and to run `brigade team join`, of a server that
+// was only down. A join that was not answered is a backend that did not
+// answer, on the first join and on the join made under a membership the
+// machine holds alike: nothing is pinned, no binding is written, no refusal
+// is put on record or counted, and the next follow presents the ticket
+// again and follows.
+func TestAJoinThatWasNotAnsweredIsABackendThatDidNotAnswer(t *testing.T) {
+	t.Parallel()
+	notAMember := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	for name, failure := range map[string]error{
+		"unavailable": &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"},
+		"a deadline":  context.DeadlineExceeded,
+	} {
+		for road, held := range map[string]bool{"a first join": false, "a join under the membership it holds": true} {
+			t.Run(name+", "+road, func(t *testing.T) {
+				t.Parallel()
+				r := newRig(t)
+				if held {
+					// The backend no longer honours the membership the machine holds,
+					// so the follow joins with the ticket on that profile.
+					r.memberAtTheNewBackend()
+					r.b.newRecords = true
+					r.b.newMovedErrs = []error{notAMember, notAMember}
+					r.b.join = &protocol.TeamJoinResult{TeamRef: teamRef, TeamName: teamName, PrincipalRef: "p-before", Rejoined: true}
+				}
+				r.b.joinErr = failure
+				out, err := r.follow()
+				if out.Followed || out.Reason != teammove.ReasonNewBackendFailed || !errors.Is(err, failure) {
+					t.Fatalf("a follow whose join was not answered: %+v, %v, want %s", out, err, teammove.ReasonNewBackendFailed)
+				}
+				if joins := len(r.b.called("team join")); joins != 1 {
+					t.Fatalf("the follow presented the ticket %d times, want once", joins)
+				}
+				if _, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey); !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("a join that was not answered is on record as one the backend refused: %v", err)
+				}
+				if pin := r.currentPin(); pin != r.pin {
+					t.Fatalf("the pin moved: %+v", pin)
+				}
+				binding, berr := teamstore.LoadBinding(r.configDir, r.newKey)
+				if held && (berr != nil || binding.PrincipalRef != "p-before") {
+					t.Fatalf("the membership the machine held: %+v, %v", binding, berr)
+				}
+				if !held && berr == nil {
+					t.Fatalf("a binding for the new backend was written: %+v", binding)
+				}
+				if left := r.leftBehind(); len(left) != 0 || r.ticketOnDisk() {
+					t.Fatalf("the follow left %v in the store, ticket on disk %v", left, r.ticketOnDisk())
+				}
+				// The backend answers: the next follow presents the ticket again, with
+				// no pause, and follows.
+				r.b.joinErr = nil
+				out, err = r.follow()
+				if err != nil || !out.Followed || !out.Joined || len(r.b.called("team join")) != 2 {
+					t.Fatalf("the follow after the backend answered: %+v, %v; calls %v", out, err, r.b.verbs())
+				}
+			})
+		}
+	}
+}
+
 // TestFollowGoesNowhereBetweenTwoBackendsThatNameEachOther: the backend
 // the file names itself records that the team moved to the backend the
 // checkout is pinned to (work item 341). A session follows neither,

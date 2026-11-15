@@ -137,6 +137,8 @@ before when:
 - the record names anything other than what the file they pulled names: check with `brigade team move --show`;
 - the ticket has ended, the move was closed, or you rotated the join secret on the server;
 - their session on the old backend has ended (they left the team there, or were revoked);
+- the old backend does not answer when their session asks it whether the team moved: the session says the same
+  line of a backend that is only out of reach, and the next session asks again, as that one does at its prompts;
 - the two backends each record that the team moved to the other. The session says exactly that, once, and
   follows neither. No command of Brigade's leaves two backends so; `brigade team move --show --from <host>`
   reads each record, and `--clear --from <host>` clears the one that is out of date.

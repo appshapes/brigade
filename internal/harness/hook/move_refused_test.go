@@ -128,6 +128,66 @@ func TestAPromptSaysOfTheServerTheTeamMovedToWhatTheStartSaid(t *testing.T) {
 	}
 }
 
+// TestAFirstJoinThatWasNotAnsweredIsToldAsAServerThatDidNotAnswer (work item
+// 341): the member never held a membership on the server the team moved to,
+// so the first thing a follow asks of it is the join itself, and the server
+// does not answer it. Until this every failure of that join was a join the
+// server refused, and the start said that the team file does not match and
+// to run `brigade team join`, of a server that was only down. The start
+// says that the server did not answer, the prompts after it say the same,
+// every follow presents the ticket again because nothing was refused, and
+// the session connects once the server answers.
+func TestAFirstJoinThatWasNotAnsweredIsToldAsAServerThatDidNotAnswer(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.labelOldBinding()
+	f.moveTeamFile("team-1")
+	f.useMoveSeam(movedDoc(movedURL, movedPin), map[string][]fakeadapter.Response{
+		"team join":        {joinOK()},
+		"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
+	})
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	var answers atomic.Bool
+	joins := serverSays(f, func(verb string) *protocol.ErrorObject {
+		if answers.Load() || verb != "team join" {
+			return nil
+		}
+		return &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true}
+	})
+	before, tf := f.checkoutPin(), f.movedFile()
+	if exit, out, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 || !slices.Equal(lines(out), []string{newBackendSilentLine}) || f.mapExists() {
+		t.Fatalf("the start: exit %d, lines %q", exit, lines(out))
+	}
+	if got := f.prompted(); !slices.Equal(got, []string{movedRetryLine, newBackendSilentLine}) {
+		t.Fatalf("the prompt after the start: %q", got)
+	}
+	f.now = f.now.Add(registerRetryInterval)
+	if got := f.prompted(); !slices.Equal(got, []string{newBackendSilentLine}) {
+		t.Fatalf("the prompt a minute later: %q", got)
+	}
+	// The start's follow and the two that the prompts started each presented
+	// the ticket: a join that was not answered is no refusal, and pauses nothing.
+	if pin := f.checkoutPin(); pin != before || joins.Load() != 3 {
+		t.Fatalf("the pin moved (%+v), or the server was asked for %d joins, want three", pin, joins.Load())
+	}
+	if _, err := teamstore.LoadRejoinRefusal(f.configDir, teamstore.Key("rest", movedURL, "team-1")); err == nil {
+		t.Fatalf("a join that was not answered is on record as one the server refused")
+	}
+	// The server answers: the next follow joins, and the prompt after it
+	// connects the session.
+	answers.Store(true)
+	f.now = f.now.Add(registerRetryInterval)
+	f.prompted()
+	if pin := f.checkoutPin(); !pin.Matches(tf) || joins.Load() != 4 {
+		t.Fatalf("the follow after the server answered: pin %+v, %d joins", pin, joins.Load())
+	}
+	f.now = f.now.Add(registerRetryInterval)
+	got := f.prompted()
+	if len(got) < 2 || got[0] != followedLine(tf, &before, true, "brigade") || !strings.Contains(got[1], "(brigade-sess-1)") {
+		t.Fatalf("the prompt after the follow: %q", got)
+	}
+}
+
 // TestTheLineOfAServerThatRefusesNamesTheJoinThatHelps: the line a session
 // says when the server refuses the membership this machine holds names the
 // one command that helps, with the flag a session needs, and echoes

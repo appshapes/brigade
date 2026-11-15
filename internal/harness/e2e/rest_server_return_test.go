@@ -911,6 +911,98 @@ func TestAServerThatDoesNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThroughTheR
 	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 }
 
+// TestAFirstJoinTheServerDidNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThroughTheRealBinary:
+// a member who never held a membership on the server the team moved to
+// starts a session while that server does not answer. The first thing a
+// follow asks of such a server is the join itself. Until this every failure
+// of that join was told as a join the server refused: the start said that
+// `.brigade.json` does not match the team and to run `brigade team join`, of
+// a server that was only down. It says that the server did not answer, the
+// prompt after it says the same, nothing is put on record against the
+// member, and the session connects, joined with the move's ticket, once the
+// server answers.
+func TestAFirstJoinTheServerDidNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	var down atomic.Bool
+	joins := &atomic.Int32{}
+	a := startRestBackend(t)
+	_, b := startFront(t, startRestBackend(t), func(req *http.Request, _ []byte) (int, string) {
+		if req.URL.Path != "/v1/team/join" {
+			return 0, ""
+		}
+		joins.Add(1)
+		if down.Load() {
+			return http.StatusServiceUnavailable, unreachable
+		}
+		return 0, ""
+	}, nil)
+	r := teamOnAServer(t, a)
+	r.movedTo(b, r.secretFile)
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinBefore, _, err := teamstore.LookupPin(r.configDirB, canon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := teamstore.LoadBinding(r.configDirB, r.keyAt(b)); err == nil {
+		t.Fatalf("the member holds a membership on the server the team moved to before any session of his started: the test holds nothing")
+	}
+	silentWords := func(said string) bool {
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+	}
+	unchanged := func(when string) {
+		t.Helper()
+		if pin, _, perr := teamstore.LookupPin(r.configDirB, canon); perr != nil || *pin != *pinBefore {
+			t.Fatalf("%s: the pin moved while the server did not answer: %+v %v", when, pin, perr)
+		}
+		if _, err := os.Stat(r.refusalOf(r.configDirB, b)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s: a join that was not answered is on record as one the server refused: %v", when, err)
+		}
+	}
+
+	down.Store(true)
+	s := r.newSession("bob", bobName, "", "", "")
+	res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if r.mapExists(s) || !silentWords(res.stdout) || strings.Contains(res.stdout, "brigade team join") {
+		t.Fatalf("a start while the server the team moved to does not answer the join: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	if got := joins.Load(); got != 1 {
+		t.Fatalf("the start asked the server for %d joins, want one", got)
+	}
+	unchanged("the start")
+	// The session's next prompt says what its start said, and the follow it
+	// starts presents the ticket again: nothing was refused, so nothing pauses.
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || !silentWords(res.stdout) {
+		t.Fatalf("the prompt after that start: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		return logLines(moveLog, "the team file names another backend for this team, and the move was not followed") == 1
+	})
+	if got := joins.Load(); got != 2 {
+		t.Fatalf("the start and the prompt's follow asked the server for %d joins, want two", got)
+	}
+	unchanged("the prompt")
+	// The server answers again: a prompt a minute later starts the follow once
+	// more, and the prompt after it connects the session.
+	down.Store(false)
+	said := ""
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		r.aMinuteLater(s, r.configDirB, canon)
+		said += r.restPrompt(s).stdout
+		return r.mapExists(s)
+	})
+	if at := r.mustMap(s); at.TeamKey != r.keyAt(b) || !strings.Contains(said, "with the move's ticket") || strings.Contains(said, "does not match") {
+		t.Fatalf("the session after the server answered again: %+v\nstdout %q", at, said)
+	}
+	if listed := r.principalsAt(b)[bobLabel]; len(listed) != 1 {
+		t.Fatalf("the member on the server's roster: %v, want him once", listed)
+	}
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+}
+
 // unknownCredential is a server's answer to a credential it does not know,
 // as a front gives it in the server's place: what a server that was started
 // again from an older copy of its data answers a member who joined since.

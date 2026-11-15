@@ -1021,10 +1021,12 @@ const driftLine = "Brigade: not connected: .brigade.json does not match the team
 const eachOtherLine = "Brigade: not connected: .brigade.json names another backend for the team you joined here, and that backend and the one you joined each record that the team moved to the other, so this session follows neither. The team's administrator clears the record that is out of date: `brigade team move --show --from <host>` reads one, and `brigade team move --clear --from <host>` clears it."
 
 // newBackendSilentLine is said in place of the drift line when the backend
-// the member joined recorded the move to the backend the file names, this
-// machine holds a membership there, and that backend did not answer the
-// follow's question (work item 341; teammove.ReasonNewBackendFailed: it
-// could not be reached, or did not answer in time). The
+// the member joined recorded the move to the backend the file names, and
+// that backend did not answer what the follow asked of it (work item 341;
+// teammove.ReasonNewBackendFailed: it could not be reached, or did not
+// answer in time): the question asked with the membership this machine
+// holds there, or the join made with the move's ticket, which is the first
+// thing asked where the machine holds none. The
 // file is vouched for and nothing is wrong with it: the drift line's words,
 // that it does not match and that `brigade team join` reviews the change,
 // would send the member to a join for a server that is only down. Nothing
