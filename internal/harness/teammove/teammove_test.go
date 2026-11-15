@@ -1307,6 +1307,62 @@ func TestFollowTellsABackendTheMemberJoinedThatRefusesFromOneThatDidNotAnswer(t 
 	}
 }
 
+// undescribed is a Caller whose describe fails with err, as the adapter of
+// the backend the member joined does when it is not set up, prints what is
+// no envelope, or does not end in time. It is asked nothing else.
+type undescribed struct {
+	teammove.Caller
+	err error
+}
+
+func (u undescribed) Describe(context.Context) (*protocol.DescribeResult, error) { return nil, u.err }
+
+// TestADescribeThatFailsIsNoRefusalOfTheBackendTheMemberJoined (work item
+// 341): before a follow asks the backend the member joined anything, it
+// reads what that backend's adapter offers, which the adapter answers from
+// local files. When that fails, no backend was asked: nothing was learned
+// of the member, of the team or of the backend the team file names. It
+// was told as that backend's refusal when its failure was anything but a
+// deadline, which takes back what an earlier follow left and has the
+// member read that the team file does not match. Only an answer to the
+// question can be a refusal: a describe that fails is a backend that did
+// not answer, whatever its code.
+func TestADescribeThatFailsIsNoRefusalOfTheBackendTheMemberJoined(t *testing.T) {
+	t.Parallel()
+	for name, failure := range map[string]error{
+		"the adapter is not set up":            &protocol.Error{Code: protocol.CodeConfig, Message: "the adapter is not set up"},
+		"what it printed is no envelope":       &protocol.Error{Code: protocol.CodeInternal, Message: "adapter stdout is not a single protocol JSON envelope"},
+		"it refuses, as no describe should":    &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"},
+		"its executable is gone":               &protocol.Error{Code: protocol.CodeUnavailable, Message: "adapter executable not found"},
+		"a failure that is not the protocol's": errors.New("exec: no such file or directory"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			out, err := teammove.Follow(t.Context(), teammove.Inputs{
+				ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin,
+				Client: func(adapter, profile string) (teammove.Caller, error) {
+					c, cerr := r.b.client(adapter, profile)
+					if cerr != nil || adapter == "rest" {
+						return c, cerr
+					}
+					return undescribed{Caller: c, err: failure}, nil
+				},
+				Now: func() time.Time { return r.now },
+			})
+			if out.Followed || out.Reason != teammove.ReasonOldBackendFailed || !errors.Is(err, failure) {
+				t.Fatalf("follow: %+v, %v, want %s", out, err, teammove.ReasonOldBackendFailed)
+			}
+			if asked := r.b.verbs(); len(asked) != 0 {
+				t.Fatalf("a follow whose describe failed asked %v", asked)
+			}
+			if pin := r.currentPin(); pin != r.pin {
+				t.Fatalf("the pin moved: %+v", pin)
+			}
+		})
+	}
+}
+
 // TestAnAnswerTheProtocolCallsRetryableIsNoAnswerAboutTheMember (work item
 // 341): a backend answers `rate_limited`, with how long to wait. That says
 // nothing of the member or of the team: the protocol's own table calls it

@@ -2325,3 +2325,66 @@ func TestWhatAFollowLeftIsSaidForFifteenMinutesThroughTheRealBinary(t *testing.T
 		t.Fatalf("a follow that learned something left the mark's time as it was: %q, %v", now, err)
 	}
 }
+
+// TestAnAdapterThatCannotDescribeItselfTakesNothingBackThroughTheRealBinary:
+// a team on the filesystem backend moves to a server. A member's first
+// follow finds the server down and leaves that for the checkout's hooks.
+// The adapter of the backend he joined then fails to say what it offers,
+// which a follow reads before it asks that backend anything: no backend
+// was asked. Until this such a failure counted as that backend's refusal:
+// what the earlier follow had left was taken back, and the member read
+// that `.brigade.json` does not match the team. Only an answer to the
+// question is a refusal: the start says what was left, the mark stays, and
+// with the adapter back the member follows.
+func TestAnAdapterThatCannotDescribeItselfTakesNothingBackThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	down := &silent{}
+	_, b := startFront(t, startRestBackend(t), down.before, nil)
+	r := newRig(t)
+	r.createTeam()
+	if res := r.runIn(r.checkout, r.terminalEnv(r.configDir), "y\n", moveArgs(b, r.secretFile)...); res.exit != 0 {
+		t.Fatalf("the one command from the filesystem backend: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	down.on.Store(true)
+	if res, key := r.bobStarts(); key != "" || !strings.Contains(res.stdout, "did not answer") {
+		t.Fatalf("the start while the server the team moved to is down: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	left, err := os.ReadFile(mark) //nolint:gosec // G304: a file under the test's own state directory
+	if err != nil {
+		t.Fatalf("that start left nothing for the checkout's hooks: %v", err)
+	}
+	down.on.Store(false)
+
+	// His adapter for the backend he joined answers its describe with a
+	// failure of its own, and is the rig's adapter for everything else.
+	script := filepath.Join(r.dirs.Root, "adapter-undescribed.sh")
+	body := "for a in \"$@\"; do case \"$a\" in describe) printf '%s\\n' " +
+		shellQuote(`{"ok":false,"protocol_version":"`+protocol.ProtocolVersion+`","error":{"code":"config","message":"the adapter is not set up","retryable":false}}`) +
+		"; exit 11;; esac; done\nexec " + shellQuote(r.wrapper) + " \"$@\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.RegisterAdapter(r.configDirB, "fs", []string{"/bin/sh", script, "--root", r.root}); err != nil {
+		t.Fatal(err)
+	}
+	res, key := r.bobStarts()
+	if key != "" || !strings.Contains(res.stdout, "did not answer") || strings.Contains(res.stdout, "does not match") || !strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
+		t.Fatalf("a start whose adapter cannot describe itself, over what an earlier follow left: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // G304: as above
+		t.Fatalf("what the earlier follow left is %q, %v; it was %q", now, err, left)
+	}
+
+	// With his adapter back, he follows.
+	if err := config.RegisterAdapter(r.configDirB, "fs", r.adapterCmd); err != nil {
+		t.Fatal(err)
+	}
+	if res, key := r.bobStarts(); key != r.keyAt(b) || !strings.Contains(res.stdout, "followed team") {
+		t.Fatalf("the start with his adapter back: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+}

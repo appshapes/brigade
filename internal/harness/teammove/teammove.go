@@ -131,9 +131,10 @@ const (
 	ReasonNoCapability      = "no_capability"
 	// ReasonOldBackendFailed: the backend the member joined did not answer
 	// the one question a follow asks of it, whether the team moved: it could
-	// not be reached, did not answer in time, or said to wait (unanswered).
-	// The follow learned nothing, of that backend or of the one the team
-	// file names.
+	// not be reached, did not answer in time, or said to wait (unanswered);
+	// or its adapter could not say what it offers, and the question was
+	// never asked. The follow learned nothing, of that backend or of the one
+	// the team file names.
 	ReasonOldBackendFailed = "old_backend_failed"
 	// ReasonOldBackendRefused: the backend the member joined answered that
 	// question, and its answer is no record: a refusal, above all that the
@@ -436,10 +437,13 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		return Outcome{Reason: ReasonLeft}, nil
 	}
 	// An adapter that does not carry the record's two commands is asked
-	// nothing: its describe is answered from local files.
+	// nothing: its describe is answered from local files. A describe that
+	// fails has asked no backend anything, so it is no refusal whatever its
+	// code: only an answer to the question below can be one. Nothing was
+	// learned, and what an earlier follow left stays (work item 341).
 	desc, err := oldClient.Describe(ctx)
 	if err != nil {
-		return Outcome{Reason: oldBackendReason(err)}, err
+		return Outcome{Reason: ReasonOldBackendFailed}, err
 	}
 	if !slices.Contains(desc.Capabilities, Capability) {
 		return Outcome{Reason: ReasonNoCapability}, nil
@@ -795,8 +799,8 @@ func unanswered(err error) bool {
 }
 
 // oldBackendReason is the reason of a follow whose question to the backend
-// the member joined failed with err: that backend did not answer
-// (unanswered), or it answered, and its answer was a refusal.
+// the member joined, `team moved`, failed with err: that backend did not
+// answer (unanswered), or it answered, and its answer was a refusal.
 func oldBackendReason(err error) string {
 	if unanswered(err) {
 		return ReasonOldBackendFailed
