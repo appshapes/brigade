@@ -619,6 +619,53 @@ func TestTeamJoinInSessionSaysASessionOnTheBackendItsTeamLeftMoves(t *testing.T)
 	}
 }
 
+// TestTeamJoinInSessionSaysASessionWhereTheTeamIsIsAlreadyAttached: the
+// other side of the test above. A session whose map names the team on the
+// very backend the team file names has nowhere to move: the join says that
+// it is already attached, and leaves its registration-retry stamp alone.
+func TestTeamJoinInSessionSaysASessionWhereTheTeamIsIsAlreadyAttached(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	persona := filepath.Join(f.dirs.Root, "persona-config")
+	if err := os.MkdirAll(persona, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeStartFacts(t, f, persona)
+	file, err := teamfile.Parse(filepath.Join(top, teamfile.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := sessionmap.Store{StateDir: f.stateDir}
+	m, err := store.ReadByPID(fixturePID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.TeamRef, m.TeamKey = file.TeamRef, teamstore.Key(file.Adapter, file.URL, file.TeamRef)
+	if err := store.WriteByPID(m); err != nil {
+		t.Fatal(err)
+	}
+	stamp := config.RegisterRetryStamp(f.stateDir, fixturePID)
+	if err := os.MkdirAll(filepath.Dir(stamp), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stamp, []byte("2026-11-14T12:00:00Z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.rec.on("session list", answer{result: `{"sessions":[],"server_time":"2026-09-08T18:00:00Z"}`})
+	secretFile := filepath.Join(f.dirs.Root, "join.secret")
+	writeSecretFile(t, secretFile, setupSecret)
+	if err := Team(sessionInv(t, f, top, "join", "--secret-file", secretFile)); err != nil {
+		t.Fatal(err)
+	}
+	out := f.out.String()
+	if !strings.Contains(out, "joined team \"devs\" ("+setupTeamRef+"); this session is already attached to it") || strings.Contains(out, "moves there") {
+		t.Fatalf("stdout = %q", out)
+	}
+	if _, err := os.Stat(stamp); err != nil {
+		t.Fatalf("the join took the registration-retry stamp of a session that moves nowhere: %v", err)
+	}
+}
+
 // writeStartFactsWithLabel is writeStartFacts plus the `label` option the
 // hook resolved — the only way an in-session command can learn it, since
 // plugin options never reach the Bash tool.
