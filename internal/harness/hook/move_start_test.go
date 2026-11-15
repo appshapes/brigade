@@ -12,11 +12,13 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
+	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -833,6 +835,76 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 				t.Fatalf("the start rewrote the map for the conversation %q, or sent a heartbeat", m.ClaudeSessionID)
 			}
 		})
+	}
+}
+
+// TestACodexStartThatResolvesNoTeamKeepsARunningSession: a Codex CLI
+// session is keyed by its thread, so the start that finds its map is one
+// of the same thread: a thread that is resumed while its watcher is still
+// alive. From a directory with no team file it is kept as a Claude Code or
+// Muse Code session is, and says its context line with Codex's own line
+// after it.
+func TestACodexStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
+	t.Parallel()
+	f := movingFixture(t, config.HostCodex)
+	f.noAdapterOption = true
+	seam := attachedMember(t, f, nil, nil)
+	own := f.canon()
+	bare := filepath.Join(t.TempDir(), "no-checkout")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registers := len(seam.callsFor("session register"))
+	f.cwd = bare
+	exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("resume"))
+	want := []string{startLine(f.mustMap().SessionName, "brigade-sess-1", teamName, "accept"), codexLine(f.pluginBin)}
+	if exit != 0 || !slices.Equal(lines(out), want) {
+		t.Fatalf("exit %d, lines\n%q\nwant\n%q\n%s", exit, lines(out), want, errOut)
+	}
+	if m := f.mustMap(); m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || m.Checkout != own || len(seam.callsFor("session register")) != registers {
+		t.Fatalf("the map after the start names %q, %q and the checkout %q", m.TeamKey, m.BrigadeSessionID, m.Checkout)
+	}
+	if p, err := f.store().ReadByHost(string(config.HostCodex), f.nativeID); err != nil || p.BrigadeSessionID != "brigade-sess-1" || p.HostPID != f.key() {
+		t.Fatalf("the thread's pointer after the start: %+v, %v", p, err)
+	}
+}
+
+// TestAStartThatResolvesNoTeamRefreshesTheEntryOfTheSessionItKeeps: in a
+// project that shares a state folder a session's start writes the session's
+// entry, on the register and the continue path alike. A start that keeps a
+// session where no team was resolved does the same for the session where it
+// is, from the map it kept: the entry is the session's, and stamped by this
+// start.
+func TestAStartThatResolvesNoTeamRefreshesTheEntryOfTheSessionItKeeps(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	doc := fileOf(f.checkoutPin())
+	doc["sync"] = map[string]any{"folders": []string{".brigade"}, "state": ".brigade/state"}
+	if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), mustJSON(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	attachedMember(t, f, nil, nil)
+	folder := f.mustMap().StateFolder
+	if folder == "" {
+		t.Fatal("the fixture's session shares no state folder")
+	}
+	store := state.Store{StateDir: f.stateDir, Folder: folder}
+	started := f.now
+	if e, err := store.Load("brigade-sess-1"); err != nil || !e.UpdatedAt.Equal(started) {
+		t.Fatalf("the entry after the session's start: %+v, %v", e, err)
+	}
+	bare := filepath.Join(t.TempDir(), "no-checkout")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.now = started.Add(time.Hour)
+	f.nativeID, f.cwd = otherConversation, bare
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+	if exit != 0 || !slices.Equal(lines(out), []string{startLine("payments-api", "brigade-sess-1", teamName, "accept")}) {
+		t.Fatalf("exit %d, lines %q: %s", exit, lines(out), errOut)
+	}
+	if e, err := store.Load("brigade-sess-1"); err != nil || !e.UpdatedAt.Equal(f.now) || !e.EndedAt.IsZero() {
+		t.Fatalf("the entry after the start that kept the session: %+v, %v", e, err)
 	}
 }
 
