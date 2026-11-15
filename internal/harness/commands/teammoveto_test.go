@@ -579,6 +579,8 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 		"a relative creation token file":                      "--create-token-file must be an absolute path",
 		"a creation token file inside the checkout":           "--create-token-file must be a plainly spelled path outside this project",
 		"the secret of another team":                          "name the file `team create` wrote for this team",
+		"a team file too large to name the server as well":    "cannot be rewritten to name the server",
+		"a url that a team file may not carry":                "cannot be rewritten to name that server",
 	}
 	for _, tc := range []struct {
 		name   string
@@ -621,6 +623,14 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 			return []string{"--to", "https://user:pw@" + r.newHost, "--secret-file", r.secretFile}
 		}, protocol.CodeUsage, ""},
 		{"a url with no host", func(r *moveToRig) []string { return []string{"--to", "https://", "--secret-file", r.secretFile} }, protocol.CodeUsage, ""},
+		// The file that would be written is tried before anything is asked: step e comes after the record.
+		{"a team file too large to name the server as well", func(r *moveToRig) []string {
+			r.writeFile(r.original + strings.Repeat(" ", teamfile.MaxBytes-len(r.original)))
+			return r.args()
+		}, protocol.CodeConfig, teamfile.ReasonTooLarge},
+		{"a url that a team file may not carry", func(r *moveToRig) []string {
+			return []string{"--to", "https://brg1." + setupTeamRef + ".abcdefgh12345678.example.test", "--secret-file", r.secretFile}
+		}, protocol.CodeConfig, "team_file_unwritable"},
 		{"another scheme", func(r *moveToRig) []string {
 			return []string{"--to", "ftp://" + r.newHost, "--secret-file", r.secretFile}
 		}, protocol.CodeUsage, ""},

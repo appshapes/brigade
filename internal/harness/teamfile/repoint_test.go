@@ -2,8 +2,12 @@ package teamfile
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 const (
@@ -134,4 +138,58 @@ func TestToServerRefusesWhatItCannotRewrite(t *testing.T) {
 	if _, err := toServer([]byte(valid), "http://brigade.example.com", ""); !errors.Is(err, errRepoint) {
 		t.Fatalf("a destination the file may not name: %v, want errRepoint", err)
 	}
+}
+
+// TestToServerNeverAnswersAFileTooLargeToRead: a file that is as large as a
+// team file can be and still read grows when its url gets longer and a pin
+// is added. The result would be refused by Parse, and with it by every
+// session of the checkout, so ToServer refuses it as too large and the
+// caller writes nothing. One byte of room is enough room.
+func TestToServerNeverAnswersAFileTooLargeToRead(t *testing.T) {
+	t.Parallel()
+	doc := `{"adapter":"supabase","publishable_key":"k","team_ref":"t_9","url":"https://a.co","version":1}`
+	moved := `{"adapter":"rest","team_ref":"t_9","url":"` + repointURL + `","certificate":"` + repointPin + `","version":1}`
+	write := func(t *testing.T, text string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), FileName)
+		//nolint:gosec // G306: a committed team file is 0644
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse(path); err != nil {
+			t.Fatalf("the file before the move does not parse: %v", err)
+		}
+		return path
+	}
+	t.Run("a file at the cap", func(t *testing.T) {
+		t.Parallel()
+		path := write(t, doc+strings.Repeat(" ", MaxBytes-len(doc)))
+		got, err := ToServer(path, repointURL, repointPin)
+		var perr *protocol.Error
+		if got != nil || !errors.As(err, &perr) || perr.Code != protocol.CodeConfig || perr.Details["reason"] != ReasonTooLarge {
+			t.Fatalf("ToServer answered %d bytes and %v, want the too_large refusal", len(got), err)
+		}
+	})
+	t.Run("a file with exactly the room it needs", func(t *testing.T) {
+		t.Parallel()
+		path := write(t, doc+strings.Repeat(" ", MaxBytes-len(moved)))
+		got, err := ToServer(path, repointURL, repointPin)
+		if err != nil || len(got) != MaxBytes {
+			t.Fatalf("ToServer answered %d bytes and %v, want a file of %d", len(got), err, MaxBytes)
+		}
+		//nolint:gosec // G306: a committed team file is 0644
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if f, err := Parse(path); err != nil || f.Adapter != RestAdapter || f.URL != repointURL || f.Certificate != repointPin {
+			t.Fatalf("the file that was written parses to %+v, %v", f, err)
+		}
+	})
+	t.Run("one byte less room", func(t *testing.T) {
+		t.Parallel()
+		path := write(t, doc+strings.Repeat(" ", MaxBytes-len(moved)+1))
+		if got, err := ToServer(path, repointURL, repointPin); got != nil || err == nil {
+			t.Fatalf("ToServer answered %d bytes and %v, want a refusal", len(got), err)
+		}
+	})
 }

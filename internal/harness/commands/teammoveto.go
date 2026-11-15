@@ -90,6 +90,9 @@ const (
 	reasonNotOwnerThere     = "not_owner_at_destination"
 	reasonCreateToken       = "create_token" //nolint:gosec // G101: a details.reason token, not a credential
 	reasonTeamNameUnknown   = "team_name_unknown"
+	// reasonTeamFileUnwritable: the team file as it is cannot be rewritten
+	// to name the server.
+	reasonTeamFileUnwritable = "team_file_unwritable"
 )
 
 // An olderSession is one session of the team that runs a plugin too old to
@@ -287,6 +290,9 @@ func (inv Invocation) checkMove(flags moveFlags) (*serverMove, error) {
 	if flags.ticketDaysSet {
 		m.ticketDays = flags.ticketDays
 	}
+	if err := m.rewritable(); err != nil {
+		return nil, err
+	}
 	if m.source, m.sourceKey, err = moveFrom(configDir, f, flags.from, m.pointed); err != nil {
 		return nil, err
 	}
@@ -372,6 +378,34 @@ func thisMachine(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && (ip.Equal(net.IPv4(127, 0, 0, 1)) || ip.Equal(net.IPv6loopback))
+}
+
+// rewritable tries step e's rewrite of the team file on the file as it is,
+// and writes nothing. Step e comes after the server took the team in and
+// the old backend recorded the move, so a file that cannot be made to name
+// the server is found here instead: one that would grow past what a team
+// file can be, and a destination a team file may not carry. A file that
+// names the server already is not rewritten, and not tried.
+func (m *serverMove) rewritable() error {
+	if m.pointed {
+		return nil
+	}
+	_, err := teamfile.ToServer(m.filePath, m.dest.URL, m.dest.Certificate)
+	if err == nil {
+		return nil
+	}
+	var perr *protocol.Error
+	if errors.As(err, &perr) {
+		out := *perr
+		out.Message = "this project's " + teamfile.FileName + " cannot be rewritten to name the server: " + perr.Message + ". Nothing was changed"
+		return &out
+	}
+	return &protocol.Error{
+		Code: protocol.CodeConfig,
+		Message: "this project's " + teamfile.FileName + " cannot be rewritten to name that server: the file that would result is not one a session reads. " +
+			"Nothing was changed",
+		Details: map[string]string{"reason": reasonTeamFileUnwritable},
+	}
 }
 
 // moveFrom finds this machine's membership on the backend the team leaves.
