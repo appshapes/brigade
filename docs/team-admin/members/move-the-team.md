@@ -37,9 +37,13 @@ For example `brigade team move --to https://brigade.example.com:8743 --secret-fi
 
 What it does, in this order:
 
-1. **Checks, and changes nothing.** This checkout's `.brigade.json` names the backend the team is on, and this
-   machine is joined there. The secret file holds this team's secret. The old backend can keep a record, and you
-   are the team's creator. It lists the sessions that are online on a plugin older than 0.55.0.
+1. **Checks.** This checkout's `.brigade.json` names the backend the team is on, and this machine is joined
+   there. The secret file holds this team's secret. The old backend can keep a record, and you are the team's
+   creator. It lists the sessions that are online on a plugin older than 0.55.0. The checks ask the server
+   nothing and change nothing, with one exception: when the old backend already holds a record of a move, the
+   command records that same record again, with the ticket it holds, because only the team's creator is
+   answered there. The record names what it named and admits whom it admitted, and only its date moves. A
+   member who did not create the team is refused here, before the server and the join secret come into it.
 2. **Shows what it is about to do, and asks**: the team, the host it is leaving, the server's host and the
    certificate's fingerprint. In a terminal you answer `y`. In a session nobody can be asked, so it prints the
    same line and proceeds.
@@ -74,12 +78,15 @@ is until it ends.
 
 ## When the command stops
 
-Each refusal says what to do. Nothing is written before the checks pass.
+Each refusal says what to do. Nothing is written before the checks pass, but for the date of a record that
+was already there.
 
 | It says | What to do |
 | --- | --- |
 | the project lacks the migration `20261114120000_team_move` | The Project Owner applies it: `make backend-install project=<ref>` ([Update](../../project-owner/update/README.md)). Then run the command again. |
 | only the member who created this team can move it | Run it on the administrator's machine, or [transfer the team](transfer-the-team.md) first. |
+| the old backend holds a record of a move already, and a private file for its ticket could not be written | The command names the directory under Brigade's state directory: make it one you can write, and run the command again. |
+| the record was cleared while this command was checking it | Someone cleared it from another machine. Run the command again. |
 | the file holds the join secret of another team | Name the file `team create` wrote for this team. |
 | the server takes no team in by request | It is older than 0.7.0: [With an older server](#with-an-older-server). |
 | the server asks for a creation token, or refused the one you gave | Ask its operator for the token's file, and pass `--create-token-file <path>`. |

@@ -25,7 +25,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   checkout's team file names the backend the team is on and this machine is
   joined there, that the secret file holds this team's secret, that the old
   backend can keep a record and the caller created the team, and which
-  sessions are online on a plugin older than 0.55.0. It shows what it is
+  sessions are online on a plugin older than 0.55.0. One thing those checks
+  touch: a record of a move that the old backend already holds is recorded
+  again as it is, with the ticket it holds, because that is what only the
+  team's creator is answered; its destination and its ticket stay, and its
+  date moves. A member who did not create the team is refused there, with or
+  without a record, before the server is asked anything and so before the
+  join secret is sent to it. It shows what it is
   about to do and asks. Then the server takes the team in with the
   administrator as its owner, under the label they have on the old backend
   and never one read from the terminal's Claude profile; the move is opened,

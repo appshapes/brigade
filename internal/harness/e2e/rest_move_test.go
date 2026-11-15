@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json/v2"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -366,7 +368,13 @@ type front struct {
 	// network does to an answer that never arrives. The member's machine
 	// waits for as long as after takes to say so.
 	after func(req *http.Request, status int) bool
+	// requests counts every request the front was asked, whatever became of
+	// it: a server that was asked nothing has a front that counted none.
+	requests atomic.Int64
 }
+
+// asked is how many requests the front has been asked, of any kind.
+func (f *front) asked() int { return int(f.requests.Load()) }
 
 // startFront starts a front for backend and answers the server a member's
 // machine is told of: the front's own address. A backend that serves TLS
@@ -378,6 +386,7 @@ func startFront(t *testing.T, backend restBackend, before func(*http.Request, []
 	t.Helper()
 	f := &front{backend: backend.url, client: http.DefaultClient, before: before, after: after}
 	f.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		f.requests.Add(1)
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
 			http.Error(w, "the request could not be read", http.StatusBadGateway)
@@ -497,9 +506,30 @@ func (f *lossyFront) answersLost() int {
 // and is the rig's adapter for everything else: a backend that refuses one
 // command. The script is run as `/bin/sh <script>` and uses builtins alone.
 func (m *movingTeam) withFsAdapter(flag, refuse string, do func()) {
+	m.r.t.Helper()
+	m.withFsAdapterAfter(0, flag, refuse, do)
+}
+
+// withFsAdapterAfter is withFsAdapter for a backend that answers the first
+// passed such commands as it should and refuses the ones after them: the
+// record a move's check makes again goes through, and the move's own does
+// not. passed is 0 or 1.
+func (m *movingTeam) withFsAdapterAfter(passed int, flag, refuse string, do func()) {
 	t := m.r.t
 	t.Helper()
 	script := filepath.Join(m.r.dirs.Root, "adapter-refusing"+flag+".sh")
+	first := filepath.Join(m.r.dirs.Root, "adapter-refusing"+flag+".passed")
+	if err := os.Remove(first); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	pass := ""
+	if passed == 1 {
+		// The first such command leaves a mark and goes on to the adapter.
+		pass = "  if [ ! -e " + shellQuote(first) + " ]; then\n" +
+			"    : > " + shellQuote(first) + "\n" +
+			"    exec " + shellQuote(m.r.wrapper) + " \"$@\"\n" +
+			"  fi\n"
+	}
 	body := "verb=''; hit=0; prev=''\n" +
 		"for a in \"$@\"; do\n" +
 		"  case \"$prev $a\" in 'team move') verb=move;; esac\n" +
@@ -507,6 +537,7 @@ func (m *movingTeam) withFsAdapter(flag, refuse string, do func()) {
 		"  prev=\"$a\"\n" +
 		"done\n" +
 		"if [ \"$verb\" = move ] && [ \"$hit\" = 1 ]; then\n" +
+		pass +
 		"  printf '%s\\n' " + shellQuote(refuse) + "\n" +
 		"  exit 11\n" +
 		"fi\n" +
@@ -665,6 +696,60 @@ func (m *movingTeam) movedFile(backend restBackend) {
 	}
 }
 
+// memberCannotMove runs the one command as bob, a member who did not create
+// the team, with env, his terminal's or a session's of his, in the checkout
+// as it was before the move, to a server of its own, while the backend the
+// team left holds a record whose ticket is ticket. It fails the test unless
+// he is refused in the words of a member with no record to meet, before
+// the question or the statement that stands for it in a session, with the
+// server asked nothing, the record as it was to its date and its ticket,
+// his store and his pin as they were, and no ticket file left. The
+// checkout's team file is put back as it found it.
+func (m *movingTeam) memberCannotMove(env []string, ticket string) {
+	t, r := m.r.t, m.r
+	t.Helper()
+	elsewhere, other := startFront(t, startRestBackend(t), nil, nil)
+	file := filepath.Join(r.checkout, teamfile.FileName)
+	now := m.fileNow()
+	//nolint:gosec // G306: a committed team file is 0644
+	if err := os.WriteFile(file, []byte(m.fileBefore), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	record, pin := m.recordJSON(), pinInBobsStore(m)
+	res := m.move(env, "y\n", moveArgs(other, r.secretFile)...)
+	if res.exit == 0 || !strings.Contains(res.stderr, "only the member who created this team on "+m.oldHost+" can move it") ||
+		!strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stdout+res.stderr, "[y/N]") || strings.Contains(res.stdout, "Consented") {
+		t.Fatalf("a member's move of a team that has a record: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if asked := elsewhere.asked(); asked != 0 {
+		t.Fatalf("a member's move asked the server he named %d requests", asked)
+	}
+	if got := m.recordJSON(); got != record {
+		t.Fatalf("a member's move changed the record:\n%s\nwant:\n%s", got, record)
+	}
+	if held, _ := m.ticket(); held != ticket {
+		t.Fatalf("a member's move changed the record's ticket")
+	}
+	if got := m.pinOf(r.configDirB); got != pin {
+		t.Fatalf("a member's move rewrote his pin: %+v", got)
+	}
+	for whose, store := range map[string]string{"his": r.configDirB, "the administrator's": r.configDir} {
+		if _, err := os.Lstat(filepath.Join(store, "teams", teamstore.Key("rest", other.url, r.teamRef))); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("a member's move left a profile for the server in %s store (%v)", whose, err)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(r.stateDir, "team-move", "*")); len(left) != 0 {
+		t.Fatalf("a member's move left the record's ticket in a file: %v", left)
+	}
+	if got := m.fileNow(); got != m.fileBefore {
+		t.Fatalf("a member's move rewrote the team file:\n%s", got)
+	}
+	//nolint:gosec // G306: a committed team file is 0644
+	if err := os.WriteFile(file, []byte(now), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestATeamMovesToAServerByOneCommandThroughTheRealBinary is the move from
 // the fs adapter. Four things stop it before anything is written, each with
 // the sentence that says what to do: a secret file of another team, a
@@ -715,6 +800,15 @@ func TestATeamMovesFromSupabaseToAServerByOneCommandThroughTheRealBinary(t *test
 	}
 	m := newMovingTeam(t, r, func(args ...string) result {
 		return r.run(r.terminalEnv(r.configDir), "", append([]string{"adapter", "supabase"}, args...)...)
+	})
+	// A run that fails part way does not reach the step that clears its record, and the stack's own tests
+	// count the records it holds: the record is cleared when the test ends, however it ends.
+	ctx := context.WithoutCancel(t.Context())
+	t.Cleanup(func() {
+		//nolint:gosec // G204: the argv is a binary this test built; no shell is involved
+		cmd := exec.CommandContext(ctx, r.brigade, "team", "move", "--clear", "--from", m.oldHost)
+		cmd.Env, cmd.Dir = m.terminal, r.checkout
+		_ = cmd.Run()
 	})
 	teamMovesByOneCommand(t, m, false)
 }
@@ -861,6 +955,13 @@ func teamMovesByOneCommand(t *testing.T, m *movingTeam, fsBackend bool) {
 	if ticket == first {
 		t.Fatalf("a second open did not replace the ticket the old backend holds")
 	}
+
+	// --- 7b. a member who did not create the team cannot move it elsewhere once it has moved ---------------
+	// His checkout has not pulled the new file, and he holds what the command asks for: a checkout that is
+	// joined, and the team's secret file. The backend the team left holds a record by now, so whether he may
+	// write one is asked by recording again the record that is there, which only the team's creator is
+	// answered. He is refused as he would be with no record, and the server he named was asked nothing.
+	m.memberCannotMove(r.terminalEnv(r.configDirB), ticket)
 
 	// --- 8. a member's next session follows, and the team works -------------------------------------------
 	m.followsAndTalks(backend)

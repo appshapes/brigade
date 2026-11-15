@@ -28,7 +28,9 @@ Move at a quiet moment: a message that is waiting on the old backend stays there
 | 2 | Commit and push `.brigade.json`, in every repository of the team. | Team Admin | the same page |
 | 3 | Pull, as on any day. The next session in a checkout that has the changed file follows, and says so in one line. | each member | the same page |
 
-The one command checks first and changes nothing until its checks pass. Then the server takes the team in with
+The one command checks first and changes nothing until its checks pass, but for the date of a record of a move
+that the Supabase project already holds: it records that record again as it is, which only the team's creator is
+answered, so anyone else is refused before the server is asked anything. Then the server takes the team in with
 the Team Admin as its owner, the move is opened, the Supabase project records where the team went, and only then
 is `.brigade.json` rewritten. The server is not stopped, no ticket file changes hands, and the operator runs
 nothing ([Take in a team that exists](take-in-a-team.md#by-request-with-the-server-running),

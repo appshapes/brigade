@@ -5,8 +5,10 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -44,6 +46,42 @@ func (m *movingTeam) recordJSON() string {
 	return strings.TrimSpace(res.stdout)
 }
 
+// recorded is what the record on the backend the team leaves names, as
+// `team move --show --json` prints it, its date left out: a record that was
+// written again as it was names the same.
+func (m *movingTeam) recorded() string {
+	m.r.t.Helper()
+	record := jsonResult[protocol.TeamMoveResult](m.r.t, m.recordJSON())
+	if !record.Moved {
+		m.r.t.Fatalf("the backend the team leaves holds no record")
+	}
+	return record.Adapter + " " + record.URL + " " + record.Certificate
+}
+
+// stored is the record as the fs adapter keeps it, read from the store's
+// own file: every member of it but its date, the ticket among them, and its
+// date. Two readings whose members are equal are one record byte for byte,
+// whatever became of its date.
+func (m *movingTeam) stored() (members map[string]string, at time.Time) {
+	t := m.r.t
+	t.Helper()
+	text, err := os.ReadFile(filepath.Join(m.r.root, "teams", m.r.teamRef, "move.json"))
+	if err != nil {
+		t.Fatalf("the record in the fs adapter's store: %v", err)
+	}
+	if err := json.Unmarshal(text, &members); err != nil {
+		t.Fatalf("the record in the fs adapter's store is not an object of strings: %v", err)
+	}
+	if at, err = time.Parse(time.RFC3339Nano, members["recorded_at"]); err != nil {
+		t.Fatalf("the date of the record in the fs adapter's store: %v", err)
+	}
+	delete(members, "recorded_at")
+	if members["ticket"] == "" || members["url"] == "" {
+		t.Fatalf("the record in the fs adapter's store names no ticket or no address")
+	}
+	return members, at
+}
+
 // clears counts the `team move --clear` the old backend's adapter was run
 // with: the command's way to learn that the backend keeps records, which it
 // may use only where there is no record to lose.
@@ -62,15 +100,19 @@ func hostOf(backend restBackend) string {
 }
 
 // TestARecordThatExistsIsNotClearedByAMoveThroughTheRealBinary: the command
-// learns whether the backend the team leaves can keep a record by clearing
-// one that is not there. A record that is there is never cleared by that:
-// not by the same command run again once the move is recorded, and not by a
-// move to another server of a team that moved once before. Each of those
-// runs is stopped after its checks, at a take-in whose answer is lost, so
-// what is left of the record is what the checks left of it: the same
-// record, made at the same moment, with the same ticket. Then the second
-// move is let through, and replaces the record as the question said it
-// would.
+// learns whether its caller may record a move, and whether the backend the
+// team leaves keeps records at all, before it asks the server anything.
+// Where there is no record it clears one that is not there. A record that
+// is there is never cleared for that: it is recorded again as it is, which
+// only the team's creator is answered. So the same command run again once
+// the move is recorded, and a move to another server of a team that moved
+// once before, each stopped after its checks at a take-in whose answer is
+// lost, leave the record the first move made: the same destination and the
+// same ticket, byte for byte in the store's own file, under a later date.
+// A run whose check has nowhere to put the record's ticket stops with what
+// to do about it, asks the server nothing and leaves the record to its
+// date. Then the second move is let through, and replaces the record as
+// the question said it would.
 func TestARecordThatExistsIsNotClearedByAMoveThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
@@ -78,6 +120,28 @@ func TestARecordThatExistsIsNotClearedByAMoveThroughTheRealBinary(t *testing.T) 
 	m := newMovingTeam(t, r, r.fsAdapterAs(r.configDir))
 	first, server := startLossyFront(t, startRestBackend(t))
 	first.lose(false)
+	// same fails the test unless the record is the one kept: what `--show` names, the ticket a member's
+	// follow reads, and every member of the store's file but its date, which is later than after.
+	same := func(what string, names, ticket string, kept map[string]string, after time.Time) time.Time {
+		t.Helper()
+		if got := m.recorded(); got != names {
+			t.Fatalf("the record after %s names %s, want what the first move recorded: %s", what, got, names)
+		}
+		if held, _ := m.ticket(); held != ticket {
+			t.Fatalf("the record's ticket changed in %s", what)
+		}
+		members, at := m.stored()
+		if !maps.Equal(members, kept) {
+			t.Fatalf("the record in the store after %s is not the one the first move made, its date aside", what)
+		}
+		if !at.After(after) {
+			t.Fatalf("the record's date after %s is %s, want later than %s: the check records it again", what, at, after)
+		}
+		if got := m.clears(); got != 1 {
+			t.Fatalf("%s cleared the record: %d clears", what, got)
+		}
+		return at
+	}
 
 	// --- 1. the move: its checks found no record, and asked the one clear that finds that out ------------
 	res := m.move(m.terminal, "y\n", moveArgs(server, r.secretFile)...)
@@ -88,8 +152,9 @@ func TestARecordThatExistsIsNotClearedByAMoveThroughTheRealBinary(t *testing.T) 
 	if got := m.clears(); got != 1 {
 		t.Fatalf("the move's checks cleared %d times, want the one that finds a backend that keeps records", got)
 	}
-	recorded := m.recordJSON()
+	names := m.recorded()
 	ticket, _ := m.ticket()
+	kept, made := m.stored()
 
 	// --- 2. the same command again, stopped after its checks ---------------------------------------------
 	first.lose(true)
@@ -97,18 +162,36 @@ func TestARecordThatExistsIsNotClearedByAMoveThroughTheRealBinary(t *testing.T) 
 	if res.exit == 0 || !strings.Contains(res.stderr, "did not take the team in") {
 		t.Fatalf("the move run again, its take-in's answer lost: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
-	if got := m.clears(); got != 1 {
-		t.Fatalf("a run that found the record cleared it: %d clears", got)
-	}
-	if got := m.recordJSON(); got != recorded {
-		t.Fatalf("the record after a second run that stopped:\n%s\nwant the one the move made:\n%s", got, recorded)
-	}
-	if again, _ := m.ticket(); again != ticket {
-		t.Fatalf("the record's ticket changed in a run that recorded nothing")
-	}
+	again := same("a second run that stopped", names, ticket, kept, made)
 	m.movedFile(server)
 
-	// --- 3. a team that moved once before is moved to another server, and that run stops too -------------
+	// --- 3. the check has nowhere to put the record's ticket: it says so, and nobody is asked ------------
+	first.lose(false)
+	dir := filepath.Join(r.stateDir, "team-move")
+	if err := os.Remove(dir); err != nil {
+		t.Fatalf("the ticket's directory after two runs is not an empty directory: %v", err)
+	}
+	if err := os.WriteFile(dir, []byte("not a directory\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	asked, before := first.asked(), m.recordJSON()
+	res = m.move(m.terminal, "y\n", moveArgs(server, r.secretFile)...)
+	if res.exit == 0 || !strings.Contains(res.stderr, m.oldHost+" holds a record of a move already") ||
+		!strings.Contains(res.stderr, "a private file for its ticket, which could not be written") || !strings.Contains(res.stderr, dir) ||
+		!strings.Contains(res.stderr, "and run this again. Nothing was changed") || strings.Contains(res.stderr, "[y/N]") {
+		t.Fatalf("a run whose check cannot keep the record's ticket: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if got := first.asked(); got != asked {
+		t.Fatalf("a run that stopped in its checks asked the server %d requests", got-asked)
+	}
+	if got := m.recordJSON(); got != before {
+		t.Fatalf("a run that could not check the record changed it:\n%s\nwant:\n%s", got, before)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// --- 4. a team that moved once before is moved to another server, and that run stops too -------------
 	// The checkout is one that was kept at the commit before the move: its team file names the old backend.
 	//nolint:gosec // G306: a committed team file is 0644
 	if err := os.WriteFile(filepath.Join(r.checkout, teamfile.FileName), []byte(m.fileBefore), 0o644); err != nil {
@@ -120,20 +203,12 @@ func TestARecordThatExistsIsNotClearedByAMoveThroughTheRealBinary(t *testing.T) 
 		!strings.Contains(res.stderr, "This replaces the record "+m.oldHost+" holds of a move to "+hostOf(server)) {
 		t.Fatalf("a second move, its take-in's answer lost: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
-	if got := m.clears(); got != 1 {
-		t.Fatalf("a move to another server cleared the record of the first: %d clears", got)
-	}
-	if got := m.recordJSON(); got != recorded {
-		t.Fatalf("the record after a second move that stopped:\n%s\nwant the first move's:\n%s", got, recorded)
-	}
-	if again, _ := m.ticket(); again != ticket {
-		t.Fatalf("the first move's ticket changed in a run that recorded nothing")
-	}
+	same("a move to another server that stopped", names, ticket, kept, again)
 	if got := m.fileNow(); got != m.fileBefore {
 		t.Fatalf("a second move that stopped rewrote the team file:\n%s", got)
 	}
 
-	// --- 4. the second move, let through: the record is replaced, as the question said --------------------
+	// --- 5. the second move, let through: the record is replaced, as the question said --------------------
 	second.lose(false)
 	res = m.move(m.terminal, "y\n", moveArgs(other, r.secretFile)...)
 	if res.exit != 0 || !strings.Contains(res.stderr, "This replaces the record "+m.oldHost+" holds of a move to "+hostOf(server)) {
@@ -454,20 +529,21 @@ func TestAFinishedMoveRunAgainAndStoppedIsMendedByTheSameCommandThroughTheRealBi
 		t.Fatalf("the move: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
 	m.movedFile(backend)
-	recorded := m.recordJSON()
+	names := m.recorded()
 	first, _ := m.ticket()
 
 	// --- 1. run again, and the backend the team leaves does not take the record ---------------------------
-	m.withFsAdapter("--ticket-file", unreachable, func() {
+	// It takes the one the checks make, of the record that is there, and not the move's own after it.
+	m.withFsAdapterAfter(1, "--ticket-file", unreachable, func() {
 		res := m.move(m.terminal, "y\n", args...)
 		if res.exit == 0 || !strings.Contains(res.stderr, "its move is open, and "+m.oldHost+" did not record it; the record it holds from a run before this one hands out a ticket that this run replaced") ||
 			!strings.Contains(res.stderr, "Run the same command again to finish the move") {
 			t.Fatalf("a second run that was not recorded: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 		}
 	})
-	// The record is the first run's, word for word, with the ticket the second open replaced.
-	if got := m.recordJSON(); got != recorded {
-		t.Fatalf("the record after a second run that recorded nothing:\n%s\nwant:\n%s", got, recorded)
+	// The record names what the first run recorded, with the ticket the second open replaced.
+	if got := m.recorded(); got != names {
+		t.Fatalf("the record after a second run that recorded nothing names %s, want %s", got, names)
 	}
 	if stale, _ := m.ticket(); stale != first {
 		t.Fatalf("the record's ticket changed in a run that recorded nothing")
@@ -504,10 +580,9 @@ func TestAFinishedMoveRunAgainAndStoppedIsMendedByTheSameCommandThroughTheRealBi
 type tokenFront struct {
 	*front
 	mu sync.Mutex
-	// requests counts every request the front was asked; admitted the
-	// take-ins that carried the token; elsewhere the requests to another
-	// path that carried a creation token at all.
-	requests, admitted, elsewhere int
+	// admitted counts the take-ins that carried the token; elsewhere the
+	// requests to another path that carried a creation token at all.
+	admitted, elsewhere int
 }
 
 func startTokenFront(t *testing.T, backend restBackend, token string) (*tokenFront, restBackend) {
@@ -519,7 +594,6 @@ func startTokenFront(t *testing.T, backend restBackend, token string) (*tokenFro
 		presented := req.Header.Get(header)
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		f.requests++
 		if req.URL.Path != "/v1/team/take-in" {
 			if presented != "" {
 				f.elsewhere++
@@ -540,13 +614,6 @@ func (f *tokenFront) counts() (admitted, elsewhere int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.admitted, f.elsewhere
-}
-
-// asked is how many requests the front has been asked, of any kind.
-func (f *tokenFront) asked() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.requests
 }
 
 // TestATeamMovesToAServerThatAsksForACreationTokenThroughTheRealBinary: a
@@ -670,45 +737,52 @@ func TestATeamMovesToAServerThatAsksForACreationTokenThroughTheRealBinary(t *tes
 	m.noSecrets(ticket, r.secretFile, ticketRead, filepath.Join(r.root, "teams", r.teamRef, "move.json"))
 }
 
-// TestAMemberWhoDidNotCreateTheTeamIsRefusedBeforeAServerIsAskedThroughTheRealBinary:
-// a member who joined the team and did not create it holds what the command
-// asks for, a checkout that is joined and the team's secret file, and is
-// not its administrator. While the backend the team is on holds no record
-// of a move, the command's checks find that out there, where only the
-// team's creator is answered, and stop: from a terminal and from a session
-// of his alike, the server he named is asked nothing, his machine holds no
-// profile for it, and the checkout, both pins and the old backend are as
-// they were.
+// TestAMemberWhoDidNotCreateTheTeamIsRefusedBeforeAServerIsAskedThroughTheRealBinary
+// holds the sentence the option team_move_in_session is described with, in
+// the plugin's manifest and on the options page: "It changes nothing for a
+// team you did not create". A member who joined the team and did not create
+// it holds what the command asks for, a checkout that is joined and the
+// team's secret file, and is not its administrator. The command's checks
+// find that out on the backend the team is on, where only the team's
+// creator is answered, before the server he names is asked anything, and
+// with it before the join secret is sent anywhere. That holds while the
+// backend holds no record of a move, where the question is a clear of
+// nothing, and once the team has moved, where it is the record that is
+// there recorded again; from his terminal and from a session of his, where
+// nobody is asked. Each time the server was asked nothing, not what it
+// offers either, his machine holds no profile for it, and the checkout,
+// both pins and the old backend's record are as they were.
 func TestAMemberWhoDidNotCreateTheTeamIsRefusedBeforeAServerIsAskedThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
+	const promise = "It changes nothing for a team you did not create"
+	for _, page := range []string{"plugin/.claude-plugin/plugin.json", "docs/team-member/configure/options.md"} {
+		text, err := os.ReadFile(filepath.Join(testutil.RepoRoot(t), page))
+		if err != nil || !strings.Contains(string(text), promise) {
+			t.Fatalf("%s does not say %q (%v): this test is what holds those words", page, promise, err)
+		}
+	}
 	r := newRig(t)
 	r.createTeam()
 	m := newMovingTeam(t, r, r.fsAdapterAs(r.configDir))
-	var mu sync.Mutex
-	var asked []string
-	_, server := startFront(t, startRestBackend(t), func(req *http.Request, _ []byte) (int, string) {
-		mu.Lock()
-		defer mu.Unlock()
-		asked = append(asked, req.URL.Path)
-		return 0, ""
-	}, nil)
+	elsewhere, server := startFront(t, startRestBackend(t), nil, nil)
 	bobsPin := pinInBobsStore(m)
 	session := r.newSession("bob", bobName, "", "", "")
 	m.start(session)
 	if got := r.mustMap(session); got.TeamKey != m.oldKey {
 		t.Fatalf("the member's session before the move: %+v", got)
 	}
-	for where, env := range map[string][]string{"his terminal": r.terminalEnv(r.configDirB), "a session of his": r.restEnv(session)} {
+	from := map[string][]string{"his terminal": r.terminalEnv(r.configDirB), "a session of his": r.restEnv(session)}
+
+	// --- 1. no record of a move: the question is a clear of nothing ------------------------------------------
+	for where, env := range from {
 		res := m.move(env, "y\n", moveArgs(server, r.secretFile)...)
 		if res.exit == 0 || !strings.Contains(res.stderr, "only the member who created this team on "+m.oldHost+" can move it") ||
 			!strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stdout+res.stderr, "[y/N]") || strings.Contains(res.stdout, "Consented") {
 			t.Fatalf("a member's move from %s: exit %d\nstdout: %s\nstderr: %s", where, res.exit, res.stdout, res.stderr)
 		}
-		mu.Lock()
-		if len(asked) != 0 {
-			t.Fatalf("a member's move from %s asked the server %v", where, asked)
+		if asked := elsewhere.asked(); asked != 0 {
+			t.Fatalf("a member's move from %s asked the server %d requests", where, asked)
 		}
-		mu.Unlock()
 		m.unmoved("a member's move from " + where)
 		if pin := m.pinOf(r.configDirB); pin != bobsPin {
 			t.Fatalf("a member's move from %s rewrote his pin: %+v", where, pin)
@@ -720,5 +794,23 @@ func TestAMemberWhoDidNotCreateTheTeamIsRefusedBeforeAServerIsAskedThroughTheRea
 			}
 		}
 	}
+
+	// --- 2. the team has moved: the question is the record that is there, recorded again --------------------
+	// The administrator moves the team to her server. His checkout has not pulled the new file.
+	hers := startRestBackend(t)
+	if res := m.move(m.terminal, "y\n", moveArgs(hers, r.secretFile)...); res.exit != 0 {
+		t.Fatalf("the administrator's move: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	m.movedFile(hers)
+	ticket, ticketRead := m.ticket()
+	for _, env := range from {
+		m.memberCannotMove(env, ticket)
+	}
+	if asked := elsewhere.asked(); asked != 0 {
+		t.Fatalf("the server the member named first was asked %d requests", asked)
+	}
+	// Her move is as she left it: the file, her pin, her membership and the record that names them.
+	m.movedFile(hers)
 	r.restHook(session, "session-end", session.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+	m.noSecrets(ticket, r.secretFile, ticketRead, filepath.Join(r.root, "teams", r.teamRef, "move.json"))
 }

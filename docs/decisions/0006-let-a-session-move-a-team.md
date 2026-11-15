@@ -50,18 +50,23 @@ Three facts, read on 2026-11-14:
    consent.
 4. **One command moves a team**: `brigade team move --to <server URL> --secret-file <path>`, with `--certificate`,
    `--create-token-file` and `--ticket-days` for a server that needs them, run in a checkout of the team. In
-   order it checks, changing nothing; takes the team in on the server, where the caller must come out as its
-   owner; opens the move, with the ticket in a private file under Brigade's state directory; records the move on
-   the backend the team leaves; and only then rewrites `.brigade.json`, the binding and the checkout's pin. It
-   then says what was done and what is left. Every step is safe to repeat, so the same command finishes a move
-   that stopped.
-5. **The destination of that command is typed**, once, and that one value is written to the record and to the
+   order it checks; takes the team in on the server, where the caller must come out as its owner; opens the
+   move, with the ticket in a private file under Brigade's state directory; records the move on the backend the
+   team leaves; and only then rewrites `.brigade.json`, the binding and the checkout's pin. It then says what
+   was done and what is left. Every step is safe to repeat, so the same command finishes a move that stopped.
+5. **Whether the caller created the team is asked before the server is asked anything**, because the server's
+   first request carries the join secret. The backend the team leaves answers that question only to the team's
+   creator, and only for a write. Where it holds no record of a move, the command clears one, which changes
+   nothing. Where it holds a record, the command records that record again as it is: the ticket it holds, read
+   into the private file and handed back, and the destination it names. Its date moves and nothing else does.
+   The checks ask the server nothing, and change nothing but that date.
+6. **The destination of that command is typed**, once, and that one value is written to the record and to the
    team file, so the two cannot differ. `brigade team move --ticket-file` still reads the destination from the
    team file, for a server that takes no team in by request.
-6. **The label is the member's.** The server is told the label this member has on the backend the team leaves, as
+7. **The label is the member's.** The server is told the label this member has on the backend the team leaves, as
    a session that follows tells it, and never one read from the Claude profile of the terminal the command runs
    in.
-7. **A skill, `move`,** in every package asks the administrator for what the command needs, one question at a
+8. **A skill, `move`,** in every package asks the administrator for what the command needs, one question at a
    time: the server's URL, the path of the join secret's file, and the creation token's file and the
    certificate's fingerprint when the server needs them. It never asks for a secret's content, never chooses a
    path and never writes a secret file. It moves a team only on its user's own ask in the conversation, and is
@@ -97,6 +102,17 @@ Three facts, read on 2026-11-14:
   vouches for, which every member's session reports as a file that does not match. The file is written last.
 - **Send the label a join sends**: the `label` option, or the terminal profile's account. It is work item 326's
   mistake. A member of the team is the same member on the server.
+- **Leave the creator question to the record, where a record is already there.** It was built so first: a
+  record that was there showed that the backend keeps records, and whether the caller may replace it was left
+  to the step that records. By then the server had been sent the join secret and had taken the team in, with a
+  member who did not create the team as its owner (measured on 2026-11-14, from a terminal and from a session).
+  The option's own description, "It changes nothing for a team you did not create", did not hold.
+- **A member of `team moved`'s answer that says whether the caller may record.** It would ask without writing.
+  It is a change to the frozen protocol and to the Supabase migration, for a question the write already answers.
+- **Keep the ticket a record holds when the command is run again**, and open no new move. It would leave a state
+  no later run can mend: a ticket the server replaced, in an answer that was lost, with nothing on this machine
+  to show for it. The contract has no request that says whether a ticket is still the current one. Every run
+  opens the move again and records it, which is what makes every run end the same.
 - **Ask the server whether it takes a team in before asking the administrator.** The bundled adapter has no
   command that asks it and changes nothing, and a new one is a change to the frozen protocol. The adapter asks
   the server as the first thing its take-in does, before the request, so a server that does not is found before
@@ -141,6 +157,17 @@ no hosted project was asked.
   secret file's path inside the checkout that names no file, the roster read without its offline sessions, and
   what the command says when the ticket has nowhere to go. The one that is not caught drops a comparison that
   cannot differ: the rewritten team file is parsed again, and a URL it could not carry fails that parse first.
+- The creator question (decision 5), through the built `brigade`. A member who did not create the team, with
+  a record on the old backend and without one, from his terminal and from a session of his, is refused in the
+  same words, and the server he named was asked no request at all
+  (`TestAMemberWhoDidNotCreateTheTeamIsRefusedBeforeAServerIsAskedThroughTheRealBinary`, on the fs adapter; the
+  same refusal with a record on the local Supabase stack, in `make test-move-live`). Before that check, with a
+  record there, that server was asked to take the team in and to open its move, and the member owned the team
+  on it. For the creator, a second run and a move to another server leave the record's destination and its
+  ticket byte for byte in the fs adapter's own file, under a later date
+  (`TestARecordThatExistsIsNotClearedByAMoveThroughTheRealBinary`). 18 one-line changes to the check and to
+  what was added beside it are each caught by a test; of the 16 that were tried before those tests were
+  written, 11 passed.
 - The acceptance gate and the four package checks pass.
 - Not measured: a move of a real team from a hosted project by the one command, and a session of a real model
   running the `move` skill. Both wait on the owner's word.
@@ -167,6 +194,10 @@ no hosted project was asked.
 - One more option to keep the same in four packages, and one more member in the start facts.
 - `brigade team move` has two ways to say where a team went: typed, for `--to`, and read from the team file, for
   `--ticket-file`. A change to either is a change to what `docs/security.md` section 21 argues.
+- The creator question writes where a record is there: the record gets a new date before the administrator is
+  asked. A record its creator cleared on another machine, after this command read its ticket and before it
+  wrote the record again, is put back; one cleared before that read stops the command, which says to run it
+  again. Only the team's creator can make either.
 - Each run of the one command opens the move again, and a second open replaces the ticket. A move that is
   finished and run again, when that run stops between its open and its record, leaves the old backend handing
   out a ticket that admits nobody: a member who has not followed yet does not follow until the command is run

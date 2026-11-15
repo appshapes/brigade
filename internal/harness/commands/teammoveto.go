@@ -35,7 +35,7 @@ import (
 // The order is the design's, and each step is one a second run repeats
 // without harm:
 //
-//	a. check, changing nothing (checkMove)
+//	a. check, changing nothing but the date of a record that is there (checkMove)
 //	b. take the team in on the server, as its owner (takeIn)
 //	c. open the move; the ticket goes to a private file (openMove)
 //	d. record the move on the backend the team leaves (recordMoveTo)
@@ -93,6 +93,11 @@ const (
 	// reasonTeamFileUnwritable: the team file as it is cannot be rewritten
 	// to name the server.
 	reasonTeamFileUnwritable = "team_file_unwritable"
+	// reasonTicketFileUnwritable is the adapters' own word (4.4.10) for a
+	// ticket file that cannot be written, and reasonRecordChanged this
+	// command's for a record that was cleared while it was being checked.
+	reasonTicketFileUnwritable = "ticket_file_unwritable"
+	reasonRecordChanged        = "record_changed"
 )
 
 // An olderSession is one session of the team that runs a plugin too old to
@@ -215,8 +220,13 @@ func (inv Invocation) moveTo(flags moveFlags) error {
 // secret's file, then asks the backend the team leaves three things with
 // the session this machine holds there: whether it can keep a record,
 // whether this member may write it, and which sessions will not follow.
-// The server is asked nothing here: whether it takes a team in is the
-// first thing its adapter asks it in step b, before the request that does.
+// One thing the second question changes: a record that is there already is
+// recorded again as it is, which moves its date and nothing else
+// (recordAgain). The server is asked nothing here, not what it offers
+// either: both adapters' describes are answered from local files, the old
+// backend's questions come last of the checks, and whether the server
+// takes a team in is the first thing its adapter asks it in step b, before
+// the request that does.
 func (inv Invocation) checkMove(flags moveFlags) (*serverMove, error) {
 	to, err := moveServerURL(flags.to)
 	if err != nil {
@@ -537,15 +547,20 @@ func requireTakeIn(t *target) error {
 // checkOldBackend asks the backend the team leaves what a move needs of
 // it, with the session this machine holds there.
 //
-// Whether it can keep a record, and whether this member may write it,
-// are asked together and by a command that changes nothing: the record is
-// read, and where there is none, it is cleared. Clearing no record is a
-// no-op by the protocol's own rule (4.4.10), and it is answered only to
-// the team's creator and only by a backend that keeps records: a Supabase
-// project without the team-move migration reads "no move" to every member
-// and refuses the clear by naming the migration. Where a record is there
-// already, the backend keeps records, and whether this member may replace
-// it is answered by step d.
+// Whether it can keep a record, and whether this member may write it, are
+// asked together, before the server is asked anything: the server's first
+// request carries the team's join secret, and a member who did not create
+// the team must be refused before it is sent. How it is asked depends on
+// whether a record is there.
+//
+// Where there is none, it is cleared. Clearing no record is a no-op by the
+// protocol's own rule (4.4.10), and it is answered only to the team's
+// creator and only by a backend that keeps records: a Supabase project
+// without the team-move migration reads "no move" to every member and
+// refuses the clear by naming the migration.
+//
+// Where a record is there, the backend keeps records, and clearing it is no
+// way to ask: the record is recorded again, as it is (recordAgain).
 //
 // Then the roster: the sessions that are online on a plugin older than the
 // first that follows a recorded move. Their members join the server
@@ -556,15 +571,19 @@ func (inv Invocation) checkOldBackend(m *serverMove) error {
 	if err != nil {
 		return err
 	}
-	switch {
-	case !record.Moved:
+	if !record.Moved {
 		if _, err := inv.callMove(m.from, "move", []string{"--clear"}, nil); err != nil {
 			return m.cannotRecord(err)
 		}
-	case record.Adapter != m.dest.Adapter || record.URL != m.dest.URL || record.Certificate != m.dest.Certificate:
-		m.replaces = record
-	default:
-		m.recorded = true
+	} else {
+		if record, err = inv.recordAgain(m); err != nil {
+			return err
+		}
+		if record.Adapter != m.dest.Adapter || record.URL != m.dest.URL || record.Certificate != m.dest.Certificate {
+			m.replaces = record
+		} else {
+			m.recorded = true
+		}
 	}
 	list, err := call(func(ctx context.Context) (*adapterclient.ListResult, error) {
 		return m.from.client.ListSessions(ctx, false)
@@ -586,9 +605,104 @@ func (inv Invocation) checkOldBackend(m *serverMove) error {
 	return nil
 }
 
-// cannotRecord turns the two refusals of the probe in checkOldBackend into
-// what they mean for a move, each with what to do. Any other error is the
-// backend's own and is returned as it is.
+// recordAgain asks, where the backend the team leaves holds a record of a
+// move already, whether this member may write it: it records again the
+// record that is there, and answers that record. The record's ticket is
+// read into the private file step c uses, by the command every active
+// member is answered, and is handed back with the destination the record
+// names by the command only the team's creator is answered. The creator's
+// record keeps its destination and its ticket, and gets a new date. Anyone
+// else is refused here as where there is no record, with nothing changed,
+// and before the server is asked anything (ADR 0006): until this check a
+// record that was there left the question to step d, by which time the
+// server had been sent the join secret and had taken the team in.
+//
+// The ticket goes from its file to the old backend's adapter by the file's
+// path, and is in no argument, no line and no result. The file is removed
+// when the check ends, whatever its outcome.
+//
+// The record that is written again is the one whose ticket was read. A
+// record that is gone by then was cleared while this command looked at it:
+// the command stops and says to run it again, and does not put back a
+// record its administrator has just cleared. What it cannot see is a clear
+// made after the ticket was read and before the record is written again,
+// which that write undoes; only the team's creator can make either.
+func (inv Invocation) recordAgain(m *serverMove) (*protocol.TeamMoveResult, error) {
+	file, err := m.ticketFile()
+	if err != nil {
+		return nil, m.noTicketFile()
+	}
+	defer func() { _ = os.Remove(file) }()
+	held, err := inv.callMove(m.from, "moved", []string{"--ticket-file", file}, nil)
+	if err != nil {
+		var perr *protocol.Error
+		if errors.As(err, &perr) && perr.Details["reason"] == reasonTicketFileUnwritable {
+			return nil, m.noTicketFile()
+		}
+		return nil, err
+	}
+	if !held.Moved {
+		return nil, &protocol.Error{
+			Code: protocol.CodeConflict,
+			Message: "the record of a move that " + m.fromHost() + " held was cleared while this command was checking it. " +
+				"Run the same command again: it then moves a team that has no record. Nothing was changed",
+			Details: map[string]string{"reason": reasonRecordChanged},
+		}
+	}
+	if held.TicketFile != file {
+		return nil, protocolMismatch("team moved answered a ticket file other than the one it was given")
+	}
+	// What the file holds is looked at as step c looks at the server's: a
+	// ticket of this team. An adapter that wrote nothing, or something
+	// else, is found here, before the record is touched.
+	ticket, err := adapterkit.ReadTicketFile(file)
+	if err != nil {
+		return nil, m.noRecordTicket(err)
+	}
+	if err := adapterkit.CheckMoveTicket(ticket, m.file.TeamRef); err != nil {
+		return nil, m.noRecordTicket(err)
+	}
+	again, err := inv.callMove(m.from, "move", []string{"--ticket-file", file},
+		&protocol.TeamMoveRequest{Adapter: held.Adapter, URL: held.URL, Certificate: held.Certificate})
+	if err != nil {
+		return nil, m.cannotRecord(err)
+	}
+	if !again.Moved || again.Adapter != held.Adapter || again.URL != held.URL || again.Certificate != held.Certificate {
+		return nil, protocolMismatch("team move answered a record other than the one it was given")
+	}
+	return held, nil
+}
+
+// noRecordTicket says, in front of what was wrong with the file, that the
+// old backend's adapter did not hand over the ticket of the record it
+// holds, and that nothing was changed. The text of the file is in no part
+// of it.
+func (m *serverMove) noRecordTicket(err error) error {
+	var perr *protocol.Error
+	if !errors.As(err, &perr) {
+		return err
+	}
+	out := *perr
+	out.Message = m.fromHost() + " holds a record of a move already, and its adapter did not hand over that record's ticket: " + perr.Message + ". Nothing was changed"
+	return &out
+}
+
+// noTicketFile refuses a move whose check needs the ticket's file and
+// cannot have it: the directory under Brigade's state directory is not
+// one, or takes no file.
+func (m *serverMove) noTicketFile() *protocol.Error {
+	return &protocol.Error{
+		Code: protocol.CodeConfig,
+		Message: m.fromHost() + " holds a record of a move already, and checking that you may replace it needs a private file for its ticket, which could not be written: " +
+			"make " + pathLine(filepath.Join(m.to.stateDir, moveTicketDir)) + " a directory that you can write, or remove what stands in its place, and run this again. Nothing was changed",
+		Details: map[string]string{"reason": reasonTicketFileUnwritable},
+	}
+}
+
+// cannotRecord turns the two refusals of the creator question, the clear
+// of no record and the record written again alike, into what they mean for
+// a move, each with what to do. Any other error is the backend's own and is
+// returned as it is.
 func (m *serverMove) cannotRecord(err error) error {
 	var perr *protocol.Error
 	if !errors.As(err, &perr) {

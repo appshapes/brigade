@@ -56,8 +56,9 @@ brigade team move --to "<url>" --secret-file "<path>" [--certificate "<sha256:â€
 ```
 
 Nothing else, and no second try with other values. The command checks first and changes nothing
-until its checks pass. Then the server takes the team in with the user as its owner, under the label they have on
-the old backend; the move is opened; the backend the team leaves records where it went; and only then
+until its checks pass, but for the date of a record of a move the old backend already holds, which it records
+again as it is. Then the server takes the team in with the user as its owner, under the label they have on the
+old backend; the move is opened; the backend the team leaves records where it went; and only then
 `.brigade.json` is rewritten. Inside a session nobody can be asked, so the command prints what it is about to do
 and proceeds: running it is the consent, and the user asked you to.
 

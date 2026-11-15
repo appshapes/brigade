@@ -1478,8 +1478,10 @@ the session connects to nothing, says that the file does not match, and `team jo
   is neither `on` nor `off` is read as off, and the session says so. What this costs, stated plainly: whatever
   steers the administrator's session, a teammate's message or a file or a page the session read, can send every
   member's sessions, and the join secret, to a server of its choosing. What still stands in its way is four
-  things. Only the team's creator on the old backend can record a move there. The command needs the path of the
-  join secret's file, which is outside the repository and which the skill is told and never chooses. The
+  things. Only the team's creator on the old backend can record a move there, and the command asks that
+  before the server it was given is asked anything, whether or not a record is there already: the join secret
+  of a team its caller did not create is sent nowhere. The command needs the path of the join secret's file,
+  which is outside the repository and which the skill is told and never chooses. The
   harness's own permission prompt asks before the command runs, in a mode that asks and where nothing has
   allowed `brigade` commands already. The `move` skill allows nothing that writes, and tells the model to move
   a team only on its user's own ask, which is an instruction to a model and no boundary. But the team-messaging
