@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -84,6 +85,30 @@ func (f *fixture) timed() ([]string, time.Duration) {
 	began := time.Now()
 	got := f.prompted()
 	return got, time.Since(began)
+}
+
+// A hookEnd is how one run of a hook ended.
+type hookEnd struct {
+	exit        int
+	out, errOut string
+}
+
+// promptBeside runs one prompt of the fixture's session beside the test, on
+// a goroutine of hooks, and returns the channel its end comes on. A prompt
+// that may wait is run so: the test can then say at its own hang catcher
+// that the prompt is not back, where a prompt run on the test's goroutine
+// says it only once the hook has given up. The caller waits for hooks in a
+// cleanup, registered before the cleanup that lets go of what the hook may
+// wait on (cleanups run last in, first out): the hook is let go, ends, and
+// only then do its fixture's directories go, as detachedFollows has it for
+// a follow child.
+func (f *fixture) promptBeside(hooks *sync.WaitGroup) <-chan hookEnd {
+	done := make(chan hookEnd, 1)
+	hooks.Go(func() {
+		exit, out, errOut := f.run(SubPrompt, f.promptDoc("default"))
+		done <- hookEnd{exit, out, errOut}
+	})
+	return done
 }
 
 // TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs: the backend the checkout
@@ -196,19 +221,33 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 // to wait for that lock: not the prompt that starts the child, and not,
 // with the pin written, the prompt that moves the session and registers it.
 //
-// It is held twice over. With the lock held, as a follow of this machine
-// that waits on its backend holds it: the test takes the lock, each of the
-// two prompts is back while the test still has it, and only then does the
-// test let it go (for the child's own follow, between the two, which needs
-// it). A lock has no list of who waits for it, so a wait shows only on a
-// clock: each prompt has a budget of five minutes and is back in a third
-// of it, as in TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs, and a
-// hook that waits for a lock it cannot have takes the whole of what it
-// may. And with the lock free, where a wait would be no wait at all:
+// There are two cases, and each holds a different thing.
+//
+// With the lock free, any ask for it is seen, whatever it would have waited:
 // whoever asks for the lock opens its file, and makes the file where there
-// is none (adapterkit.LockFile), and after each of the two prompts there
-// is none. The child's own follow is the control of that: it takes the
-// lock, and its file is there.
+// is none (adapterkit.LockFile), and after each of the two prompts there is
+// none. The child's own follow is the control: it takes the lock, and its
+// file is there. This is the case that fails a hook that asks for the lock
+// at all.
+//
+// With the lock held, as a follow of this machine that waits on its backend
+// holds it, the test takes the lock, each of the two prompts is back while
+// the test still has it, and only then does the test let it go (for the
+// child's own follow, between the two, which needs it). A lock has no list
+// of who waits for it, so with the lock held a wait shows only on a clock,
+// and the clock of this case is a hang catcher: each prompt has a budget of
+// five minutes and is back in a third of it. That catches a wait with no
+// bound of its own, which lasts as long as the hook's budget lets it. It
+// does not catch a wait under the bound every wait for this lock has in the
+// tree today, ten seconds (teammove.lockTimeout): a hook that asked for the
+// held lock and gave up after those ten seconds is back in good time, and
+// passes this case while it fails the other. No clock that would tell ten
+// seconds of waiting from none can be put here: a prompt that waits on
+// nothing took 23 s on a starved core
+// (TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs). Each prompt runs
+// beside the test, so one that is not back fails the test at that third,
+// and not when the hook at last gives up; the lock is let go when the test
+// ends, the hook ends with it, and the test waits for the hook.
 //
 // The test used to hold the lock and time each prompt against 2 s, half its
 // budget, which is how long a follow made in the hook would have waited for
@@ -216,7 +255,8 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 // machine: its stamps are files synced to disk, 0.25 s in one run and 2.8 s
 // in another (2026-11-14). Work item 336 first took the held lock out with
 // the 2 s, and left the file alone to say that nobody asked; a review put
-// the lock back, under a budget no busy machine reaches.
+// the lock back, under a budget no busy machine reaches; and a second
+// review found what the held case does not see, which is said above.
 func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 	t.Parallel()
 	const budget, within = promptLong, promptLong / 3
@@ -239,6 +279,11 @@ func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 			if exists(lockPath) {
 				t.Fatal("the lock's file is there before any follow: the test would hold nothing")
 			}
+			// The prompts run beside the test and are waited for when it
+			// ends. Registered before any hold of the lock, this runs after
+			// the lock has been let go.
+			var hooks sync.WaitGroup
+			t.Cleanup(hooks.Wait)
 			// hold takes the follow's lock, where the case has it held, and
 			// returns what lets it go: called once the prompt is back, it
 			// fails the test unless the lock was the test's until then.
@@ -271,9 +316,25 @@ func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 				}
 			}
 
+			// back runs one prompt, which has a third of its budget to be
+			// back in, and returns the lines it said.
+			back := func(who string) []string {
+				t.Helper()
+				select {
+				case got := <-f.promptBeside(&hooks):
+					if got.exit != 0 || strings.Contains(got.out+got.errOut, moveTicket) || strings.Contains(got.out, movedLabel) {
+						t.Fatalf("%s: exit %d, or the move's ticket or the member's label on one of its streams\n%s", who, got.exit, got.errOut)
+					}
+					return lines(got.out)
+				case <-time.After(within):
+					t.Fatalf("waited %v, a third of its budget of %v, for %s to be back, which it was not (the case: %s)", within, budget, who, tc.name)
+					return nil
+				}
+			}
+
 			letGo := hold()
-			if got, took := f.timed(); !slices.Equal(got, []string{movedLine}) || len(f.spawner.followed()) != 1 || took >= within {
-				t.Fatalf("the prompt that started the follow: lines %q in %v (want under %v of its %v), %d follows", got, took, within, budget, len(f.spawner.followed()))
+			if got := back("the prompt that started the follow"); !slices.Equal(got, []string{movedLine}) || len(f.spawner.followed()) != 1 {
+				t.Fatalf("the prompt that started the follow: lines %q, %d follows", got, len(f.spawner.followed()))
 			}
 			letGo()
 			unasked("the prompt that started the follow")
@@ -288,8 +349,8 @@ func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 				}
 			}
 			letGo = hold()
-			if got, took := f.timed(); len(got) != 2 || took >= within {
-				t.Fatalf("the prompt that moved the session: lines %q in %v (want under %v of its %v)", got, took, within, budget)
+			if got := back("the prompt that moved the session"); len(got) != 2 {
+				t.Fatalf("the prompt that moved the session: lines %q, want two", got)
 			}
 			if m := f.mustMap(); m.TeamKey != teamstore.Key("rest", movedURL, "team-1") || m.BrigadeSessionID != "brigade-sess-2" {
 				t.Fatalf("the map: %+v", m)
