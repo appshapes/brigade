@@ -71,10 +71,10 @@ same in every case and names no cause, because the file is not to be trusted unt
   file names, or the backend the file names did not take the move's ticket because the move has ended: its
   ticket ran out, or the move was closed. Ask your administrator before you join anything. A team file that
   changed with no record behind it is exactly what this check is for.
-- **The backend you joined did not answer.** It is the only backend a session asks whether the team moved, so
-  the session learned nothing, and it says of a backend that is only out of reach what it says of a file
-  nobody vouched for. The next session asks again, and this one at its next prompts. If that backend is gone
-  for good, ask your administrator and join the team where it is with the secret file.
+- **The backend you joined did not answer**, or said to wait. It is the only backend a session asks whether
+  the team moved, so the session learned nothing, and it says of a backend that is only out of reach what it
+  says of a file nobody vouched for. The next session asks again, and this one at its next prompts. If that
+  backend is gone for good, ask your administrator and join the team where it is with the secret file.
 - **The backend you joined no longer counts you a member**: you left the team on it, or were revoked there.
   That is its answer, and waiting mends nothing: no session of yours follows from that backend again. Ask
   your administrator, and join the team where it is with the secret file,
@@ -124,13 +124,13 @@ the command that joins. No session presents the ticket again for fifteen minutes
 asks once more.
 
 **If the session says that the backend the team moved to did not answer.** The move is recorded and the file is
-the right one; the new backend could not be reached, or did not answer in time, when the session asked it
-about the membership your machine holds there or, where it holds none, joined it with the move's ticket.
-Your checkout stays joined where it was, and nothing is yours to do: the next session follows when it starts,
-and this one at one of its next prompts. Until then a prompt says the same. Where a join was sent, two things
-may have changed all the same: Brigade's files hold a directory for that backend from then on, and the backend
-may have carried the join out though its answer never arrived. The next session joins again; where the first
-join was carried out, your machine is then on that backend's roster twice.
+the right one; the new backend could not be reached, did not answer in time, or said to wait, when the session
+asked it about the membership your machine holds there or, where it holds none, joined it with the move's
+ticket. Your checkout stays joined where it was, and nothing is yours to do: the next session follows when it
+starts, and this one at one of its next prompts. Until then a prompt says the same. Where a join was sent, two
+things may have changed all the same: Brigade's files hold a directory for that backend from then on, and the
+backend may have carried the join out though its answer never arrived. The next session joins again; where
+the first join was carried out, your machine is then on that backend's roster twice.
 
 **If the session says that the backend refuses the membership this machine holds there.** The move is recorded
 and the file is the right one, and the backend the team moved to answered: it does not know the credential your

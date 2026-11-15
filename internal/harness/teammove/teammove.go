@@ -131,8 +131,9 @@ const (
 	ReasonNoCapability      = "no_capability"
 	// ReasonOldBackendFailed: the backend the member joined did not answer
 	// the one question a follow asks of it, whether the team moved: it could
-	// not be reached, or did not answer in time. The follow learned nothing,
-	// of that backend or of the one the team file names.
+	// not be reached, did not answer in time, or said to wait (unanswered).
+	// The follow learned nothing, of that backend or of the one the team
+	// file names.
 	ReasonOldBackendFailed = "old_backend_failed"
 	// ReasonOldBackendRefused: the backend the member joined answered that
 	// question, and its answer is no record: a refusal, above all that the
@@ -152,8 +153,9 @@ const (
 	// what a follow asks of it: the question asked with the membership this
 	// machine holds there, or the join made with the move's ticket, which is
 	// the first thing asked of a backend the machine was never a member of.
-	// It could not be reached, or did not answer in time. Nothing is pinned
-	// and no refusal is put on record, and the next follow asks again.
+	// It could not be reached, did not answer in time, or said to wait
+	// (unanswered). Nothing is pinned and no refusal is put on record, and
+	// the next follow asks again.
 	ReasonNewBackendFailed = "new_backend_failed"
 	// ReasonNewBackendRefused: the backend the team file names answered that
 	// question, and its answer is a refusal other than that the caller is no
@@ -772,17 +774,24 @@ func unauthorized(err error) bool {
 	return errors.As(err, &perr) && perr.Code == protocol.CodeUnauthorized
 }
 
-// unanswered reports whether a question to a backend failed because the
-// backend did not answer it: `unavailable`, which is a backend that could
-// not be reached, one that failed and an adapter that did not finish within
-// its deadline, and a deadline of the caller's own that ran out. Any other
-// failure is an answer: the backend, or its adapter, said no.
+// unanswered reports whether a question to a backend failed without an
+// answer about the member or the team: a deadline of the caller's own that
+// ran out, and every failure the protocol's own table calls retryable
+// (protocol.Code.Retryable, 4.6), which is the one list of them. That is
+// `unavailable`, a backend that could not be reached, one that failed and
+// an adapter that did not finish within its deadline; and `rate_limited`,
+// a backend that takes no more requests just now and says how long to
+// wait. Until the table was asked, only the first of the two counted, and a
+// backend that said to wait was taken for one that had refused the member
+// (work item 341). Any other failure is an answer: the backend, or its
+// adapter, said no, and so did whatever stands in front of it and answered
+// with something that is no envelope.
 func unanswered(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
 	var perr *protocol.Error
-	return errors.As(err, &perr) && perr.Code == protocol.CodeUnavailable
+	return errors.As(err, &perr) && perr.Code.Retryable()
 }
 
 // oldBackendReason is the reason of a follow whose question to the backend

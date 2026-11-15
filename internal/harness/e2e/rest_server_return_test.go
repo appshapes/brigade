@@ -2130,3 +2130,91 @@ func TestTheOlderFormDoesNotTellAMemberWhoCannotRecordToRunItAgainThroughTheReal
 		t.Fatalf("the records after it: A %+v, B %+v", onA, onB)
 	}
 }
+
+// slowDown is a server's answer that it takes no more requests just now,
+// with how long to wait, as a front gives it in the server's place.
+const slowDown = `{"ok":false,"protocol_version":"` + protocol.ProtocolVersion + `","error":{"code":"rate_limited","message":"slow down","retryable":true,"retry_after_ms":1000}}`
+
+// TestAServerThatSaysToWaitIsNotToldAsOneThatRefusesThroughTheRealBinary:
+// a server answers `rate_limited`, with how long to wait, to what a follow
+// asks of it. That says nothing about the member: the protocol's own table
+// calls it retryable. Until this it counted as a refusal at each of the
+// three places a follow asks a server anything, and each told the member
+// to join: a join so answered said that `.brigade.json` does not match the
+// team; the server the team moved to was told as one that refuses the
+// membership; and the server the member joined took back what an earlier
+// follow had left, with the same line as the first. Each is told as a
+// server that did not answer, and nothing is joined, pinned or put on
+// record.
+//
+//  1. A member who never was on the server the team moved to: its join is
+//     answered with a wait.
+//  2. A member who holds a membership there: its question is answered with
+//     a wait, and the start leaves that for the checkout's prompts.
+//  3. Over that, the server the member joined answers its question with a
+//     wait: the start says what was left, and leaves it as it was.
+//  4. Both answer: the next start follows.
+func TestAServerThatSaysToWaitIsNotToldAsOneThatRefusesThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	var waitOnA, waitOnB atomic.Value
+	waitOnA.Store("")
+	waitOnB.Store("")
+	limited := func(path *atomic.Value) func(*http.Request, []byte) (int, string) {
+		return func(req *http.Request, _ []byte) (int, string) {
+			if req.URL.Path == path.Load().(string) {
+				return http.StatusTooManyRequests, slowDown
+			}
+			return 0, ""
+		}
+	}
+	_, a := startFront(t, startRestBackend(t), limited(&waitOnA), nil)
+	_, b := startFront(t, startRestBackend(t), limited(&waitOnB), nil)
+	r := teamOnAServer(t, a)
+	second, canon := r.anotherCheckout(r.configDirB, "checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	waits := func(when string, res result, key, reason string) {
+		t.Helper()
+		if key != "" || !strings.Contains(res.stdout, "did not answer") || strings.Contains(res.stdout, "does not match") || strings.Contains(res.stdout, "refuses the membership") ||
+			strings.Contains(res.stdout, "brigade team join") || !strings.Contains(res.stderr, `"reason":"`+reason+`"`) {
+			t.Fatalf("%s: attached to %q, want the line of a server that did not answer and the reason %s\nstdout %q\nstderr %s", when, key, reason, res.stdout, res.stderr)
+		}
+		if _, err := os.Stat(r.refusalOf(r.configDirB, b)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s: a refusal is on record: %v", when, err)
+		}
+	}
+
+	// --- 1. the join of a member who never was on the server the team moved to --------------------------------
+	waitOnB.Store("/v1/team/join")
+	res, key := r.bobStarts()
+	waits("a start whose join is answered with a wait", res, key, "new_backend_failed")
+	waitOnB.Store("")
+	if res, key := r.bobStarts(); key != r.keyAt(b) || !strings.Contains(res.stdout, "with the move's ticket") {
+		t.Fatalf("the start after the server took the join: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+
+	// --- 2. the question to the server the team moved to, of a member who holds a membership there -------------
+	waitOnB.Store("/v1/team/moved")
+	res, key = r.startsIn("bob", bobName, second)
+	waits("a start whose question to the server the team moved to is answered with a wait", res, key, "new_backend_failed")
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	left, err := os.ReadFile(mark) //nolint:gosec // G304: a file under the test's own state directory
+	if err != nil {
+		t.Fatalf("that start left nothing for the checkout's prompts: %v", err)
+	}
+	waitOnB.Store("")
+
+	// --- 3. over that, the question to the server the member joined --------------------------------------------
+	waitOnA.Store("/v1/team/moved")
+	res, key = r.startsIn("bob", bobName, second)
+	waits("a start whose question to the server he joined is answered with a wait", res, key, "old_backend_failed")
+	if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // G304: as above
+		t.Fatalf("what the earlier follow left is %q, %v; it was %q", now, err, left)
+	}
+	waitOnA.Store("")
+
+	// --- 4. both answer -------------------------------------------------------------------------------------------
+	if res, key := r.startsIn("bob", bobName, second); key != r.keyAt(b) || !strings.Contains(res.stdout, "followed team") {
+		t.Fatalf("the start after both answered: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+}

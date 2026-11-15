@@ -205,6 +205,11 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			need:  []string{"A join that was not answered is no refusal", "while it cannot ask at all", "where none left anything"},
 		},
 		{
+			why:   "a backend that says to wait has said nothing about the member: it is told as one that did not answer, where the question to the backend the member joined took back what an earlier follow left and the member was told to join",
+			files: []string{"docs/team-member/join/follow-a-move.md", "CHANGELOG.md"},
+			need:  []string{"to wait"},
+		},
+		{
 			why:   "a join that was not answered has left a directory for the backend in the member's store, and the backend may have carried it out: the page does not say that nothing was changed",
 			files: []string{"docs/team-member/join/follow-a-move.md"},
 			gone:  []string{"Nothing was changed, and nothing is yours to do"},

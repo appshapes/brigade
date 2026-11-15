@@ -775,3 +775,52 @@ func TestTheLineOfABackendThatDidNotAnswerSaysOnlyWhatIsTrue(t *testing.T) {
 		}
 	}
 }
+
+// TestABackendThatSaysToWaitTakesNothingBack (work item 341): the last
+// follow of the checkout found the server the team moved to silent, and
+// left that for the checkout's prompts. The backend the member joined then
+// answers the next follow's question with `rate_limited`, which the
+// protocol's table calls retryable: it has said nothing about the member.
+// Until this it counted as a refusal, the mark was taken back, and the
+// session said that the team file does not match and to run `brigade team
+// join`. It is a follow that learned nothing: the start says what the last
+// one left, and the mark stays as it was.
+func TestABackendThatSaysToWaitTakesNothingBack(t *testing.T) {
+	t.Parallel()
+	f := memberOfTheServer(t)
+	var down atomic.Bool
+	down.Store(true)
+	serverSays(f, func(verb string) *protocol.ErrorObject {
+		if !down.Load() || verb != "team moved" {
+			return nil
+		}
+		return &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true}
+	})
+	before, mark := f.checkoutPin(), config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+	start := func() []string {
+		t.Helper()
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+		if exit != 0 || f.mapExists() {
+			t.Fatalf("session-start: exit %d, a map is there: %v: %s", exit, f.mapExists(), errOut)
+		}
+		return lines(out)
+	}
+	if got := start(); !slices.Equal(got, []string{newBackendSilentLine}) {
+		t.Fatalf("the start while the server does not answer: %q", got)
+	}
+	left, err := os.ReadFile(mark) //nolint:gosec // the fixture's own state directory
+	if err != nil {
+		t.Fatalf("the start left no mark: %v", err)
+	}
+	down.Store(false)
+	asked := joinedBackendSays(f, &protocol.ErrorObject{Code: protocol.CodeRateLimited, Message: "slow down", Retryable: true, RetryAfterMS: 1000})
+	if got := start(); !slices.Equal(got, []string{newBackendSilentLine}) || asked.Load() != 1 {
+		t.Fatalf("the start whose question was answered with a wait: %q; the backend the member joined was asked %d times", got, asked.Load())
+	}
+	if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // as above
+		t.Fatalf("the mark after it: %q, %v; it was %q", now, err, left)
+	}
+	if pin := f.checkoutPin(); pin != before {
+		t.Fatalf("the pin moved: %+v", pin)
+	}
+}

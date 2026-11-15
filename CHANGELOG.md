@@ -109,15 +109,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   and a ban holds for the installation it names: a person who resets
   Brigade or uses another machine is a new principal, so a person is
   kept out by a ban together with a rotation, which closes the move. A
-  server that does not answer leaves the checkout joined where it was,
-  and the session says so, at its start and at the prompts after it,
-  where it used to say that `.brigade.json` does not match: whether the
-  server was asked about the membership the machine holds or, where it
-  holds none, was sent the join with the move's ticket. A join that was
-  not answered is no refusal, and no refusal is put on record for it; a
-  directory for the server is in the member's store by then, and the
-  server may have carried the join out though its answer did not
-  arrive. A session that starts while it cannot ask at all, because the
+  server that does not answer, or that says to wait (`rate_limited`,
+  which the protocol's table calls retryable as it calls a server out of
+  reach), leaves the checkout joined where it was, and the session says
+  so, at its start and at the prompts after it, where it used to say
+  that `.brigade.json` does not match: whether the server was asked
+  about the membership the machine holds or, where it holds none, was
+  sent the join with the move's ticket. A join that was not answered is
+  no refusal, and no refusal is put on record for it; a directory for
+  the server is in the member's store by then, and the server may have
+  carried the join out though its answer did not arrive. A session
+  that starts while it cannot ask at all, because the
   backend it joined does not answer or another follow of the machine
   holds the lock, says what the last follow that asked left, as its
   prompts do; where none left anything it says, as it did, that the

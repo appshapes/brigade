@@ -1307,6 +1307,83 @@ func TestFollowTellsABackendTheMemberJoinedThatRefusesFromOneThatDidNotAnswer(t 
 	}
 }
 
+// TestAnAnswerTheProtocolCallsRetryableIsNoAnswerAboutTheMember (work item
+// 341): a backend answers `rate_limited`, with how long to wait. That says
+// nothing of the member or of the team: the protocol's own table calls it
+// retryable, as it calls a backend that could not be reached. Until this it
+// counted as a refusal wherever a follow asks a backend anything: the
+// backend the member joined took back what an earlier follow had left and
+// the member was told that the team file does not match; the backend the
+// team moved to was told as one that refuses the membership; and a join
+// was a join the backend refused. It is a backend that did not answer, in
+// each place, and nothing is joined, pinned or put on record for it. An
+// answer the table does not call retryable stays what it was.
+func TestAnAnswerTheProtocolCallsRetryableIsNoAnswerAboutTheMember(t *testing.T) {
+	t.Parallel()
+	notAMember := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	for name, tc := range map[string]struct {
+		// asked scripts err as the answer to what the follow asks.
+		asked func(r *rig, err error)
+		// retryable and other are the reasons of a retryable answer and of one
+		// the table does not call retryable.
+		retryable, other string
+		joins            int
+	}{
+		"the question to the backend the member joined": {
+			asked:     func(r *rig, err error) { r.b.movedErr = err },
+			retryable: teammove.ReasonOldBackendFailed, other: teammove.ReasonOldBackendRefused,
+		},
+		"the question to the backend the team moved to": {
+			asked: func(r *rig, err error) {
+				r.memberAtTheNewBackend()
+				r.b.newRecords, r.b.newMovedErrs = true, []error{err}
+			},
+			retryable: teammove.ReasonNewBackendFailed, other: teammove.ReasonNewBackendRefused,
+		},
+		"a machine's first join": {
+			asked:     func(r *rig, err error) { r.b.joinErr = err },
+			retryable: teammove.ReasonNewBackendFailed, other: teammove.ReasonJoinRefused, joins: 1,
+		},
+		"a join under the membership it holds": {
+			asked: func(r *rig, err error) {
+				r.memberAtTheNewBackend()
+				r.b.newRecords, r.b.newMovedErrs, r.b.joinErr = true, []error{notAMember}, err
+			},
+			retryable: teammove.ReasonNewBackendFailed, other: teammove.ReasonJoinRefused, joins: 1,
+		},
+	} {
+		for kind, answer := range map[string]struct {
+			err  *protocol.Error
+			want string
+		}{
+			"rate_limited": {&protocol.Error{Code: protocol.CodeRateLimited, Message: "slow down", RetryAfterMS: 1000}, tc.retryable},
+			"internal":     {&protocol.Error{Code: protocol.CodeInternal, Message: "the server failed"}, tc.other},
+		} {
+			t.Run(name+", "+kind, func(t *testing.T) {
+				t.Parallel()
+				if answer.err.Code.Retryable() != (kind == "rate_limited") {
+					t.Fatalf("the protocol's table calls %s retryable: %v; the test holds nothing", kind, answer.err.Code.Retryable())
+				}
+				r := newRig(t)
+				tc.asked(r, answer.err)
+				out, err := r.follow()
+				if out.Followed || out.Reason != answer.want || !errors.Is(err, answer.err) {
+					t.Fatalf("follow: %+v, %v, want %s", out, err, answer.want)
+				}
+				if joins := len(r.b.called("team join")); joins != tc.joins {
+					t.Fatalf("the follow presented the ticket %d times, want %d", joins, tc.joins)
+				}
+				if _, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey); !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("a refusal is on record: %v", err)
+				}
+				if pin := r.currentPin(); pin != r.pin {
+					t.Fatalf("the pin moved: %+v", pin)
+				}
+			})
+		}
+	}
+}
+
 // TestAJoinThatWasNotAnsweredIsABackendThatDidNotAnswer (work item 341):
 // the join a follow sends to the backend the team moved to gets no answer:
 // the backend could not be reached, or the caller's time ran out. Until this
