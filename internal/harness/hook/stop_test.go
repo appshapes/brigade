@@ -65,32 +65,11 @@ func feedbackContext(t *testing.T, out string) string {
 	return specific["additionalContext"]
 }
 
-// unhurried gives the fixture's prompt and Stop hooks budgets no busy
-// machine reaches (work item 336). The ask is made only while a second of
-// the hook's budget is left (stopMinBudget), and the production budget is
-// 4.5 s of real time: a hook whose files, each synced to disk, took longer
-// than 3.5 s to write beside other suites said nothing, and a test of what
-// the ask says failed on an empty answer (TestGrokStopCarriesTheAsk on
-// 2026-11-14; measured on 2026-11-15, the Stops that said nothing took
-// 3.6 s and 4.2 s and logged `stop: too little budget left for the ask`).
-// The gate itself is held under a budget made short
-// (TestStopAsksNothingWithoutASecondOfItsBudget).
-//
-// The same for the hook's git calls, which have a second each: with the
-// package's tests sharing one core, git answered later than that, the
-// entry kept no commit, and the tests of the note ask saw no ask (measured
-// on 2026-11-15: `the entry's commits: []`).
-func (f *fixture) unhurried() {
-	f.deps.PromptBudget, f.deps.StopBudget, f.deps.GitBudget = time.Minute, time.Minute, time.Minute
-}
-
 // stateSession is a registered session in a project with a state folder,
 // a doing mode that may print (quiet), and the entry written by one
-// prompt at fixedTime in the given permission mode. Its hooks are
-// unhurried.
+// prompt at fixedTime in the given permission mode.
 func stateSession(t *testing.T, f *fixture, mode string) state.Store {
 	t.Helper()
-	f.unhurried()
 	f.spawner.watcherPID = testutil.NewSleeper(t)
 	f.writeTeamFile(stateMember)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
@@ -384,7 +363,6 @@ func TestStopNoteAskIsForACommitOfTheTurn(t *testing.T) {
 func TestPromptNoteAskIsForACommitSinceThePreviousPrompt(t *testing.T) {
 	t.Parallel()
 	f := newMuseFixture(t)
-	f.unhurried()
 	f.initCheckout(fixedTime.Add(-time.Hour))
 	f.writeTeamFile(stateMember)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
@@ -475,8 +453,8 @@ func TestStopAsksAfterALongTurn(t *testing.T) {
 // hook its host stops before the answer is out has stamped nothing and the
 // next Stop asks (the P5-18 shape, as the doing reminder's). It is the gate
 // that left a test of what the ask says with an empty answer on a busy
-// machine (work item 336, unhurried); here the budget is made short, and
-// the control is the same Stop with its budget back.
+// machine (work item 336, the fixture's unhurried); here the budget is made
+// short, and the control is the same Stop with its budget back.
 func TestStopAsksNothingWithoutASecondOfItsBudget(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -609,7 +587,6 @@ func TestStopAllowedModePrintsInDefault(t *testing.T) {
 func TestPromptCarriesTheAskOnAPointedHost(t *testing.T) {
 	t.Parallel()
 	f := newMuseFixture(t)
-	f.unhurried()
 	f.writeTeamFile(stateMember)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 	seam.describe = describeWithDescription()
@@ -650,7 +627,6 @@ func TestPromptCarriesTheAskOnAPointedHost(t *testing.T) {
 func TestGrokStopCarriesTheAsk(t *testing.T) {
 	t.Parallel()
 	f := grokFixture(t)
-	f.unhurried()
 	f.writeTeamFile(stateMember)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 	seam.describe = describeWithDescription()

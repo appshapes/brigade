@@ -664,8 +664,31 @@ func buildFixture(t *testing.T, host config.Host) *fixture {
 		// stands in for CLAUDE_PID, so both hosts key one map.
 		Getppid: func() int { return pid },
 	}
+	f.unhurried()
 	t.Cleanup(func() { f.assertTokenInNoFile() })
 	return f
+}
+
+// unhurried gives the fixture's hooks budgets no busy machine reaches, and
+// every fixture is made with them (work item 336): a hang catcher, never a
+// performance bound. A hook says its doing reminder and its end-of-turn ask
+// only while a second of its budget is left, and gives each of its git
+// calls a second; the production budgets are 4.5 s and 1 s of real time,
+// and a hook whose files, each synced to disk, took longer than that beside
+// other suites said nothing, or saw no commit. So tests of what a hook says
+// failed on an empty answer: TestGrokStopCarriesTheAsk on 2026-11-14, and
+// on 2026-11-15, with the package's tests sharing one core, the tests of
+// the Stop's ask and of the note ask, of the doing line
+// (TestPromptDoingLineCommonPathIsSilent, TestPromptDoingLineFollowsTheStamp)
+// and of a pending name (TestPromptDropsAPendingNameItMustNotApply,
+// TestPromptWithoutAPendingNamePrintsPlain). Measured then: the Stops that
+// said nothing took 3.6 s and 4.2 s and logged `stop: too little budget left
+// for the ask`. A test of a budget sets its own: the two gates are held
+// under half a second (doing_test.go's "under a second of budget",
+// TestStopAsksNothingWithoutASecondOfItsBudget), and move_budget_test.go
+// names the budget of each of its tests.
+func (f *fixture) unhurried() {
+	f.deps.PromptBudget, f.deps.StopBudget, f.deps.GitBudget = time.Minute, time.Minute, time.Minute
 }
 
 // writeScript (re)writes the fake adapter script; call after editing
