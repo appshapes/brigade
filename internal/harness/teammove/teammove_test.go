@@ -441,6 +441,78 @@ func TestFollowInAnotherCheckoutJoinsNothing(t *testing.T) {
 	}
 }
 
+// describing is a Caller whose describe first runs before: a follow's
+// describe of the old backend's adapter is the last thing it does before
+// it waits for the lock, so what before does happens while the follow that
+// called it stands between reading the store and taking the lock.
+type describing struct {
+	teammove.Caller
+	before func()
+}
+
+func (d describing) Describe(ctx context.Context) (*protocol.DescribeResult, error) {
+	d.before()
+	return d.Caller.Describe(ctx)
+}
+
+// TestTwoFollowsOfOneTeamAtOnceJoinOnce: two checkouts of one team, both
+// still pinned to the old backend, follow in the same instant: two sessions
+// that start at once, or two children that two prompts started (work item
+// 327: the bound on children is each checkout's). The lock lets one through
+// at a time. The one that comes second read the store before it waited,
+// when this machine held no membership at the new backend; by the time it
+// has the lock the first has joined. It must see that, follow by the old
+// backend's record as a second checkout does, and send no join of its own:
+// one machine presents the move's ticket once.
+func TestTwoFollowsOfOneTeamAtOnceJoinOnce(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	second := filepath.Join(t.TempDir(), "second")
+	if err := write.Pin(r.configDir, second, r.pin); err != nil {
+		t.Fatal(err)
+	}
+	follow := func(checkout string, client func(adapter, profile string) (teammove.Caller, error)) (teammove.Outcome, error) {
+		return teammove.Follow(t.Context(), teammove.Inputs{
+			ConfigDir: r.configDir, Checkout: checkout, File: r.file, Pin: &r.pin, Client: client,
+			Now: func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) },
+		})
+	}
+	// The second checkout's follow has read the store and is about to wait
+	// for the lock when the first checkout's runs to its end.
+	raced := false
+	racing := func(adapter, profile string) (teammove.Caller, error) {
+		c, err := r.b.client(adapter, profile)
+		if err != nil {
+			return nil, err
+		}
+		return describing{Caller: c, before: func() {
+			if raced {
+				return
+			}
+			raced = true
+			if out, err := follow(r.checkout, r.b.client); err != nil || !out.Followed || !out.Joined {
+				t.Errorf("the follow that came first: %+v, %v", out, err)
+			}
+		}}, nil
+	}
+	out, err := follow(second, racing)
+	if err != nil || !out.Followed || out.Joined || !raced {
+		t.Fatalf("the follow that came second: %+v, %v (raced %v)", out, err, raced)
+	}
+	if joins := r.b.called("team join"); len(joins) != 1 {
+		t.Fatalf("%d joins were sent to the new backend, want 1", len(joins))
+	}
+	for _, checkout := range []string{r.checkout, second} {
+		pin, ok, err := teamstore.LookupPin(r.configDir, checkout)
+		if err != nil || !ok || !pin.Matches(r.file) || pin.MovedFrom != oldURL {
+			t.Fatalf("the pin of %s: %+v, %v", filepath.Base(checkout), pin, err)
+		}
+	}
+	if left := r.leftBehind(); len(left) != 0 || r.ticketOnDisk() {
+		t.Fatalf("the two follows left %v in the store, ticket on disk %v", left, r.ticketOnDisk())
+	}
+}
+
 // TestFollowLeavesWordBeforeThePin: a follow that has nobody to tell (the
 // child a prompt hook starts, work item 327) leaves word for the next hook
 // of the checkout through BeforePin. It is called once, with whether this

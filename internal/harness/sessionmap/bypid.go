@@ -161,6 +161,15 @@ type ByPID struct {
 	TeamKey string `json:"team_key"`
 	// ConfigDir is the resolved absolute Brigade config directory.
 	ConfigDir string `json:"config_dir"`
+	// Checkout is the canonical directory of the checkout the session
+	// registered in: the one whose team file and pin its registration was
+	// resolved from (work item 327, ADR 0007). A team's move is followed
+	// for this checkout and no other: a prompt whose directory is in
+	// another checkout of the member's changes nothing about where the
+	// session is attached. Absent (omitzero) in a map written before the
+	// member existed; the prompt hook then records the first checkout of
+	// the session's team that a prompt comes from (hook/move.go).
+	Checkout string `json:"checkout,omitzero"`
 	// AdapterCommand is the resolved argv prefix prepended verbatim to
 	// every adapter invocation; [] means the bundled adapter, which the
 	// adapterclient resolves through os.Executable() at spawn time and
@@ -306,6 +315,8 @@ func (m *ByPID) Validate() error {
 		return errInvalid("team_key")
 	case !filepath.IsAbs(m.ConfigDir):
 		return errInvalid("config_dir")
+	case m.Checkout != "" && !filepath.IsAbs(m.Checkout):
+		return errInvalid("checkout")
 	case m.Inbound != protocol.InboundAccept && m.Inbound != protocol.InboundHold && m.Inbound != protocol.InboundRefuse:
 		return errInvalid("inbound")
 	case m.InboundDecided != "" && m.InboundDecided != protocol.InboundAccept && m.InboundDecided != protocol.InboundHold && m.InboundDecided != protocol.InboundRefuse:

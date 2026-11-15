@@ -619,6 +619,166 @@ func TestTeamJoinInSessionSaysASessionOnTheBackendItsTeamLeftMoves(t *testing.T)
 	}
 }
 
+// TestTeamJoinInSessionSaysASessionWhereTheTeamIsIsAlreadyAttached: the
+// other side of the test above. A session whose map names the team on the
+// very backend the team file names has nowhere to move: the join says that
+// it is already attached, and leaves its registration-retry stamp alone.
+func TestTeamJoinInSessionSaysASessionWhereTheTeamIsIsAlreadyAttached(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	persona := filepath.Join(f.dirs.Root, "persona-config")
+	if err := os.MkdirAll(persona, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeStartFacts(t, f, persona)
+	file, err := teamfile.Parse(filepath.Join(top, teamfile.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := sessionmap.Store{StateDir: f.stateDir}
+	m, err := store.ReadByPID(fixturePID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.TeamRef, m.TeamKey = file.TeamRef, teamstore.Key(file.Adapter, file.URL, file.TeamRef)
+	if err := store.WriteByPID(m); err != nil {
+		t.Fatal(err)
+	}
+	stamp := config.RegisterRetryStamp(f.stateDir, fixturePID)
+	if err := os.MkdirAll(filepath.Dir(stamp), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stamp, []byte("2026-11-14T12:00:00Z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.rec.on("session list", answer{result: `{"sessions":[],"server_time":"2026-09-08T18:00:00Z"}`})
+	secretFile := filepath.Join(f.dirs.Root, "join.secret")
+	writeSecretFile(t, secretFile, setupSecret)
+	if err := Team(sessionInv(t, f, top, "join", "--secret-file", secretFile)); err != nil {
+		t.Fatal(err)
+	}
+	out := f.out.String()
+	if !strings.Contains(out, "joined team \"devs\" ("+setupTeamRef+"); this session is already attached to it") || strings.Contains(out, "moves there") {
+		t.Fatalf("stdout = %q", out)
+	}
+	if _, err := os.Stat(stamp); err != nil {
+		t.Fatalf("the join took the registration-retry stamp of a session that moves nowhere: %v", err)
+	}
+}
+
+// TestTeamJoinInSessionSaysASessionOfAnotherCheckoutStays: a session moves
+// with the checkout it registered in and no other (work item 327, ADR 0007,
+// Decision 8). A join made from its shell in ANOTHER checkout of the team
+// puts that checkout on the new backend, and the prompt hook will not move
+// this session for it: the join says so, and leaves the session's
+// registration-retry stamp alone. The control is the same session of this
+// checkout, which is told that it moves.
+func TestTeamJoinInSessionSaysASessionOfAnotherCheckoutStays(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		own  bool
+		says string
+	}{
+		{"a session of another checkout", false, "this session was started in another checkout and stays where it is"},
+		{"a session of this checkout", true, "this session moves there at your next prompt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f, top := joinFixture(t)
+			persona := filepath.Join(f.dirs.Root, "persona-config")
+			if err := os.MkdirAll(persona, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeStartFacts(t, f, persona)
+			const oldURL = "https://old.supabase.co"
+			store := sessionmap.Store{StateDir: f.stateDir}
+			m, err := store.ReadByPID(fixturePID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.TeamRef, m.TeamKey = setupTeamRef, teamstore.Key("supabase", oldURL, setupTeamRef)
+			m.Checkout = filepath.Join(f.dirs.Root, "the-checkout-it-started-in")
+			if tc.own {
+				if m.Checkout, err = teamfile.Canonicalize(top); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := store.WriteByPID(m); err != nil {
+				t.Fatal(err)
+			}
+			stamp := config.RegisterRetryStamp(f.stateDir, fixturePID)
+			if err := os.MkdirAll(filepath.Dir(stamp), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(stamp, []byte("2026-11-14T12:00:00Z\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.rec.on("session list", answer{result: `{"sessions":[],"server_time":"2026-09-08T18:00:00Z"}`})
+			secretFile := filepath.Join(f.dirs.Root, "join.secret")
+			writeSecretFile(t, secretFile, setupSecret)
+			if err := Team(sessionInv(t, f, top, "join", "--secret-file", secretFile)); err != nil {
+				t.Fatal(err)
+			}
+			if out := f.out.String(); !strings.Contains(out, "joined team \"devs\" ("+setupTeamRef+"); "+tc.says) {
+				t.Fatalf("stdout = %q", out)
+			}
+			// The stamp goes only for a session the next prompt is to move.
+			if _, err := os.Stat(stamp); (err == nil) == tc.own {
+				t.Fatalf("the registration-retry stamp after the join: %v", err)
+			}
+		})
+	}
+}
+
+// TestTeamJoinInAGrokSessionSaysTheSessionStays: Grok Build shows nothing
+// a prompt hook prints, so the prompt hook moves no session there (work
+// item 327). A join made inside a Grok Build session that is attached to
+// the team on the backend it left says that the session stays until it is
+// started again, never that it moves at its next prompt.
+func TestTeamJoinInAGrokSessionSaysTheSessionStays(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	const native, oldURL = "02000000-0000-7000-8000-000000000001", "https://old.supabase.co"
+	// A Grok session resolves Brigade's directories from HOME alone.
+	stateDir := filepath.Join(f.dirs.Home, ".local", "state", "brigade")
+	persona := filepath.Join(f.dirs.Root, "persona-config")
+	if err := os.MkdirAll(persona, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := sessionmap.Store{StateDir: stateDir}
+	if err := store.WriteStart(&sessionmap.StartFacts{ClaudePID: fixturePID, ClaudeSessionID: native, ConfigDir: persona, WrittenAt: fixtureNow}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteStartPointer("grok", native, fixturePID, fixtureNow); err != nil {
+		t.Fatal(err)
+	}
+	m := &sessionmap.ByPID{
+		Harness: "grok", ClaudePID: fixturePID, ClaudeSessionID: native, BrigadeSessionID: "s-old",
+		TeamRef: setupTeamRef, TeamName: "devs", SessionName: "grok", Inbound: "accept", FrameLevel: "open",
+		TeamKey: teamstore.Key("supabase", oldURL, setupTeamRef), ConfigDir: persona,
+		Grok: &sessionmap.GrokReceiver{Cwd: top, ProcessStart: "start", Incarnation: strings.Repeat("a", 32)},
+	}
+	if err := store.WriteByPID(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteByHost("grok", native, &sessionmap.ByHost{HostPID: fixturePID, BrigadeSessionID: "s-old"}); err != nil {
+		t.Fatal(err)
+	}
+	f.rec.on("session list", answer{result: `{"sessions":[],"server_time":"2026-09-08T18:00:00Z"}`})
+	secretFile := filepath.Join(f.dirs.Root, "join.secret")
+	writeSecretFile(t, secretFile, setupSecret)
+	iv := sessionInv(t, f, top, "join", "--secret-file", secretFile)
+	iv.Environ = []string{"PATH=/usr/bin:/bin", "HOME=" + f.dirs.Home, "GROK_SESSION_ID=" + native}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	out := f.out.String()
+	if !strings.Contains(out, "joined team \"devs\" ("+setupTeamRef+"); this session stays on the backend the team left until you start a new session or exit and resume this one") || strings.Contains(out, "moves there") {
+		t.Fatalf("stdout = %q", out)
+	}
+}
+
 // writeStartFactsWithLabel is writeStartFacts plus the `label` option the
 // hook resolved — the only way an in-session command can learn it, since
 // plugin options never reach the Bash tool.

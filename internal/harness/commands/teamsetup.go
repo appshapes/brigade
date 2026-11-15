@@ -906,7 +906,9 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 			// left, or to another team. The prompt hook moves a session to
 			// the backend its own team went to once the checkout is joined
 			// there, which it now is (work item 327, ADR 0007); a Grok Build
-			// session, whose prompt hook can say nothing, is not moved. A
+			// session, whose prompt hook can say nothing, is not moved, and
+			// neither is a session that registered in another checkout: a
+			// session moves with its own checkout and no other. A
 			// session on ANOTHER team stays: the prompt hook only registers
 			// an unmapped session, and a SessionStart that fires again in
 			// the same process continues the session its map names, so
@@ -921,6 +923,8 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 					return writeLines(inv.Out, head+"; this session is already attached to it")
 				case config.HostOf(inv.Environ) == config.HostGrok:
 					return writeLines(inv.Out, head+"; this session stays on the backend the team left until you start a new session or exit and resume this one")
+				case m.Checkout != "" && m.Checkout != canon:
+					return writeLines(inv.Out, head+"; this session was started in another checkout and stays where it is: a session moves with the checkout it was started in")
 				}
 				// A registration there that failed a moment ago must not hold
 				// the next prompt back.

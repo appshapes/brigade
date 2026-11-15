@@ -48,7 +48,8 @@ import (
 
 // lockTimeout bounds the wait for another session of this machine that is
 // following a move at the same moment. The one that waited finds the pin
-// written and joins nothing.
+// written, or the membership another checkout's follow made, and joins
+// nothing.
 const lockTimeout = 10 * time.Second
 
 // lockName is the lock file's name under the config directory.
@@ -286,6 +287,18 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 	// waited: the pin then matches, and there is nothing left to do.
 	if pin, pinned, perr := teamstore.LookupPin(in.ConfigDir, in.Checkout); perr == nil && pinned && pin.Matches(in.File) {
 		return Outcome{Followed: true}, nil
+	}
+	// And a follow of ANOTHER checkout of the team may have joined while this
+	// one waited: the pin above is that checkout's, not this one's, so the
+	// membership is what shows it. It was read before the lock, to send a
+	// machine that left away without a question; under the lock no follow is
+	// between its join and its binding, so it is read again here, and this
+	// one joins only if the machine still holds no membership the file
+	// describes. Without this, two checkouts that followed in one instant
+	// each presented the move's ticket (work item 327).
+	existing, berr = teamstore.LoadBinding(in.ConfigDir, newKey)
+	if berr == nil && existing.TeamRef == "" && existing.PrincipalRef != "" {
+		return Outcome{Reason: ReasonLeft}, nil
 	}
 	// A follow that was killed between its adapter's answer and its own end
 	// left its ticket file behind. Under the lock no other follow of this

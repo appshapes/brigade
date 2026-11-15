@@ -12,7 +12,8 @@
 Since ADR 0003 a member's session follows a team that moved, when it starts. A session that was already running
 stayed on the backend the team left until it ended, and was told once to start a new one. Work item 327 records
 what that cost in a real move on 2026-11-14: for hours the new server had no member session while mail and Slack
-already arrived there. The owner asked whether a running session can follow by itself.
+already arrived there. The owner asked whether "sessions already open ... can automatically reappear on the
+roster. This is just data, so technically it seems possible."
 
 Read from the code that day:
 
@@ -28,23 +29,24 @@ Read from the code that day:
 - Grok Build discards what a prompt hook prints. A Muse Code or Codex CLI hook finds its session through its
   parent process.
 
-An assessment of the same day recommended a follow in two steps at the session's next prompts. The design below
-was handed to the build as decided; the choices the build made inside it are the building session's, under the
-owner's standing rule that a session decides on its own recommendation.
+The design below is the recommendation that the session `89-server-7-roadmap-and-week-check` recorded on work
+item 327 on 2026-11-14, after an agent's assessment of the code read above: a follow in two steps at the
+session's next prompts. It stands under the owner's standing word that a session decides on its own
+recommendation, and so do the choices the build made inside it, which are the building session's.
 
 ## Decision
 
 A session that is running follows its team at its next prompts, in two steps, on the same record a session's
 start follows on.
 
-1. **The follow, off the hook's budget.** At a prompt of a session whose team file names another backend for the
-   team it joined, and under the gates a session start applies (the option `follow_team_move`, a session that
-   does not name its adapter itself, an adapter that advertises `team.move`), the hook starts a detached child,
-   `brigade hook follow`, and returns. The child does what a start's follow does and nothing else: it asks the
-   old backend, compares the record with the file member by member, joins or reuses the membership, writes the
-   binding and the pin. Its environment is built from scratch and carries neither the inbox socket nor the
-   messaging token, and what it needs it takes as arguments, none of them a secret. Run inside a session it
-   refuses.
+1. **The follow, off the hook's budget.** At a prompt of a session whose own checkout (point 8) has a team file
+   that names another backend for the team it joined, and under the two gates the member's options set (the
+   option `follow_team_move`, and a session that does not name its adapter itself), the hook starts a detached
+   child, `brigade hook follow`, and returns. The child does what a start's follow does and nothing else: it
+   asks nothing of an old backend whose adapter does not advertise `team.move`, and otherwise asks it, compares
+   the record with the file member by member, joins or reuses the membership, writes the binding and the pin.
+   Its environment is built from scratch and carries neither the inbox socket nor the messaging token, and what
+   it needs it takes as arguments, none of them a secret. Run inside a session it refuses.
 2. **Once a minute.** At most one follow a minute is started for a checkout, whichever of its sessions is
    prompted, and the stamp that holds the bound is written before the child is started. A team file with no
    record behind it earns one question to the old backend a minute while its sessions are prompted, and nothing
@@ -53,21 +55,38 @@ start follows on.
    session's map still names the backend the team left. The hook registers the session anew on the new backend,
    under the name it has, with no resume hint and no heartbeat of the id it had; it writes the map and starts
    the watcher, which retires the old one, which closes the old session. A request for quiet made in the session
-   is kept. The doing line is asked for again.
+   is kept. The doing line is asked for again. The registration ends a second short of the hook's budget: Claude
+   Code discards what a prompt hook printed when the hook reaches its timeout, so a registration answered later
+   than that is given up as one that failed, and a session that moves is always told.
 4. **What the member is told.** One line when the file changes, which echoes nothing from it. Then the line a
    session start says when it follows, at the first prompt that finds the checkout followed, whether or not the
    session can move at that prompt. A follow that had nobody to tell leaves a mark for the checkout before it
    writes the pin, so that a session which starts there after the asking one ended says the line instead.
 5. **Held messages stay, so the session stays.** Messages that wait for the session on the backend it is leaving
    are not carried. While any is held, or released and not yet delivered, the session stays where it is, and
-   says so once.
+   says so once in a conversation. A session's start in the same process, which `/clear` fires, keeps it there
+   as a prompt does: it registers nothing, keeps the map and the watcher for the conversation that begins, and
+   says the same lines before the context line of the session where it is.
 6. **A registration that fails leaves the map untouched.** The session goes on where it was, is told once, and
-   the attempt is made again a minute later. A registration that was made and not recorded is left to its lease.
+   the attempt is made again a minute later. That holds at a prompt and at a start of the same process alike: a
+   running session that could not be registered on the new backend is told so, and not that it is
+   `not connected`. A registration that was made and not recorded is left to its lease.
 7. **The same for a session that is attached to nothing.** The prompt hook's registration retry, which ADR 0003
-   kept from following, starts the same child, and registers at the first prompt after it.
-8. **The member's own join moves the session too.** A pin that matches the team file is the member's consent
-   however it was written: after `brigade team join` in the checkout, the running session moves at its next
-   prompt, and says so in a line of its own.
+   kept from following, starts the same child, says once that the backend the member joined is being asked, and
+   registers at the first prompt after the child followed.
+8. **A session moves with the checkout it registered in, and with no other.** The session's map names the
+   checkout its registration was resolved from, at a start and at the prompt hook's retry alike, and both steps
+   look at that checkout only. A prompt's directory follows the model (a `cd`, a worktree), and while a move is
+   under way a member can have two checkouts of a team on two backends, one with the changed file and one
+   without: a session that moved on whichever its prompt came from went back and forth between them, a new
+   session each time. So a prompt that comes from another checkout changes nothing about where the session is
+   attached, starts no follow and says no line. A start of the same process (`/clear`) that comes from another
+   checkout neither moves the session nor makes it that checkout's: it follows for that checkout, as a start in
+   it always has, and says the context line of the session where it is. In its own checkout a pin that matches
+   the team file is the member's consent however it was written: after `brigade team join` there, the running
+   session moves at its next prompt, and says so in a line of its own. A map written before it named a checkout
+   is given the first one a prompt or a start comes from that is joined on this machine to the session's team,
+   and is that checkout's from then on.
 9. **A resume hint goes only to the backend that issued it**, at a prompt and at a session's start: the map that
    remembers a session by its native id now carries the team key, and a map that names another key is neither
    resumed nor heartbeated. This is the fix of the `/clear` path.
@@ -93,6 +112,9 @@ start follows on.
   that names a backend nobody recorded would otherwise turn every prompt into a request.
 - **A bound for each session instead of each checkout.** Ten sessions in one checkout would ask ten times a
   minute about one pin.
+- **Decide a session's move on the checkout its prompt comes from.** It is what was built first, and the
+  verification of 2026-11-14 showed a session going back to the backend its team left when its prompt came from
+  a checkout that had not followed yet, and forth again from one that had.
 
 ## Evidence
 
@@ -111,6 +133,28 @@ start follows on.
 - Each half-state has a test in `internal/harness/hook/move_prompt_test.go`: a child stopped before the pin, a
   session that ended between the steps, a registration made and not recorded, a new backend that cannot be
   reached.
+- The same day, a second session verified the work against backends that never answer
+  (`internal/harness/hook/move_budget_test.go`). With the old backend accepting the follow's question and
+  holding it, the prompt that started the child, the prompt after it and the registration retry of a session
+  attached to nothing each returned in a small part of the hook's budget, the child still waiting; so did both
+  steps with the follow's lock held by another process. With the new backend holding the registration, the
+  prompt ended at the registration's deadline, the map and the watcher as they were. Its other tests
+  (`move_races_test.go`) are of two sessions of one checkout, a session start beside a child that joined,
+  `/clear` between the two steps, and the stamp that holds the once-a-minute bound.
+- That verification made 62 one-line changes of its own to the same rules. Sixteen passed the tests as they
+  were, among them the bound made a second, a stamp from the future bounding for ever, a child started without
+  its stamp, and one held message not keeping a session. The tests it added catch fifteen; the one left was the
+  last line of a join made inside a Grok Build session, which has its test since.
+- What it found and this decision now says, each with a test that failed first: a session going back and forth
+  between two checkouts of one team, at its prompts and at a `/clear` (`move_checkout_test.go`; point 8);
+  `/clear` moving a session away from
+  the messages held for it, and saying `not connected` of a session that was attached (`move_start_test.go`;
+  points 5 and 6); a registration answered in the last second of the budget (`move_budget_test.go`; point 3);
+  the retry of an unattached session saying nothing of the follow it started (point 7). And two follows of one
+  team in two checkouts at the same instant each joined, because the membership was read before the lock:
+  `teammove.Follow` now reads it again under the lock (`TestTwoFollowsOfOneTeamAtOnceJoinOnce`). Twenty-four
+  one-line changes to these rules were each caught by a test, two of them also through the built binary and
+  the built server.
 - The same day, 35 one-line changes to the rules above, in the hook, the follow and the join's last line, were
   each caught by a test. One of them, the map of another backend treated as a session that continues, was also
   run through the built binary: the test failed, and the hook's log showed the server answering `not_found` to
@@ -136,6 +180,25 @@ start follows on.
   sends to the id it had does not reach it.
 - A session with held messages stays behind until its member releases them, and a team may be on two backends
   for that long.
+- The prompt that registers a session on the new backend waits for that backend, as the registration retry of
+  a session attached to nothing always has: while it does not answer, one prompt a minute lasts until the
+  registration's deadline, a second short of the hook's budget.
+- A session follows its own checkout's team file and no other. A member who works from another checkout of the
+  team, with the session's own left behind, has a session that stays where its own checkout is. A session whose
+  map predates the checkout it names (its plugin was updated under it) takes the first checkout a prompt comes
+  from, which may not be the one it started in; it moves with that one, once at most.
+- The once-a-minute bound has two edges. The stamp is read and then written, with nothing to keep out another
+  hook, so prompts of several sessions of a checkout in the same instant each start a child; the children
+  cannot both join, because the follow's lock lets one through at a time and the one that waited reads the pin
+  and the membership again under it. And the stamp lives in Brigade's state directory, which a Claude Code
+  session and a Muse Code or Codex CLI session can resolve differently: a checkout with sessions of both has a
+  bound for each.
+- A start keeps a session where it is only when its map is that process's beyond doubt: its watcher is alive,
+  or it names the conversation the start names. A session with no watcher (a host with no inbox socket) that
+  holds messages is still registered anew by `/clear`, which begins another conversation.
+- A `/clear` in a running session whose team file has no record behind it still ends with the drift line,
+  `not connected: .brigade.json does not match`, though the session stays attached where it was. That line is
+  older than this decision and was left as it is.
 - The hooks detach a second kind of child. `brigade hook follow` joins the watcher as a process a hook starts
   and does not wait for.
 - A session's start, a prompt and a member's join can each write the same pin. The follow's lock and its check
