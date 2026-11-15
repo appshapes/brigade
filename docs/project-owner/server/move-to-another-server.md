@@ -57,9 +57,12 @@ a server's own address changes without a join on every machine: [Move it](keep-t
   file, so that nobody new joins, and revoke the members, each with `--on <the old server's url or host>`
   ([Move the team to a server](../../team-admin/members/move-the-team.md#undo-it-and-end-it)). The flag matters:
   after the move the Team Admin's checkout is joined to the new server, and without it the two commands act
-  there. Each says the server it acts on, and your journal has the rotation and the revocations. A member who
-  was revoked here and whose team later comes back joins again with the move's ticket, with no command. What
-  the team wrote stays in the data directory until the directory goes.
+  there. Each says the server it acts on, in a line before it acts and as the `url` of its result, with the
+  new secret's version or the number of memberships it ended: that is where a rotation and a revocation show.
+  Your journal has no line for either; a rotation is there only when it closed a move this server had open. A
+  member who was revoked here and whose team later comes back joins again with the move's ticket, with no
+  command, as the member they were; one who was banned here stays out. What the team wrote stays in the data
+  directory until the directory goes.
 
 ## A team with gateways on the server it leaves
 
@@ -81,14 +84,16 @@ step 2, a mail or a Slack message reaches only the sessions that are still on th
 
 Start the new server on a data directory of its own. A server started from a copy of the old one's data directory,
 at another address, is no place to move the team to, and neither is the old server itself under another address
-(a second DNS name, another port in front of it):
+(a second DNS name, another port in front of it). The same holds for any server the team was on before: the
+command knows it by the address the Team Admin's machine joined it under, and a team goes back to it by that
+address.
 
 - **It holds the team already**, with every member the old one has and the owner the old one has.
 - **The Team Admin's machine does not know it.** A member's machine knows a server by its address, and holds
   its credential for the old address only. So the command's take-in arrives with no credential and is the join
   of a new member, who does not own the team.
-- **The command sees that and stops.** It finds the membership the Team Admin's machine has on the old server
-  on the roster of the one it was pointed at, and says so: `<host> holds team … with the membership this
+- **The command sees that and stops.** It finds a membership the Team Admin's machine has of the team, on the
+  old server or on one the team was on before, on the roster of the one it was pointed at, and says so: `<host> holds team … with the membership this
   machine has on <old host>: it is the same server under another address, or a copy of its data, and a team
   is not moved to either`. It ends the membership its take-in had just made, so the Team Admin is on that
   roster once, and records nothing. It does not print `--set-owner` for this, and you should not run it:

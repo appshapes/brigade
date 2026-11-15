@@ -86,8 +86,14 @@ who clears the record that is out of date.
 
 **If the team comes back to a server you were on before.** Your machine still holds the membership it had
 there. Where the administrator ended that membership after the team had left, the server refuses it, and the
-session sets it aside and joins again with the move's ticket, with no command of yours. Where the membership is
-still good, the session uses it and joins nothing.
+session joins again with the move's ticket, with no command of yours, under the credential your machine holds:
+you come back as the member you were. Where the membership is still good, the session uses it and joins
+nothing. Where the administrator banned you there, the server refuses the join, and the session says that the
+file does not match.
+
+**If the session says that the backend the team moved to did not answer.** The move is recorded and the file is
+the right one; the new backend was not reachable when the session asked it. Nothing was changed, and nothing is
+yours to do: the next session follows when it starts, and this one at one of its next prompts.
 
 A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
 you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or

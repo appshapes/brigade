@@ -70,9 +70,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   after the team left. A session used to take such a membership for a
   good one, pin the checkout to the server and stay unconnected, with
   `team join` answering "already joined". Now it asks the server with
-  it, and on `unauthorized` sets it aside and joins with the move's
-  ticket, as a machine that had never joined. Any other failure changes
-  nothing, and the next session or prompt asks again.
+  it, and on `unauthorized` joins with the move's ticket under the
+  credential the machine holds, so the server acts for the same
+  principal: a revoked member comes back as who they were, a banned one
+  is refused and stays out, and an owner answered `unauthorized` once by
+  something in front of the server owns the team still. While a move is
+  open a revocation alone therefore keeps nobody out: a ban does, and so
+  does closing the move. Any other failure changes nothing, and the
+  session says that the backend the team moved to did not answer, where
+  it used to say that `.brigade.json` does not match; the next session
+  or prompt asks again.
 - **`team rotate-secret` and `team revoke-member` say which backend they
   act on, and take `--on <url or host>`.** After a move a checkout is
   joined to the server the team went to, and a team command goes there
@@ -87,8 +94,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   membership carries only in the host's case, the scheme's own port or a
   slash at the end is that server. One the command cannot see through
   (another DNS name, or a server started from a copy of the data
-  directory) is found once it has answered: the membership the machine
-  has on the old address is on its roster. The command then says that it
+  directory) is found once it has answered: a membership the machine
+  has of the team, on the backend the team is on or on one it was on
+  before, is on its roster. The command then says that it
   is the same server or a copy of its data, ends the membership its
   take-in made, and never names the operator's `--set-owner`, which on
   that server would take the team from the administrator's own
@@ -103,7 +111,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   leaving by the record that names the server, or by the checkout's own
   pin when a run was stopped before it wrote it. Where neither says, as
   after `--clear`, it changes nothing and names the backends and the
-  flag.
+  flag; and where one of those backends does not answer what it records,
+  it chooses none, because that one may be the backend the team is
+  leaving, and says to run it again when it answers or with `--from`.
 - **Pages.** A new page for the two operators, "Move a team to another
   server", with what each must have in place, what a team with gateways
   does, and why the server a team goes to must not be a copy of the old

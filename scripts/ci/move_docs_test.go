@@ -120,6 +120,22 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			need:  []string{"the command its last line named", "--from <host>"},
 		},
 		{
+			why:   "a server's journal has no line for a rotation or a revocation: what shows them is what each command prints",
+			files: []string{operator},
+			gone:  []string{"your journal has the rotation and the revocations"},
+			need:  []string{"Your journal has no line for either"},
+		},
+		{
+			why:   "a follow joins with the credential the machine holds and sets nothing aside, so a ban holds and a revocation alone does not keep a member out of an open move",
+			files: []string{admin, "docs/team-member/join/follow-a-move.md", "CHANGELOG.md"},
+			gone:  []string{"sets it aside", "as a machine that had never joined"},
+		},
+		{
+			why:   "the page on moving says what keeps a member out while a move is open",
+			files: []string{admin},
+			need:  []string{"While a move is open, a revocation alone does not keep a member out", "A member is kept out during an open move by a ban", "or by closing the move"},
+		},
+		{
 			why:   "the Team Admin's page says what the same command run again does on such a machine",
 			files: []string{admin},
 			need:  []string{"names them and the flag", "the record's own form clears that record first"},
