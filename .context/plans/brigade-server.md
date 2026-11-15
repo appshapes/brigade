@@ -744,4 +744,7 @@ and whoever takes it in owns it), 0007 (a session may move a team, behind an opt
 behind, and ADR 0009 (a Status names every ADR that supersedes a part). They were released that day as server 0.7.0
 and plugin 0.56.0, and the owner's host and the thinktech team's server run 0.7.0 since then (execution log P103-2
 and P103-3). Work item 329 is the one command's proof on a real team and waits on the owner naming the server; what
-the verifications left open is on work items 336, 337 and 339.
+the verifications left open is on work items 336, 337 and 339. The pages say on every path that the move is one
+command (execution log P103-4), and on 2026-11-15 the roadmap went on to the standby the owner had set up, the
+session `6611b` (execution log P103-5), with work item 329 waiting on the owner and 341 new: a team on a server
+cannot yet be moved to another server by the one command.
