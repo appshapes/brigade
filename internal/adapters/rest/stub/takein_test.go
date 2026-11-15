@@ -566,6 +566,9 @@ func TestATakeInMadeAgainWithItsKey(t *testing.T) {
 	if members, _ := h.must(alice.credential, "/v1/team/members", `{"team_ref":"`+elsewhere+`"}`)["members"].([]any); len(members) != 4 {
 		t.Errorf("the roster the owner reads: %d members, want the four there are", len(members))
 	}
+	if sessions, _ := h.must(alice.credential, "/v1/session/list", `{"team_ref":"`+elsewhere+`","include_offline":true}`)["sessions"].([]any); len(sessions) != 1 {
+		t.Errorf("the sessions the owner lists: %d, want the member's one", len(sessions))
+	}
 	h.refused(h.post(alice.credential, "/v1/team/open-move", `{"team_ref":"`+elsewhere+`","ticket_days":0}`), "invalid_input", http.StatusBadRequest)
 	still := h.takeInKeyed("", secret, retryKeyOfTheTest)
 	if !still.ok || still.result["principal_ref"] != alice.principal || still.result["owner"] != true {

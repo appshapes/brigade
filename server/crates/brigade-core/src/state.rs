@@ -1,6 +1,7 @@
 //! The state of a server: what its records add up to.
 //!
-//! The state is held in memory and written whole in a snapshot. [`State::apply`] is the only thing that
+//! The state is held in memory and written in a snapshot, whole but for the one member that is read off the
+//! rest whenever a state is read ([`Principal::retry_key_in`]). [`State::apply`] is the only thing that
 //! changes it. It cannot fail, reads no clock and draws nothing, so a restart and a standby that apply the
 //! same records in the same order hold the same state.
 //!
@@ -33,7 +34,11 @@ fn first_secret_version() -> u32 {
 }
 
 /// Everything a server knows.
+///
+/// A state is read through `Written`, member for member, and what is derived from what was written is
+/// derived there: whatever reads a state, a snapshot or a test, reads a whole one.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "Written")]
 pub struct State {
     /// Every principal the server has created, by its reference.
     pub principals: BTreeMap<String, Principal>,
@@ -51,6 +56,43 @@ pub struct State {
     /// The number of the last entry of the log that was applied. Entries are numbered from one with no gap,
     /// so a log that skipped or repeated one is refused instead of believed.
     pub entries: u64,
+}
+
+/// A state as it was written: the members of [`State`], as a snapshot holds them.
+#[derive(Deserialize)]
+struct Written {
+    principals: BTreeMap<String, Principal>,
+    credentials: BTreeMap<String, String>,
+    teams: BTreeMap<String, Team>,
+    session_teams: BTreeMap<String, String>,
+    swept_at: Timestamp,
+    latest_at: Timestamp,
+    entries: u64,
+}
+
+impl From<Written> for State {
+    fn from(written: Written) -> Self {
+        let Written {
+            principals,
+            credentials,
+            teams,
+            session_teams,
+            swept_at,
+            latest_at,
+            entries,
+        } = written;
+        let mut state = Self {
+            principals,
+            credentials,
+            teams,
+            session_teams,
+            swept_at,
+            latest_at,
+            entries,
+        };
+        state.find_the_ways_back();
+        state
+    }
 }
 
 /// The server's record of one member's installation.
@@ -71,9 +113,13 @@ pub struct Principal {
     /// The team that keeps a retry key for this principal, when one does: the team whose
     /// [`Team::take_in_retry`] names it, and empty for every other principal. It is the way from a record
     /// that this principal's own request makes to the key that record ends, with no look at every team.
-    /// A snapshot written before there were retry keys has none, and a principal no team keeps a key for
-    /// is written as it was before.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    ///
+    /// It is no fact of its own. What a team keeps is the one fact of a key, and this is read off it:
+    /// [`State::apply`] keeps the two in step, a snapshot holds the team's member alone, and a state that
+    /// is read has this member from the teams it read (`State::find_the_ways_back`). So it is never
+    /// written, and what a snapshot of an earlier build holds under its name is not read: a principal is
+    /// written as it was before there were retry keys.
+    #[serde(skip)]
     pub retry_key_in: String,
 }
 
@@ -108,7 +154,8 @@ pub struct Team {
     /// credential, and the key has nothing left to stand in for. A rotation of the team's join secret
     /// and another owner end it as well ([`State::apply`]). A team that was not taken in so has none. A
     /// snapshot written before there were retry keys reads as none, and a build that does not know the
-    /// member drops it: it answers no take-in at all.
+    /// member drops it: it answers no take-in at all. This member is the one fact of a key that a
+    /// snapshot holds: the way from the owner back to it is read off it ([`Principal::retry_key_in`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub take_in_retry: Option<TakeInRetry>,
     /// Every membership the team has had, by principal.
@@ -481,6 +528,39 @@ impl State {
 
     fn session_mut(&mut self, team_ref: &str, session_id: &str) -> Option<&mut Session> {
         self.teams.get_mut(team_ref)?.sessions.get_mut(session_id)
+    }
+
+    /// Names, on each principal that a team keeps a retry key for, the team that keeps it: the way back
+    /// from a record of the principal's own to the key that record ends ([`Principal::retry_key_in`]).
+    ///
+    /// It is read off what the teams keep, whenever a state is read, and what a snapshot says of it is
+    /// not read at all (the member is skipped). So a state never holds a key with no way back to it, a
+    /// way back to no key, or two that disagree, whatever wrote the snapshot: the first of those is a key
+    /// that its owner's own record could not end. A principal has one team that keeps its key. Where a
+    /// snapshot has more than one team keep a key for a principal, as no record leaves it, the last of
+    /// them in the order of their references keeps it and the others keep none, as their joins applied
+    /// in that order would have it.
+    fn find_the_ways_back(&mut self) {
+        let mut kept_in: BTreeMap<String, String> = BTreeMap::new();
+        for (team_ref, team) in &self.teams {
+            if let Some(kept) = &team.take_in_retry {
+                kept_in.insert(kept.principal_ref.clone(), team_ref.clone());
+            }
+        }
+        for (team_ref, team) in &mut self.teams {
+            if team
+                .take_in_retry
+                .as_ref()
+                .is_some_and(|kept| kept_in.get(&kept.principal_ref) != Some(team_ref))
+            {
+                team.take_in_retry = None;
+            }
+        }
+        for (principal_ref, team_ref) in kept_in {
+            if let Some(principal) = self.principals.get_mut(&principal_ref) {
+                principal.retry_key_in = team_ref;
+            }
+        }
     }
 
     /// The team keeps the hash of a retry key for the principal a take-in made its owner, in the place

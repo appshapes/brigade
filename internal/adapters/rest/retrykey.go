@@ -158,6 +158,8 @@ func (c *command) takeInRetryKey(teamRef string) (key string, kept bool, err err
 // lost, and of the owner that take-in made, when the profile came to its
 // credential in between, by a `team join` with the same secret: removing
 // it here would leave that owner with nobody but the server's operator.
+// Whether it is, the adapter cannot tell: a key that an earlier run kept
+// and no server ever saw is in the same file (leaveRetryKey).
 // Any other answer has settled what the key was for: one that carries a
 // credential was answered for the key or for a stranger, and one that owns
 // the team needs no key.
@@ -165,12 +167,20 @@ func keptForAnEarlierTakeIn(kept bool, answer *teamTakeInAnswer) bool {
 	return kept && answer.Credential == "" && !answer.Owner
 }
 
-// leaveRetryKey says, in one line on stderr, that take-in-key.json stays
-// and what makes the earlier take-in again: without the credential this
-// profile holds, the server looks at the key.
+// leaveRetryKey says, in one line on stderr, that take-in-key.json stays,
+// and what the adapter knows: the key is one an earlier run of this command
+// kept, and the answer was for a member's credential this profile holds, so
+// the server did not look at the key. It does not know whether that earlier
+// run reached the server: an answer that was lost and a request that never
+// arrived leave the same file. So the line says what `profile
+// revoke-credentials` and the same take-in do in either case, without the
+// credential the server looks at the key, and asserts neither.
 func (c *command) leaveRetryKey() {
-	c.log.Warn("this take-in was answered for the credential this profile holds, which does not own the team, and the retry key an earlier take-in kept was not looked at; " +
-		retryKeyFileName + " stays: to make that take-in again as the owner it made, run `profile revoke-credentials` and then the same `team take-in` again")
+	c.log.Warn("this take-in was answered for the credential this profile holds, which is a member's and does not own the team; the server did not look at the retry key an earlier run of this command kept, and " +
+		retryKeyFileName + " stays. `profile revoke-credentials` and then the same `team take-in` again have the server look at it: " +
+		"if an earlier run took the team in and its answer was lost, they are answered for the owner that run made; " +
+		"if no earlier run reached the server, or the key has ended, they join this profile as a new member, and the member it is now is left with no credential. " +
+		"To stay the member this profile is, run neither and remove " + retryKeyFileName)
 }
 
 // dropRetryKey removes take-in-key.json once the credential the answer

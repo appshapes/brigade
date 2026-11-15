@@ -118,6 +118,13 @@ func (c *command) teamCreate() (any, error) {
 	if err := c.bindingCall(pathTeamCreate, &teamCreateBody{TeamName: req.TeamName, HumanLabel: humanLabel}, &answer, headers); err != nil {
 		return nil, err
 	}
+	// The secret half of the join secret the answer carries is registered
+	// before anything else is done with the answer, as a rotation's is, and
+	// the credential beside it: the names of this answer are printed and
+	// kept, and with --secret-file the secret itself is on no stream.
+	c.hideSecretHalf(answer.JoinSecret)
+	c.hideIssued(answer.Credential)
+	c.hideInAnswer(&answer.TeamName, &answer.PrincipalRef)
 	secret, err := protocol.ParseJoinSecret(answer.JoinSecret)
 	if err != nil || secret.TeamRef() != answer.TeamRef {
 		return nil, errUnexpectedResponse("the backend answered a join secret this adapter cannot parse")
@@ -241,6 +248,7 @@ func (c *command) teamJoin() (any, error) {
 	if answer.TeamRef != secret.TeamRef() {
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the secret names")
 	}
+	c.hideIssued(answer.Credential)
 	c.hideInAnswer(&answer.TeamName, &answer.PrincipalRef)
 	if err := c.keepCredential(answer.Credential, answer.PrincipalRef); err != nil {
 		return nil, err
@@ -475,10 +483,10 @@ const minHiddenHalfChars = 16
 // the one part of the secret that is secret: the reference is in the
 // committed team file. It is called with what a command presents, before
 // the request (`team join`, `team take-in`), and with what an answer
-// carries, before anything else is done with the answer (`team
-// rotate-secret`, `team open-move`). A text with no dot has no half and
-// registers nothing. What is registered is hidden from every log line,
-// from the text of a refusal, and from the names of an answer
+// carries, before anything else is done with the answer (`team create`,
+// `team rotate-secret`, `team open-move`). A text with no dot has no half
+// and registers nothing. What is registered is hidden from every log
+// line, from the text of a refusal, and from the names of an answer
 // (hideInAnswer).
 func (c *command) hideSecretHalf(secret string) {
 	dot := strings.LastIndexByte(secret, '.')
@@ -490,20 +498,41 @@ func (c *command) hideSecretHalf(secret string) {
 	}
 }
 
-// hideInAnswer passes the names a server chose in an answer through the
-// redactor, as the text of a refusal is passed (readEnvelope). A result is
-// printed on stdout, and the team's name and the principal's reference of
-// a join and a take-in are kept in team.json and credential.json: a server
-// that broke the contract's rule and put into one of them the secret half
-// of what the command presented, or of what its own answer carries, gets
-// a marker in its place, on stdout and in the files. It is called once the
-// half is registered, for the commands that register one: `team join`,
-// `team take-in`, `team rotate-secret` and `team open-move`. The team's
-// reference needs none: each of them holds it against the one it knows.
+// hideInAnswer takes out of the names a server chose in an answer what
+// this command registered on the redactor. A result is printed on stdout,
+// and the team's name and the principal's reference of a join and a
+// take-in are kept in team.json and credential.json: a server that broke
+// the contract's rule and put into one of them the secret half of what the
+// command presented, or of what its own answer carries, gets a marker in
+// its place, on stdout and in the files. It is called once the half is
+// registered, for the commands that register one: `team create`, `team
+// join`, `team take-in`, `team rotate-secret` and `team open-move`. The
+// three that are answered a credential register that first (hideIssued).
+// The team's reference needs none: each of them holds it against the one
+// it knows.
+//
+// Only what is registered is taken out (RedactExact), and not what a
+// format pattern takes for a secret, as in the text of a refusal
+// (readEnvelope): a name is a person's own text, kept as the team's name
+// from then on, and a pattern would cut "Standard Bearer ops" down to
+// "Standard" and a marker.
 func (c *command) hideInAnswer(names ...*string) {
 	for _, name := range names {
-		*name = c.redactor.Redact(*name)
+		*name = c.redactor.RedactExact(*name)
 	}
+}
+
+// hideIssued registers the credential an answer carries, before the names
+// of that answer are looked at (hideInAnswer) and long before it is kept
+// (acceptCredential, which registers it for every line after). A server
+// that repeated the credential it issued in the team's name or in the
+// principal's reference would otherwise have it printed in the command's
+// result and kept in team.json, where no credential belongs. What comes
+// here is a credential by this adapter's rule or nothing: an answer that
+// carried anything else was refused when it was read (the answers'
+// Validate, shapes.go), and nothing is registered for none.
+func (c *command) hideIssued(credential string) {
+	c.redactor.Add(credential)
 }
 
 // warnSecretShownOnce puts the 4.4.10 warning on stderr. It names no
@@ -827,6 +856,7 @@ func (c *command) teamTakeIn() (any, error) {
 	if answer.TeamRef != taken.Secret.TeamRef() {
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the secret names")
 	}
+	c.hideIssued(answer.Credential)
 	c.hideInAnswer(&answer.TeamName, &answer.PrincipalRef)
 	if err := c.keepCredential(answer.Credential, answer.PrincipalRef); err != nil {
 		return nil, err
@@ -882,7 +912,7 @@ func (c *command) teamOpenMove() (any, error) {
 	// wherever it finds one; one that is not is refused below in fixed words.
 	// Its secret half is not of that form, and is registered. Nothing after
 	// this line writes any part of the answer but the result, which has no
-	// ticket member, and the name in it goes through the redactor first.
+	// ticket member, and the half is taken out of the name in it first.
 	c.hideSecretHalf(answer.Ticket)
 	c.hideInAnswer(&answer.TeamName)
 	if answer.TeamRef != c.profile.TeamRef {

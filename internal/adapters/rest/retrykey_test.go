@@ -401,15 +401,33 @@ func TestARetryKeyIsForOneServerAndOneTeam(t *testing.T) {
 }
 
 // warnedToMakeTheTakeInAgain reports whether stderr holds the one line that
-// says an earlier take-in's key stays, and what makes that take-in again:
-// a WARN that names the file, `profile revoke-credentials` and the take-in.
+// says a key of an earlier run stays, and what `profile revoke-credentials`
+// and the same take-in then do: a WARN that names the file and the two
+// commands, and both outcomes, each under its own "if". The adapter does
+// not know which it is, so the line asserts neither: it does not say that
+// an owner was made.
 func warnedToMakeTheTakeInAgain(stderr string) bool {
 	said := 0
 	for line := range strings.Lines(stderr) {
-		if strings.Contains(line, `"level":"WARN"`) && strings.Contains(line, retryKeyFileName+" stays") &&
-			strings.Contains(line, "`profile revoke-credentials`") && strings.Contains(line, "`team take-in` again") {
-			said++
+		if !strings.Contains(line, `"level":"WARN"`) || !strings.Contains(line, retryKeyFileName+" stays") {
+			continue
 		}
+		for _, part := range []string{
+			"an earlier run of this command kept", "which is a member's",
+			"`profile revoke-credentials`", "`team take-in` again",
+			"if an earlier run took the team in and its answer was lost, they are answered for the owner that run made",
+			"if no earlier run reached the server, or the key has ended, they join this profile as a new member",
+			"remove " + retryKeyFileName,
+		} {
+			if !strings.Contains(line, part) {
+				return false
+			}
+		}
+		// What the line said before: an owner asserted, with no "if" before it.
+		if strings.Contains(line, "as the owner it made") {
+			return false
+		}
+		said++
 	}
 	return said == 1
 }
@@ -421,10 +439,13 @@ func warnedToMakeTheTakeInAgain(stderr string) bool {
 // member's, `owner: false`, with no credential in its answer. The key of
 // the first take-in was never looked at, and is the one way to the owner
 // that take-in made, so the file stays, the same key in it, and stderr
-// says in one line what makes the take-in again. `profile
-// revoke-credentials` and the same command then own the team, and the file
-// is gone. A key that this run minted, one whose profile owns the team and
-// one that was answered with a credential are each removed as before.
+// says in one line what `profile revoke-credentials` and the same command
+// then do. Here they own the team, and the file is gone. The adapter says
+// the same line where the key an earlier run kept never reached a server,
+// because it cannot tell the two apart: there the two commands join the
+// profile as a new member, as the line says. A key that this run minted,
+// one whose profile owns the team and one that was answered with a
+// credential are each removed as before.
 func TestAJoinBetweenTwoTakeInsKeepsTheKeyOfTheFirst(t *testing.T) {
 	t.Parallel()
 	b := newBackend(t)
@@ -469,7 +490,7 @@ func TestAJoinBetweenTwoTakeInsKeepsTheKeyOfTheFirst(t *testing.T) {
 		t.Errorf("the key of the first take-in was replaced, or the member's credential was")
 	}
 	if !warnedToMakeTheTakeInAgain(again.stderr) {
-		t.Errorf("stderr does not say, in one line, that %s stays and what makes the take-in again:\n%s", retryKeyFileName, again.stderr)
+		t.Errorf("stderr does not say, in one line, that %s stays and what the two commands then do in either case:\n%s", retryKeyFileName, again.stderr)
 	}
 	if strings.Contains(again.stdout+again.stderr, kept.Key) {
 		t.Errorf("the key is on stdout or stderr")
@@ -490,6 +511,7 @@ func TestAJoinBetweenTwoTakeInsKeepsTheKeyOfTheFirst(t *testing.T) {
 	if owned.code != 0 || result["owner"] != true || result["taken_in"] != false || result["principal_ref"] == joined["principal_ref"] {
 		t.Fatalf("the take-in after the credential was revoked: exit %d, %v, want the owner the first take-in made", owned.code, result)
 	}
+	ownersRef := result["principal_ref"]
 	if warnedToMakeTheTakeInAgain(owned.stderr) {
 		t.Errorf("the take-in that owns the team says that the key stays")
 	}
@@ -538,6 +560,36 @@ func TestAJoinBetweenTwoTakeInsKeepsTheKeyOfTheFirst(t *testing.T) {
 			t.Errorf("%s: stderr says that the key stays, or the profile holds no credential", name)
 		}
 	}
+	// The other case the line names. A member's profile holds a key that an
+	// earlier run kept and no server ever saw: a request that never arrived
+	// leaves the same file as an answer that was lost. The take-in says the
+	// same line, which asserts neither case, and keeps the file. The two
+	// commands then join the profile as a new member, as the line says: the
+	// server looked at the key and keeps none like it. The file is gone
+	// with that answer, and the member the profile was holds no credential.
+	bob := newRig(t, b.url())
+	was := bob.join(secret, "bob@example.com")
+	plant(bob)
+	unseen := bob.exec(document, "team", "take-in")
+	result, _ = decode(t, unseen.stdout)["result"].(map[string]any)
+	if unseen.code != 0 || result["owner"] != false || result["principal_ref"] != was["principal_ref"] || !warnedToMakeTheTakeInAgain(unseen.stderr) {
+		t.Fatalf("a member's take-in with a key no server saw: exit %d, %v, and the line is said: %v", unseen.code, result, warnedToMakeTheTakeInAgain(unseen.stderr))
+	}
+	if bob.keptRetryKey().Key != planted {
+		t.Errorf("the key no server saw was replaced")
+	}
+	bob.ok("", "profile", "revoke-credentials")
+	fresh := bob.exec(document, "team", "take-in")
+	result, _ = decode(t, fresh.stdout)["result"].(map[string]any)
+	if fresh.code != 0 || result["owner"] != false || result["taken_in"] != false || result["principal_ref"] == was["principal_ref"] ||
+		result["principal_ref"] == ownersRef {
+		t.Errorf("the take-in after the credential was revoked, with a key no server saw: exit %d, %v, want a new member", fresh.code, result)
+	}
+	if warnedToMakeTheTakeInAgain(fresh.stderr) || bob.storedCredential() == "" {
+		t.Errorf("the new member's take-in says that the key stays, or the profile holds no credential")
+	}
+	bob.noRetryKey("after a take-in that the server answered for a new member")
+
 	// A kept key on the profile whose credential owns the team: the answer
 	// is the owner's, and needs no key.
 	plant(alice)
@@ -620,8 +672,9 @@ func TestARetryKeyFileThatIsNoPrivateFileIsRefused(t *testing.T) {
 // TestARetryKeyThatCannotBeRemovedIsSaid: the credential is kept and the
 // key file cannot be removed. The take-in is done and succeeds, and stderr
 // says to remove the file, by its name: the server honours the key until
-// the team's join secret is rotated, so a file that stays is not left
-// there in silence. The line holds nothing of the key.
+// its owner first asks for something with the credential that the server
+// records, so a file that stays is not left there in silence. The line
+// holds nothing of the key.
 func TestARetryKeyThatCannotBeRemovedIsSaid(t *testing.T) {
 	t.Parallel()
 	b := newBackend(t)

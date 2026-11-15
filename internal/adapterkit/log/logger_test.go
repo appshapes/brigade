@@ -190,6 +190,44 @@ func TestExactTokenMidString(t *testing.T) {
 	})
 }
 
+// TestRedactExactTakesOutWhatIsRegisteredAndNothingElse: RedactExact is for
+// a value that is kept as data, a name a backend answered with. A
+// registered token is taken out of it wherever it stands, as Redact takes
+// it out. Text that only a format pattern takes for a secret stays as it
+// is: the words "bearer" and a word after it, a name that begins like a
+// key, a token's shape. The positive control is Redact on the same text,
+// which cuts each of them.
+func TestRedactExactTakesOutWhatIsRegisteredAndNothingElse(t *testing.T) {
+	t.Parallel()
+	r := aklog.NewRedactor(exactTok, brgSecretHalf)
+	for _, name := range []string{
+		"Standard Bearer ops", "the bearer of news", "BEARER\tx", "sb_secret_santa", "team " + jwtToken,
+		"brg1.team-7.short", "ops", "",
+	} {
+		if got := r.RedactExact(name); got != name {
+			t.Errorf("RedactExact(%q) = %q, want it as it is: nothing in it is registered", name, got)
+		}
+		if name != "ops" && name != "" && r.Redact(name) == name {
+			t.Errorf("Redact(%q) left it as it is: the control holds nothing a pattern cuts", name)
+		}
+	}
+	for text, want := range map[string]string{
+		"ops " + brgSecretHalf:             "ops " + aklog.Redacted,
+		brgSecret:                          "brg1.team-7." + aklog.Redacted,
+		"p-" + exactTok + "-" + exactTok:   "p-" + aklog.Redacted + "-" + aklog.Redacted,
+		"Standard Bearer " + brgSecretHalf: "Standard Bearer " + aklog.Redacted,
+	} {
+		if got := r.RedactExact(text); got != want {
+			t.Errorf("RedactExact(%q) = %q, want %q", text, got, want)
+		}
+	}
+	// Nil-safe, as Redact is: no token is registered, and nothing is cut.
+	var none *aklog.Redactor
+	if got := none.RedactExact("Standard Bearer " + brgSecret); got != "Standard Bearer "+brgSecret {
+		t.Errorf("a nil redactor's RedactExact changed %q", got)
+	}
+}
+
 // TestSecretInAttrKeyIsRedacted pins the key-redaction half of
 // replaceAttr: a secret can arrive as the attribute KEY itself (a map
 // key or URL fragment used as a per-entry attr name), where none of the

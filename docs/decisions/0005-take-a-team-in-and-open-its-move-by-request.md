@@ -82,18 +82,21 @@ A running server takes a team in, and opens and closes its move, by request.
      acted, or is one that only the team's owner is answered for, and the two records of a move say whether its
      owner asked for them. The contract asks a server for no less than this and allows no more: no later than
      the first such request that changes what the server holds, and no earlier than the first that carries the
-     credential.
+     credential. Of a key the state holds one fact, what the team keeps (`Team::take_in_retry`, the hash and
+     the principal): the way from that principal back to the team (`Principal::retry_key_in`) is read off it
+     whenever a state is read, and is written to no snapshot.
    - The key lives in a file with the protection of the credential it stands in for, on the machine that owns
      the team. The `rest` adapter mints it before the request, or uses the one an earlier attempt for the same
      server and the same team left. It keeps it in `take-in-key.json` beside `credential.json` (mode 0600,
      written by rename, never under the project directory), registers it for redaction, sends it, and on an
      answer writes the credential first and removes the key file only then. One answer leaves the file where it
      is: a take-in that carried a key an earlier run kept, and was answered `owner: false` for a credential the
-     profile holds. The server did not look at that key, and it is the key of the owner the earlier run made
-     when the machine joined the team in between; the adapter says on stderr that `profile revoke-credentials`
-     and the same take-in make that take-in again. A clock of its own would add nothing to the key: a person
-     makes a request again when they come back to it, and the key ends when its owner first acts. BAP/1 does not
-     change: the key is in no request and no result of the adapter protocol.
+     profile holds. The server did not look at that key. It is the key of the owner the earlier run made when
+     that run's answer was lost and the machine joined the team in between, and a key no server ever saw when
+     the earlier run did not arrive: the adapter cannot tell which, and says on stderr what `profile
+     revoke-credentials` and the same take-in do in either case. A clock of its own would add nothing to the
+     key: a person makes a request again when they come back to it, and the key ends when its owner first
+     acts. BAP/1 does not change: the key is in no request and no result of the adapter protocol.
 5. **`/v1/team/open-move` and `/v1/team/close-move`** answer the team's owner only, by its credential, and do
    what the operator's `--open-move`, with `--ticket-days`, and `--close-move` do. The ticket is in the answer
    of the request that opens the move, once. The adapter writes it to a file of mode 0600 that the caller
@@ -220,10 +223,11 @@ no hosted project was asked.
   answer eighteen in the same bytes, the one with the kept key among them. A log in the records a 0.7.0 of
   before the key had an end wrote reads to one state however often it is read, and a server that goes on from it
   answers the same. And a walk of twenty thousand requests on two dozen teams, chosen by numbers that are the
-  same in every run: a key is kept 132 times, each for the owner a take-in made; a take-in is made again 44
-  times, each one that was due and no other; 110 keys end with their owner's own request, each key that such a
+  same in every run: a key is kept 140 times, each for the owner a take-in made; a take-in is made again 47
+  times, each one that was due and no other; 127 keys end with their owner's own request, each key that such a
   request found; and no request of anybody else's, no command of the operator's that names no owner and no
-  take-in ends a key or changes an owner.
+  take-in ends a key or changes an owner. (The numbers are of the walk as the second verification left it,
+  below; as it first stood they were 132, 44 and 110.)
 - The retry key on a running server (`a_take_in_is_made_again_with_its_key`, on the file log and on the Cavalry
   feed). The server is killed right behind the answer of the first take-in. Started again, it knows the
   credential of that answer, answers the request made again for the same principal with a new one, and refuses
@@ -300,6 +304,71 @@ no hosted project was asked.
   where a name has 255 bytes, and the test holds both ends.
 - `make server-check server-test` and the acceptance gate pass on the final tree. `make server-deps-check` did
   not run: the machine has no `cargo-deny`. No crate was added.
+- The second verification of the key's end, on 2026-11-15, from a worktree of its own on the tree that holds
+  the one command as well.
+  - Every request. One test asks each request of the contract's section 2 with the credential of an owner
+    whose key is kept: 28 requests for the 18 kinds, each on a server of its own beside a twin that kept no
+    key. The request that leaves a record ends the key and the one that leaves none ends nothing; the two
+    servers answer in the same bytes and write the same entry, and hold the same state once the key has
+    ended. The seven that a session asks are refused, because a principal that a team keeps a key for has no
+    session. The test does not build when a request is added that it does not name. Three one-line changes
+    that made a roster, a list of sessions and a leave tell whether a team keeps a key passed every test
+    there was, which held take-ins against each other and nothing else; this one fails under each.
+  - The walk. As it first stood, no key in it ended by a session registered or by a transfer, and one by a
+    leave: the one caller in forty that held a kept key asked about a team chosen apart from it. That caller
+    now asks about its own team three times in four, and the walk holds that each of the ten kinds of record
+    that end a key ended one, with a match over the kinds that does not build when one is added. At every
+    step a principal that a team keeps a key for is an active member of that team, is in no other and has no
+    session: that is what lets the rule leave the five records of a session unread. And every 199 steps the
+    server starts again: the snapshot of the start before, with the entries the log took since, makes the
+    state it holds, and it goes on from that snapshot read back. 99 starts, 36 keys in their snapshots, 70
+    kept or ended in the entries after them.
+  - Mutation of the server: 36 one-line changes to `state.rs` and `execute.rs`, 35 caught. The one that is
+    not ends a key at `session.resumed`, which changes nothing a request can show. A `session.opened` that
+    ends no key was caught by two tests and not by the walk as it first stood; the walk catches it now, and a
+    snapshot that leaves out the key. Three more to the journal's lines, each caught.
+  - Mutation of the adapter, the stand-in server and the probe: 43 one-line changes, 39 caught.
+    One that let the stand-in end a key when its owner lists the sessions was caught by none, and a line of a
+    test catches it now. The four that are left change nothing that stays or that a test can reach: a join
+    that hides its names after the credential file is first written, which the binding writes again; a
+    heartbeat that is a read and a receive that is none on the stand-in, which need a session that no owner
+    of a kept key has; and a probe opened without `O_EXCL`, whose name is 64 random bits.
+  - Older servers on the Cavalry feed, which had not been run: 0.6.0 and 0.5.0, each built from its tag, 76
+    checks each on the feed and 76 on the file log, by one script. Among them the owner registers a session
+    on the older server, which is then killed: this 0.7.0 starts from its own snapshot and the entries after
+    it, and the key has ended, because the record the older server wrote is the owner's own.
+  - Two defects in the names of a success, fixed. They went through the whole redactor, whose patterns take
+    for a secret what is none: a team named "Standard Bearer ops" was "Standard [redacted]" in the result of
+    the four commands, in `profile status` and in `team.json`, by the rule for an Authorization header. The
+    names now lose what the command registered and nothing else (`RedactExact`), which a test holds through
+    the four commands against the stand-in server. And two things were not registered when the names were
+    looked at: the secret a `team create --secret-file` is answered, which is on no stream by design and whose
+    half in a name was printed all the same, and the credential a creation, a join and a take-in are
+    answered, which a name carried to stdout and into `team.json`. Both are registered first now.
+  - Shown and left for a decision. Through `brigade team move --to` the adapter's line about a key file that
+    stays is in the adapter's log and not on the terminal: the command says that the server's operator can
+    name the owner. And `brigade team revoke-credentials` acts for the team a checkout's file names: in a
+    checkout that still names the backend the team leaves it revokes the membership there. Both by runs of
+    the built `brigade` against the stand-in server.
+  - One fact of a key. The way back was a member of the snapshot as well, and a snapshot that held the key
+    and not the way back started a server on which the owner's own session did not end the key: shown on the
+    built server, with the member taken out of a snapshot and its checksum made right, where the same take-in
+    was then answered for the owner and made its credential unknown. A state is now read through one
+    function that reads the way back off the teams, and the member is neither written nor read. A test of the
+    rules reads the state from five snapshots (as this build writes it, as the earlier one did, with a way
+    back to another team, to no team, and on a principal no team keeps a key for): each is the state a replay
+    makes, and the owner's session ends the key. A snapshot in which two teams keep a key for one principal
+    reads to a state in which the last of them does. The built server starts from four such snapshots on the
+    file log and two on the Cavalry feed, each written again with its checksum, and the same take-in is a
+    stranger's join after the owner's session and after a kill. The walk's 99 starts and its replay from an
+    empty state hold as before. Six one-line changes to the reading, each caught, two of them against the
+    server as a process as well. 0.6.0 and 0.5.0 read the snapshots without the member: 76 checks each, on
+    the file log and on the Cavalry feed.
+  - The adapter's line about a key file that stays said that the two commands make the take-in again "as the
+    owner it made". The adapter does not know that: a request that never arrived leaves the same file as an
+    answer that was lost. The line now says what it knows and what the two commands do in either case, and
+    the test holds the second case too: a member's profile with a key no server saw says the line, and the
+    two commands then join it as a new member. Six one-line changes to the line, each caught.
 - Not measured: a move of a real team from a hosted project by these requests, and an answer lost by a real
   proxy or a real timeout. The command that makes the requests from the administrator's machine is the next
   part of work item 328.
@@ -330,14 +399,17 @@ no hosted project was asked.
   after it such a request is a stranger's join and takes nothing from the owner.
 - A machine that ran `team join` between a lost answer and the take-in run again holds a member's credential,
   and a request with a credential the server knows is that principal's whatever key it carries. The adapter
-  keeps the key file through that answer and says what to do: `profile revoke-credentials`, and the take-in
-  again, which is then answered for the owner.
-- A server keeps one hash more for a team that was taken in with a key, and one reference more for its owner,
-  until that owner's first request that leaves a record.
+  keeps the key file through that answer and says what `profile revoke-credentials` and the take-in again
+  then do: they are answered for the owner. It says the same line where the key an earlier run kept never
+  reached the server, which it cannot tell apart, and there the two commands join the profile as a new member:
+  the line says both, and asserts neither. It says so on its own stderr. A caller that keeps an adapter's
+  stderr in a log, as `brigade team move --to` does, shows the person nothing of it.
+- A server keeps one hash more for a team that was taken in with a key, and in memory one reference more for
+  its owner, until that owner's first request that leaves a record.
 - The rule is as whole as the list of records it reads. A request of the owner's that leaves a record
   `State::apply` does not read for it would not end the key. There is none today: each request that can be an
   owner's first is held to the rule in the tests, and a request that is added later needs its arm there and its
-  step in the walk of the rules.
+  step in the walk of the rules: the tests do not build until the request and its record are named in them.
 - A take-in that is refused for its secret tells that a team of that reference is on the server, where a join
   tells nothing. It is counted against a known principal as a failed join is.
 - The reference of a team that is taken in is its caller's choice, and the server keeps it. `brigade-server`
