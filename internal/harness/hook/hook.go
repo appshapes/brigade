@@ -273,6 +273,12 @@ type Deps struct {
 	// budget is left, and a test of what the ask says must not have a busy
 	// machine decide whether it is said (work item 336).
 	StopBudget time.Duration
+	// GitBudget, when set, is the budget of each git call the state entry
+	// makes (state.go) in place of its hook's own; zero means that one.
+	// Only a test sets it: whether the hook saw a commit must not be for a
+	// busy machine to decide, by how long git took to answer (work item
+	// 336).
+	GitBudget time.Duration
 	// FollowBudget bounds the whole follow of `brigade hook follow`, the
 	// child a prompt hook starts (move.go, work item 327); zero means
 	// followBudget. Only a test lowers it, to see a follow whose backend

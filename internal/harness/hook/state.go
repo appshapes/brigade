@@ -28,7 +28,7 @@ import (
 
 // The budgets of one git call in each hook: SessionStart has 55 s, the
 // prompt hook 4.5 s shared with the poll, SessionEnd 1.4 s shared with
-// the close.
+// the close. A test may set its own (Deps.GitBudget).
 const (
 	stateGitBudgetStart  = 1500 * time.Millisecond
 	stateGitBudgetPrompt = time.Second
@@ -152,6 +152,9 @@ func (r *run) stateEnd(ctx context.Context, f facts, m *sessionmap.ByPID, reason
 // call that fails or times out all leave the entry's git facts as they
 // were, and the next hook tries again.
 func (r *run) stateRefreshGit(ctx context.Context, m *sessionmap.ByPID, e *state.Entry, budget time.Duration) {
+	if r.deps.GitBudget > 0 {
+		budget = r.deps.GitBudget
+	}
 	hash, branch := gitfacts.Head(m.SyncRoot)
 	if hash == "" {
 		return

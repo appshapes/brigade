@@ -75,8 +75,13 @@ func feedbackContext(t *testing.T, out string) string {
 // 3.6 s and 4.2 s and logged `stop: too little budget left for the ask`).
 // The gate itself is held under a budget made short
 // (TestStopAsksNothingWithoutASecondOfItsBudget).
+//
+// The same for the hook's git calls, which have a second each: with the
+// package's tests sharing one core, git answered later than that, the
+// entry kept no commit, and the tests of the note ask saw no ask (measured
+// on 2026-11-15: `the entry's commits: []`).
 func (f *fixture) unhurried() {
-	f.deps.PromptBudget, f.deps.StopBudget = time.Minute, time.Minute
+	f.deps.PromptBudget, f.deps.StopBudget, f.deps.GitBudget = time.Minute, time.Minute, time.Minute
 }
 
 // stateSession is a registered session in a project with a state folder,
