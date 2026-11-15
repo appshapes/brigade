@@ -1869,3 +1869,95 @@ func TestWhatARunningSessionWasToldOfTwoServersIsTakenBackWhenTheFileGoesBackThr
 		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 	}
 }
+
+// TestARunningSessionLeavesWhatAFollowLeftThatIsStillTrueThroughTheRealBinary:
+// a session runs on server X. The team moves to Y, the checkout follows at
+// another session's start, and the first session is not prompted. The team
+// then comes back to X, which stops answering: the checkout's file names X,
+// its pin names Y, and the first session is on X still. A new session's
+// follow from Y to X finds X silent, says so, and leaves that for the
+// checkout's prompts. Until this every prompt of the session on X removed
+// that mark, because its checkout's file names the server it is on, and the
+// new session's next prompt said that `.brigade.json` does not match the
+// team, of a server that was only down. A running session's prompt takes a
+// mark back only where the checkout's pin matches its file.
+//
+//  1. The new session's start says that X did not answer, and leaves that.
+//  2. A prompt of the session that runs on X leaves it as it was.
+//  3. The new session's prompt says what its start said.
+//  4. X answers again: the new session connects there.
+func TestARunningSessionLeavesWhatAFollowLeftThatIsStillTrueThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	down := &silent{}
+	_, x := startFront(t, startRestBackend(t), down.before, nil)
+	y := startRestBackend(t)
+	r := teamOnAServer(t, x)
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	start := func(s session) result {
+		return r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	}
+	// One session runs on X. The team moves to Y, and the checkout follows at
+	// another session's start; the first is not prompted, and stays on X.
+	onX := r.newSession("bob", bobName, "", "", "")
+	start(onX)
+	r.movedTo(y, r.secretFile)
+	onY := r.newSession("bob", "billing-on-y", "", "", "")
+	if res := start(onY); !r.mapExists(onY) || r.mustMap(onY).TeamKey != r.keyAt(y) || r.mustMap(onX).TeamKey != r.keyAt(x) {
+		t.Fatalf("the arrangement: one session on Y and one still on X: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	// The team comes back to X by the one command, and X stops answering.
+	r.movedTo(x, r.secretFile)
+	if pin, _, perr := teamstore.LookupPin(r.configDirB, canon); perr != nil || pin.URL != y.url || !strings.Contains(r.teamFile(), x.url) {
+		t.Fatalf("the arrangement: the member's checkout pinned to Y with a file that names X: %+v %v", pin, perr)
+	}
+	down.on.Store(true)
+	silentWords := func(said string) bool {
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+	}
+
+	// --- 1. a new session's start: X did not answer -------------------------------------------------------------
+	fresh := r.newSession("bob", "billing-new", "", "", "")
+	if res := start(fresh); r.mapExists(fresh) || !silentWords(res.stdout) {
+		t.Fatalf("a new session's start while X does not answer: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	left, err := os.ReadFile(mark) //nolint:gosec // G304: a file under the test's own state directory
+	if err != nil {
+		t.Fatalf("that start left nothing for the checkout's prompts: %v", err)
+	}
+
+	// --- 2. the session on X is prompted: what the follow left is still true -----------------------------------
+	for i := range 2 {
+		if res := r.restPrompt(onX); strings.Contains(res.stdout, "did not answer") || strings.Contains(res.stdout, "does not match") {
+			t.Fatalf("prompt %d of the session on X: stdout %q", i+1, res.stdout)
+		}
+		if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // G304: as above
+			t.Fatalf("prompt %d of the session on X: what the follow left is %q, %v; it was %q", i+1, now, err, left)
+		}
+	}
+
+	// --- 3. the new session's prompt says what its start said ----------------------------------------------------
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	if res := r.promptedUntilAFollowStarts(fresh, r.configDirB, canon); r.mapExists(fresh) || !silentWords(res.stdout) {
+		t.Fatalf("the new session's prompt after a prompt of the session on X: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		return logLines(moveLog, "the team file names another backend for this team, and the move was not followed") == 1
+	})
+
+	// --- 4. X answers again --------------------------------------------------------------------------------------
+	down.on.Store(false)
+	said := r.promptedUntilMoved(fresh, r.keyAt(x), func(s session) result {
+		r.aMinuteLater(s, r.configDirB, canon)
+		return r.restPrompt(s)
+	})
+	if strings.Contains(said.stdout, "does not match") {
+		t.Fatalf("the prompts that connected the new session: stdout %q", said.stdout)
+	}
+	for _, s := range []session{onX, onY, fresh} {
+		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+	}
+}

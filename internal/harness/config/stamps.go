@@ -96,8 +96,7 @@ func MoveFollowedMark(stateDir, configDir, checkout string) string {
 // the member's own join there removes it.
 // It does not outlive the state it speaks of: a session's start in a
 // checkout whose pin matches its team file removes it, and so does the
-// prompt of a running session whose checkout's file names the backend the
-// session is on, or whose checkout's pin matches its file.
+// prompt of a running session there.
 func MoveNotFollowedMark(stateDir, configDir, checkout string) string {
 	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".not-followed")
 }

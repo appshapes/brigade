@@ -698,3 +698,59 @@ func TestAPromptThatFindsItsCheckoutWhereTheFileSaysTakesTheMarkBack(t *testing.
 		t.Fatalf("the session is on %q, want %q where it was; the mark is still there: %v", m.TeamKey, f.teamKey, exists(mark))
 	}
 }
+
+// TestAPromptLeavesWhatAFollowLeftThatIsStillTrue (work item 341): a
+// session runs on the backend X in a checkout whose pin has gone on to the
+// server Y, while the checkout's team file names X again: the team came
+// back, and this session never left. Another session of the checkout
+// follows from Y to X, finds X silent, and leaves that for the checkout's
+// prompts. Until this the first session's every prompt removed that mark,
+// because its own file names the backend it is on, and the other session's
+// next prompt said that the team file does not match, of a backend that
+// was only down. The common prompt takes a mark back only where it speaks
+// of nothing: where the checkout's pin matches its file. Here it does not,
+// and the mark stays as it was.
+func TestAPromptLeavesWhatAFollowLeftThatIsStillTrue(t *testing.T) {
+	t.Parallel()
+	for name, old := range map[string]bool{"a session whose map names its checkout": false, "a session whose map names no checkout": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			attachedMember(t, f, nil, nil)
+			// The checkout is joined to the server now, and its file names the
+			// backend the session is on: what a follow there and a file that
+			// went back leave.
+			server := teamstore.Key("rest", movedURL, "team-1")
+			f.memberOf("team-1")
+			pins := map[string]any{"version": 1, "projects": map[string]any{f.canon(): map[string]any{
+				"adapter": "rest", "url": movedURL, "certificate": movedPin, "team_ref": "team-1", "consented_at": "2026-11-14T12:00:00Z",
+			}}}
+			if err := adapterkit.WriteAtomic(teamstore.PinsPath(f.configDir), mustJSON(pins)); err != nil {
+				t.Fatal(err)
+			}
+			if pin, tf := f.checkoutPin(), f.movedFile(); pin.Matches(tf) || teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef) != f.teamKey {
+				t.Fatalf("the arrangement: the pin (%+v) matches the file, or the file does not name the backend the session is on", pin)
+			}
+			// What another session's follow to the backend the file names left.
+			mark := config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+			left := append(mustJSON(followedMark{Version: followedMarkVersion, TeamKey: f.teamKey, FollowedAt: f.now, Reason: teammove.ReasonNewBackendFailed}), '\n')
+			if err := adapterkit.WriteAtomic(mark, left); err != nil {
+				t.Fatal(err)
+			}
+			if old {
+				f.withoutCheckout()
+			}
+			for i := range 2 {
+				if got := f.prompted(); len(got) != 0 {
+					t.Fatalf("prompt %d of the session whose file names the backend it is on: %q", i+1, got)
+				}
+				if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // the fixture's own state directory
+					t.Fatalf("prompt %d: what the follow left is %q, %v; it was %q, and it is still true: the checkout's pin does not match its file", i+1, now, err, left)
+				}
+			}
+			if m := f.mustMap(); m.TeamKey != f.teamKey || m.TeamKey == server {
+				t.Fatalf("the session moved: %+v", m.TeamKey)
+			}
+		})
+	}
+}
