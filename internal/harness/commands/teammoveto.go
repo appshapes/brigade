@@ -678,13 +678,24 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 	hostOfCandidate := func(i int) string {
 		return attrLine(backendName(bindings, m.file.TeamRef, bindings[i].URL))
 	}
-	hostsOf := func(named []int) string {
+	sorted := func(named []int) []string {
 		hosts := make([]string, 0, len(named))
 		for _, i := range named {
 			hosts = append(hosts, hostOfCandidate(i))
 		}
 		slices.Sort(hosts)
-		return strings.Join(hosts, ", ")
+		return hosts
+	}
+	// hostsOf lists backends between brackets, and subject names them where
+	// they are the subject of a sentence, whose verb follows their number:
+	// "A", "A and B", "A, B and D".
+	hostsOf := func(named []int) string { return strings.Join(sorted(named), ", ") }
+	subject := func(named []int) string {
+		hosts := sorted(named)
+		if len(hosts) < 2 {
+			return strings.Join(hosts, "")
+		}
+		return strings.Join(hosts[:len(hosts)-1], ", ") + " and " + hosts[len(hosts)-1]
 	}
 	reruns := func() string {
 		lines := make([]string, 0, len(candidates))
@@ -697,11 +708,11 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 	if len(unread) > 0 {
 		it, did := "it answers", " did not answer what it records of this team"
 		if len(unread) > 1 {
-			it = "they answer"
+			it, did = "they answer", " did not answer what they record of this team"
 		}
 		return nil, "", &protocol.Error{
 			Code: protocol.CodeUnavailable,
-			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + hostsOf(unread) + did +
+			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + subject(unread) + did +
 				", so which one the team is leaving is not known: a backend that cannot be read may be the one. Run the same command again when " + it +
 				", or with the backend it leaves named: " + reruns() + ". Nothing was changed",
 			Details: map[string]string{"reason": "team_ambiguous"},
@@ -732,12 +743,19 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		if len(others) > 1 {
 			so = "so do "
 		}
-		why = "this checkout was joined to " + hostOfCandidate(own) + ", which records a move to " + m.toHost() + ", and " + so + hostsOf(others) +
+		why = "this checkout was joined to " + hostOfCandidate(own) + ", which records a move to " + m.toHost() + ", and " + so + subject(others) +
 			": a record says that the team once left a backend for this server and not that it is leaving it now, and a checkout that was left behind at an earlier move is joined to such a backend"
 	case rerunAnother:
-		why = "this checkout was joined to " + hostOfCandidate(own) + ", and it is " + hostsOf(recorded) + " that records a move to " + m.toHost()
+		record := " that records a move to "
+		if len(recorded) > 1 {
+			record = " that record a move to "
+		}
+		why = "this checkout was joined to " + hostOfCandidate(own) + ", and it is " + subject(recorded) + record + m.toHost()
 	case rerunRecordAlone:
-		why = hostsOf(recorded) + " records a move to " + m.toHost() + ", which says that the team once left it for this server and not that it is leaving it now, and nothing in this checkout says which one it was joined to before"
+		why = subject(recorded) + " records a move to " + m.toHost() + ", which says that the team once left it for this server and not that it is leaving it now, and nothing in this checkout says which one it was joined to before"
+		if len(recorded) > 1 {
+			why = subject(recorded) + " each record a move to " + m.toHost() + ", which says that the team once left each of them for this server and not that it is leaving one of them now, and nothing in this checkout says which one it was joined to before"
+		}
 	}
 	return nil, "", &protocol.Error{
 		Code: protocol.CodeConfig,

@@ -754,3 +754,24 @@ func TestAPromptLeavesWhatAFollowLeftThatIsStillTrue(t *testing.T) {
 		})
 	}
 }
+
+// TestTheLineOfABackendThatDidNotAnswerSaysOnlyWhatIsTrue (work item 341):
+// the line is said of a question that was not answered and, since a join
+// that was not answered is told as that too, of a join. It said "Nothing
+// was changed". By the time a join is sent a directory for the backend is
+// in the member's store, and the backend may have carried the join out
+// though its answer did not arrive. What is true of both is that the
+// checkout stays joined where it was, and that a session tries again.
+func TestTheLineOfABackendThatDidNotAnswerSaysOnlyWhatIsTrue(t *testing.T) {
+	t.Parallel()
+	for _, gone := range []string{"Nothing was changed", "does not match", "brigade team join"} {
+		if strings.Contains(newBackendSilentLine, gone) {
+			t.Errorf("the line says %q: %s", gone, newBackendSilentLine)
+		}
+	}
+	for _, need := range []string{"did not answer", "This checkout stays joined where it was", "a session tries again when it starts, and this one at its next prompts"} {
+		if !strings.Contains(newBackendSilentLine, need) {
+			t.Errorf("the line lacks %q: %s", need, newBackendSilentLine)
+		}
+	}
+}

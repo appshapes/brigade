@@ -109,22 +109,25 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   and a ban holds for the installation it names: a person who resets
   Brigade or uses another machine is a new principal, so a person is
   kept out by a ban together with a rotation, which closes the move. A
-  server that does not answer changes nothing, and the session says so,
-  at its start and at the prompts after it, where it used to say that
-  `.brigade.json` does not match: whether the server was asked about
-  the membership the machine holds or, where it holds none, was sent the
-  join with the move's ticket. A join that was not answered is no
-  refusal, and nothing is put on record for it. A session that starts
-  while it cannot ask at all, because the backend it joined does not
-  answer or another follow of the machine holds the lock, says what the
-  last follow that asked left, as its prompts do, and not that the file
-  does not match. A backend the member joined that refuses the question,
-  as it refuses a member it has put out, has answered: what an earlier
-  follow left is taken back, and the session says that the file does
-  not match, which names the join that helps. A server the team moved
-  to that answers another refusal, a credential it does not know above
-  all, is told as a server that refuses the membership, with the same
-  command, and not as one to wait for.
+  server that does not answer leaves the checkout joined where it was,
+  and the session says so, at its start and at the prompts after it,
+  where it used to say that `.brigade.json` does not match: whether the
+  server was asked about the membership the machine holds or, where it
+  holds none, was sent the join with the move's ticket. A join that was
+  not answered is no refusal, and no refusal is put on record for it; a
+  directory for the server is in the member's store by then, and the
+  server may have carried the join out though its answer did not
+  arrive. A session that starts while it cannot ask at all, because the
+  backend it joined does not answer or another follow of the machine
+  holds the lock, says what the last follow that asked left, as its
+  prompts do; where none left anything it says, as it did, that the
+  file does not match. A backend the member joined that refuses the
+  question, as it refuses a member it has put out, has answered: what an
+  earlier follow left is taken back, and the session says that the file
+  does not match, which names the join that helps. A server the team
+  moved to that answers another refusal, a credential it does not know
+  above all, is told as a server that refuses the membership, with the
+  same command, and not as one to wait for.
 - **`team rotate-secret` and `team revoke-member` say which backend they
   act on, and take `--on <url or host>`.** After a move a checkout is
   joined to the server the team went to, and a team command goes there

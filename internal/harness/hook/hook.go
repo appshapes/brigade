@@ -1029,9 +1029,12 @@ const eachOtherLine = "Brigade: not connected: .brigade.json names another backe
 // thing asked where the machine holds none. The
 // file is vouched for and nothing is wrong with it: the drift line's words,
 // that it does not match and that `brigade team join` reviews the change,
-// would send the member to a join for a server that is only down. Nothing
-// was changed, and the follow is tried again.
-const newBackendSilentLine = "Brigade: not connected: the team's administrator recorded that the team moved to another backend, and that backend did not answer, so this session could not follow the team there yet. Nothing was changed: a session tries again when it starts, and this one at its next prompts."
+// would send the member to a join for a server that is only down. The
+// checkout stays joined where it was, and the follow is tried again. The
+// line does not say that nothing was changed: where a join was sent, a
+// directory for that backend is in the member's store by then, and the
+// backend may have carried the join out though its answer did not arrive.
+const newBackendSilentLine = "Brigade: not connected: the team's administrator recorded that the team moved to another backend, and that backend did not answer, so this session could not follow the team there yet. This checkout stays joined where it was: a session tries again when it starts, and this one at its next prompts."
 
 // membershipRefusedLine is said in place of the drift line when the backend
 // the member joined recorded the move to the backend the file names, this

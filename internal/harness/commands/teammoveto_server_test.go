@@ -626,3 +626,80 @@ func TestTheCommandsAMovePrintsNameOneBackendWhereAHostNamesTwo(t *testing.T) {
 		}
 	}
 }
+
+// TestARerunsRefusalSpeaksOfSeveralBackendsInThePlural (work item 341): the
+// refusal of a command that is run again names the backends that record
+// the move, or that did not answer. With several of them it said "A, B
+// records a move" and "A, B did not answer what it records": the verb and
+// the pronoun follow the number now, and the names are joined as a
+// sentence joins them.
+func TestARerunsRefusalSpeaksOfSeveralBackendsInThePlural(t *testing.T) {
+	t.Parallel()
+	const earlier, third = "earlier.example.test:8743", "third.example.test:8743"
+	// rerun is a machine that has joined the team on the server the file
+	// names already and on the backends named, beside the one the team left;
+	// pinned says whether the checkout still names that one.
+	rerun := func(pinned bool, others ...string) *moveToRig {
+		t.Helper()
+		r := newMoveToRig(t)
+		r.fromAServer()
+		cfg := r.f.dirs.BrigadeConfig
+		for _, host := range others {
+			if err := write.EnsureBinding(cfg, teamstore.Key("rest", "https://"+host, setupTeamRef), "rest", "https://"+host, "", "", setupTeamRef, "devs", "p_"+host); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := write.EnsureBinding(cfg, r.newKey, "rest", r.newURL, "", moveNewPin, setupTeamRef, "devs", "p_new"); err != nil {
+			t.Fatal(err)
+		}
+		r.writeFile(strings.NewReplacer(r.oldURL, r.newURL, moveOldPin, moveNewPin).Replace(r.original))
+		if !pinned {
+			canon, err := teamfile.Canonicalize(r.top)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := write.Pin(cfg, canon, teamstore.Pin{Adapter: "rest", URL: r.newURL, Certificate: moveNewPin, TeamRef: setupTeamRef, ConsentedAt: fixtureNow}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return r
+	}
+	refused := func(r *moveToRig, code protocol.Code, needs ...string) {
+		t.Helper()
+		perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), code, "team_ambiguous")
+		for _, need := range needs {
+			if !strings.Contains(perr.Message, need) {
+				t.Errorf("the refusal lacks %q: %s", need, perr.Message)
+			}
+		}
+		for _, gone := range []string{" records a move to " + r.newHost + ", which says that the team once left it", "that records a move", "what it records"} {
+			if strings.Contains(perr.Message, gone) {
+				t.Errorf("the refusal speaks of several backends as of one, %q: %s", gone, perr.Message)
+			}
+		}
+	}
+	lost := failAnswer(protocol.CodeUnavailable, "the backend could not be reached")
+
+	// The checkout names none, and two record the move.
+	r := rerun(false, earlier)
+	r.f.rec.on("team moved", okAnswer(r.recorded()))
+	r.there.on("team moved", okAnswer(r.recorded()))
+	refused(r, protocol.CodeConfig, earlier+" and "+r.oldHost+" each record a move to "+r.newHost+", which says that the team once left each of them for this server")
+
+	// Two do not answer what they record.
+	r = rerun(false, earlier)
+	r.f.rec.on("team moved", lost)
+	r.there.on("team moved", lost)
+	refused(r, protocol.CodeUnavailable, earlier+" and "+r.oldHost+" did not answer what they record of this team", "when they answer")
+
+	// The checkout names one that records nothing, and two others record the move.
+	r = rerun(true, earlier, third)
+	r.there.on("team moved", okAnswer(r.recorded()))
+	refused(r, protocol.CodeConfig, "this checkout was joined to "+r.oldHost+", and it is "+earlier+" and "+third+" that record a move to "+r.newHost)
+
+	// The checkout names one that records the move, and so do two others.
+	r = rerun(true, earlier, third)
+	r.f.rec.on("team moved", okAnswer(r.recorded()))
+	r.there.on("team moved", okAnswer(r.recorded()))
+	refused(r, protocol.CodeConfig, "this checkout was joined to "+r.oldHost+", which records a move to "+r.newHost+", and so do "+earlier+" and "+third)
+}

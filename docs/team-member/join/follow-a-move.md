@@ -126,8 +126,11 @@ asks once more.
 **If the session says that the backend the team moved to did not answer.** The move is recorded and the file is
 the right one; the new backend could not be reached, or did not answer in time, when the session asked it
 about the membership your machine holds there or, where it holds none, joined it with the move's ticket.
-Nothing was changed, and nothing is yours to do: the next session follows when it starts, and this one at one of
-its next prompts. Until then a prompt says the same.
+Your checkout stays joined where it was, and nothing is yours to do: the next session follows when it starts,
+and this one at one of its next prompts. Until then a prompt says the same. Where a join was sent, two things
+may have changed all the same: Brigade's files hold a directory for that backend from then on, and the backend
+may have carried the join out though its answer never arrived. The next session joins again; where the first
+join was carried out, your machine is then on that backend's roster twice.
 
 **If the session says that the backend refuses the membership this machine holds there.** The move is recorded
 and the file is the right one, and the backend the team moved to answered: it does not know the credential your

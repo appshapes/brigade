@@ -199,9 +199,16 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			need:  []string{"joined it with the move's ticket", "A session that could not ask"},
 		},
 		{
-			why:   "the changelog says the same of a join that was not answered and of a session that starts while it cannot ask",
+			why:   "the changelog says the same of a join that was not answered and of a session that starts while it cannot ask, which says that the file does not match where no follow left anything",
 			files: []string{"CHANGELOG.md"},
-			need:  []string{"A join that was not answered is no refusal", "while it cannot ask at all"},
+			gone:  []string{"as its prompts do, and not that the file does not match", "A server that does not answer changes nothing"},
+			need:  []string{"A join that was not answered is no refusal", "while it cannot ask at all", "where none left anything"},
+		},
+		{
+			why:   "a join that was not answered has left a directory for the backend in the member's store, and the backend may have carried it out: the page does not say that nothing was changed",
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			gone:  []string{"Nothing was changed, and nothing is yours to do"},
+			need:  []string{"Your checkout stays joined where it was", "may have carried the join out"},
 		},
 		{
 			why:   "the Team Admin's page names the backend a member joined not answering among the reasons a session says that the file does not match",
