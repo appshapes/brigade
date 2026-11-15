@@ -20,6 +20,13 @@
 //! the entry that takes it in; `/v1/team/open-move` and `/v1/team/close-move` open and close a move for
 //! the team's owner. Naming an owner and taking a team back stay the operator's alone: [`answer`] has no
 //! path to either.
+//!
+//! A take-in needs no credential, and the credential of the owner it makes rides its answer. When that
+//! answer is lost, nobody holds the credential, and the same request made again would join as a stranger.
+//! So a take-in may carry a retry key that its client minted and keeps: the server keeps the key's hash
+//! with the record that makes the owner, and the request made again with the team's join secret and that
+//! key is answered for the principal the first one made, with a new credential in the place of the lost
+//! one. A rotation of the team's join secret ends the key.
 
 use std::collections::BTreeMap;
 
@@ -493,6 +500,46 @@ fn principal_or_new(
     (principal_ref, Some(credential))
 }
 
+/// The principal a take-in made, when a request is that take-in made again (the contract's section 3b):
+/// it carries the join secret the team has now, and the key whose hash the team keeps.
+///
+/// The ticket of a move is not the team's join secret and repeats nothing, and a team whose secret was
+/// rotated keeps no key. The secret and the key are both compared whatever the first says. A request
+/// with no key, and a team that keeps none, is no repeat.
+fn repeated_take_in(team: &Team, join_secret: &JoinSecret, key_hash: Option<&str>) -> Option<String> {
+    let kept = team.take_in_retry.as_ref()?;
+    let key_hash = key_hash?;
+    let by_secret = same(&team.join_secret_hash, &sha256_hex(join_secret.expose()));
+    let by_key = same(&kept.key_hash, key_hash);
+    (by_secret & by_key).then(|| kept.principal_ref.clone())
+}
+
+/// A new credential for a principal the server has, in the place of every credential that names it: the
+/// records that make those unknown, then the record that issues the new one. The answer that carried the
+/// old credential was lost, so nobody holds it; whoever does holds nothing from this entry on.
+fn reissue_credential(
+    state: &State,
+    principal_ref: &str,
+    entropy: &mut dyn Entropy,
+    events: &mut Vec<Event>,
+) -> String {
+    events.extend(
+        state
+            .credentials
+            .iter()
+            .filter(|(_, named)| named.as_str() == principal_ref)
+            .map(|(credential_hash, _)| Event::CredentialRevoked {
+                credential_hash: credential_hash.clone(),
+            }),
+    );
+    let credential = new_credential(entropy);
+    events.push(Event::CredentialIssued {
+        principal_ref: principal_ref.to_owned(),
+        credential_hash: sha256_hex(&credential),
+    });
+    credential
+}
+
 /// The team a request names, when the caller is an active member of it. The refusal is one answer for a
 /// team that does not exist, a membership that never was and one that was revoked (BAP/1 4.5.7).
 fn member_team<'a>(state: &'a State, team_ref: &str, principal_ref: &str) -> Result<&'a Team, Error> {
@@ -595,6 +642,7 @@ fn team_create(
         principal_ref: principal_ref.clone(),
         human_label: request.human_label.clone(),
         by_move_ticket: false,
+        retry_key_hash: String::new(),
     });
     let entry = commit(state, now, events);
     let mut result = Map::new();
@@ -617,19 +665,65 @@ fn team_join(
     now: Timestamp,
     entropy: &mut dyn Entropy,
 ) -> Result<Outcome, Error> {
+    let joiner = Joiner {
+        caller,
+        may_own,
+        repeats: None,
+        key_hash: None,
+    };
+    join(state, failures, joiner, request, now, entropy)
+}
+
+/// Who asks for a join, and what a take-in adds to the join it is answered as when the server holds the
+/// team (the contract's section 3b). A `/v1/team/join` adds neither of the last two.
+struct Joiner<'a> {
+    /// The SHA-256 of the credential the request presented, when it presented one.
+    caller: Option<&'a str>,
+    /// Whether the join may make its caller the owner of a team that has none ([`Request::may_own`]).
+    may_own: bool,
+    /// The principal a take-in with a retry key made, when this request is that take-in made again
+    /// ([`repeated_take_in`]): the join is that principal's, and it is given a new credential in the
+    /// place of every one that names it.
+    repeats: Option<String>,
+    /// The SHA-256 of the retry key this request carries, when it carries one: kept with the member's
+    /// record when the join makes a principal and makes it the team's owner.
+    key_hash: Option<String>,
+}
+
+/// A join, and the join a take-in of a team that is here is answered as.
+fn join(
+    state: &mut State,
+    failures: &mut JoinFailures,
+    joiner: Joiner<'_>,
+    request: &TeamJoin,
+    now: Timestamp,
+    entropy: &mut dyn Entropy,
+) -> Result<Outcome, Error> {
+    let Joiner {
+        caller,
+        may_own,
+        repeats,
+        key_hash,
+    } = joiner;
+    // The principal the credential names, when the server knows the credential.
+    let known = caller
+        .and_then(|hash| state.principal_of(hash))
+        .map(str::to_owned);
     // The joins a principal fails are bounded: after as many as it may fail in the window, its next is
     // refused here, before the secret is looked at, the right one included. What is counted is a member's
     // join by a principal the server knows. A caller with no credential it knows has no principal until its
-    // join succeeds. And a gateway's join, which is made inside the server and is the one that may not own,
-    // is not counted: a gateway that was put out tries again each minute with the file its operator keeps,
-    // and is let in the minute that file is right.
-    let counted = may_own
-        .then(|| caller.and_then(|hash| state.principal_of(hash)))
-        .flatten()
-        .map(str::to_owned);
+    // join succeeds, and a take-in made again is such a caller: its secret and its key were both right
+    // before it was known for who it is. And a gateway's join, which is made inside the server and is the
+    // one that may not own, is not counted: a gateway that was put out tries again each minute with the
+    // file its operator keeps, and is let in the minute that file is right.
+    let counted = may_own.then(|| known.clone()).flatten();
     if let Some(principal_ref) = &counted {
         failures.admit(principal_ref, now)?;
     }
+    // The principal the join is for, when it is one the server has: the credential's, or the one a
+    // take-in made, for that take-in made again.
+    let repeated = repeats.is_some();
+    let acting = repeats.or(known);
     // The hash is taken before the team is looked up, so a wrong secret and an unknown team cost the same.
     // A secret the team had before a rotation is a wrong secret: only the hash of the one it has is kept.
     let presented = sha256_hex(request.join_secret.expose());
@@ -646,10 +740,11 @@ fn team_join(
         return Err(failures.rejected(counted.as_deref(), now));
     };
     // A banned principal is told what a wrong secret is told, although its secret is right, and nothing
-    // is made for it. A caller with no credential the server knows is a new principal, which nobody
-    // banned: the ban is on the principal, and the secret is what keeps a stranger out.
-    let banned = caller
-        .and_then(|hash| state.principal_of(hash))
+    // is made for it, a credential in the place of a lost one included. A caller with no credential the
+    // server knows is a new principal, which nobody banned: the ban is on the principal, and the secret
+    // is what keeps a stranger out.
+    let banned = acting
+        .as_ref()
         .and_then(|principal_ref| team.members.get(principal_ref))
         .is_some_and(|member| member.banned);
     if banned {
@@ -660,22 +755,39 @@ fn team_join(
         failures.succeeded(principal_ref);
     }
     let (team_ref, team_name) = (team.team_ref.clone(), team.team_name.clone());
-    let ownerless = team.owner().is_none();
-    let mut events = Vec::new();
-    let (principal_ref, credential) = principal_or_new(state, caller, entropy, &mut events);
-    let rejoined = state.teams[&team_ref].members.contains_key(&principal_ref);
-    events.push(Event::MemberJoined {
-        team_ref: team_ref.clone(),
-        principal_ref: principal_ref.clone(),
-        human_label: request.human_label.clone(),
-        by_move_ticket,
-    });
     // A team that was taken in has no owner, because nobody here created it. The first member whose join
     // may own it does, in the entry that makes it a member: there is no moment at which the team has that
     // member and still no owner. A join by the move ticket never owns, as a gateway's never does: the
     // ticket is read by every member of the team on the backend it leaves, and the team's admin joins
     // with the secret itself.
-    if ownerless && may_own && !by_move_ticket {
+    let owns = team.owner().is_none() && may_own && !by_move_ticket;
+    let mut events = Vec::new();
+    let (principal_ref, credential, made) = match acting {
+        // The take-in made again: the credential its lost answer carried admits nobody from this entry
+        // on, and the new one is in this answer.
+        Some(principal_ref) if repeated => {
+            let credential = reissue_credential(state, &principal_ref, entropy, &mut events);
+            (principal_ref, Some(credential), false)
+        }
+        Some(principal_ref) => (principal_ref, None, false),
+        None => {
+            let (principal_ref, credential) = principal_or_new(state, None, entropy, &mut events);
+            (principal_ref, credential, true)
+        }
+    };
+    let rejoined = state.teams[&team_ref].members.contains_key(&principal_ref);
+    // The key of a take-in is kept where the request made a principal and made it the team's owner: that
+    // is the owner whose credential nobody holds when the answer is lost. Any other join keeps none, so
+    // no later take-in can put another key in the place of the owner's.
+    let retry_key_hash = key_hash.filter(|_| made && owns).unwrap_or_default();
+    events.push(Event::MemberJoined {
+        team_ref: team_ref.clone(),
+        principal_ref: principal_ref.clone(),
+        human_label: request.human_label.clone(),
+        by_move_ticket,
+        retry_key_hash,
+    });
+    if owns {
         events.push(Event::TeamOwnerChanged {
             team_ref: team_ref.clone(),
             principal_ref: principal_ref.clone(),
@@ -710,6 +822,15 @@ fn team_join(
 ///
 /// The answer is `team_ref`, `team_name`, `principal_ref`, `taken_in` and `owner`, with the credential of
 /// a principal that is new. It is safe to repeat: the second request finds the team here and is a join.
+///
+/// A request that carried a retry key, made a principal and made it the team's owner, by taking the team
+/// in or by the join of a team that had no owner, is one its client can make again when the answer was
+/// lost: the hash of the key is kept with the record that makes the member. The same request again, with
+/// the team's join secret, that key and no credential the server knows, is the join of that principal and
+/// not of a new one, and its answer carries a new credential, in the place of every credential that named
+/// the principal ([`repeated_take_in`]). `owner` says whether it owns the team when it is answered. A wrong
+/// key and no key are the join of a new principal, as before, and nothing in the answer says that the
+/// team keeps a key.
 fn team_take_in(
     state: &mut State,
     failures: &mut JoinFailures,
@@ -720,13 +841,28 @@ fn team_take_in(
     entropy: &mut dyn Entropy,
 ) -> Result<Outcome, Error> {
     let team_ref = request.join_secret.team_ref().to_owned();
-    if state.teams.contains_key(&team_ref) {
-        let join = TeamJoin {
+    // The key is hashed before the team is looked at, whether or not the team keeps one.
+    let key_hash = request.retry_key.as_ref().map(|key| sha256_hex(key.expose()));
+    if let Some(team) = state.teams.get(&team_ref) {
+        let join_request = TeamJoin {
             join_secret: request.join_secret.clone(),
             human_label: request.human_label.clone(),
         };
+        // A caller the server knows is the principal its credential names, whatever key it carries.
+        let known = caller.is_some_and(|hash| state.principal_of(hash).is_some());
+        let repeats = if known {
+            None
+        } else {
+            repeated_take_in(team, &request.join_secret, key_hash.as_deref())
+        };
+        let joiner = Joiner {
+            caller,
+            may_own,
+            repeats,
+            key_hash,
+        };
         let rejected = Error::secret_rejected();
-        let joined = team_join(state, failures, caller, may_own, &join, now, entropy).map_err(|refused| {
+        let joined = join(state, failures, joiner, &join_request, now, entropy).map_err(|refused| {
             if refused == rejected {
                 other_join_secret()
             } else {
@@ -773,6 +909,11 @@ fn team_take_in(
         principal_ref: principal_ref.clone(),
         human_label: request.human_label.clone(),
         by_move_ticket: false,
+        // The key is kept where the request made the owner and the owner's credential: a caller the
+        // server knew holds its credential still, and a caller that may not own made no owner.
+        retry_key_hash: key_hash
+            .filter(|_| may_own && credential.is_some())
+            .unwrap_or_default(),
     });
     let entry = commit(state, now, events);
     let mut result = Map::new();

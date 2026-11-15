@@ -40,10 +40,22 @@ fn owner(state: &State, team_ref: &str) -> String {
 
 /// The lines for the records of one request, read against the state those records were applied to: a team
 /// that a member created or took in from another backend, a member who joined, with the team's move ticket
-/// when that is what let it in, a team's new owner, a move that the team's owner opened, and a move that
-/// its owner or a rotation of the team's join secret closed. Every other record has none.
+/// when that is what let it in, a take-in that its member made again with the key it kept, a team's new
+/// owner, a move that the team's owner opened, and a move that its owner or a rotation of the team's join
+/// secret closed. Every other record has none.
 #[must_use]
 pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
+    // One request alone makes a credential unknown and issues another in the same entry: a take-in made
+    // again with its retry key, whose first answer was lost (the contract's section 3b). The principal
+    // of the new credential is the one that take-in made.
+    let replaced = entry
+        .records
+        .iter()
+        .any(|record| matches!(record.event, Event::CredentialRevoked { .. }));
+    let repeated = entry.records.iter().find_map(|record| match &record.event {
+        Event::CredentialIssued { principal_ref, .. } if replaced => Some(principal_ref.as_str()),
+        _ => None,
+    });
     // A move is closed by a rotation in the rotation's own entry, and by its owner in an entry of its own.
     let rotated = entry
         .records
@@ -68,6 +80,18 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
             } else {
                 format!("member {} created {}", plain(created_by), team(state, team_ref))
             }),
+            // The line says that the credential was replaced and shows neither credential, nor the key,
+            // nor the hash of any of them. Who took a team over by a key is what an operator looks for.
+            Event::MemberJoined {
+                team_ref,
+                principal_ref,
+                ..
+            } if repeated == Some(principal_ref.as_str()) => Some(format!(
+                "member {} made its take-in of {} again with the retry key of the first: it has a new \
+                 credential, and the one it had is not known any more",
+                plain(principal_ref),
+                team(state, team_ref)
+            )),
             Event::MemberJoined {
                 team_ref,
                 principal_ref,
@@ -180,6 +204,7 @@ mod tests {
             created_at: Timestamp(1),
             secret_version: 1,
             move_ticket: None,
+            take_in_retry: None,
             members: Default::default(),
             sessions: Default::default(),
         };
@@ -210,6 +235,7 @@ mod tests {
             principal_ref: principal.to_owned(),
             human_label: label.to_owned(),
             by_move_ticket: false,
+            retry_key_hash: String::new(),
         }
     }
 
@@ -219,6 +245,7 @@ mod tests {
             principal_ref: principal.to_owned(),
             human_label: String::new(),
             by_move_ticket: true,
+            retry_key_hash: String::new(),
         }
     }
 
@@ -354,6 +381,57 @@ mod tests {
             lines,
             ["member p-alice closed the move of team ops (t-1): its ticket admits nobody from now on"]
         );
+    }
+
+    #[test]
+    fn a_take_in_made_again_with_its_key_has_a_line_and_no_hash() {
+        // The entry of a take-in made again: the credential the lost answer carried is unknown, a new one
+        // is issued, and the member is the member it was.
+        let again = entry(vec![
+            Event::CredentialRevoked {
+                credential_hash: "hash-of-the-lost-credential".to_owned(),
+            },
+            Event::CredentialIssued {
+                principal_ref: "p-alice".to_owned(),
+                credential_hash: "hash-of-the-new-credential".to_owned(),
+            },
+            joined("p-alice", ""),
+        ]);
+        let lines = of_entry(&state(), &again);
+        assert_eq!(
+            lines,
+            [
+                "member p-alice made its take-in of team ops (t-1) again with the retry key of the first: \
+              it has a new credential, and the one it had is not known any more"
+            ]
+        );
+        assert!(lines.iter().all(|line| !line.contains("hash-of")), "{lines:?}");
+        // A first take-in that kept a key is a take-in and a join, as any is: the line of a repeat is for
+        // an entry that made a credential unknown, and the key's hash is in no line.
+        let first = entry(vec![
+            Event::CredentialIssued {
+                principal_ref: "p-alice".to_owned(),
+                credential_hash: "hash-of-the-credential".to_owned(),
+            },
+            Event::MemberJoined {
+                team_ref: "t-1".to_owned(),
+                principal_ref: "p-alice".to_owned(),
+                human_label: String::new(),
+                by_move_ticket: false,
+                retry_key_hash: "hash-of-the-retry-key".to_owned(),
+            },
+        ]);
+        let lines = of_entry(&state(), &first);
+        assert_eq!(
+            lines,
+            ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
+        );
+        // A member that makes its own credential unknown, and one that joins, each in an entry of its
+        // own, say nothing of a repeat.
+        let revoked = entry(vec![Event::CredentialRevoked {
+            credential_hash: "hash-of-the-credential".to_owned(),
+        }]);
+        assert!(of_entry(&state(), &revoked).is_empty());
     }
 
     #[test]

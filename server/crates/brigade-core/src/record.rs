@@ -314,6 +314,14 @@ pub enum Event {
         /// say how a member came in.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         by_move_ticket: bool,
+        /// The SHA-256 of the retry key of the take-in that made this member, when that request carried
+        /// one, made the principal and made it the team's owner: the log holds the key's hash and never
+        /// the key. It is what lets the machine that took the team in make the request again, when its
+        /// answer was lost, and be answered as this principal (the contract's section 3b). It is written
+        /// only then, so every other join is the record it has always been, and a build that does not
+        /// know the member reads the record without it.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        retry_key_hash: String,
     },
     /// A principal left a team: its membership is revoked and its open sessions there are closed.
     #[serde(rename = "member.left")]
@@ -482,12 +490,21 @@ mod tests {
                 principal_ref: "p".into(),
                 human_label: String::new(),
                 by_move_ticket: false,
+                retry_key_hash: String::new(),
             },
             Event::MemberJoined {
                 team_ref: "t".into(),
                 principal_ref: "p".into(),
                 human_label: "alice".into(),
                 by_move_ticket: true,
+                retry_key_hash: String::new(),
+            },
+            Event::MemberJoined {
+                team_ref: "t".into(),
+                principal_ref: "p".into(),
+                human_label: "alice".into(),
+                by_move_ticket: false,
+                retry_key_hash: "r".into(),
             },
             Event::TeamMoveOpened {
                 team_ref: "t".into(),
@@ -642,6 +659,7 @@ mod tests {
             principal_ref: "p".into(),
             human_label: String::new(),
             by_move_ticket,
+            retry_key_hash: String::new(),
         };
         let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
         // A join with the join secret is the record it has always been, byte for byte, and a record
@@ -657,5 +675,27 @@ mod tests {
             written(joined(true)),
             r#"{"version":1,"at":5,"kind":"member.joined","team_ref":"t","principal_ref":"p","by_move_ticket":true}"#
         );
+    }
+
+    #[test]
+    fn a_join_keeps_the_hash_of_a_retry_key_only_when_a_take_in_gave_it_one() {
+        let joined = |retry_key_hash: &str| Event::MemberJoined {
+            team_ref: "t".into(),
+            principal_ref: "p".into(),
+            human_label: String::new(),
+            by_move_ticket: false,
+            retry_key_hash: retry_key_hash.into(),
+        };
+        let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        // A join with no key is the record it has always been, byte for byte, and a record written before
+        // there were retry keys reads as one: a server 0.6.0 and a server 0.7.0 write and read the same.
+        let without = r#"{"version":1,"at":5,"kind":"member.joined","team_ref":"t","principal_ref":"p"}"#;
+        assert_eq!(written(joined("")), without);
+        assert_eq!(Record::decode(without.as_bytes()).unwrap().event, joined(""));
+        // The member is named as the log keeps it: a build that does not know it reads past it, and one
+        // that does reads the hash back.
+        let with = r#"{"version":1,"at":5,"kind":"member.joined","team_ref":"t","principal_ref":"p","retry_key_hash":"h"}"#;
+        assert_eq!(written(joined("h")), with);
+        assert_eq!(Record::decode(with.as_bytes()).unwrap().event, joined("h"));
     }
 }

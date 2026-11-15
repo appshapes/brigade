@@ -1422,7 +1422,13 @@ open replaces the ticket and says so; and a closed move's ticket admits nobody. 
 stdin document or from the file `--secret-file` names, never from argv. Leave it out and the three verbs are
 unknown verbs of yours and the three cases are SKIP. The `rest` adapter carries it, asking its server's
 `/v1/info` first, and `internal/adapterkit/teamtakein.go` reads the two requests; the fs adapter and the Supabase
-adapter leave it out: no team moves to either.
+adapter leave it out: no team moves to either. A take-in is the one command whose lost answer costs a team its
+owner, because the backend makes the owner and its credential in that answer. The protocol leaves that to the
+adapter and its backend: the `rest` adapter sends a retry key of its own minting, which its server answers
+the same command for when it is run again (`docs/backend-rest-v1.md`, section 3b), and no member of BAP/1
+carries it. And an adapter that writes a ticket or a secret to a file proves first that it can:
+`adapterkit.CheckTicketFileTarget` writes a file of its own beside the path and removes it, before the backend
+is asked to replace a ticket that could then not be kept.
 
 One thing in that territory is *not* optional: `message watch` is core (4.2). Every adapter writes the NDJSON stream,
 starting with one `ready` event whose `mode` is `polling` unless you advertise `message.watch.push` (4.4.9, 4.7), and

@@ -90,4 +90,5 @@ admits nobody from now on`.
 Server 0.4.x does not start on a data directory in which a move was opened. Before going back to one, restore the
 copy you took before the update ([Keep the server](keep-the-server.md)). Server 0.5.0 and 0.6.0 start on what
 0.7.0 wrote, a team taken in by request and a move opened by one included; they answer none of the three
-requests.
+requests, and they keep no retry key: a take-in whose answer was lost, run again after one of them wrote a
+snapshot of the directory, joins as a member.

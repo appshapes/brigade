@@ -1385,6 +1385,17 @@ what differs. The server is experimental in its 0.1.0.
   for no creation token, a stranger can take in a team under that reference with a secret of their own
   invention, and the real team's take-in is then refused as a conflict. A creation token closes that, because
   the stranger takes nothing in without it. No command of the operator's removes such a team yet.
+- **A take-in that is made again.** The answer to a take-in carries the credential of the owner it made, and
+  nothing else holds it: an answer that is lost on the way would leave the team with an owner nobody can be.
+  So the member's adapter mints a retry key before it asks, from 256 random bits, keeps it in a file of mode
+  0600 beside its credential, and sends it; the server keeps the key's hash with the take-in, never the key.
+  The same command run again sends the same key, and with the team's join secret it is answered for the owner
+  the first request made, with a new credential, while the one that was lost admits nobody. What this opens,
+  stated plainly: whoever can read that file while it exists, and holds the join secret, can own the team, as
+  whoever can read the credential beside it can. The adapter removes the file as soon as the credential is
+  written, so it is there only while a take-in has no answer; the server stops honouring the key when the
+  team's join secret is rotated; and the key is in no argument, no output and no log line on either side. A
+  key that is wrong, and none, is a member's join, and no answer says whether a team keeps one.
 - **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
   here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
   revokes or bans a member and transfers the team. Three things differ from section 9. A team that the operator

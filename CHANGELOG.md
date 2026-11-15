@@ -30,6 +30,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   advertises it. Until now the server's operator took a team in and
   opened its move with two commands on a stopped server; those commands
   stay. No `brigade` command makes the three requests yet.
+- **A `team take-in` whose answer was lost is run again, and owns the
+  team** (work item 328, ADR 0005). The server makes the team's owner
+  and puts its credential in the answer, and an answer that never
+  arrives (the command's deadline, a proxy's 502, an interrupt) left a
+  team owned by a member nobody could be: the command run again joined
+  as a stranger, and only the server's operator, on a stopped server,
+  could name the owner. The `rest` adapter now mints a retry key before
+  it asks, keeps it in `take-in-key.json` beside `credential.json`
+  (mode 0600), and sends it; a server 0.7.0 keeps its hash. The same
+  command run again sends the same key and is answered as the owner,
+  with a new credential in the place of the lost one. The key file is
+  removed once the credential is written, is for one server and one
+  team, and is never printed or logged. The adapter protocol does not
+  change: the key is in no request and no result of BAP/1.
 
 ### Fixed
 

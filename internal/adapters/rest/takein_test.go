@@ -88,8 +88,11 @@ func TestTeamTakeIn(t *testing.T) {
 		t.Fatalf("team take-in made %d requests, want /v1/info and the take-in", len(seen))
 	}
 	sent := seen[1]
-	if len(sent.Body) != 3 || sent.Body["join_secret"] != secret || sent.Body["team_name"] != "ops" || sent.Body["human_label"] != "alice@example.com" {
-		t.Errorf("the take-in's body has the members %d, want exactly join_secret, team_name and human_label", len(sent.Body))
+	if len(sent.Body) != 4 || sent.Body["join_secret"] != secret || sent.Body["team_name"] != "ops" || sent.Body["human_label"] != "alice@example.com" {
+		t.Errorf("the take-in's body has the members %d, want exactly join_secret, team_name, human_label and retry_key", len(sent.Body))
+	}
+	if key, _ := sent.Body["retry_key"].(string); !validRetryKey(key) {
+		t.Errorf("the take-in's body carries no retry key of the contract's form")
 	}
 	if sent.Authorization != "" {
 		t.Errorf("a take-in by a profile that holds no credential carried one")

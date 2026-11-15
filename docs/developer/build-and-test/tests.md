@@ -62,7 +62,9 @@ make server-test         # cargo test, then the conformance suite against a runn
 
 `server/` is a Rust workspace outside `make test` ([Change the server](../change/server.md)). `make server-test`
 builds the Go binaries, runs the workspace's tests, and then runs `brigade-conformance` through `bin/brigade`'s
-`rest` adapter against a server it starts: on the file log, and with `--slow` on the Cavalry feed. It needs
+`rest` adapter against a server it starts: on the file log, and with `--slow` on the Cavalry feed. One more
+test there drives the built adapter against the built server through a front that loses an answer: a `team
+take-in` whose answer never arrives, run again, owns the team. It needs
 `cargo`, Linux or macOS, and 201 MiB of room where Cavalry's driver directory goes (`/dev/shm` on Linux).
 
 ## The drift tests in scripts/ci

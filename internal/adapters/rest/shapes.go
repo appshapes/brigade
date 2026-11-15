@@ -41,13 +41,17 @@ type teamJoinBody struct {
 }
 
 // teamTakeInBody is the body of `/v1/team/take-in`: the join secret the
-// team has on the backend it comes from, the name it gets here and the
-// caller's label. As on a join, the document's `backend` member is the
-// adapter's own configuration and is never sent.
+// team has on the backend it comes from, the name it gets here, the
+// caller's label, and the retry key this adapter minted for the take-in
+// (retrykey.go). The key is the contract's and not BAP/1's: it is in no
+// request the adapter reads and in no result it prints. As on a join, the
+// document's `backend` member is the adapter's own configuration and is
+// never sent.
 type teamTakeInBody struct {
 	JoinSecret string `json:"join_secret"`
 	TeamName   string `json:"team_name"`
 	HumanLabel string `json:"human_label,omitzero"`
+	RetryKey   string `json:"retry_key,omitzero"`
 }
 
 // openMoveBody is the body of `/v1/team/open-move`: the profile's team,

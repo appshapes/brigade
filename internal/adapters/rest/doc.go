@@ -28,6 +28,14 @@
 //	                 it names and last_team_ref, mode 0600, written
 //	                 atomically. It is never printed, never logged and
 //	                 never on argv.
+//	take-in-key.json the retry key of a `team take-in`, with the server and
+//	                 the team it was minted for, mode 0600, written
+//	                 atomically before the request and removed once the
+//	                 credential its answer carried is in credential.json:
+//	                 it is there only while a take-in has no answer, and
+//	                 lets the same command, run again, own the team the
+//	                 first run took in (retrykey.go). Never printed, never
+//	                 logged, never on argv.
 //
 // What the adapter does with an answer (the contract's section 1): a body
 // that is a valid result envelope is the answer, whatever the HTTP status;

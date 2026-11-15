@@ -46,6 +46,14 @@ you run nothing.
   creation token takes a team in for anyone who can reach it and holds a join secret.
 - The same request again, with the same secret, changes nothing: the team is here, and the caller joins it. With
   another secret for the same team it is refused.
+- **An answer that is lost costs nothing.** The server's answer carries the credential of the owner it made. So
+  that a timeout does not leave the team with an owner nobody can be, the Team Admin's machine keeps a retry
+  key for the take-in, in a file of its own beside its credential, until it has the answer. Run again, the same
+  command is answered as the owner the first one made, with a new credential, and the journal says `member
+  <reference> made its take-in of team <name> (<team_ref>) again with the retry key of the first: it has a new
+  credential, and the one it had is not known any more`. The server keeps the key's hash, never the key, until
+  the team's join secret is rotated. Without that file, on another machine or after the profile was reset, the
+  command run again joins as a member, and you name the owner ([Name a team's owner](name-the-owner.md)).
 - The journal says who did it: `member <reference> took in team <name> (<team_ref>) with the join secret it has on
   another backend, and owns it`. No line holds the secret.
 - **Decide about the creation token first.** A team's reference is in its committed `.brigade.json`, so it is

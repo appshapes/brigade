@@ -57,6 +57,49 @@ impl std::fmt::Debug for JoinSecret {
     }
 }
 
+/// The key a take-in may carry, so that the machine which made it can make it again when the answer was
+/// lost (the contract's section 3b). It is its client's own secret: 22 to 128 characters of the alphabet
+/// a credential has, minted from at least 128 random bits. It prints as nothing of itself.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RetryKey(String);
+
+impl RetryKey {
+    /// Reads a retry key.
+    ///
+    /// # Errors
+    /// `invalid_input` naming `retry_key`, in fixed words with no part of the input in them, when the
+    /// text is not within its length or holds a character outside a credential's alphabet.
+    pub fn parse(text: &str) -> Result<Self, Error> {
+        let length = (limits::MIN_RETRY_KEY_CHARS..=limits::MAX_RETRY_KEY_CHARS).contains(&text.len());
+        let alphabet = text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._~+/=-".contains(&byte));
+        if !(length && alphabet) {
+            return Err(Error::refused_value(
+                "retry_key",
+                &format!(
+                    "{} to {} characters from A-Z a-z 0-9 . _ ~ + / = -",
+                    limits::MIN_RETRY_KEY_CHARS,
+                    limits::MAX_RETRY_KEY_CHARS
+                ),
+            ));
+        }
+        Ok(Self(text.to_owned()))
+    }
+
+    /// The key, for the one use it has: its hash.
+    #[must_use]
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for RetryKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("[redacted]")
+    }
+}
+
 /// Whether a component of a join secret is free of whitespace, control characters and format characters:
 /// the usual paste accidents, and what could forge the structure of a log line.
 fn clean(component: &str) -> bool {
@@ -198,6 +241,9 @@ pub struct TeamTakeIn {
     pub team_name: String,
     /// The caller's label; empty when the request gave none.
     pub human_label: String,
+    /// The key its client minted for this take-in, when the request carried one: what lets the same
+    /// machine make the request again, as the principal the first one made, when the answer was lost.
+    pub retry_key: Option<RetryKey>,
 }
 
 /// `/v1/team/open-move`.
@@ -592,6 +638,10 @@ fn team_transfer(document: &Document) -> Result<Command, Error> {
 /// nothing of what it presents. A take-in keeps the reference, which its caller chose, so the reference is
 /// held to a cap of the server's own ([`limits::MAX_TAKEN_IN_TEAM_REF_CHARS`]). The refusal is in fixed
 /// words, with nothing of the secret in it.
+///
+/// The retry key is read last, and only its form is held here: a key that is not one is refused whatever
+/// the server holds, so the refusal says nothing about any team. A request without the member is the
+/// request it always was.
 fn team_take_in(document: &Document) -> Result<Command, Error> {
     let secret = document.required_text("join_secret")?;
     let team_name = document.text("team_name")?.unwrap_or_default();
@@ -608,10 +658,15 @@ fn team_take_in(document: &Document) -> Result<Command, Error> {
             ),
         ));
     }
+    let retry_key = document
+        .named_text("retry_key")?
+        .map(|key| RetryKey::parse(&key))
+        .transpose()?;
     Ok(Command::TeamTakeIn(TeamTakeIn {
         join_secret,
         team_name,
         human_label,
+        retry_key,
     }))
 }
 
@@ -797,7 +852,7 @@ fn message_ack(document: &Document) -> Result<Command, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, JoinSecret, Revocation, TeamOpenMove, TeamRevoke, TeamTransfer};
+    use super::{Command, JoinSecret, RetryKey, Revocation, TeamOpenMove, TeamRevoke, TeamTransfer};
     use crate::error::{Code, Error};
 
     fn refused(path: &str, body: &str) -> Error {
@@ -1184,6 +1239,35 @@ mod tests {
             ("ops", "alice")
         );
         assert_eq!(format!("{taken:?}").matches("s3cret").count(), 0);
+        assert_eq!(taken.retry_key, None);
+        // A retry key is read with the rest, and prints as nothing of itself: a request that is logged
+        // whole shows neither its secret nor its key.
+        let key = "kept-by-the-client-that-minted-it";
+        let body = format!(r#"{{"join_secret":"brg1.t.s3cret","team_name":"ops","retry_key":"{key}"}}"#);
+        let Command::TeamTakeIn(keyed) = Command::parse("/v1/team/take-in", body.as_bytes()).unwrap() else {
+            panic!("not a take-in");
+        };
+        assert_eq!(keyed.retry_key.as_ref().map(RetryKey::expose), Some(key));
+        let printed = format!("{keyed:?}");
+        assert!(printed.contains("[redacted]"), "{printed}");
+        assert!(!printed.contains(key) && !printed.contains("s3cret"), "{printed}");
+        // A key that is no key is told by the name of its member, and the last of what is wrong.
+        for (body, named) in [
+            (
+                r#"{"join_secret":"brg1.t.s","team_name":"ops","retry_key":"short"}"#,
+                "retry_key",
+            ),
+            (
+                r#"{"join_secret":"brg1.t.s","team_name":"ops","retry_key":7}"#,
+                "retry_key",
+            ),
+            (
+                r#"{"join_secret":"brg1.t","team_name":"ops","retry_key":"short"}"#,
+                "join_secret",
+            ),
+        ] {
+            assert_eq!(field(&refused("/v1/team/take-in", body)), named, "{body}");
+        }
         for (body, named) in [
             (r#"{"team_name":"ops"}"#, "join_secret"),
             (r#"{"join_secret":"brg1.t.s"}"#, "team_name"),

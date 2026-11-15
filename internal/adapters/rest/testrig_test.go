@@ -38,7 +38,23 @@ type backend struct {
 	mu       sync.Mutex
 	requests []seenRequest
 	fault    func(*seenRequest) *canned
+	lose     func(*seenRequest) loss
 }
+
+// A loss is how the answer to a request the stub has acted on never
+// reaches the adapter: the server did what it was asked, and what it said
+// about it is gone.
+type loss int
+
+const (
+	// answered: nothing is lost.
+	answered loss = iota
+	// behindAProxy: something between the two answers 502 with a page of
+	// its own in the place of the server's answer.
+	behindAProxy
+	// cutOff: the connection is closed with no answer at all.
+	cutOff
+)
 
 // A seenRequest is one request as the server saw it.
 type seenRequest struct {
@@ -92,8 +108,32 @@ func newBackendServing(t *testing.T, o stub.Options, overTLS bool) *backend {
 		_ = json.Unmarshal(raw, &seen.Body)
 		b.mu.Lock()
 		b.requests = append(b.requests, seen)
-		fault := b.fault
+		fault, lose := b.fault, b.lose
 		b.mu.Unlock()
+		if lose != nil {
+			if how := lose(&seen); how != answered {
+				// The stub acts on the request, and its answer goes nowhere.
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+				acted := httptest.NewRecorder()
+				server.ServeHTTP(acted, r)
+				if acted.Code != http.StatusOK {
+					t.Errorf("the answer that is lost is no success: the stub answered %d to %s", acted.Code, seen.Path)
+				}
+				if how == cutOff {
+					conn, _, err := http.NewResponseController(w).Hijack()
+					if err != nil {
+						t.Errorf("the connection could not be taken to close it: %v", err)
+						return
+					}
+					_ = conn.Close()
+					return
+				}
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = io.WriteString(w, "<html><body>502 Bad Gateway</body></html>")
+				return
+			}
+		}
 		if fault != nil {
 			if answer := fault(&seen); answer != nil {
 				for k, v := range answer.header {
@@ -125,6 +165,14 @@ func (b *backend) answerWith(fault func(*seenRequest) *canned) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.fault = fault
+}
+
+// loseAnswers installs (or, with nil, removes) the function that says
+// which answers never reach the adapter although the stub acted.
+func (b *backend) loseAnswers(lose func(*seenRequest) loss) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lose = lose
 }
 
 // seen returns the requests made so far to path ("" for every path).

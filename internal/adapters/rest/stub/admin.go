@@ -63,6 +63,9 @@ type team struct {
 	// ticket is the team's move, nil for a team that is not moving
 	// (takein.go).
 	ticket *moveTicket
+	// retry is what the team keeps of a take-in that carried a retry key,
+	// nil for a team that keeps none (takein.go).
+	retry *takeInRetry
 }
 
 // founded records a team that was just created: the caller is its owner
@@ -197,8 +200,9 @@ func (s *Server) asOwner(c *call) (*owned, *protocol.Error) {
 // teamRotateSecret gives the team a new join secret: the same team_ref,
 // 128 random bits, the next version. No membership changes; the previous
 // secret no longer joins, because admission checks every later join
-// against the new one. A move of the team that is open is closed with it:
-// a rotation ends everything that let anyone in before it.
+// against the new one. A move of the team that is open is closed with it,
+// and the retry key of the take-in that brought the team here is
+// forgotten: a rotation ends everything that let anyone in before it.
 func (s *Server) teamRotateSecret(c *call) (any, *protocol.Error) {
 	s.membership.Lock()
 	defer s.membership.Unlock()
@@ -215,6 +219,9 @@ func (s *Server) teamRotateSecret(c *call) (any, *protocol.Error) {
 	o.team.version++
 	o.team.current = sha256.Sum256([]byte(secret))
 	o.team.ticket = nil
+	// A retry key is honoured for as long as the team has the secret it was
+	// taken in with.
+	o.team.retry = nil
 	version := o.team.version
 	s.mu.Unlock()
 	return map[string]any{

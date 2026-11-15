@@ -739,6 +739,15 @@ func (c *command) requireTeamTakeIn() error {
 // anything on the network. The secret is sent once and never stored; the
 // creation token rides as on `team create`, because a server that limits
 // who may create a team limits who may take one in.
+//
+// The answer carries the credential of the owner the server made, and an
+// answer that is lost would leave that owner with nobody: so the request
+// carries a retry key, which is in take-in-key.json before anything is
+// sent (retrykey.go). The same command run again finds the key and sends
+// it, and the server answers for the principal the first request made,
+// with a new credential. On an answer the credential is written first and
+// the key file removed only then; on anything else the key stays where it
+// is, for the next run.
 func (c *command) teamTakeIn() (any, error) {
 	fs := newFlags()
 	flags := adapterkit.NewTeamTakeInFlags(fs)
@@ -781,7 +790,13 @@ func (c *command) teamTakeIn() (any, error) {
 	if humanLabel == "" {
 		humanLabel = c.profile.HumanLabel
 	}
-	body := &teamTakeInBody{JoinSecret: taken.Secret.Secret(), TeamName: taken.Request.TeamName, HumanLabel: humanLabel}
+	key, err := c.takeInRetryKey(taken.Secret.TeamRef())
+	if err != nil {
+		return nil, err
+	}
+	body := &teamTakeInBody{
+		JoinSecret: taken.Secret.Secret(), TeamName: taken.Request.TeamName, HumanLabel: humanLabel, RetryKey: key,
+	}
 	var answer teamTakeInAnswer
 	if err := c.bindingCall(pathTeamTakeIn, body, &answer, headers); err != nil {
 		return nil, err
@@ -792,6 +807,8 @@ func (c *command) teamTakeIn() (any, error) {
 	if err := c.keepCredential(answer.Credential, answer.PrincipalRef); err != nil {
 		return nil, err
 	}
+	// The credential is kept: the key has nothing left to repeat.
+	c.dropRetryKey()
 	if err := c.bind(answer.TeamRef, answer.TeamName, answer.PrincipalRef, humanLabel); err != nil {
 		return nil, err
 	}
