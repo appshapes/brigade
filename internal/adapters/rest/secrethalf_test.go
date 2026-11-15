@@ -159,7 +159,7 @@ func TestAServerThatPutsTheSecretHalfInASuccessCannotMakeTheAdapterPrintOrKeepIt
 	const presented, learned = "kept-from-the-other-backend", "0123456789abcdef0123456789abcdef"
 	secret := secretOf(elsewhereRef, presented)
 	named := `"team_ref":"` + elsewhereRef + `","team_name":"ops `
-	credential := `,"credential":"0123456789abcdef0123456789abcdef0123456789abcdef"`
+	issued := `,"credential":"0123456789abcdef0123456789abcdef0123456789abcdef"`
 	for name, tc := range map[string]struct {
 		path, half, answer, input string
 		args                      []string
@@ -168,11 +168,11 @@ func TestAServerThatPutsTheSecretHalfInASuccessCannotMakeTheAdapterPrintOrKeepIt
 	}{
 		"team take-in": {
 			path: pathTeamTakeIn, half: presented, input: takeInDocument(secret, "ops", ""), args: []string{"team", "take-in"},
-			answer: `{` + named + presented + `","principal_ref":"p-` + presented + `","taken_in":true,"owner":true` + credential + `}`,
+			answer: `{` + named + presented + `","principal_ref":"p-` + presented + `","taken_in":true,"owner":true` + issued + `}`,
 		},
 		"team join": {
 			path: pathTeamJoin, half: presented, input: `{"join_secret":"` + secret + `"}`, args: []string{"team", "join"},
-			answer: `{` + named + presented + `","principal_ref":"p-` + presented + `","rejoined":false` + credential + `}`,
+			answer: `{` + named + presented + `","principal_ref":"p-` + presented + `","rejoined":false` + issued + `}`,
 		},
 		"team rotate-secret": {
 			path: pathTeamRotateSecret, half: learned, args: []string{"team", "rotate-secret", "--secret-file"}, owned: true, file: "rotated.secret",
