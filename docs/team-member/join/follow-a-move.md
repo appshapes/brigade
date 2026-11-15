@@ -31,10 +31,13 @@ ends. Nothing is asked of you.
   was started in and no other, wherever it works: after a `cd`, in a worktree or in another repository it
   still follows that checkout, at its next prompts. No other checkout's file moves it, and a `/clear` there
   does not either: a session that has moved does not go back because another checkout has not pulled the
-  change yet, and one that has not moved does not go ahead of its own.
+  change yet, and one that has not moved does not go ahead of its own. Told while it works elsewhere, the line
+  above begins `Brigade: the checkout this session was started in followed team`: the directory it is in
+  followed nothing.
 - **If the prompt that moved it was cut short**, the next prompt tells you. A prompt has a few seconds, and
   one that runs out of them after the session moved cannot say so: the session then has a new id for one
-  prompt before you are told.
+  prompt before you are told. A message sent to that id meanwhile may wait on the server until that prompt,
+  and in Muse Code and Codex CLI a `brigade` command of the session may be refused until then.
 - **A quiet session stays quiet.** `/brigade:quiet` holds on the server as it did before.
 - **Held messages keep it back.** A message that is held for your review is on the backend the team left and
   does not move. The session says so once and stays until you release it (`brigade inbox`, then `brigade inbox

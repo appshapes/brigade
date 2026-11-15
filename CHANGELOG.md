@@ -149,7 +149,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   wherever it works. The `.brigade.json` and the membership that are read
   at its prompts are that checkout's, so a session that was started in a
   main checkout and works in a worktree, or after a `cd` into another
-  repository, follows when its own checkout does. Another checkout of
+  repository, follows when its own checkout does, and the line it says
+  there names the checkout it was started in. Another checkout of
   the member's does not move it, whatever its `.brigade.json` names, and
   neither does a `/clear` there: while a move is under way a member can
   have one checkout that has the changed file and one that has not, and
@@ -159,7 +160,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   prompt printed when the prompt runs out of time, so the prompt that
   moves a session leaves a notice first, and a prompt that was cut short
   after the session moved is made good by the next one, which says the
-  move and the session's new id.
+  move and the session's new id. That prompt also starts the watcher
+  that serves the session, which delivers what was sent to its new id
+  meanwhile, and in Muse Code and Codex CLI it files the session for the
+  commands of its shell, which are refused until then.
 
   What made a session follow has not changed. A `.brigade.json` with no
   record behind it still sends a session nowhere and is sent nothing: the
