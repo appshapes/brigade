@@ -18,6 +18,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
@@ -139,7 +140,8 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	second.cwd = dir2
 	third := r.newSession("bob", "", "billing-third", fakesock.New(t).Path(), token)
 	third.cwd = behind
-	fifth := r.newSession("bob", "", "billing-fifth", fakesock.New(t).Path(), token)
+	fifthSock := fakesock.New(t)
+	fifth := r.newSession("bob", "", "billing-fifth", fifthSock.Path(), token)
 	fifth.cwd = dir3
 	alice := r.newSession("alice", "", aliceName, "", "")
 	start := func(s session, source string) result {
@@ -510,7 +512,13 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	if err := os.Remove(watcherLog); err != nil {
 		t.Fatal(err)
 	}
-	// The session has a new id and was told nothing. Its next prompt says the move.
+	// The session has a new id and was told nothing, and no watcher serves that id yet. A teammate who reads
+	// the roster writes to it there: the message waits on the server.
+	gap := jsonResult[sendResult](t, r.mustRun(r.restEnv(alice), "are you there", "send", fifthMap.BrigadeSessionID, "--summary", "gap", "--json").stdout)
+	if got := fifthSock.Frames(); len(got) != 0 {
+		t.Fatalf("a message reached the session before any watcher served its new id: %q", got)
+	}
+	// Its next prompt says the move.
 	res = r.restPrompt(fifth)
 	if !strings.Contains(res.stdout, "followed team") || !strings.Contains(res.stdout, `this session is "billing-fifth" (`+fifthMap.BrigadeSessionID+`)`) {
 		t.Fatalf("the prompt after the hook that was stopped: stdout %q\nstderr %s", res.stdout, res.stderr)
@@ -526,6 +534,11 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 		v, err := pidfile.Check(r.pidfilePath(fifth), procutil.Lookup)
 		return err == nil && v.Found && v.Alive && v.Entry.BrigadeSessionID == fifthMap.BrigadeSessionID && !alive(watcher[fifth.pid])
 	})
+	// The message that waited is delivered by that watcher, once, and a later prompt delivers it no second time.
+	frames := fifthSock.WaitFrames(1, waitLong)
+	if p, err := frame.Parse(frames[len(frames)-1]); err != nil || len(frames) != 1 || p.MessageID != gap.MessageID {
+		t.Fatalf("the message sent while no watcher served the session: %d frames, %+v, %v", len(frames), p, err)
+	}
 	if res := r.restPrompt(fifth); strings.Contains(res.stdout, "followed team") || strings.Contains(res.stdout, "this session is") {
 		t.Fatalf("a later prompt said the move again: stdout %q", res.stdout)
 	}
@@ -537,6 +550,9 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 	}
 	testutil.Eventually(t, waitLong, pollEvery, func() bool { return !alive(watcher[first.pid]) && !alive(watcher[fifth.pid]) })
+	if got := fifthSock.Frames(); len(got) != 1 {
+		t.Fatalf("the message sent while no watcher served the fifth session reached it %d times, want once", len(got))
+	}
 	stopServer(t, backend)
 	// Bob's second session was never prompted: it is on the old backend, its checkout on the server.
 	where(second, "the second session before its /clear", oldKey, old[second.pid], canon2)
