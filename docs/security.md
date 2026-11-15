@@ -1439,12 +1439,14 @@ the session connects to nothing, says that the file does not match, and `team jo
   has the old backend asked once a minute while you prompt and is sent nothing itself. When the checkout has
   followed, a later prompt says the line, registers the session anew on the new backend under the name it has,
   and its watcher there replaces the old one, which closes the old session. A session that asked for quiet
-  stays quiet. A session moves with the checkout it was started in and with no other: a prompt that comes from
-  another checkout of yours changes nothing, whatever that checkout's file names, and a `/clear` there, which
-  is a session's start in that checkout, follows for that checkout as any start does and leaves this session
-  where it is. A session that started before the move was recorded, and is connected to nothing, follows the
-  same way, and says that the backend you joined is being asked. A Grok Build session, whose prompt hook can
-  say nothing, follows only when it starts.
+  stays quiet. A session moves with the checkout it was started in and with no other, at a prompt that comes
+  from that checkout: a prompt that comes from another checkout of yours changes nothing, whatever that
+  checkout's file names, and a `/clear` there, which is a session's start in that checkout, follows for that
+  checkout as any start does and leaves this session where it is while its watcher runs. A session with no
+  watcher, on a host with no inbox socket, cannot be told from one a dead process left under the same process
+  id, and that start registers it where that checkout is. A session that started before the move was recorded,
+  and is connected to nothing, follows the same way, and says that the backend you joined is being asked. A
+  Grok Build session, whose prompt hook can say nothing, follows only when it starts.
 - **Leaving holds.** The line names the way out, `brigade team leave`. A machine that left the team at the server
   is not joined again by a session in another checkout of the team: you come back with `team join`, yourself.
 - **How it ends.** The operator closes the move, or the ticket runs out, or the team's owner rotates the join

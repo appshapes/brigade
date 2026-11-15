@@ -31,7 +31,9 @@ ends. Nothing is asked of you.
   was started in and no other. A prompt you send while it works in another checkout of yours (after a `cd`, or
   in a worktree) changes nothing, whatever that checkout's file names, and a `/clear` there does not move it
   either: a session that has moved does not go back because another checkout has not pulled the change yet,
-  and one that has not moved does not go ahead of its own.
+  and one that has not moved does not go ahead of its own. Nor does it follow its own checkout from there: it
+  moves at a prompt you send while it works in the checkout it was started in, and until then it stays where
+  it is and says nothing.
 - **A quiet session stays quiet.** `/brigade:quiet` holds on the server as it did before.
 - **Held messages keep it back.** A message that is held for your review is on the backend the team left and
   does not move. The session says so once and stays until you release it (`brigade inbox`, then `brigade inbox

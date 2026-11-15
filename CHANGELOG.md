@@ -38,6 +38,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   whatever that checkout's `.brigade.json` names: while a move is under
   way a member can have one checkout that has the changed file and one
   that has not, and a session does not go back and forth between them.
+  It does not follow its own checkout from there either: it moves at a
+  prompt sent while it works in the checkout it was started in.
 
   What made a session follow has not changed. A `.brigade.json` with no
   record behind it still sends a session nowhere and is sent nothing: the
@@ -64,7 +66,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   issued, and a request for quiet made in the session is kept. A session
   that holds messages, or whose new backend cannot be reached, is kept
   where it is and told so, as at a prompt: it is not told that it is not
-  connected, which it is not.
+  connected, which it is not. The backend it stays on is told of the
+  conversation that began, as after any `/clear`: the roster there has
+  the session's name as it is now, and no longer what the conversation
+  before was doing.
 - **A join inside a session that is on the backend its team left no
   longer says the session is already attached** (work item 327). It says
   that the session moves at its next prompt, which it now does; made in
