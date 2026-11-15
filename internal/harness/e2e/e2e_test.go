@@ -318,7 +318,7 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	if entry.PID != d.pid() || entry.BrigadeSessionID != m.BrigadeSessionID || entry.SocketPath != "" || entry.TokenSHA256 != "" {
 		t.Fatalf("pidfile: %+v (watcher %d)", entry, d.pid())
 	}
-	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.logHas(carol, "watch ready") })
+	await(t, "the sink watcher's `watch ready` line", func() bool { return r.logHas(carol, "watch ready") })
 
 	// bob sends from his own session; the record lands in the sink.
 	r.hook(bob, "session-start", bob.hookDoc("SessionStart", map[string]any{"source": "startup"}))
@@ -326,7 +326,7 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	res = r.mustRun(r.env(bob), "to the sink", "send", m.BrigadeSessionID, "--json")
 	sent := jsonResult[sendResult](t, res.stdout)
 	var records []sinkRecord
-	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+	await(t, "the record of bob's message in the sink", func() bool {
 		records = readSink(t, sink)
 		return len(records) >= 1
 	})
@@ -341,7 +341,7 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	if fi, err := os.Stat(sink); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Errorf("sink mode: %v %v", fi, err)
 	}
-	testutil.Eventually(t, waitLong, pollEvery, func() bool { return len(r.storeIDs("acked", m.BrigadeSessionID)) == 1 })
+	await(t, "the store to hold bob's message as acknowledged", func() bool { return len(r.storeIDs("acked", m.BrigadeSessionID)) == 1 })
 
 	// SIGTERM ends it with exit 0, the pidfile gone and the session closed.
 	if exit := d.stop(t); exit != 0 {
@@ -354,19 +354,26 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	// budget, one second (CloseWaitClean), which the rig cannot raise: one
 	// store write of the fs adapter, two files synced to disk, measured up
 	// to 6.2 s under a whole-tree `go test -race` on 2026-09-11. When the
-	// budget runs out the watcher stops its child, says so in its log and
-	// exits 0 with the session open, and the lease's expiry is authoritative
-	// (3.8). That line is the witness that the close was asked for through
-	// the real binary, and the only outcome held beside closed_at, as in
-	// TestSessionLifecycleThroughTheRealBinary, whose comment says where the
-	// close itself is asserted under a budget no disk decides. A bare
+	// budget runs out the watcher stops its child and exits 0 with the
+	// session open, and the lease's expiry is authoritative (3.8). A bare
 	// closed_at here failed beside other suites on 2026-11-14 (work item
 	// 336).
+	//
+	// So one outcome is held beside closed_at, and it takes two lines of the
+	// watcher's log: that it wrote the close command to its child (a debug
+	// line, which this watcher's BRIGADE_LOG_LEVEL shows), and that the child
+	// did not end within the budget. The second alone says nothing of a
+	// close: it is written when the budget runs out, asked or not, and a
+	// watcher that never asked for the close passed this test on it until a
+	// reviewer took the request out. Where the close itself is asserted
+	// under a budget no disk decides is in the comment of
+	// TestSessionLifecycleThroughTheRealBinary.
 	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt == nil {
-		if !r.logHas(carol, "watch child did not end after close; stopping it") {
-			t.Errorf("the session was not closed and the watcher's log does not say that its close budget ran out: %+v", s)
+		wrote, ranOut := r.logHas(carol, "close command written"), r.logHas(carol, "watch child did not end after close; stopping it")
+		if !wrote || !ranOut {
+			t.Errorf("the session was not closed, and the watcher's log does not say both that it wrote the close command (%v) and that its close budget ran out (%v): %+v", wrote, ranOut, s)
 		} else {
-			t.Logf("the watcher's close budget ran out; lease expiry is authoritative")
+			t.Logf("the watcher wrote the close command and its budget ran out before the child ended; lease expiry is authoritative")
 		}
 	}
 	if out, err := os.ReadFile(stdout); err != nil || len(out) != 0 {
@@ -383,6 +390,19 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	// No token in this variant; the recorder is still asserted live and
 	// the CLAUDE_CODE_MESSAGING_* names absent from every adapter child.
 	r.assertTokenNowhere("no-token-in-sink-mode-" + strconv.Itoa(carol.pid))
+}
+
+// await waits for cond as testutil.Eventually does, a hang catcher, and
+// when it gives up says what did not come (work item 336).
+func await(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(waitLong)
+	for !cond() {
+		if !time.Now().Before(deadline) {
+			t.Fatalf("waited %v for %s, which did not come", waitLong, what)
+		}
+		time.Sleep(pollEvery)
+	}
 }
 
 // rosterResult is the --json result of `brigade sessions`, the members

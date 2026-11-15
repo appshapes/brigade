@@ -442,7 +442,11 @@ func (w *watcher) sendClose(s *session) {
 	if s.stdinCommands {
 		if err := s.watch.Close(); err != nil {
 			w.log.Warn("close command not written", adlog.Err(err))
+			return
 		}
+		// What tells a close that was asked for and not answered within its
+		// budget from one that was never asked for (work item 336).
+		w.log.Debug("close command written")
 		return
 	}
 	budget := w.deps.CloseWaitClean
