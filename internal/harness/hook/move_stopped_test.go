@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
@@ -60,6 +61,49 @@ func TestAMoveWhoseHookWasStoppedLeavesTheShellsRoadToTheSession(t *testing.T) {
 				t.Fatalf("the resume hint of the conversation after that prompt: %+v, %v", bn, err)
 			}
 		})
+	}
+}
+
+// TestAMoveWhoseHookWasStoppedBeforeItsWatcherIsServedByTheNextPrompt: the
+// hook that moves a session starts the watcher right after it writes the
+// map, and can be stopped in between. The watcher the session had is then
+// still alive, serving the session the move left, until it sees the map and
+// has closed that session on the backend the team left. It is no watcher of
+// the session as it is now: the next prompt starts that one beside it, and
+// neither stops the other one itself nor waits for anything. A prompt whose
+// live watcher serves the map's session starts none.
+func TestAMoveWhoseHookWasStoppedBeforeItsWatcherIsServedByTheNextPrompt(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	f.moveTeamFile("team-1")
+	f.prompted()
+	held := stoppedAtTheWatcher{watchers: f.spawner, reached: make(chan struct{}), release: make(chan struct{}), once: &sync.Once{}}
+	stopped := *f
+	stopped.deps.Spawner = held
+	heldHook(t, &stopped, held.reached, held.release)
+	spawns := f.spawner.count()
+	if entry, err := pidfile.Read(f.pidfilePath()); err != nil || entry.BrigadeSessionID != "brigade-sess-1" || f.mustMap().BrigadeSessionID != "brigade-sess-2" {
+		t.Fatalf("the hook stands at the watcher beside the watcher %+v, %v", entry, err)
+	}
+	f.prompted()
+	if f.spawner.count() != spawns+1 {
+		t.Fatalf("the prompt after the hook that was stopped started %d watcher(s), want the session's own", f.spawner.count()-spawns)
+	}
+	if seen := f.spawner.lastMap(t); seen.BrigadeSessionID != "brigade-sess-2" {
+		t.Fatalf("the watcher that prompt started found the map of %q", seen.BrigadeSessionID)
+	}
+	if entry, err := pidfile.Read(f.pidfilePath()); err != nil || entry.BrigadeSessionID != "brigade-sess-2" {
+		t.Fatalf("the watcher after that prompt: %+v, %v", entry, err)
+	}
+	// The hook signalled nobody: retiring the other watcher is the new one's.
+	if !alive(f.spawner.watcherPID) {
+		t.Fatalf("the prompt stopped the watcher it found itself")
+	}
+	f.prompted()
+	if f.spawner.count() != spawns+1 {
+		t.Fatalf("a prompt whose watcher serves the session started another")
 	}
 }
 

@@ -519,15 +519,16 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 		t.Fatalf("the notice outlived the prompt that said the move")
 	}
 	where(fifth, "after the prompt that said the move", newKey, fifthMap.BrigadeSessionID, canon3)
-	// The watcher the session had sees within its tick that the map names another session, and ends; a prompt
-	// after that starts the one that serves the session on the server. No prompt says the move again.
-	testutil.Eventually(t, waitLong, 250*time.Millisecond, func() bool {
-		if res := r.restPrompt(fifth); strings.Contains(res.stdout, "followed team") || strings.Contains(res.stdout, "this session is") {
-			t.Fatalf("a later prompt said the move again: stdout %q", res.stdout)
-		}
+	// That prompt started the watcher that serves the session on the server, beside the one the session had,
+	// which was still alive or had seen within its tick that the map names another session: no further prompt
+	// is needed for the session to be served, and the watcher it had is gone. No prompt says the move again.
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
 		v, err := pidfile.Check(r.pidfilePath(fifth), procutil.Lookup)
-		return err == nil && v.Found && v.Alive && v.Entry.BrigadeSessionID == fifthMap.BrigadeSessionID
+		return err == nil && v.Found && v.Alive && v.Entry.BrigadeSessionID == fifthMap.BrigadeSessionID && !alive(watcher[fifth.pid])
 	})
+	if res := r.restPrompt(fifth); strings.Contains(res.stdout, "followed team") || strings.Contains(res.stdout, "this session is") {
+		t.Fatalf("a later prompt said the move again: stdout %q", res.stdout)
+	}
 	watcher[fifth.pid] = r.liveWatcher(fifth).PID
 
 	// --- 8. the server stops: /clear keeps a session that has not moved, and says so ---------------------------
