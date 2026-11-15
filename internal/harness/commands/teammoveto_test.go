@@ -349,14 +349,23 @@ func (r *moveToRig) unwritten(storeBefore string) {
 }
 
 // noSecrets fails the test when the join secret, the ticket or the
-// creation token is in anything the command said, asked or put on an
-// adapter's argv.
+// creation token is in anything the command said or asked, on an adapter's
+// argv, in an adapter's environment or in a document an adapter was handed.
+// The one place a secret travels in a document is the take-in's, which
+// carries the join secret to the server's adapter: that document may hold
+// the join secret, and holds neither the ticket nor the creation token.
 func (r *moveToRig) noSecrets() {
 	r.t.Helper()
-	var all strings.Builder
+	var all, takeIn strings.Builder
 	all.WriteString(r.f.out.String() + r.f.errb.String() + strings.Join(r.prompts, "\n"))
 	for i := range r.f.rec.count() {
-		all.WriteString("\n" + argvOf(r.f.rec.spec(r.t, i)))
+		spec := r.f.rec.spec(r.t, i)
+		all.WriteString("\n" + argvOf(spec) + "\n" + strings.Join(spec.Env, "\n") + "\n")
+		if verbKey(spec.Argv) == "team take-in" {
+			takeIn.Write(spec.Stdin)
+			continue
+		}
+		all.Write(spec.Stdin)
 	}
 	said := all.String()
 	for name, hidden := range map[string]string{
@@ -365,7 +374,14 @@ func (r *moveToRig) noSecrets() {
 		"the creation token": "creation-token-value-MUST-NOT-LEAK",
 	} {
 		if strings.Contains(said, hidden) {
-			r.t.Errorf("%s is in an output, a question or an adapter's argv", name)
+			r.t.Errorf("%s is in an output, a question, an adapter's argv or environment, or a document that is not the take-in's", name)
+		}
+	}
+	for name, hidden := range map[string]string{
+		"the ticket": moveToTicket, "its secret part": strings.Repeat("ef", 16), "the creation token": "creation-token-value-MUST-NOT-LEAK",
+	} {
+		if strings.Contains(takeIn.String(), hidden) {
+			r.t.Errorf("%s is in the take-in's document", name)
 		}
 	}
 }
@@ -579,6 +595,9 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 		"a relative creation token file":                      "--create-token-file must be an absolute path",
 		"a creation token file inside the checkout":           "--create-token-file must be a plainly spelled path outside this project",
 		"the secret of another team":                          "name the file `team create` wrote for this team",
+		"a url with a fragment":                               "with no credentials, query or fragment",
+		"a url with a question mark and no query":             "with no credentials, query or fragment",
+		"a url with a port and no host":                       "--to must be the server's URL",
 		"a url longer than a record holds":                    "--to is longer than the record of a move can hold",
 		"a creation token file linked into the checkout":      "--create-token-file must be a plainly spelled path outside this project",
 		"a team file too large to name the server as well":    "cannot be rewritten to name the server",
@@ -625,6 +644,15 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 			return []string{"--to", "https://user:pw@" + r.newHost, "--secret-file", r.secretFile}
 		}, protocol.CodeUsage, ""},
 		{"a url with no host", func(r *moveToRig) []string { return []string{"--to", "https://", "--secret-file", r.secretFile} }, protocol.CodeUsage, ""},
+		{"a url with a fragment", func(r *moveToRig) []string {
+			return []string{"--to", r.newURL + "#top", "--secret-file", r.secretFile}
+		}, protocol.CodeUsage, ""},
+		{"a url with a question mark and no query", func(r *moveToRig) []string {
+			return []string{"--to", r.newURL + "/?", "--secret-file", r.secretFile}
+		}, protocol.CodeUsage, ""},
+		{"a url with a port and no host", func(r *moveToRig) []string {
+			return []string{"--to", "https://:8743", "--secret-file", r.secretFile}
+		}, protocol.CodeUsage, ""},
 		// The record's own limit (4.4.10): the old backend would refuse it, after the server took the team in.
 		{"a url longer than a record holds", func(r *moveToRig) []string {
 			return []string{"--to", r.newURL + "/" + strings.Repeat("a", protocol.MaxMoveURLChars), "--secret-file", r.secretFile}
@@ -637,6 +665,12 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 		{"a url that a team file may not carry", func(r *moveToRig) []string {
 			return []string{"--to", "https://brg1." + setupTeamRef + ".abcdefgh12345678.example.test", "--secret-file", r.secretFile}
 		}, protocol.CodeConfig, "team_file_unwritable"},
+		// The file names the server under another certificate: that is no move that was stopped, and it is
+		// not finished as one. The record would name one certificate and the file another.
+		{"a file that names the server under another certificate", func(r *moveToRig) []string {
+			r.writeFile(strings.Replace(r.moved(), moveNewPin, otherPin, 1))
+			return r.args()
+		}, protocol.CodeConfig, reasonNotJoinedAtSource},
 		{"another scheme", func(r *moveToRig) []string {
 			return []string{"--to", "ftp://" + r.newHost, "--secret-file", r.secretFile}
 		}, protocol.CodeUsage, ""},

@@ -3,13 +3,147 @@
 package commands
 
 import (
+	"io"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// More of `brigade team move --to` (work item 328), from its second review.
+// More of `brigade team move --to` (work item 328), from its second review:
+// the one spelling of the destination, a record under another certificate,
+// and the option read in the session of every harness.
+
+// TestTeamMoveToWritesOneSpellingOfTheDestination: the address is kept as
+// it was typed but for the slashes at its end, and no letter of it is
+// folded. That one spelling is the backend the server's adapter is given,
+// the destination the old backend records, the team file's url, the pin's
+// and the binding's, so the record names what the file names byte for
+// byte. A certificate goes with an https address however its scheme was
+// typed.
+func TestTeamMoveToWritesOneSpellingOfTheDestination(t *testing.T) {
+	t.Parallel()
+	r := newMoveToRig(t)
+	const typed = "HTTPS://Brigade.Example.TEST:8743"
+	key := teamstore.Key("rest", typed, setupTeamRef)
+	r.f.rec.on("team move", okAnswer(r.notMoved()),
+		okAnswer(`{"team_ref":"`+setupTeamRef+`","moved":true,"adapter":"rest","url":"`+typed+`","certificate":"`+moveNewPin+`","recorded_at":"2026-11-14T12:00:00Z"}`))
+	if err := Team(r.inv(true, "--to", typed+"//", "--secret-file", r.secretFile, "--certificate", opensslSpelling(moveNewPin))); err != nil {
+		t.Fatal(err)
+	}
+	take := r.f.rec.specsOf("team take-in")[0]
+	if i := slices.Index(take.Argv, "--profile"); take.Argv[i+1] != key ||
+		!strings.Contains(string(take.Stdin), `"backend":{"url":"`+typed+`","certificate":"`+moveNewPin+`"}`) {
+		t.Fatalf("the take-in: %s", argvOf(take))
+	}
+	if got := string(r.f.rec.specsOf("team move")[1].Stdin); got != `{"adapter":"rest","url":"`+typed+`","certificate":"`+moveNewPin+`"}` {
+		t.Fatalf("the destination recorded: %s", got)
+	}
+	f, err := teamfile.Parse(r.file)
+	if err != nil || f.Adapter != "rest" || f.URL != typed || f.Certificate != moveNewPin {
+		t.Fatalf("the team file: %+v, %v\n%s", f, err, r.fileNow())
+	}
+	if pin := r.pin(); !pin.Matches(f) || pin.URL != typed {
+		t.Fatalf("the pin: %+v", pin)
+	}
+	if b, err := teamstore.LoadBinding(r.f.dirs.BrigadeConfig, key); err != nil || teamstore.VerifyBinding(b, f) != nil || b.URL != typed {
+		t.Fatalf("the binding at the server: %+v, %v", b, err)
+	}
+	r.noSecrets()
+}
+
+// TestTeamMoveToNamesARecordUnderAnotherCertificate: a record of a move to
+// the same address under another certificate is another destination: it
+// is named before the administrator answers as the record this move
+// replaces, and it is not cleared.
+func TestTeamMoveToNamesARecordUnderAnotherCertificate(t *testing.T) {
+	t.Parallel()
+	r := newMoveToRig(t)
+	r.f.rec.on("team moved", okAnswer(strings.Replace(r.recorded(), moveNewPin, otherPin, 1)))
+	r.f.rec.on("team move", okAnswer(r.recorded()))
+	if err := Team(r.inv(true, r.args()...)); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.prompts) != 1 || !strings.Contains(r.prompts[0], "This replaces the record "+r.oldHost+" holds of a move to "+r.newHost) ||
+		!strings.Contains(r.prompts[0], otherPin) {
+		t.Fatalf("the confirmation: %v", r.prompts)
+	}
+	for _, spec := range r.f.rec.specsOf("team move") {
+		if slices.Contains(spec.Argv, "--clear") {
+			t.Fatalf("a record that was there was cleared")
+		}
+	}
+}
+
+// TestTeamMoveReadsTheOptionInEveryHostsSession: a command in the shell of
+// a Muse Code, Codex CLI or Grok Build session reads team_move_in_session
+// as one in a Claude Code session does: from the start facts of that
+// session, which such a shell reaches through the start pointer from the
+// host's native id, under HOME whatever XDG_* says. Off refuses the three
+// writing forms with nothing asked of anyone, --show reads all the same,
+// and on lets a writing form run.
+func TestTeamMoveReadsTheOptionInEveryHostsSession(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ host, variable, id string }{
+		{"muse", "MUSE_SESSION_ID", "01a14785-947f-7d93-a4f4-6ee1f6b2be94"},
+		{"codex", "CODEX_THREAD_ID", "01a14aa0-8a90-7712-a2b8-79405a4acbca"},
+		{"grok", "GROK_SESSION_ID", "0199c1c5-5f0f-7a53-9f6e-0d5a3a4b9c11"},
+	} {
+		t.Run(tc.host, func(t *testing.T) {
+			t.Parallel()
+			r := newMoveRig(t, true)
+			store := sessionmap.Store{StateDir: filepath.Join(r.f.dirs.Home, ".local", "state", "brigade")}
+			const key = 1<<30 | 4242
+			facts := func(option string) {
+				t.Helper()
+				if err := store.WriteStart(&sessionmap.StartFacts{
+					ClaudePID: key, ClaudeSessionID: tc.id, ConfigDir: r.f.dirs.BrigadeConfig, TeamMoveInSession: option, WrittenAt: fixtureNow,
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.WriteStartPointer(tc.host, tc.id, key, fixtureNow); err != nil {
+					t.Fatal(err)
+				}
+			}
+			inv := func(args ...string) Invocation {
+				iv := r.f.inv([]string{"HOME=" + r.f.dirs.Home, "XDG_STATE_HOME=/nowhere", "XDG_CONFIG_HOME=/nowhere", tc.variable + "=" + tc.id},
+					"", append([]string{"move"}, args...)...)
+				iv.Deps.Getwd = func() (string, error) { return r.top, nil }
+				iv.Deps.IsTerminal = func(io.Reader) bool { return false }
+				iv.Deps.Confirm = func(string) (bool, error) {
+					t.Error("a command in a session asked a y/N question")
+					return false, nil
+				}
+				return iv
+			}
+			facts(config.SyncOff)
+			for _, form := range [][]string{{"--clear"}, {"--ticket-file", r.ticket}, {"--to", r.newURL, "--secret-file", r.ticket}} {
+				perr := wantCodeErr(t, Team(inv(form...)), protocol.CodeUsage, "in_session")
+				if perr.Message != RefusalMoveInSession {
+					t.Fatalf("%v with the option off: %q", form, perr.Message)
+				}
+			}
+			if r.f.rec.count() != 0 {
+				t.Fatalf("a refusal in a session spawned %v", r.f.rec.verbs())
+			}
+			r.f.rec.on("team moved", okAnswer(`{"team_ref":"`+setupTeamRef+`","moved":false}`))
+			if err := Team(inv("--show")); err != nil || !strings.Contains(r.f.out.String(), "no move recorded on "+r.oldHost) {
+				t.Fatalf("--show with the option off: %v\n%s", err, r.f.out.String())
+			}
+			facts("")
+			r.f.rec.on("team move", okAnswer(`{"team_ref":"`+setupTeamRef+`","moved":false}`))
+			if err := Team(inv("--clear")); err != nil || !strings.Contains(r.f.out.String(), "cleared: "+r.oldHost) {
+				t.Fatalf("a clear with the option on: %v\n%s", err, r.f.out.String())
+			}
+		})
+	}
+}
 
 // TestTeamMoveToSaysThatTheRecordHoldsATicketThatWasReplaced: a second open
 // replaces the move's ticket on the server. When a move that was recorded
