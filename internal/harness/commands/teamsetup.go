@@ -690,6 +690,11 @@ func (inv Invocation) confirmGate(f *teamfile.File, action string) error {
 func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label labelChoice, secretFile string) error {
 	var secret string
 	var err error
+	// Whether this machine held a membership of the file's team when the
+	// join began: one that appears while the member is asked was made by a
+	// follow of this machine (below).
+	before, berr := teamstore.LoadBinding(t.configDir, t.profile)
+	member := berr == nil && before.TeamRef == f.TeamRef
 	if inv.inSession() {
 		// Inside a session the secret file is read AND checked — shape and
 		// team — before the consent line is printed, so a refusal leaves
@@ -713,6 +718,27 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 		}
 		if err := checkJoinSecret(secret, f); err != nil {
 			return err
+		}
+	}
+	// From here to the pin the join holds the lock a follow holds (work item
+	// 327): a session's hook can be following this team's move at this very
+	// moment, and a join sent beside the follow's, before either has a
+	// credential, leaves the backend two memberships of this machine. The
+	// person has answered everything by now, so nobody is waited for under
+	// the lock; and nothing can wait in a circle: each holder waits only for
+	// its own adapter and the store, the one other lock either takes is the
+	// pin store's, inside this one, and a waiter gives up after ten seconds.
+	lock, err := teammove.Lock(t.configDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+	if !member {
+		if now, nerr := teamstore.LoadBinding(t.configDir, t.profile); nerr == nil && now.TeamRef == f.TeamRef && teamstore.VerifyBinding(now, f) == nil {
+			// A follow of this machine joined the team there while the member
+			// was asked: the machine is a member the file describes, and the
+			// secret is not presented for a second membership.
+			return inv.writePinAndReport(t, canon, f, "joined")
 		}
 	}
 	if err := inv.alignRestBackend(t, f); err != nil {

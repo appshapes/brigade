@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	json "encoding/json/v2"
 
@@ -495,6 +496,97 @@ func TestTeamJoinDeclinedWritesNothing(t *testing.T) {
 	if f.rec.count() != spawns {
 		t.Fatal("a declined gate spawned an adapter")
 	}
+}
+
+// TestTeamJoinWaitsForAFollowThatHoldsTheLock: a session's hook can be
+// following this team's move while the member joins it themselves (work
+// item 327). A follow joins under a lock, having read under it that the
+// machine is no member yet; a join sent beside it, before either has a
+// credential, leaves the backend two memberships of one machine. So the
+// member's join takes the same lock, once the person has answered: while
+// another process holds it nothing is sent, and the join goes through when
+// it is free.
+func TestTeamJoinWaitsForAFollowThatHoldsTheLock(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	if err := os.MkdirAll(f.dirs.BrigadeConfig, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	iv := joinInv(f, top, setupSecret, true, nil)
+	// A follow takes the lock while the member types the secret, and holds
+	// it for a while. What the adapter had been sent when it let go is what
+	// the join sent beside it.
+	sent := make(chan []string, 1)
+	iv.Deps.ReadSecret = func() (string, error) {
+		lock, err := adapterkit.LockFile(filepath.Join(f.dirs.BrigadeConfig, "team-move.lock"), time.Second)
+		if err != nil {
+			return "", err
+		}
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			sent <- f.rec.verbs()
+			_ = lock.Unlock()
+		}()
+		return setupSecret, nil
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if held := <-sent; slices.Contains(held, "team join") {
+		t.Fatalf("the join was sent while another process held the follow's lock: %v", held)
+	}
+	if n := countOf(f.rec.verbs(), "team join"); n != 1 {
+		t.Fatalf("%d joins were sent once the lock was free, want 1", n)
+	}
+	canon, _ := teamfile.Canonicalize(top)
+	if _, ok, _ := teamstore.LookupPin(f.dirs.BrigadeConfig, canon); !ok {
+		t.Fatal("no pin after the join")
+	}
+}
+
+// TestTeamJoinFindsTheMembershipAFollowMade: the follow finished while the
+// member was at the join's question: under the lock the store now holds a
+// membership of the file's team that was not there when the join began. The
+// machine is a member the file describes, so the join presents no secret
+// for a second membership: it writes the checkout's pin and says so.
+func TestTeamJoinFindsTheMembershipAFollowMade(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
+	iv := joinInv(f, top, setupSecret, true, nil)
+	iv.Deps.Confirm = func(string) (bool, error) {
+		// What a follow's join leaves: the binding of the team on the backend
+		// the file names.
+		tf, err := teamfile.Parse(filepath.Join(top, teamfile.FileName))
+		if err != nil {
+			return false, err
+		}
+		return true, write.EnsureBinding(f.dirs.BrigadeConfig, key, tf.Adapter, tf.URL, tf.PublishableKey, tf.Certificate, tf.TeamRef, tf.TeamName, "p_followed")
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOf(f.rec.verbs(), "team join"); n != 0 {
+		t.Fatalf("%d joins were sent for a machine that a follow had joined, want none", n)
+	}
+	if binding, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key); err != nil || binding.PrincipalRef != "p_followed" {
+		t.Fatalf("the membership after the join: %+v, %v", binding, err)
+	}
+	canon, _ := teamfile.Canonicalize(top)
+	if _, ok, _ := teamstore.LookupPin(f.dirs.BrigadeConfig, canon); !ok || !strings.Contains(f.out.String(), `joined team "devs"`) {
+		t.Fatalf("the pin, or the join's line: %q", f.out.String())
+	}
+}
+
+// countOf is how often verb is among verbs.
+func countOf(verbs []string, verb string) int {
+	n := 0
+	for _, v := range verbs {
+		if v == verb {
+			n++
+		}
+	}
+	return n
 }
 
 func TestTeamJoinWrongTeamSecretRefusedLocally(t *testing.T) {
