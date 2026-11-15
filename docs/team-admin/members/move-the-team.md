@@ -39,14 +39,15 @@ What it does, in this order:
 
 1. **Checks.** This checkout's `.brigade.json` names the backend the team is on, and this machine is joined
    there. The secret file holds this team's secret. The old backend can keep a record, and you are the team's
-   creator. It lists the sessions that are online on a plugin older than 0.55.0. The checks ask the server
-   nothing and change nothing, with one exception: when the old backend already holds a record of a move, the
-   command records that same record again, with the ticket it holds, because only the team's creator is
-   answered there. The record names what it named and admits whom it admitted, and only its date moves. A
-   member who did not create the team is refused here, before the server and the join secret come into it.
-2. **Shows what it is about to do, and asks**: the team, the host it is leaving, the server's host and the
-   certificate's fingerprint. In a terminal you answer `y`. In a session nobody can be asked, so it prints the
-   same line and proceeds.
+   creator. It lists the sessions that are online on a plugin older than 0.55.0, and says so when the old
+   backend cut its roster short and the list may lack some. The checks ask the server nothing and change
+   nothing, with one exception: when the old backend already holds a record of a move, the command records
+   that same record again, with the ticket it holds, because only the team's creator is answered there. The
+   record names what it named and admits whom it admitted, and only its date moves. A member who did not
+   create the team is refused here, before the server and the join secret come into it.
+2. **Shows what it is about to do, and asks**: the team, the host it is leaving, the server's host, with the
+   path of its address when it has one, and the certificate's fingerprint. In a terminal you answer `y`. In a
+   session nobody can be asked, so it prints the same line and proceeds.
 3. **Takes the team in on the server**, with you as its owner, under the label you have on the old backend.
 4. **Opens the move.** The ticket goes to a private file under Brigade's state directory and is removed when the
    command ends. You never see it. A command that Ctrl-C or a kill ends between this step and the next cannot
