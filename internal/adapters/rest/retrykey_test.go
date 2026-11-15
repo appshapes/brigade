@@ -386,6 +386,117 @@ func TestARetryKeyIsForOneServerAndOneTeam(t *testing.T) {
 	}
 }
 
+// TestARetryKeyFileThatIsNoPrivateFileIsRefused: where the key file is to
+// be there is a symbolic link, to a private file that holds a key for this
+// server and this team or to nothing, or a directory. The strict reader
+// refuses each as `config`, as it refuses a credential.json of that kind:
+// no take-in is sent, the key a link points at is not read and not sent,
+// and what is there stays as it is, the file a link points at included.
+func TestARetryKeyFileThatIsNoPrivateFileIsRefused(t *testing.T) {
+	t.Parallel()
+	b := newBackend(t)
+	document := takeInDocument(secretOf(elsewhereRef, "kept-from-the-other-backend"), "ops", "")
+	const planted = "cGxhbnRlZC1ieS10aGUtdGVzdC1uZXZlci1taW50ZWQ"
+	content := `{"key":"` + planted + `","url":"` + b.url() + `","team_ref":"` + elsewhereRef + `"}`
+	target := filepath.Join(t.TempDir(), "elsewhere.json")
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, reason string
+		plant        func(path string) error
+		mode         os.FileMode
+	}{
+		{"a symbolic link to a private file that holds a key", "symlink", func(path string) error { return os.Symlink(target, path) }, os.ModeSymlink},
+		{"a symbolic link to nothing", "symlink", func(path string) error { return os.Symlink(filepath.Join(filepath.Dir(target), "missing"), path) }, os.ModeSymlink},
+		{"a directory", "not_regular", func(path string) error { return os.Mkdir(path, 0o700) }, os.ModeDir},
+	} {
+		r := newRig(t, b.url())
+		r.ok("", "profile", "init", "--url", b.url())
+		if err := tc.plant(r.retryKeyPath()); err != nil {
+			t.Fatal(err)
+		}
+		refused := r.fails(protocol.CodeConfig, document, "team", "take-in")
+		if got := details(t, refused.stdout)["reason"]; got != tc.reason {
+			t.Errorf("%s in the key file's place: details.reason %v, want %s", tc.name, got, tc.reason)
+		}
+		if n := len(b.seen(pathTeamTakeIn)); n != 0 {
+			t.Errorf("%s in the key file's place: a take-in was sent", tc.name)
+		}
+		if info, err := os.Lstat(r.retryKeyPath()); err != nil || info.Mode().Type() != tc.mode {
+			t.Errorf("%s in the key file's place was replaced: %v (%v)", tc.name, info, err)
+		}
+		if strings.Contains(refused.stdout+refused.stderr, planted) {
+			t.Errorf("%s in the key file's place: the key it leads to is on stdout or stderr", tc.name)
+		}
+		if r.storedCredential() != "" {
+			t.Errorf("%s in the key file's place: the profile holds a credential", tc.name)
+		}
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != content { //nolint:gosec // the test's own temp file
+		t.Errorf("the file a link pointed at was changed: %q (%v)", data, err)
+	}
+	// Positive control: the same content as a private file of the profile's
+	// own is the key that is sent.
+	r := newRig(t, b.url())
+	r.ok("", "profile", "init", "--url", b.url())
+	if err := os.WriteFile(r.retryKeyPath(), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if taken := r.ok(document, "team", "take-in"); taken["taken_in"] != true {
+		t.Fatalf("a take-in with a key file of the profile's own: %v", taken)
+	}
+	if keys := sentRetryKeys(b); len(keys) != 1 || keys[0] != planted {
+		t.Errorf("a private key file for the server and the team was not the key that was sent")
+	}
+}
+
+// TestARetryKeyThatCannotBeRemovedIsSaid: the credential is kept and the
+// key file cannot be removed. The take-in is done and succeeds, and stderr
+// says to remove the file, by its name: the server honours the key until
+// the team's join secret is rotated, so a file that stays is not left
+// there in silence. The line holds nothing of the key.
+func TestARetryKeyThatCannotBeRemovedIsSaid(t *testing.T) {
+	t.Parallel()
+	b := newBackend(t)
+	r := newRig(t, b.url())
+	document := takeInDocument(secretOf(elsewhereRef, "kept-from-the-other-backend"), "ops", "")
+	// While the server answers, the key file gives way to a directory that
+	// holds a file: what os.Remove refuses, in a directory that still takes
+	// the credential.
+	var sent string
+	b.loseAnswers(func(seen *seenRequest) loss {
+		if seen.Path == pathTeamTakeIn {
+			sent, _ = seen.Body["retry_key"].(string)
+			if err := os.Remove(r.retryKeyPath()); err != nil {
+				t.Errorf("the key file was not there when the request arrived: %v", err)
+			}
+			if err := os.MkdirAll(filepath.Join(r.retryKeyPath(), "held"), 0o700); err != nil {
+				t.Error(err)
+			}
+		}
+		return answered
+	})
+	got := r.exec(document, "team", "take-in")
+	b.loseAnswers(nil)
+	if got.code != 0 || r.storedCredential() == "" {
+		t.Fatalf("a take-in whose key file could not be removed: exit %d, %s", got.code, got.stdout)
+	}
+	if !strings.Contains(got.stderr, `"level":"WARN"`) || !strings.Contains(got.stderr, "could not be removed") ||
+		!strings.Contains(got.stderr, retryKeyFileName) {
+		t.Errorf("stderr does not say that %s could not be removed, and to remove it:\n%s", retryKeyFileName, got.stderr)
+	}
+	if !validRetryKey(sent) || strings.Contains(got.stdout+got.stderr, sent) {
+		t.Errorf("the key is on stdout or stderr, or none was sent")
+	}
+	// Positive control: a take-in whose key file is removed says no such line.
+	clean := newRig(t, b.url())
+	if again := clean.exec(document, "team", "take-in"); again.code != 0 || strings.Contains(again.stderr, "could not be removed") {
+		t.Errorf("a take-in whose key file was removed: exit %d, stderr %s", again.code, again.stderr)
+	}
+	clean.noRetryKey("after a take-in that was answered")
+}
+
 // TestATakeInThatCannotKeepItsKeySendsNothing: a profile directory that
 // takes no file cannot keep the key, and could not keep the credential the
 // answer would carry: the command fails before the request, so the server
