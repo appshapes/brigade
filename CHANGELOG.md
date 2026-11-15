@@ -32,14 +32,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   nothing follows the same way, where it used to wait for a new start,
   and says once that the backend the member joined is being asked.
 
-  A session moves with the checkout it was started in and with no other.
-  A prompt or a `/clear` while the session works in another checkout of
-  the member's, after a `cd` or in a worktree, does not move it,
-  whatever that checkout's `.brigade.json` names: while a move is under
-  way a member can have one checkout that has the changed file and one
-  that has not, and a session does not go back and forth between them.
-  It does not follow its own checkout from there either: it moves at a
-  prompt sent while it works in the checkout it was started in.
+  A session moves with the checkout it was started in and with no other,
+  wherever it works. The `.brigade.json` and the membership that are read
+  at its prompts are that checkout's, so a session that was started in a
+  main checkout and works in a worktree, or after a `cd` into another
+  repository, follows when its own checkout does. Another checkout of
+  the member's does not move it, whatever its `.brigade.json` names, and
+  neither does a `/clear` there: while a move is under way a member can
+  have one checkout that has the changed file and one that has not, and
+  a session does not go back and forth between them.
+
+  A session that moves is always told. Claude Code discards what a
+  prompt printed when the prompt runs out of time, so the prompt that
+  moves a session leaves a notice first, and a prompt that was cut short
+  after the session moved is made good by the next one, which says the
+  move and the session's new id.
 
   What made a session follow has not changed. A `.brigade.json` with no
   record behind it still sends a session nowhere and is sent nothing: the
@@ -70,6 +77,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   conversation that began, as after any `/clear`: the roster there has
   the session's name as it is now, and no longer what the conversation
   before was doing.
+- **`/clear` where Brigade resolves no team no longer leaves a running
+  session half attached** (work item 327). A `/clear` while the session
+  worked in a checkout that is not joined, in a directory with no
+  `.brigade.json`, or over a `.brigade.json` with no record behind it
+  said `not joined` or `not connected`, or nothing, of a session that
+  stayed attached; its doing line was then never asked for in the new
+  conversation, and in Muse Code the new conversation's shell found no
+  session. The session is now kept as after any `/clear` and says its
+  context line; a `.brigade.json` there that was refused is still said.
+- **A Codex CLI thread that is resumed in another checkout registers
+  there** (work item 327), as it did before a session's checkout was
+  recorded.
 - **A join inside a session that is on the backend its team left no
   longer says the session is already attached** (work item 327). It says
   that the session moves at its next prompt, which it now does; made in
@@ -79,7 +98,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   the new backend once** (work item 327). Each follow read this machine's
   membership before it waited for the other, so the one that came second
   presented the move's ticket again. It now reads the membership again
-  once it holds the lock.
+  once it holds the lock, and a member's own `brigade team join` takes
+  the same lock, so a join made while a session follows the move does
+  not leave the backend a second membership of the machine.
 
 ## [0.55.0] — 2026-11-13
 

@@ -40,9 +40,8 @@ and a member that the ticket lets in never does.
 - **Each checkout follows by itself**, at its first session after it pulled the changed file, or at the next
   prompts of a session that is running in it. The journal does not show a checkout that has not followed yet.
 - **A running session that has not moved** holds messages for its member's review and moves once they are
-  released, or it was started in a checkout that does not have the changed file yet, or it is working in
-  another directory than that checkout (a worktree, a `cd`) and moves at its next prompt there, or it runs in
-  Grok Build or on plugin 0.55.0 and follows when it starts.
+  released, or it was started in a checkout that does not have the changed file yet, or it runs in Grok Build or
+  on plugin 0.55.0 and follows when it starts.
 - **A member who did not follow** joins with the secret file they already have, as before the move
   ([what a member sees](../../team-admin/members/move-the-team.md#what-a-member-sees-and-when-they-do-not-follow)).
 - **The gateways.** Configure them on the server with the team's secret file, and point the Slack app's two

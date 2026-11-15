@@ -28,12 +28,13 @@ ends. Nothing is asked of you.
    id it had does not reach it.
 
 - **It moves with the checkout it was started in.** A session follows the `.brigade.json` of the checkout it
-  was started in and no other. A prompt you send while it works in another checkout of yours (after a `cd`, or
-  in a worktree) changes nothing, whatever that checkout's file names, and a `/clear` there does not move it
-  either: a session that has moved does not go back because another checkout has not pulled the change yet,
-  and one that has not moved does not go ahead of its own. Nor does it follow its own checkout from there: it
-  moves at a prompt you send while it works in the checkout it was started in, and until then it stays where
-  it is and says nothing.
+  was started in and no other, wherever it works: after a `cd`, in a worktree or in another repository it
+  still follows that checkout, at its next prompts. No other checkout's file moves it, and a `/clear` there
+  does not either: a session that has moved does not go back because another checkout has not pulled the
+  change yet, and one that has not moved does not go ahead of its own.
+- **If the prompt that moved it was cut short**, the next prompt tells you. A prompt has a few seconds, and
+  one that runs out of them after the session moved cannot say so: the session then has a new id for one
+  prompt before you are told.
 - **A quiet session stays quiet.** `/brigade:quiet` holds on the server as it did before.
 - **Held messages keep it back.** A message that is held for your review is on the backend the team left and
   does not move. The session says so once and stays until you release it (`brigade inbox`, then `brigade inbox
