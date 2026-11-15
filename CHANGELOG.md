@@ -297,9 +297,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   the new backend once** (work item 327). Each follow read this machine's
   membership before it waited for the other, so the one that came second
   presented the move's ticket again. It now reads the membership again
-  once it holds the lock, and a member's own `brigade team join` takes
-  the same lock, so a join made while a session follows the move does
-  not leave the backend a second membership of the machine.
+  once it holds the lock. A member's own `brigade team join` waits for
+  that lock, for ten seconds at most, and then goes on: a join is never
+  refused because a session's follow is waiting for a slow backend. The
+  follow reads the membership once more when its backend has answered,
+  just before it would join, so a join made meanwhile does not leave
+  the backend a second membership of the machine.
 
 ## [0.55.1] — 2026-11-14
 

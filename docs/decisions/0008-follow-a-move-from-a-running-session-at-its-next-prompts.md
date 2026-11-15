@@ -226,6 +226,10 @@ start follows on.
   built binary, and the test above failed on each. The second of point 3 is held as the difference of two
   deadlines of one hook, the registration's and the poll's that follows it, and no longer against the clock
   of a machine that other agents were loading: 999 ms fails it.
+- The same day, 35 one-line changes to the rules above, in the hook, the follow and the join's last line, were
+  each caught by a test. One of them, the map of another backend treated as a session that continues, was also
+  run through the built binary: the test failed, and the hook's log showed the server answering `not_found` to
+  the heartbeat and to the resume hint of an id it never issued.
 - On 2026-11-14 and 2026-11-15 a fourth session verified what was built last: the notice, the starts that keep a
   session, a session that follows from wherever it works, and the join's lock. It found four things, each fixed
   with a test that fails without the fix (`move_stopped_test.go`, `move_checkout_test.go`). Three were left by a
@@ -264,10 +268,22 @@ start follows on.
   without a last poll of the backend it leaves, and what was sent to it there since its last prompt stays there.
   And a quiet session whose move was cut short before its watcher started loses its request for quiet at a
   `/clear` that comes before its next prompt, as any session with no watcher alive does.
-- The same day, 35 one-line changes to the rules above, in the hook, the follow and the join's last line, were
-  each caught by a test. One of them, the map of another backend treated as a session that continues, was also
-  run through the built binary: the test failed, and the hook's log showed the server answering `not_found` to
-  the heartbeat and to the resume hint of an id it never issued.
+- On 2026-11-15 the final review of the merged work found three things, each fixed with a test that fails
+  without the fix. A start that kept a session ended as a start that resolved does, and said the notes of the
+  team file, the file sync, the sound and notification lines and the decision's warnings of the checkout it came
+  from to a session that ran under none of them: one that synced nothing and accepted its messages was told that
+  file sync was on and its inbound policy refuse (`move_kept_test.go`). A start that followed, or found a
+  child's mark, and then kept the session because the member's settings were refused dropped the follow's line
+  with the rest, its mark already gone, so the prompt that moved the session said that the machine had joined
+  already, and the member never heard of the ticket. And the join's lock, which is one for the whole store,
+  refused a member's join after ten seconds while a follow waited for its backend, with nothing joined. It was
+  ruled the same day that a join is never refused for the lock: it waits, then goes on without it, and the
+  follow, which read the machine's membership only when it took the lock, reads the pin and the membership again
+  before its own join (`internal/harness/teammove/teammove_test.go`,
+  `internal/harness/commands/teamsetup_test.go`). Of 30 one-line changes to the three fixes, five passed the
+  tests as they were: a kept session with no watcher told that file sync was on, the team's board left out of
+  its line, its state entry and a stopped move's notice left as they were, and the follow of a session whose map
+  names no checkout not taken for its own. The tests added since catch each.
 - What the Supabase adapter answers for a session it does not know, read from
   `internal/adapters/supabase/session.go` and `supabase/migrations/20260923022323_session_sync_peer.sql`, not
   run: `not_found`, for a heartbeat and for a resume hint alike. An id that is not a UUID is answered so by the
@@ -342,13 +358,34 @@ start follows on.
 - A start that keeps a session tells the backend the session is on of the conversation that begins, as a start
   that continues does: one heartbeat with the name the session has now and, when the conversation changed, an
   empty doing line. Nothing is sent to the backend the team went to.
+- A start that keeps a session says what is true of that session, and not what it resolved. It resolved the
+  checkout its own directory is in, on another backend than the session or under a team file that changed, and
+  the session took none of it: the notes of that team file, its file sync, the sound and notification lines and
+  the warnings of the start's inbound decision are not said. The start says the context line and the host's
+  line, the file sync the session's own map holds, and of what it did or read only what holds for the session
+  whatever was resolved: a write it made to the member's user settings file, a `brigade` that shadows the
+  plugin's, and the warnings of `follow_team_move` and `team_move_in_session`, which are read where they are
+  used and not frozen in the map. A change of the session's inbound policy is said by the prompt that makes it.
+- The line of a follow is said once whatever the start that made it does next. A start over a running session
+  holds what its resolution says until it knows whether the session is kept, and a start that follows, or that
+  finds a child's mark, takes the mark away as it says the line. When the member's settings are then refused the
+  session is kept and what was held is dropped, but for that line: the start says it before the context line,
+  and the conversation has then heard how its own checkout arrived, so the prompt that moves the session does
+  not say that the machine had joined already.
 - The hooks detach a second kind of child. `brigade hook follow` joins the watcher as a process a hook starts
   and does not wait for.
 - A session's start, a prompt and a member's join can each write the same pin. The follow's lock and its check
-  of the pin and the membership under it are what keep two of them from joining twice: a member's own first
-  join takes the same lock once the person has answered, and finds under it a membership that a follow made
-  meanwhile. A join that waits ten seconds for a follow whose backend hangs fails with the lock's error, and
-  is run again.
+  of the pin and the membership under it are what keep two follows from joining twice. A member's own first join
+  waits for the same lock once the person has answered, for ten seconds at most, and finds under it a membership
+  that a follow made meanwhile. It is never refused for the lock: the lock is one for the whole store, a follow
+  holds it while it asks an old backend that may be slow or gone, and a new follow is started each minute for
+  each checkout, so a join that failed when its wait ran out would be refused, for this team or any other, by a
+  hook its member did not start. When the wait runs out, or the lock cannot be had at all, the join goes on
+  without it. A follow therefore reads the checkout's pin and the machine's membership a second time once its
+  old backend has answered, just before it would join: it finds the membership such a join made and presents no
+  ticket, and it leaves alone a pin that join wrote. What is left is the moment in which both are on their way
+  to the new backend at once, the join without the lock and the follow past its second reading, which can still
+  leave two memberships of one machine.
 - We would revisit this if a host began to show what a prompt hook prints (Grok Build), or if a follow were
   wanted without a prompt, for a session nobody is typing in.
 
