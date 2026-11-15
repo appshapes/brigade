@@ -45,17 +45,27 @@ fn owner(state: &State, team_ref: &str) -> String {
 /// secret closed. Every other record has none.
 #[must_use]
 pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
-    // One request alone makes a credential unknown and issues another in the same entry: a take-in made
-    // again with its retry key, whose first answer was lost (the contract's section 3b). The principal
-    // of the new credential is the one that take-in made.
+    // One request alone issues a credential for a principal that was there before it: a take-in made
+    // again with its retry key, whose first answer was lost (the contract's section 3b). An entry tells
+    // it in one of two ways. It makes the credential that principal had unknown before it issues the
+    // other. Or the principal had none left, having given its own up, and the entry holds no such
+    // record: then the team tells it, because the principal that is issued a credential is the one
+    // whose key the team keeps, in an entry whose join writes no key, as the first take-in's does.
     let replaced = entry
         .records
         .iter()
         .any(|record| matches!(record.event, Event::CredentialRevoked { .. }));
-    let repeated = entry.records.iter().find_map(|record| match &record.event {
-        Event::CredentialIssued { principal_ref, .. } if replaced => Some(principal_ref.as_str()),
+    let issued = entry.records.iter().find_map(|record| match &record.event {
+        Event::CredentialIssued { principal_ref, .. } => Some(principal_ref.as_str()),
         _ => None,
     });
+    let keeps_the_key_of = |team_ref: &str, principal_ref: &str| {
+        state
+            .teams
+            .get(team_ref)
+            .and_then(|team| team.take_in_retry.as_ref())
+            .is_some_and(|kept| kept.principal_ref == principal_ref)
+    };
     // A move is closed by a rotation in the rotation's own entry, and by its owner in an entry of its own.
     let rotated = entry
         .records
@@ -85,13 +95,18 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
             Event::MemberJoined {
                 team_ref,
                 principal_ref,
+                retry_key_hash,
                 ..
-            } if repeated == Some(principal_ref.as_str()) => Some(format!(
-                "member {} made its take-in of {} again with the retry key of the first: it has a new \
-                 credential, and the one it had is not known any more",
-                plain(principal_ref),
-                team(state, team_ref)
-            )),
+            } if issued == Some(principal_ref.as_str())
+                && (replaced || (retry_key_hash.is_empty() && keeps_the_key_of(team_ref, principal_ref))) =>
+            {
+                Some(format!(
+                    "member {} made its take-in of {} again with the retry key of the first: it has a new \
+                     credential, and the one it had is not known any more",
+                    plain(principal_ref),
+                    team(state, team_ref)
+                ))
+            }
             Event::MemberJoined {
                 team_ref,
                 principal_ref,
@@ -178,7 +193,7 @@ pub fn of_gateway(gateway: &str, status: u16) -> String {
 #[cfg(test)]
 mod tests {
     use brigade_core::record::Record;
-    use brigade_core::state::{Member, Team};
+    use brigade_core::state::{Member, TakeInRetry, Team};
     use brigade_core::{Entry, State, Timestamp};
 
     use super::*;
@@ -432,6 +447,71 @@ mod tests {
             credential_hash: "hash-of-the-credential".to_owned(),
         }]);
         assert!(of_entry(&state(), &revoked).is_empty());
+    }
+
+    #[test]
+    fn a_take_in_made_again_by_a_principal_that_had_no_credential_left_has_the_line_of_one() {
+        // The principal the take-in made gave its own credential up, and the team keeps its key still.
+        // The take-in made again then makes nothing unknown: its entry is a credential issued and a
+        // join, the two records of a stranger's join. The team tells the two apart.
+        let mut keeps = state();
+        keeps.teams.get_mut("t-1").unwrap().take_in_retry = Some(TakeInRetry {
+            key_hash: "hash-of-the-retry-key".to_owned(),
+            principal_ref: "p-alice".to_owned(),
+        });
+        let issued_and_joined = |principal: &str| {
+            entry(vec![
+                Event::CredentialIssued {
+                    principal_ref: principal.to_owned(),
+                    credential_hash: "hash-of-the-new-credential".to_owned(),
+                },
+                joined(principal, ""),
+            ])
+        };
+        let lines = of_entry(&keeps, &issued_and_joined("p-alice"));
+        assert_eq!(
+            lines,
+            [
+                "member p-alice made its take-in of team ops (t-1) again with the retry key of the first: \
+              it has a new credential, and the one it had is not known any more"
+            ]
+        );
+        assert!(lines.iter().all(|line| !line.contains("hash-of")), "{lines:?}");
+        // A stranger that joins the same team is issued a credential in the same two records, and is
+        // not the principal whose key the team keeps: it joined.
+        assert_eq!(
+            of_entry(&keeps, &issued_and_joined("p-bob")),
+            ["member p-bob joined team ops (t-1), with no label"]
+        );
+        // The first take-in with a key is not one made again: its join is the record that writes the
+        // key, and the team keeps it from that entry on.
+        let first = entry(vec![
+            Event::CredentialIssued {
+                principal_ref: "p-alice".to_owned(),
+                credential_hash: "hash-of-the-credential".to_owned(),
+            },
+            Event::MemberJoined {
+                team_ref: "t-1".to_owned(),
+                principal_ref: "p-alice".to_owned(),
+                human_label: String::new(),
+                by_move_ticket: false,
+                retry_key_hash: "hash-of-the-retry-key".to_owned(),
+            },
+        ]);
+        assert_eq!(
+            of_entry(&keeps, &first),
+            ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
+        );
+        // A member that joins again with the credential it holds is issued none, and joined.
+        assert_eq!(
+            of_entry(&keeps, &entry(vec![joined("p-alice", "")])),
+            ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
+        );
+        // On a team that keeps no key the two records are a stranger's join, whoever they name.
+        assert_eq!(
+            of_entry(&state(), &issued_and_joined("p-alice")),
+            ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
+        );
     }
 
     #[test]

@@ -2741,6 +2741,85 @@ fn a_take_in_is_made_again_with_its_key_across_a_kill_on_the_cavalry_feed() {
     a_take_in_is_made_again_with_its_key("cavalry");
 }
 
+/// The owner a take-in made gives its own credential up, and the take-in is made again with its key. The
+/// server has no credential of that principal left to make unknown, so what it records is a credential
+/// issued and a join: the two records of a stranger's join. It says all the same that the take-in was
+/// made again, and by whom, because that is what an operator who reads its lines looks for; a stranger
+/// that joins the same team is said to have joined. A kill does not undo it.
+#[test]
+fn a_take_in_made_again_by_an_owner_with_no_credential_left_is_said_as_one() {
+    let scratch = Scratch::new("take-in-again-no-credential");
+    let arguments = log_arguments("file", &scratch);
+    let secret = format!("brg1.{ELSEWHERE}.kept-from-the-other-backend");
+    let team = json!({"team_ref": ELSEWHERE});
+    let keyed =
+        json!({"join_secret": secret, "team_name": "ops", "human_label": "alice", "retry_key": RETRY_KEY});
+    let server = Server::start(&scratch, &arguments);
+    let (status, taken) = server.post(None, "/v1/team/take-in", &keyed);
+    assert_eq!(status, 200, "{taken}");
+    let (held, alice_ref) = (
+        text(&taken["result"], "credential"),
+        text(&taken["result"], "principal_ref"),
+    );
+    assert_eq!(
+        server.ok(&held, "/v1/credential/revoke", &json!({})),
+        json!({"revoked": true})
+    );
+    let (status, _) = refused(&server, Some(&held), "/v1/team/members", &team);
+    assert_eq!(status, 401);
+
+    // The request made again carries the credential that is unknown now, as a client that still has
+    // it in its file does: it is no credential, and the key is heard.
+    let (status, again) = server.post(Some(&held), "/v1/team/take-in", &keyed);
+    assert_eq!(status, 200, "{again}");
+    let again = &again["result"];
+    assert_eq!(
+        (&again["principal_ref"], &again["taken_in"], &again["owner"]),
+        (&json!(alice_ref), &json!(false), &json!(true))
+    );
+    let issued = text(again, "credential");
+    assert_ne!(issued, held);
+    let (_, stranger_ref) = join(&server, &secret, "bob");
+
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    let repeated = format!(
+        "member {alice_ref} made its take-in of team ops ({ELSEWHERE}) again with the retry key of the \
+         first: it has a new credential, and the one it had is not known any more"
+    );
+    assert_eq!(said.matches(&repeated).count(), 1, "{said}");
+    // The owner joined once, in the entry that took the team in, and the stranger once.
+    assert_eq!(
+        said.matches(&format!("member {alice_ref} joined team ops"))
+            .count(),
+        1,
+        "{said}"
+    );
+    assert_eq!(
+        said.matches(&format!("member {stranger_ref} joined team ops"))
+            .count(),
+        1,
+        "{said}"
+    );
+    for held in [RETRY_KEY, held.as_str(), issued.as_str()] {
+        assert!(!said.contains(held), "{said}");
+        assert!(!said.contains(&brigade_core::hash::sha256_hex(held)), "{said}");
+    }
+
+    server.kill();
+    let server = Server::start(&scratch, &arguments);
+    let (status, _) = refused(&server, Some(&held), "/v1/team/members", &team);
+    assert_eq!(status, 401);
+    server.ok(&issued, "/v1/team/open-move", &team);
+    assert_eq!(
+        server.ok(&issued, "/v1/team/members", &team)["members"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    server.stop();
+}
+
 /// The conformance suite through the bundled `rest` adapter: the contract's section 6.
 ///
 /// It needs the Go side's binaries, so the two tests below are marked ignored and `make server-test` runs
