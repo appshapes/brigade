@@ -654,3 +654,44 @@ func TestTeamMoveToSaysThatTheRosterWasCutShort(t *testing.T) {
 		}
 	})
 }
+
+// TestTeamMoveToShowsThePathPrefixOfTheAddress: an address with a path
+// after its host names a server at that path, and the path is part of
+// where every member's session is sent. The question shows it, as the
+// lines after it and the record's own reading do; an address that is a
+// host alone is shown as a host alone, with no slash after it.
+func TestTeamMoveToShowsThePathPrefixOfTheAddress(t *testing.T) {
+	t.Parallel()
+	r := newMoveToRig(t)
+	typed := r.newURL + "/brigade/ops"
+	r.f.rec.on("team move", okAnswer(r.notMoved()), okAnswer(recordedOn(typed, moveNewPin)))
+	if err := Team(r.inv(true, "--to", typed+"/", "--secret-file", r.secretFile, "--certificate", moveNewPin)); err != nil {
+		t.Fatal(err)
+	}
+	where := r.newHost + `/brigade/ops via adapter "rest"`
+	if len(r.prompts) != 1 || !strings.Contains(r.prompts[0], `) from `+r.oldHost+` to `+where) {
+		t.Fatalf("the confirmation does not show the path: %v", r.prompts)
+	}
+	if out := r.f.out.String(); !strings.Contains(out, "moved to "+where) {
+		t.Fatalf("the lines do not show the path:\n%s", out)
+	}
+	if got := string(r.f.rec.specsOf("team move")[1].Stdin); got != `{"adapter":"rest","url":"`+typed+`","certificate":"`+moveNewPin+`"}` {
+		t.Fatalf("the destination recorded: %s", got)
+	}
+	// A host alone, with the slash a person types after it.
+	plain := newMoveToRig(t)
+	if err := Team(plain.inv(true, "--to", plain.newURL+"/", "--secret-file", plain.secretFile, "--certificate", moveNewPin)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plain.prompts[0], ` to `+plain.newHost+` via adapter "rest"`) || strings.Contains(plain.prompts[0], plain.newHost+"/") {
+		t.Fatalf("the confirmation of a host alone: %v", plain.prompts)
+	}
+	for raw, want := range map[string]string{
+		"https://h.example": "", "https://h.example/": "", "https://h.example//": "", "https://h.example/a": "/a", "https://h.example/a/b/": "/a/b",
+		"h.example/a": "", "": "",
+	} {
+		if got := pathPrefix(raw); got != want {
+			t.Errorf("pathPrefix(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}

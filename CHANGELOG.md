@@ -65,6 +65,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   When the old backend cut its roster short, the line that names the
   sessions on an older plugin says that the list is not complete
   (`roster_truncated` with `--json`).
+  The question and the lines show the path of the server's address when it
+  has one.
 
   **A skill, `move`**, in all four packages (`/brigade:move` in Claude Code
   and Grok Build, `$brigade:move` in Codex CLI, the move skill in Muse Code)
