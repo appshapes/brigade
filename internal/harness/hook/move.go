@@ -274,10 +274,12 @@ func moveLogPath(stateDir string) string {
 // checkout now or within followInterval. The attempt's stamp is written
 // BEFORE the child is started, and no child is started without it: the
 // bound on how often the old backend is asked must hold even for a hook
-// that is stopped a moment later. The child gets an environment built from
-// scratch — the adapter children's allow-list, so neither the inbox socket
-// nor the messaging token nor any variable that names a session — and its
-// arguments, none of them a secret.
+// that is stopped a moment later. A child that could not be started asked
+// nobody, so its stamp is taken away again: the next prompt tries, and no
+// prompt in between says that a follow is under way. The child gets an
+// environment built from scratch — the adapter children's allow-list, so
+// neither the inbox socket nor the messaging token nor any variable that
+// names a session — and its arguments, none of them a secret.
 func (r *run) startFollow(ctx context.Context, f facts, opts config.Options, canon string) bool {
 	stamp := config.MoveAttemptStamp(f.stateDir, opts.ConfigDir, canon)
 	now := r.deps.Now()
@@ -315,6 +317,12 @@ func (r *run) startFollow(ctx context.Context, f facts, opts config.Options, can
 		LogPath: logPath,
 	})
 	if err != nil {
+		// No child runs, so nobody was asked and there is nothing to bound:
+		// the stamp goes, or the prompts of the next minute would each find
+		// it and say that the old backend is being asked.
+		if rerr := os.Remove(stamp); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+			r.log.Debug("the follow's attempt stamp was not removed", log.Err(rerr))
+		}
 		r.log.Warn("the follow of the team's move was not started", log.Err(err))
 		return false
 	}

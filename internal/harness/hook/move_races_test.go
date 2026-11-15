@@ -5,6 +5,7 @@ package hook
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -414,6 +415,76 @@ func TestALineThatCannotBeRecordedIsNotSaid(t *testing.T) {
 	if n := len(f.spawner.followed()); n != 1 {
 		t.Fatalf("%d follow children started, want 1", n)
 	}
+}
+
+// noFollows is a Spawner that cannot start a follow: the watchers go to the
+// fixture's recorder, a `hook follow` fails as a process that could not be
+// started does.
+type noFollows struct{ watchers Spawner }
+
+func (s noFollows) Spawn(ctx context.Context, spec SpawnSpec) (int, error) {
+	if len(spec.Args) > 1 && spec.Args[0] == "hook" && spec.Args[1] == SubFollow {
+		return 0, errors.New("no process could be started")
+	}
+	return s.watchers.Spawn(ctx, spec)
+}
+
+// TestAFollowThatWasNotStartedIsNotAnnounced: the line of a prompt that
+// starts the follow says that the old backend is being asked. It is said
+// when a follow was started for the checkout, now or within the minute, and
+// not otherwise: a session told that Brigade is asking would wait for an
+// answer nobody went for. That holds for a session that is attached and for
+// the registration retry of one that is attached to nothing, which says the
+// drift line alone, as it did before it could start a follow at all.
+func TestAFollowThatWasNotStartedIsNotAnnounced(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a session that is attached", func(t *testing.T) {
+		t.Parallel()
+		f := newMemberFixture(t)
+		attachedMember(t, f, nil, nil)
+		f.deps.Spawner = noFollows{f.spawner}
+		f.moveTeamFile("team-1")
+		// The second prompt is the one that tells: the first one's attempt
+		// must not stand as a follow that was started within the minute.
+		for range 2 {
+			if got := f.prompted(); len(got) != 0 {
+				t.Fatalf("a prompt whose follow could not be started said %q", got)
+			}
+		}
+		if exists(config.TeamMovedStamp(f.stateDir, f.pid)) || exists(config.MoveAttemptStamp(f.stateDir, f.configDir, f.canon())) {
+			t.Fatalf("a follow that was not started is on record: as a line that was heard, or as an attempt that bounds the next")
+		}
+		// A child can be started again: the next prompt starts it, within the
+		// minute, and says so.
+		f.deps.Spawner = f.spawner
+		if got := f.prompted(); !slices.Equal(got, []string{movedLine}) || len(f.spawner.followed()) != 1 {
+			t.Fatalf("the prompt whose follow was started: lines %q, %d follows", got, len(f.spawner.followed()))
+		}
+	})
+
+	t.Run("a session attached to nothing", func(t *testing.T) {
+		t.Parallel()
+		f := newMemberFixture(t)
+		f.labelOldBinding()
+		f.moveTeamFile("team-1")
+		f.useMoveSeam(nil, map[string][]fakeadapter.Response{
+			"team moved": {okResp(mustJSON(map[string]any{"team_ref": "team-1", "moved": false}))},
+		})
+		if exit, out, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 || !slices.Equal(lines(out), []string{driftLine}) || f.mapExists() {
+			t.Fatalf("the start: exit %d, lines %q", exit, lines(out))
+		}
+		f.deps.Spawner = noFollows{f.spawner}
+		for range 2 {
+			if got := f.prompted(); !slices.Equal(got, []string{driftLine}) {
+				t.Fatalf("a retry whose follow could not be started said %q", got)
+			}
+			f.now = f.now.Add(registerRetryInterval)
+		}
+		if exists(config.TeamMovedStamp(f.stateDir, f.pid)) {
+			t.Fatalf("a line that was not said is on record as heard")
+		}
+	})
 }
 
 // TestAnotherConversationHearsTheLineAgain: the stamp names the
