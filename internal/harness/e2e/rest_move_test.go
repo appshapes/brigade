@@ -257,8 +257,9 @@ func secretPart(value string) string {
 // Each hidden value has files of its own, so that a ticket in the secret's
 // file, or a join secret in the record, is not passed over.
 //
-// What it cannot see is the bundled `rest` adapter's argv and environment:
-// the built `brigade` runs that adapter as itself, with nothing between
+// What it cannot see is the argv and the environment of a bundled adapter,
+// `rest` for the server and `supabase` where the team leaves the local
+// stack: the built `brigade` runs those as itself, with nothing between
 // them that a test could read. The spawn recorder of
 // internal/harness/commands holds those.
 func (m *movingTeam) noSecrets(ticket string, allowed ...string) {
@@ -267,14 +268,18 @@ func (m *movingTeam) noSecrets(ticket string, allowed ...string) {
 	if ticket == "" || ticket == m.secret {
 		t.Fatalf("the ticket the old backend holds is not a ticket")
 	}
-	// The recorders are live: a check that reads nothing passes whatever happened.
-	argv, err := os.ReadFile(m.r.argvLog)
-	if err != nil || !bytes.Contains(argv, []byte("--root")) {
-		t.Fatalf("the adapter wrapper recorded no argv (%v): the recorder is not live", err)
-	}
-	env, err := os.ReadFile(m.r.envLog)
-	if err != nil || !bytes.Contains(env, []byte("BRIGADE_")) {
-		t.Fatalf("the adapter wrapper recorded no environment (%v): the recorder is not live", err)
+	// The recorders see the children of the fs adapter's wrapper. Where that is the adapter of the backend the
+	// team leaves they must be live: a check that reads nothing passes whatever happened. Where the team
+	// leaves the local Supabase stack, its adapter is the bundled one, which no recorder sees.
+	var argv, env []byte
+	if m.oldPin.Adapter == "fs" {
+		var err error
+		if argv, err = os.ReadFile(m.r.argvLog); err != nil || !bytes.Contains(argv, []byte("--root")) {
+			t.Fatalf("the adapter wrapper recorded no argv (%v): the recorder is not live", err)
+		}
+		if env, err = os.ReadFile(m.r.envLog); err != nil || !bytes.Contains(env, []byte("BRIGADE_")) {
+			t.Fatalf("the adapter wrapper recorded no environment (%v): the recorder is not live", err)
+		}
 	}
 	said := m.said.String() + m.recordJSON()
 	values := append([]hidden{
