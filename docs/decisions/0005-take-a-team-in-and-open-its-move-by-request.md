@@ -72,10 +72,12 @@ A running server takes a team in, and opens and closes its move, by request.
      principal is refused in the same bytes as before, and the creation token is asked for where it was. A
      request without the member is answered as one always was.
    - The key is honoured for as long as the team's join secret is the one it was taken in with: a rotation
-     ends it, and it has no other end. The key lives in a file with the protection of the credential it stands
-     in for, on the machine that owns the team, and the adapter removes that file as soon as the credential is
-     written, so the key outlives the take-in only when the answer was lost. A clock of its own would add
-     nothing to that, and a person makes a request again when they come back to it.
+     ends it, and it has no other end, the principal making its own credential unknown included. The key
+     lives in a file with the protection of the credential it stands in for, on the machine that owns the
+     team, and the adapter removes that file as soon as a take-in is answered and its credential written, so
+     the file outlives the take-in only when the answer was lost or the request was refused. The server
+     honours the key it keeps whether or not the file is still there. A clock of its own would add nothing
+     to that, and a person makes a request again when they come back to it.
    - The `rest` adapter mints the key before the request, or uses the one an earlier attempt for the same
      server and the same team left. It keeps it in `take-in-key.json` beside `credential.json` (mode 0600,
      written by rename, never under the project directory), registers it for redaction, sends it, and on an
@@ -94,7 +96,8 @@ A running server takes a team in, and opens and closes its move, by request.
 8. **The log.** A take-in by request is a `team.created` record that names its owner and says that the team was
    taken in, and a `member.joined` record, in one entry. With a retry key the `member.joined` record carries
    the key's hash, a member that is written only then; a take-in made again is one entry of the records there
-   already were, `credential.revoked`, `credential.issued` and `member.joined`. There is no new kind of record
+   already were, `credential.revoked`, `credential.issued` and `member.joined`, the first for each credential
+   the principal still had and so for none when it had made its own unknown. There is no new kind of record
    and no new snapshot format: a server 0.6.0 reads what a 0.7.0 wrote. It reads past the key's hash, which it
    has no use for, and a snapshot it writes holds none.
 
@@ -132,9 +135,11 @@ would stay without an owner: a team taken in by request has its owner from its f
   changes how every principal is made: the server issues every credential and shows it once, and a credential
   of the client's choosing would be a second way to make one, on the three requests that make a principal, for
   the sake of one of them.
-- **An end of its own for the key**, an hour or a day. The key gives nothing that the credential beside it in
-  the same directory does not give, the adapter removes it when the take-in is done, and nobody can name the
-  hour in which a person makes a request again.
+- **An end of its own for the key**, an hour or a day. The key gives what the credential beside it in the
+  same directory gives, the adapter removes it when the take-in is done, and nobody can name the hour in
+  which a person makes a request again. It gives two things more, which are accepted with it
+  (Consequences): it is honoured after its principal made that credential unknown, and whoever uses it puts
+  that credential out of use.
 - **The key's hash on `team.created`.** A team the operator took in gets its owner by the first join, in an
   entry that has no `team.created`, and a lost answer leaves the same owner with nobody there. `member.joined`
   is in both entries.
@@ -219,6 +224,34 @@ no hosted project was asked.
   join secret and of a ticket is registered for redaction: 8 one-line changes, each caught, the two for a
   rotation and an opened move by a test that hands the command its redactor, because nothing the server chose
   is written after those answers but the result.
+- The verification of the retry key, by a second session on the same day. In the rules, six tests more, 63
+  in the file. Two servers that differ only in whether the team keeps a key answer sixteen requests in the
+  same bytes and write the same records. A known caller's guesses at the secret are counted with the kept
+  key as without it, and a take-in made again is counted against nobody. The key of one team is another key
+  on another. A take-in made again is its principal in every team that principal is in, and one made after
+  its principal gave its credential up makes nothing unknown. And a walk of twenty thousand requests on two
+  dozen teams, chosen by numbers that are the same in every run: a key is kept 136 times, each for the
+  owner a take-in made; a credential is issued for a principal that was there 92 times, each to the holder
+  of the kept key and the team's secret, and each time one was due; and no take-in changes the owner a team
+  has.
+- The same on the built server, on both logs. The status and the body of eleven requests, and the headers
+  of five of them, are the same on a team that keeps a key and on one that keeps none. Sixteen take-ins at
+  once with one key leave one principal, one member and one credential the server knows; with sixteen keys
+  they leave one owner, whose key is the one the team keeps. On the file log, a log cut at three places
+  inside the entry of a take-in made again holds none of it, and the request is answered again. 0.5.0 and
+  0.6.0 again, on the file log, 30 checks each.
+- The seventy one-line changes above, run again with the tests they were first run against: each is caught,
+  three of them written again for lines the verification moved. The test of the two built programs fails
+  under four changes more: an adapter that sends no key, one that mints a key for every run, one that never
+  removes its key file, and a server that honours no key.
+- Sixteen one-line changes of the verification's own. Five were caught by no test before it: a credential
+  the server does not know that stops a take-in made again, a take-in made again that is counted against its
+  principal, a key file that cannot be removed and is left in silence, a key that is minted before the
+  server is asked whether it takes teams in, and a link to a directory that is read as one. Each is caught
+  now. Two things were mended. The server's line for a take-in made again was a join's when its principal
+  had no credential left to make unknown; and a key that was kept for another team or another server was
+  replaced in silence. Three things were found and left, as Consequences has them: a request that is
+  delivered twice, a `team join` between two runs of the take-in, and a key that outlives its file.
 - `make server-check server-test` and the acceptance gate pass on the final tree. `make server-deps-check` did
   not run: the machine has no `cargo-deny`. No crate was added.
 - Not measured: a move of a real team from a hosted project by these requests, and an answer lost by a real
@@ -238,9 +271,22 @@ no hosted project was asked.
   again joins as a member, and the operator names the owner with `--set-owner`: a client that sends no key, a
   key file that went with the machine, a rotation by someone the team was transferred to, and a server 0.6.0
   that wrote a snapshot of the directory in between, which drops the hash.
-- Whoever reads the key file while it exists, and holds the join secret, can own the team. The file is in the
-  adapter's private directory beside the credential, which gives the same, and is there only between a request
-  and its answer.
+- Whoever reads the key file while it exists, and holds the join secret, can be the principal that owns the
+  team, then and for as long as the team keeps that secret, and the request that does it makes the owner's own
+  credential unknown. The file is in the adapter's private directory beside the credential, and is there from a
+  request until a take-in is answered and its credential kept: after a lost answer and after a refusal it stays
+  for the next run. A copy of it is good after the file is gone, and after the owner made its credential
+  unknown: a rotation is the one thing that ends it.
+- A take-in made again makes the credential before it unknown, because nobody is taken to hold it. A
+  request that reaches the server a second time after its client kept the first answer, as a proxy that
+  sends a request again would deliver it, therefore costs that client its credential, and by then the client
+  has removed its key file: the owner is a principal nobody holds a credential for, and the operator's
+  `--set-owner` is the way back. Nothing here prevents it.
+- A machine that ran `team join` between a lost answer and the take-in run again holds a member's
+  credential, and a request with a credential the server knows is that principal's whatever key it carries:
+  the take-in is answered `owner: false`, and the adapter removes the key file with it. `profile
+  revoke-credentials` before the take-in is run again leaves the key to be heard; after it, the operator
+  names the owner.
 - A server keeps one hash more for a team that was taken in with a key, until the team's secret is rotated.
 - A take-in that is refused for its secret tells that a team of that reference is on the server, where a join
   tells nothing. It is counted against a known principal as a failed join is.

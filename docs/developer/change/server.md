@@ -184,8 +184,10 @@ owner. The operator's three commands stay as they are, and call the same functio
   applying `team.created` counts it for its `created_by`.
 - **`said.rs`** has a line for a team taken in, for a move its owner opened and for one its owner closed. A
   `team.move_closed` in an entry that also holds a rotation is the rotation's; alone it is the owner's. A
-  `member.joined` in an entry that makes a credential unknown and issues one is a take-in made again, and has
-  a line of its own in the place of the join's.
+  `member.joined` in an entry that issues a credential for a principal that was there before it is a take-in
+  made again, and has a line of its own in the place of the join's. The entry tells it by a `credential.revoked`
+  before the `credential.issued`; when the principal had no credential left there is none, and the team
+  tells it: the principal is the one `Team.take_in_retry` names, and the join writes no key.
 - **`/v1/info`** lists `team.take_in` beside `team.admin`, and the conformance suite holds the three with cases
   C-53 to C-55 through the `rest` adapter.
 
@@ -316,7 +318,13 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
   `conflict` (ADR 0005; `docs/security.md`, section 20). A creation token keeps a stranger from it.
 - A take-in whose answer is lost is made again with its retry key and owns the team (ADR 0005). Without the
   key, from a client that sends none or a machine that lost the file, or after the team's secret was rotated,
-  the request made again joins as a member, and the operator names the owner with `--set-owner`.
+  the request made again joins as a member, and the operator names the owner with `--set-owner`. So does one
+  from a profile that ran `team join` in between: the adapter sends the member's credential, the server
+  answers for it whatever key the request carries, and the adapter removes the key file with that answer.
+- A take-in made again makes the credential before it unknown. A request that is delivered a second time
+  after its client kept the first answer, by a proxy that sends it again, leaves that client with a
+  credential the server does not know and no key file (ADR 0005). And the key is honoured until the team's
+  secret is rotated, after the adapter removed its file and after the owner made its own credential unknown.
 - An entry that fails its seal refuses the start, wherever it is in the log. Whether a power loss can leave such
   an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here.
 - The seal has one key and no rotation. Nonces are random, which is sound for about four thousand million

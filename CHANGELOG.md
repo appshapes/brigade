@@ -42,8 +42,11 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   command run again sends the same key and is answered as the owner,
   with a new credential in the place of the lost one. The key file is
   removed once the credential is written, is for one server and one
-  team, and is never printed or logged. The adapter protocol does not
-  change: the key is in no request and no result of BAP/1.
+  team, and is never printed or logged; a key that was kept for
+  another server or another team is replaced, and stderr says so,
+  because the take-in it was for can then not be made again. The
+  adapter protocol does not change: the key is in no request and no
+  result of BAP/1.
 
 ### Fixed
 
@@ -59,9 +62,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   (`adapterkit.CanWriteAtomic`), so a directory that takes no file, and
   a path that names a directory, is `config` with
   `secret_file_unwritable` or `ticket_file_unwritable`, and the backend
-  is not asked. `team create --secret-file` and `team moved
-  --ticket-file`, the filesystem adapter's included, make the same
-  check. What was at the path is left as it is until the write, which
+  is not asked. `team create --secret-file` makes the same check on
+  those two adapters, and `team moved --ticket-file` on the Supabase
+  adapter and the filesystem adapter. What was at the path is left as
+  it is until the write, which
   still replaces a symbolic link there and never follows it.
 - **A server that repeats only the secret half of a join secret cannot
   make the `rest` adapter print it** (work item 328). The adapter passes

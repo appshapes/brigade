@@ -53,7 +53,9 @@ you run nothing.
   <reference> made its take-in of team <name> (<team_ref>) again with the retry key of the first: it has a new
   credential, and the one it had is not known any more`. The server keeps the key's hash, never the key, until
   the team's join secret is rotated. Without that file, on another machine or after the profile was reset, the
-  command run again joins as a member, and you name the owner ([Name a team's owner](name-the-owner.md)).
+  command run again joins as a member, and you name the owner ([Name a team's owner](name-the-owner.md)). The
+  same holds on a machine that ran `brigade team join` after the answer was lost: the command run again then
+  acts for the member that join made, and its key file is removed with that answer.
 - The journal says who did it: `member <reference> took in team <name> (<team_ref>) with the join secret it has on
   another backend, and owns it`. No line holds the secret.
 - **Decide about the creation token first.** A team's reference is in its committed `.brigade.json`, so it is

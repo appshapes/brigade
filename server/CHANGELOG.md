@@ -40,7 +40,8 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
   nobody holds it, and the request made again would join as a stranger. So `/v1/team/take-in` takes one more
   member, `retry_key`: 22 to 128 characters of a credential's alphabet, which the client minted from at least
   128 random bits. The server keeps the key's hash, never the key, when the request made a principal and made
-  it the team's owner, by taking the team in or by the first join of a team `--import-team` took in. A take-in
+  it the team's owner, by taking the team in or by the first join of a team that has no owner, one
+  `--import-team` took in or `--take-back` took back. A take-in
   for that team with its join secret, that key and no credential the server knows is answered for the
   principal the first request made, with a new credential, and every credential that named it before is
   unknown from then on. `owner` says whether it owns the team when the request is answered. Another key and
@@ -81,7 +82,8 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 Nothing about the data directory changes. A take-in by request is the record a creation writes, with one
 member more that is written only for a team that was taken in, and the record of a join, with one member more
 that is written only when the take-in carried a retry key: the key's hash. A take-in made again is the records
-of a credential made unknown, a credential issued and a join. There is no new kind of record and the
+of a credential made unknown, a credential issued and a join, without the first when its principal had made
+its own credential unknown before. There is no new kind of record and the
 snapshot's format stays 3; a team that keeps a key has one member more in it until its secret is rotated. A
 0.6.0 starts on a 0.7.0 directory and a 0.7.0 on a 0.6.0 one. A 0.6.0 reads past the key's hash and writes
 none in its own snapshot, so a take-in whose answer was lost, made again after a 0.6.0 wrote one, joins as a
