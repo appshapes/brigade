@@ -8,6 +8,7 @@ package adapterkit_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -145,5 +146,44 @@ func TestTicketFileTargetMustTakeAFile(t *testing.T) {
 	}
 	if data, err := os.ReadFile(link); err != nil || string(data) != teamTicket+"\n" { //nolint:gosec // the test's own temp file
 		t.Errorf("the ticket file does not hold the ticket: %v", err)
+	}
+
+	// A link to a directory, and a link to nothing, are links: the path names
+	// no directory, so the check passes, and the write puts the ticket in the
+	// link's place. The directory the first pointed at holds what it held.
+	pointedAt := filepath.Join(dir, "a-directory")
+	if err := os.Mkdir(pointedAt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"a directory": pointedAt, "nothing": filepath.Join(dir, "missing")} {
+		link := filepath.Join(dir, "linked-to-"+filepath.Base(target)+".ticket")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		if err := adapterkit.CheckTicketFileTarget(link); err != nil {
+			t.Errorf("a target that is a symbolic link to %s: %v", name, err)
+			continue
+		}
+		if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("the check replaced the link to %s (%v %v)", name, info, err)
+		}
+		if err := adapterkit.WriteTicketFile(link, teamTicket); err != nil {
+			t.Errorf("the write over a link to %s: %v", name, err)
+			continue
+		}
+		if info, err := os.Lstat(link); err != nil || !info.Mode().IsRegular() || !adapterkit.OwnerReadWriteOnly(info) {
+			t.Errorf("the ticket file is not a regular file for its owner alone in the place of the link to %s: %v %v", name, info, err)
+		}
+	}
+	if left := names(t, pointedAt); len(left) != 0 {
+		t.Errorf("the check or the write put %v in the directory a link pointed at", left)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "missing")); !os.IsNotExist(err) {
+		t.Errorf("the check or the write made the file a link to nothing pointed at (%v)", err)
+	}
+	for _, name := range names(t, dir) {
+		if strings.Contains(name, ".probe-") || strings.Contains(name, ".tmp-") {
+			t.Errorf("the checks left %s behind", name)
+		}
 	}
 }
