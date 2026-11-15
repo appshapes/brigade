@@ -123,7 +123,7 @@
     "team_move_in_session": {
       "type": "string",
       "title": "Let a session move a team you administer to another backend",
-      "description": "on (the default) lets brigade team move run inside your sessions: a session can then move a team you created to a Brigade server (/brigade:move, with the server's URL and the path of the team's secret file that you give it), record where a team went and clear that record. Every member's next session follows such a move. off refuses the three inside a session and says to run them in your own terminal; brigade team move --show still reads the record. It changes nothing for a team you did not create: only its creator can move it.",
+      "description": "on (the default) lets brigade team move run inside your sessions: a session can then move a team you own to a Brigade server (/brigade:move, with the server's URL and the path of the team's secret file that you give it), record where a team went and clear that record. Every member's next session follows such a move. off refuses the three inside a session and says to run them in your own terminal; brigade team move --show still reads the record. It changes nothing for a team you do not own: only the team's owner can move it, who in a Supabase project is the member who created it, and on a Brigade server whoever created it, took it in, was the first to join one its operator took in, or was handed it.",
       "default": "on"
     }
   }

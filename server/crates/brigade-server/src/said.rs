@@ -41,8 +41,9 @@ fn owner(state: &State, team_ref: &str) -> String {
 /// The lines for the records of one request, read against the state those records were applied to: a team
 /// that a member created or took in from another backend, a member who joined, with the team's move ticket
 /// when that is what let it in, a take-in that its member made again with the key it kept, a team's new
-/// owner, a move that the team's owner opened, and a move that its owner or a rotation of the team's join
-/// secret closed. Every other record has none.
+/// owner, a move that the team's owner opened, a move that its owner or a rotation of the team's join
+/// secret closed, and the record of where a team went, made or cleared by its owner. Every other record
+/// has none.
 #[must_use]
 pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
     // One request alone makes a credential unknown and issues another in the same entry: a take-in made
@@ -152,6 +153,36 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
                 owner(state, team_ref),
                 team(state, team_ref)
             )),
+            // Where a team went is what an operator looks for when its members stop arriving. The line
+            // names the backend as the record does and never shows the ticket the record holds.
+            Event::TeamMoveRecorded {
+                team_ref,
+                adapter,
+                url,
+                certificate,
+                ..
+            } => {
+                let pinned = if certificate.is_empty() {
+                    String::new()
+                } else {
+                    format!(", certificate {}", plain(certificate))
+                };
+                Some(format!(
+                    "{} recorded that {} moved to {} (adapter {}{pinned}): its members' sessions follow it \
+                     there, and the team stays here as it is",
+                    owner(state, team_ref),
+                    team(state, team_ref),
+                    plain(url),
+                    plain(adapter)
+                ))
+            }
+            // The operator's command that takes a team back prints its own line; this is the owner's
+            // request.
+            Event::TeamMoveCleared { team_ref } => Some(format!(
+                "{} cleared the record of where {} went: no session follows it from here from now on",
+                owner(state, team_ref),
+                team(state, team_ref)
+            )),
             _ => None,
         })
         .collect()
@@ -206,6 +237,7 @@ mod tests {
             secret_version: 1,
             move_ticket: None,
             take_in_retry: None,
+            moved_to: None,
             members: Default::default(),
             sessions: Default::default(),
         };
@@ -384,6 +416,66 @@ mod tests {
         assert_eq!(
             lines,
             ["member p-alice closed the move of team ops (t-1): its ticket admits nobody from now on"]
+        );
+    }
+
+    #[test]
+    fn the_record_of_where_a_team_went_has_a_line_and_no_ticket() {
+        use brigade_core::record::KeptTicket;
+
+        // The owner's record names where the team went, as the record does, and holds nothing of the
+        // ticket: the journal is read by more people than the data directory is.
+        // The ticket is put together here: no file of the repository holds the shape of one.
+        let ticket = concat!("brg1", ".t-1.", "the-secret-part-of-the-ticket");
+        let recorded = |certificate: &str| Event::TeamMoveRecorded {
+            team_ref: "t-1".to_owned(),
+            adapter: "rest".to_owned(),
+            url: "https://brigade.example.com:8743".to_owned(),
+            certificate: certificate.to_owned(),
+            ticket: KeptTicket::new(ticket),
+        };
+        let lines = of_entry(&state(), &entry(vec![recorded("")]));
+        assert_eq!(
+            lines,
+            [
+                "member p-alice recorded that team ops (t-1) moved to https://brigade.example.com:8743 \
+              (adapter rest): its members' sessions follow it there, and the team stays here as it is"
+            ]
+        );
+        let lines = of_entry(&state(), &entry(vec![recorded("sha256:00ff")]));
+        assert_eq!(
+            lines,
+            [
+                "member p-alice recorded that team ops (t-1) moved to https://brigade.example.com:8743 \
+              (adapter rest, certificate sha256:00ff): its members' sessions follow it there, and the team \
+              stays here as it is"
+            ]
+        );
+        assert!(lines.iter().all(|line| !line.contains("the-secret-part")));
+        // A destination its owner wrote stays on the one line it was written to.
+        let lines = of_entry(
+            &state(),
+            &entry(vec![Event::TeamMoveRecorded {
+                team_ref: "t-1".to_owned(),
+                adapter: "re\nst".to_owned(),
+                url: "https://a\nmember joined".to_owned(),
+                certificate: String::new(),
+                ticket: KeptTicket::new(ticket),
+            }]),
+        );
+        assert!(lines.iter().all(|line| !line.contains('\n')), "{lines:?}");
+        let lines = of_entry(
+            &state(),
+            &entry(vec![Event::TeamMoveCleared {
+                team_ref: "t-1".to_owned(),
+            }]),
+        );
+        assert_eq!(
+            lines,
+            [
+                "member p-alice cleared the record of where team ops (t-1) went: no session follows it from \
+              here from now on"
+            ]
         );
     }
 

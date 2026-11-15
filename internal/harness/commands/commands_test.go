@@ -90,6 +90,9 @@ type spawnRecorder struct {
 	budgets []time.Duration
 	answers map[string][]answer
 	used    map[string]int
+	// subs are the recorders that answer some verbs of one profile in this
+	// one's place (delegate), by "<profile> <verb key>".
+	subs map[string]*spawnRecorder
 }
 
 // An answer is one scripted reply: a result document, a failing error
@@ -115,7 +118,21 @@ func (r *spawnRecorder) on(key string, answers ...answer) *spawnRecorder {
 	return r
 }
 
+// subFor is the recorder a spawn was delegated to, nil for this one.
+func (r *spawnRecorder) subFor(spec adapterkit.SpawnSpec) *spawnRecorder {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	i := slices.Index(spec.Argv, "--profile")
+	if i < 0 || i+1 >= len(spec.Argv) {
+		return nil
+	}
+	return r.subs[spec.Argv[i+1]+" "+verbKey(spec.Argv)]
+}
+
 func (r *spawnRecorder) spawn(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+	if sub := r.subFor(spec); sub != nil {
+		return sub.spawn(ctx, spec)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.specs = append(r.specs, spec)

@@ -102,6 +102,16 @@ const (
 	// movedStaysLine is said instead when the member's options keep a
 	// session from following.
 	movedStaysLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. This session does not follow a move by itself (the option follow_team_move is off, or the session names its adapter itself): it stays where it is until you join the team there with `brigade team join`, and moves at its next prompt after that."
+	// movedEachOtherLine is said when the follow found that the backend the
+	// file names itself records that the team moved back to the backend the
+	// session is on (work item 341): the session follows neither.
+	movedEachOtherLine = "Brigade: the .brigade.json of the checkout this session was started in names another backend for this session's team, and that backend and the one this session is on each record that the team moved to the other. This session follows neither and stays where it is. The team's administrator clears the record that is out of date: `brigade team move --show --from <host>` reads one, and `brigade team move --clear --from <host>` clears it."
+	// movedRefusedLine is said, once on a machine for one refusal
+	// (refusalUntold), when the backend the file names refused the join a
+	// follow made there under the membership this machine holds (work item
+	// 341): the session stays, and its member is told the command that
+	// helps.
+	movedRefusedLine = "Brigade: the .brigade.json of the checkout this session was started in names another backend for this session's team, and that backend refuses the membership this machine holds there. This session stays where it is. To join the team there, run `brigade team join --secret-file <path>` with the file of the team's current join secret, which its administrator has; this session moves at its next prompt after that."
 	// moveUnreachedLine is said when the checkout is joined to the backend
 	// the team went to and the session could not be registered there.
 	moveUnreachedLine = "Brigade: this session could not be registered on the backend its team moved to. It stays where it is and tries again at a later prompt."
@@ -115,6 +125,7 @@ const (
 	toldFollowed  = "followed"
 	toldWaits     = "waits"
 	toldUnreached = "unreached"
+	toldEachOther = "each-other"
 )
 
 // moveWaitsLine is said when the checkout followed and the session cannot
@@ -165,6 +176,9 @@ type followedMark struct {
 	TeamKey    string    `json:"team_key"`
 	Joined     bool      `json:"joined"`
 	FollowedAt time.Time `json:"followed_at"`
+	// Reason is set in the mark of a follow that did not follow
+	// (config.MoveNotFollowedMark): one of teammove's Reason words.
+	Reason string `json:"reason,omitzero"`
 }
 
 // readFollowedMark reads the mark at path under the strict private-file
@@ -405,6 +419,10 @@ func (r *run) follow() int {
 			r.leaveFollowedMark(a, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), joined)
 		},
 	})
+	// Why it did not follow is this follow's to say or to take back, where a
+	// session has a line for it: the next prompt of the checkout reads the
+	// mark.
+	r.markNotFollowed(a.stateDir, a.configDir, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), out.Reason)
 	if !out.Followed {
 		attrs := []any{slog.String("reason", out.Reason)}
 		if err != nil {
@@ -418,6 +436,164 @@ func (r *run) follow() int {
 		_ = os.Remove(config.RegisterRetryStamp(a.stateDir, a.key))
 	}
 	return 0
+}
+
+// markNotFollowed keeps the checkout's mark of why its last follow did not
+// follow (config.MoveNotFollowedMark) true to the follow that just ended.
+// It is written for a reason the next prompt has a line of its own for:
+// the backend the team moved to not answering, refusing the membership
+// this machine holds there, or naming the backend the checkout joined as
+// that one names it. It is left as it is by a follow that learned nothing
+// about that backend, because it could not ask: one that did not get the
+// lock, and one whose own backend did not answer (learnedNothing).
+// Until that a follow that never reached the server removed what the last
+// one to reach it had left, and the next prompt said that the team file
+// does not match, of a server that was only down. Every other outcome
+// removes it, a follow that followed included. Best effort: without it a
+// prompt says what it always said, that the team file does not match.
+func (r *run) markNotFollowed(stateDir, configDir, canon, teamKey, reason string) {
+	path := config.MoveNotFollowedMark(stateDir, configDir, canon)
+	if learnedNothing(reason) {
+		return
+	}
+	switch reason {
+	case teammove.ReasonNewBackendFailed, teammove.ReasonNewBackendRefused, teammove.ReasonEachOther:
+	default:
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			r.log.Debug("the mark of a follow that did not follow was not removed", log.Err(err))
+		}
+		return
+	}
+	data, err := json.Marshal(followedMark{Version: followedMarkVersion, TeamKey: teamKey, FollowedAt: r.deps.Now().UTC(), Reason: reason})
+	if err == nil {
+		if err = adapterkit.MkdirPrivate(filepath.Dir(path)); err == nil {
+			err = adapterkit.WriteAtomic(path, append(data, '\n'))
+		}
+	}
+	if err != nil {
+		r.log.Debug("the mark of a follow that did not follow was not written", log.Err(err))
+	}
+}
+
+// dropSettledMark is dropNotFollowedMark for the common prompt, which
+// knows only that the checkout's team file names the backend the session
+// is on. That is not yet a checkout with nothing to follow: a session that
+// never left a backend the team came back to runs in a checkout whose pin
+// has gone on, and what another session's follow back left there is true.
+// Until this such a session removed that mark at its every prompt, and the
+// other's next prompt said that the team file does not match, of a backend
+// that was only down (work item 341). So the mark is looked for first,
+// which is all the common prompt pays, a look that as a rule finds
+// nothing; and only where one is there is the checkout's pin read, and the
+// mark dropped when the pin matches the file, which is a start's rule
+// (resolveTeam).
+func (r *run) dropSettledMark(stateDir, configDir, canon string, tf *teamfile.File) {
+	if _, err := os.Lstat(config.MoveNotFollowedMark(stateDir, configDir, canon)); err != nil {
+		return
+	}
+	if pin, pinned, err := teamstore.LookupPin(configDir, canon); err != nil || !pinned || !pin.Matches(tf) {
+		return
+	}
+	r.dropNotFollowedMark(stateDir, configDir, canon)
+}
+
+// learnedNothing reports whether a follow that ended with reason could not
+// ask about the backend the team file names: it did not get the lock, or
+// the backend the member joined did not answer it. Such a follow has no
+// word of its own on that backend. The checkout's mark stays as the last
+// follow that asked left it (markNotFollowed), and a session's start says
+// what that one left, as a prompt does (followMove). Nothing else is such
+// a follow. A refusal from the backend the member joined is an answer
+// (teammove.ReasonOldBackendRefused): a member it has put out waits for
+// nothing, and until the two were told apart his sessions said for ever
+// that the server the team moved to did not answer, over a mark that no
+// follow could take back (work item 341). And a store that failed comes
+// after that backend's answer.
+func learnedNothing(reason string) bool {
+	switch reason {
+	case teammove.ReasonBusy, teammove.ReasonOldBackendFailed:
+		return true
+	}
+	return false
+}
+
+// dropNotFollowedMark removes the checkout's mark of why its last follow
+// did not follow: the checkout has nothing to follow now. It is what a
+// follow left of a backend the team file named then, and it must not
+// outlive that: said the next time the file names that backend, it would
+// speak of records as they were (work item 341). A session's start takes
+// it back where the checkout's pin matches its file (resolveTeam), and so
+// does the prompt of a running session, in a checkout where no session
+// starts (moveSession, dropSettledMark). It reads nothing: it removes one
+// path.
+func (r *run) dropNotFollowedMark(stateDir, configDir, canon string) {
+	path := config.MoveNotFollowedMark(stateDir, configDir, canon)
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.log.Debug("the mark of a follow that did not follow was not removed", log.Err(err))
+	}
+}
+
+// lastNotFollowed is why the last follow of the checkout did not follow,
+// where it left a mark for the backend the team file names now
+// (markNotFollowed), and "" otherwise.
+func (r *run) lastNotFollowed(f facts, opts config.Options, canon string, tf *teamfile.File) string {
+	mark, marked := readFollowedMark(config.MoveNotFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
+	if !marked {
+		return ""
+	}
+	return mark.Reason
+}
+
+// leftByLastFollow is what a hook that cannot ask for itself says of the
+// backend the team file names, from what the last follow of the checkout
+// that asked left: "" where it left nothing, and the caller says that the
+// team file does not match. It is the one reading for a prompt, whose
+// follow runs beside it and has nobody to tell, and for a session's start
+// whose own follow learned nothing (learnedNothing); until both read it
+// here a start said that the team file does not match over a mark that
+// the prompt after it then said (work item 341). Two backends that name
+// each other come first. Then a refusal of the membership this machine
+// holds that the member has not been told of, which is in the member's
+// store and not in the mark, and is told once (refusalUntold). Then
+// whatever else the mark says: that the backend did not answer, or that it
+// refuses the membership. The mark is read and never changed here.
+func (r *run) leftByLastFollow(f facts, opts config.Options, canon string, tf *teamfile.File) string {
+	last := r.lastNotFollowed(f, opts, canon, tf)
+	if last != teammove.ReasonEachOther && r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
+		return teammove.ReasonRejoinRefused
+	}
+	return last
+}
+
+// refusalUntold reports whether the member has yet to be told that the
+// backend teamKey names refused the join a follow made there under the
+// membership this machine holds (teamstore.RejoinRefusal), and records that
+// they now are: the caller says the line. A member is told of a refusal
+// once, whichever session or checkout of theirs comes to it first, and not
+// at every start: the refusals since a join there last succeeded are one
+// refusal. The record is in the member's store, where a follow that ran
+// beside a prompt left it with nobody to tell; what was told is in the
+// state directory. A state directory that cannot be written costs the
+// member the line and never earns it at every start.
+func (r *run) refusalUntold(f facts, opts config.Options, teamKey string) bool {
+	refusal, err := teamstore.LoadRejoinRefusal(opts.ConfigDir, teamKey)
+	if err != nil {
+		return false
+	}
+	which := refusal.FirstRefusedAt.UTC().Format(time.RFC3339Nano)
+	path := config.MoveRefusalToldMark(f.stateDir, opts.ConfigDir, teamKey)
+	if told, rerr := adapterkit.ReadStrict(path); rerr == nil && strings.TrimSpace(string(told)) == which {
+		return false
+	}
+	if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {
+		r.log.Debug("state directory not created; no line about the refused join", log.Err(err))
+		return false
+	}
+	if err := adapterkit.WriteAtomic(path, []byte(which+"\n")); err != nil {
+		r.log.Debug("the mark of a refused join that was told was not written; no line about it", log.Err(err))
+		return false
+	}
+	return true
 }
 
 // leaveFollowedMark writes the mark of a follow that is about to write
@@ -453,7 +629,10 @@ func (r *run) leaveFollowedMark(a hookArgs, canon, teamKey string, joined bool) 
 // act on. The file is read at every prompt of an attached session and costs
 // about 27 microseconds (measured 2026-11-13 on this repository's own team
 // file, from three directories down), which is why nothing is kept to avoid
-// it.
+// it. A file that names the backend the session is on costs one thing
+// more, a look for one path that is as a rule not there: what a follow
+// left for the checkout's prompts, which is taken back where the checkout
+// has nothing to follow (dropSettledMark).
 //
 // The checkout is the session's own: the one its map names
 // (sessionmap.ByPID.Checkout), whose team file and pin its registration
@@ -499,6 +678,13 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 	here := teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef) == m.TeamKey
 	if here && m.Checkout != "" {
 		// The common prompt: the file names the backend the session is on.
+		// What a follow left for the checkout's prompts, of a backend the
+		// file named then and names no longer, is taken back here as a
+		// start takes it back, or a checkout whose sessions are all running
+		// would keep it until the file names that backend again and say it
+		// of records that have changed since (work item 341). The store is
+		// the one the session registered with, which its map names.
+		r.dropSettledMark(f.stateDir, m.ConfigDir, checkout, tf)
 		return nil
 	}
 	opts, err := r.options()
@@ -514,9 +700,19 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		return nil
 	}
 	if here {
+		// The common prompt, for a map that has just been given its
+		// checkout: the pin is at hand, and the mark is taken back by the
+		// rule dropSettledMark has.
+		if pin.Matches(tf) {
+			r.dropNotFollowedMark(f.stateDir, opts.ConfigDir, checkout)
+		}
 		return nil
 	}
 	if pin.Matches(tf) {
+		// The checkout is where its team file says, and the session is not
+		// yet: what a follow left of a backend the file named before is
+		// nothing to say of it, whether or not this prompt moves the session.
+		r.dropNotFollowedMark(f.stateDir, opts.ConfigDir, checkout)
 		return r.reattach(ctx, f, in, m, opts, tf, checkout, pin)
 	}
 	if !teammove.Candidate(pin, tf) {
@@ -528,6 +724,17 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		}
 		r.tell(f, in, toldStays, movedStaysLine)
 		return nil
+	}
+	if r.lastNotFollowed(f, opts, checkout, tf) == teammove.ReasonEachOther {
+		// The last follow of the checkout found the two backends naming
+		// each other: the session stays, and says why once.
+		r.tell(f, in, toldEachOther, movedEachOtherLine)
+	}
+	if r.fits(movedRefusedLine) && r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
+		// A follow found that the backend the file names refuses this
+		// machine's membership and the join made under it: the session
+		// stays, and its member is told what helps, once.
+		r.say(movedRefusedLine)
 	}
 	if r.startFollow(ctx, f, opts, checkout) {
 		r.tell(f, in, toldAsked, movedLine)

@@ -86,8 +86,11 @@ rotate the secret or administer the team. Rotating the join secret runs in a ses
 transferring the team are terminal-only administrative commands that refuse inside a session. The procedure is in
 `docs/team-admin/members/README.md` in the Brigade repository.
 
-A team in a Supabase project can **move to a Brigade server** with its join secret, and its members run no
-command: each one's next session follows. `$brigade:move` (the `move` skill) asks you for the server's URL and
+A team in a Supabase project, or on a Brigade server, can **move to a Brigade server** with its join secret, and
+its members run no command: each one's next session follows, and a session that is already running follows at its
+next prompts, from plugin 0.56.0 (a Grok Build session, when it next starts). A team that leaves a Brigade server
+is followed from plugin 0.57.0.
+`$brigade:move` (the `move` skill) asks you for the server's URL and
 the path of the team's secret file and runs the one command, `brigade team move --to <url> --secret-file <path>`,
 in a session or a terminal. `docs/team-admin/members/move-the-team.md` in the Brigade repository has the procedure.
 

@@ -78,8 +78,45 @@ func MoveFollowedMark(stateDir, configDir, checkout string) string {
 	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".followed")
 }
 
+// MoveNotFollowedMark is what a follow of a checkout leaves when it did
+// not follow for a reason a session has a line of its own for, and that
+// the next follow may find changed (work item 341): the backend the team
+// moved to did not answer, it refused the membership this machine holds
+// there, or it and the backend the checkout joined each record that the
+// team moved to the other: ${stateDir}/state/move-<digest>.not-followed.
+// It is the one mark of a follow that did not follow, and it carries the
+// reason. A session's start says the line itself and leaves the mark all
+// the same; its next prompt, whose own follow runs beside it and has
+// nobody to tell, reads the mark and says the same line, where it used to
+// say that the team file does not match. The next follow of the checkout
+// that learns anything takes it back or writes it anew, a refusal from the
+// backend the member joined included; one that could not ask (the lock, a
+// backend the member joined that does not answer) leaves it as it is, and
+// a session's start whose own follow could not ask says what it holds; and
+// the member's own join there removes it.
+// It does not outlive the state it speaks of: a session's start in a
+// checkout whose pin matches its team file removes it, and so does the
+// prompt of a running session there.
+func MoveNotFollowedMark(stateDir, configDir, checkout string) string {
+	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".not-followed")
+}
+
+// MoveRefusalToldMark is what the hook that tells a member that a backend
+// refuses the membership their machine holds there leaves, so that the
+// member is told once and not at every session's start (work item 341):
+// ${stateDir}/state/move-<digest>.refusal-told, the digest being of the
+// member's store and the team key of that backend. It holds the time of
+// the refusal that was told, the first since a join there last succeeded
+// (teamstore.RejoinRefusal): a later refusal of the same stretch is not
+// told again, and the first after a join that succeeded is.
+func MoveRefusalToldMark(stateDir, configDir, teamKey string) string {
+	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, teamKey)+".refusal-told")
+}
+
 // moveDigest names a checkout of one member's store in a file name: 16
-// bytes of the SHA-256 of the two paths, a zero byte between them.
+// bytes of the SHA-256 of the two paths, a zero byte between them. It names
+// a team key of a member's store the same way (MoveRefusalToldMark): a key
+// is no path, so the two never meet.
 func moveDigest(configDir, checkout string) string {
 	sum := sha256.Sum256([]byte(configDir + "\x00" + checkout))
 	return hex.EncodeToString(sum[:16])

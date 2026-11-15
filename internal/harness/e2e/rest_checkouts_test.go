@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json/v2"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -227,10 +228,9 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	if res := r.runIn(r.checkout, r.terminalEnv(r.configDir), "y\n", "team", "move", "--ticket-file", ticketFile); res.exit != 0 {
 		t.Fatalf("the record: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
-	r.restPrompt(alice)
-	if m := r.mustMap(alice); m.TeamKey != newKey {
-		t.Fatalf("the administrator's session after her join: %+v", m)
-	}
+	// A prompt has a few seconds to register a session, and on a loaded machine one can run out of them: here
+	// and below, a session that a prompt moves is prompted until it has moved (promptedUntilMoved).
+	r.promptedUntilMoved(alice, newKey, r.restPrompt)
 	// follow is the child a prompt hook starts for a checkout, as that hook starts it: no session in its
 	// environment, and its arguments.
 	follow := func(checkout string, key int) []string {
@@ -394,12 +394,16 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	}
 
 	// --- 5. the session attached to nothing registers at its next prompt --------------------------------------
-	// The child that followed its checkout took the retry's stamp away, so the prompt is not held back.
-	res = r.restPrompt(orphan)
+	// The child that followed its checkout took the retry's stamp away, so the prompt is not held back: the
+	// stamp's absence is what holds that here, and the session is then prompted until it is registered.
+	if _, err := os.Stat(config.RegisterRetryStamp(r.stateDir, orphan.pid)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the follow of its checkout left the stamp that holds the next prompt of the session attached to nothing back: %v", err)
+	}
+	res = r.promptedUntilMoved(orphan, newKey, r.restPrompt)
 	orphanMap := r.mustMap(orphan)
-	if !strings.Contains(res.stdout, "followed team") || !strings.Contains(res.stdout, `this session is "billing-orphan" (`+orphanMap.BrigadeSessionID+`)`) ||
+	if strings.Count(res.stdout, "followed team") != 1 || strings.Count(res.stdout, `this session is "billing-orphan" (`+orphanMap.BrigadeSessionID+`)`) != 1 ||
 		strings.Contains(res.stdout, retryWords) || strings.Contains(res.stdout, driftWords) {
-		t.Fatalf("the prompt after the follow, of the session that was attached to nothing: stdout %q\nstderr %s", res.stdout, res.stderr)
+		t.Fatalf("the prompts after the follow, of the session that was attached to nothing: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	where(orphan, "the session that was attached to nothing", newKey, orphanMap.BrigadeSessionID, canon)
 
@@ -410,10 +414,10 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	// names that checkout.
 	working := first
 	working.cwd = behind
-	res = r.restPrompt(working)
+	res = r.promptedUntilMoved(working, newKey, r.restPrompt)
 	firstMap := r.mustMap(first)
-	if firstMap.TeamKey != newKey || firstMap.BrigadeSessionID == old[first.pid] || !strings.Contains(res.stdout, `this session is "`+bobName+`" (`+firstMap.BrigadeSessionID+`)`) {
-		t.Fatalf("the first session after a prompt from another checkout: stdout %q\nmap %+v", res.stdout, firstMap)
+	if firstMap.TeamKey != newKey || firstMap.BrigadeSessionID == old[first.pid] || strings.Count(res.stdout, `this session is "`+bobName+`" (`+firstMap.BrigadeSessionID+`)`) != 1 {
+		t.Fatalf("the first session after its prompts from another checkout: stdout %q\nmap %+v", res.stdout, firstMap)
 	}
 	where(first, "after a prompt from a checkout still on the old backend", newKey, firstMap.BrigadeSessionID, canon)
 	// A prompt from a directory that is no checkout at all has nothing more to say.
@@ -488,16 +492,47 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(watcherLog) })
-	//nolint:gosec // G204: the argv is a binary this test built; no shell is involved
-	hook := exec.CommandContext(t.Context(), r.brigade, "hook", "prompt")
-	hook.Env, hook.Dir = r.restEnv(fifth), r.dirs.Home
-	hook.Stdin = strings.NewReader(fifth.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default"}))
-	var printed bytes.Buffer
-	hook.Stdout = &printed
-	if err := hook.Start(); err != nil {
-		t.Fatal(err)
+	// A hook has a few seconds to register the session, and on a loaded machine it can run out of them: it then
+	// says that the session could not be registered and ends, having moved nothing, and the session's next
+	// prompt tries a minute later. So the hook is started again, the minute made to pass, until one has moved
+	// the session and waits at the watcher's log; what the ones before it printed is kept.
+	var (
+		hook    *exec.Cmd
+		printed *bytes.Buffer
+		ended   chan error
+		earlier strings.Builder
+	)
+	prompted := func() {
+		t.Helper()
+		//nolint:gosec // G204: the argv is a binary this test built; no shell is involved
+		hook = exec.CommandContext(t.Context(), r.brigade, "hook", "prompt")
+		hook.Env, hook.Dir = r.restEnv(fifth), r.dirs.Home
+		hook.Stdin = strings.NewReader(fifth.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default"}))
+		printed = &bytes.Buffer{}
+		hook.Stdout = printed
+		if err := hook.Start(); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		ended = done
+		go func(cmd *exec.Cmd) { done <- cmd.Wait() }(hook)
 	}
-	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.mustMap(fifth).TeamKey == newKey })
+	prompted()
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		if r.mustMap(fifth).TeamKey == newKey {
+			return true
+		}
+		select {
+		case <-ended:
+			earlier.WriteString(printed.String())
+			if err := os.Remove(config.RegisterRetryStamp(r.stateDir, fifth.pid)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("the registration's retry stamp: %v", err)
+			}
+			prompted()
+		default:
+		}
+		return false
+	})
 	fifthMap := r.mustMap(fifth)
 	notice := config.MovedNotice(r.stateDir, fifth.pid)
 	if _, err := os.Stat(notice); err != nil || fifthMap.BrigadeSessionID == old[fifth.pid] {
@@ -506,7 +541,7 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	if err := hook.Process.Kill(); err != nil {
 		t.Fatalf("the hook had ended before it could be stopped: %v", err)
 	}
-	if err := hook.Wait(); err == nil || printed.Len() != 0 {
+	if err := <-ended; err == nil || printed.Len() != 0 {
 		t.Fatalf("the hook was not stopped before it printed: %v, stdout %q", err, printed.String())
 	}
 	if err := os.Remove(watcherLog); err != nil {
@@ -518,10 +553,12 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	if got := fifthSock.Frames(); len(got) != 0 {
 		t.Fatalf("a message reached the session before any watcher served its new id: %q", got)
 	}
-	// Its next prompt says the move.
+	// Its next prompt says the move: one prompt, which is the point here, and which registers nothing. How the
+	// checkout arrived is said once in a conversation: by this prompt, or by a hook before the one that was
+	// stopped, where that one moved nothing and said it.
 	res = r.restPrompt(fifth)
-	if !strings.Contains(res.stdout, "followed team") || !strings.Contains(res.stdout, `this session is "billing-fifth" (`+fifthMap.BrigadeSessionID+`)`) {
-		t.Fatalf("the prompt after the hook that was stopped: stdout %q\nstderr %s", res.stdout, res.stderr)
+	if strings.Count(earlier.String()+res.stdout, "followed team") != 1 || !strings.Contains(res.stdout, `this session is "billing-fifth" (`+fifthMap.BrigadeSessionID+`)`) {
+		t.Fatalf("the prompt after the hook that was stopped: stdout %q\nstderr %s\nbefore it: %q", res.stdout, res.stderr, earlier.String())
 	}
 	if _, err := os.Stat(notice); err == nil {
 		t.Fatalf("the notice outlived the prompt that said the move")

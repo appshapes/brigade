@@ -221,7 +221,7 @@ func TestPromptFollowsARunningSessionInTwoSteps(t *testing.T) {
 		t.Fatalf("the prompt hook's own run: adapter calls %v, pin %+v", verbs, f.checkoutPin())
 	}
 	f.runFollow(spec)
-	if verbs := asked(seam)[calls:]; !slices.Equal(verbs, []string{"team moved", "team join"}) {
+	if verbs := asked(seam)[calls:]; !slices.Equal(verbs, []string{"team moved", "team join", "team moved"}) {
 		t.Fatalf("the child's adapter calls: %v", verbs)
 	}
 	if moved, joined := seam.callsFor("team moved")[0], seam.callsFor("team join")[0]; profileOf(moved) != oldKey || profileOf(joined) != newKey {
@@ -503,7 +503,7 @@ func TestPromptRetryFollowsThroughAChild(t *testing.T) {
 	}
 	// The child finishes: it followed, and the session's retry is due at once.
 	f.runFollow(follows[0])
-	if verbs := asked(seam); !slices.Equal(verbs, []string{"team moved", "team join"}) {
+	if verbs := asked(seam); !slices.Equal(verbs, []string{"team moved", "team join", "team moved"}) {
 		t.Fatalf("the child's adapter calls: %v", verbs)
 	}
 	if exists(retryStampPath(f.stateDir, f.pid)) {
@@ -630,7 +630,7 @@ func TestClearAfterAMoveRegistersAnew(t *testing.T) {
 	if f.spawner.count() != spawns+1 || f.spawner.lastMap(t).BrigadeSessionID != "brigade-sess-2" {
 		t.Fatalf("%d watchers started, want one, for the new session", f.spawner.count()-spawns)
 	}
-	if verbs := asked(seam); !slices.Equal(verbs[len(verbs)-3:], []string{"team moved", "team join", "session register"}) {
+	if verbs := asked(seam); !slices.Equal(verbs[len(verbs)-4:], []string{"team moved", "team join", "team moved", "session register"}) {
 		t.Fatalf("adapter calls: %v", verbs)
 	}
 }
@@ -900,8 +900,8 @@ func TestAFollowThatWasStoppedIsCompletedByTheNext(t *testing.T) {
 			if got := f.prompted(); len(got) != 0 || len(f.spawner.followed()) != 1 {
 				t.Fatalf("the prompt a minute later: lines %q, %d follows", got, len(f.spawner.followed()))
 			}
-			if verbs := asked(seam)[calls:]; !slices.Equal(verbs, []string{"team moved"}) {
-				t.Fatalf("the follow that completed it ran %v, want the one question and no join", verbs)
+			if verbs := asked(seam)[calls:]; !slices.Equal(verbs, []string{"team moved", "team moved"}) {
+				t.Fatalf("the follow that completed it ran %v, want one question of each backend and no join", verbs)
 			}
 			if pin := f.checkoutPin(); !pin.Matches(tf) || pin.MovedFrom != before.URL {
 				t.Fatalf("the pin: %+v", pin)

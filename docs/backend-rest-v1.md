@@ -72,6 +72,8 @@ unless this table adds a member.
 | `team take-in` | `/v1/team/take-in` | `{"join_secret", "team_name", "human_label"?, "retry_key"?}` | 4.4.10, plus `credential` (§3, §3b) |
 | `team open-move` | `/v1/team/open-move` | `{"team_ref": <team>, "ticket_days"?}` | `{"team_ref", "team_name", "ticket", "ends_at", "replaced"}` (§3b) |
 | `team close-move` | `/v1/team/close-move` | `{"team_ref": <team>}` | 4.4.10 |
+| `team move` | `/v1/team/move` | `{"team_ref": <team>, "adapter", "url", "certificate"?, "ticket"}` or `{"team_ref": <team>, "clear": true}` | 4.4.10 (§3c) |
+| `team moved` | `/v1/team/moved` | `{"team_ref": <team>, "with_ticket"?: boolean}` | 4.4.10, plus `ticket` when it was asked for (§3c) |
 | `session register` | `/v1/session/register` | `SessionRegistration` (4.4.2), plus `team_ref: <team>` | 4.4.2's result |
 | `session heartbeat` | `/v1/session/heartbeat` | `{"session_id": <session>, "heartbeat": HeartbeatRequest}` (4.4.4) | 4.4.4's result |
 | `session list` | `/v1/session/list` | `{"team_ref": <team>, "session_id"?: <session>, "include_offline"?: boolean}` | 4.4.3's list result |
@@ -194,6 +196,7 @@ server may leave these three endpoints out (§5).
     the plain join above, in the bytes it has on a team that never kept a key: a request that arrives a second
     time takes nothing from a principal that has acted. `brigade-server` ends the key with the first record such
     a request leaves: a session registered, the credential made unknown (§3), the team's move opened or closed,
+    where the team went recorded or that record cleared (§3c),
     a member revoked, the team transferred or left, a team joined or created; what that principal reads, and
     what it is refused, leaves none. A request of anybody else's ends the key on no server. A team that gets
     another owner keeps no key, and `/v1/team/rotate-secret` ends the key as it ends everything that let anyone
@@ -224,6 +227,57 @@ server may leave these three endpoints out (§5).
   `/v1/team/rotate-secret` closes a team's move as well.
 - **Who is answered** the two requests of a move: the team's owner, by §3a's rule and with its refusals.
 - **`/v1/info`** of a server that carries these endpoints lists `"team.take_in"` in `capabilities`.
+
+## 3c. The record of where a team went
+
+Added on 2026-11-15 (work item 341, [ADR 0010](decisions/0010-keep-the-record-of-a-teams-move-on-the-server-it-leaves.md)). A
+server may leave these two endpoints out (§5). Section 3b is the server a team moves **to**; this section is the
+server a team **leaves**. They are BAP/1's `team move` and `team moved` (4.4.10), which let a member's session
+follow its team on the word of the backend the member joined it on.
+
+- **`/v1/team/move`** records, on this server, where the team went, or clears that record.
+  - **A record** is `adapter`, `url` and an optional `certificate`, as the team's file names them at the backend
+    the team went to, each within BAP/1's cap (64, 2048 and 128 code points), and `ticket`: the move ticket that
+    backend made for the team, a join secret `brg1.<team_ref>.<secret>` that carries this team's `team_ref`. A
+    second record takes the place of the first. The result is 4.4.10's: `team_ref`, `moved: true`, `adapter`,
+    `url`, `recorded_at`, which is the server's time, and `certificate` when the record has one. It never
+    carries the ticket.
+  - **A clear** is `clear: true` beside `team_ref` alone. The result is `{"team_ref", "moved": false}`, for a
+    team that had a record and for one that had none, so the request is safe to repeat.
+  - **What is refused.** A missing or empty `adapter` or `url`, and any of the three over its cap, is
+    `invalid_input` naming the member. A `ticket` that is missing, that is not a join secret, that carries
+    another `team_ref` than the request's, or that is longer than the server keeps is `invalid_input` naming
+    `ticket`, in words that hold nothing of it: a ticket of another team would admit nobody where the team
+    went. `clear: true` beside an `adapter`, a `url`, a `certificate` or a `ticket` that is not `null`, an empty
+    one included, and a `clear` that is neither a boolean nor `null`, is `invalid_input` naming `clear`.
+    `clear: false`, like a `clear` that is `null`, is the same as no `clear`: the request is then a record. A
+    server keeps the ticket, so it may hold it to a cap of its own, of 512 code points or more:
+    `brigade-server` takes 1024.
+- **`/v1/team/moved`** answers the record: 4.4.10's result, `{"team_ref", "moved": false}` for a team with none.
+  `with_ticket: true` asks for the ticket as well, and the result of a team with a record then carries it as
+  `ticket`; absent or `false`, no answer carries it. The adapter asks for it only when it was given a
+  `--ticket-file`, writes it to that file (mode 0600) and answers BAP/1's result, which carries `ticket_file`
+  and no ticket.
+- **Who is answered.** `/v1/team/move` answers the team's owner only, by §3a's rule and with its refusals,
+  checked before any member of the request but its `team_ref` is acted on: every other caller reads the one
+  `unauthorized`, for a record, for a clear and for a request that reads as neither. What is answered before
+  that check is the same for every caller and says nothing about any team: a body over the cap and a body
+  that is not one JSON object are `invalid_input` (§1), a caller with no credential the server knows is
+  `unauthenticated` (§3), and a `team_ref` that is missing, empty or not a string is `invalid_input`.
+  `/v1/team/moved` answers every active member of the team, by §3's rule: anyone else, a member that left or
+  was revoked included, is the byte-identical `unauthorized` of 4.5.7.
+- **The record changes nothing else.** The team stays on the server as it is: no membership ends, no session is
+  closed, and no join, registration or message is refused for it. A member that has not followed yet still
+  reaches the team here, and that is how it reads the record. Ending the team here is no part of a move.
+  `/v1/team/rotate-secret` and `/v1/team/transfer` leave the record as it is: a rotation ends what let anyone
+  in here, and the record lets nobody in here. A server whose operator can take a team away from its owner
+  clears the record when it does, because the record is the owner's word.
+- **The ticket is kept as it was given.** A server keeps the hash of every other secret (§1, §3, §3b). It
+  cannot keep the hash of this one: an active member is handed it, to present it where the team went. So a
+  server keeps the ticket itself, for as long as the record stands, wherever it keeps the team, and whoever
+  can read that can read the ticket. It is in no line the server writes and in no answer but the one that
+  was asked for it.
+- **`/v1/info`** of a server that carries these endpoints lists `"team.move"` in `capabilities`.
 
 ## 4. Receiving and watching
 
@@ -277,6 +331,13 @@ lists `team.take_in` in `/v1/info`, one that does not answers them `not_found`, 
 before each of the three commands and answers `config` with `details.reason = "server_lacks_team_take_in"` when
 the server does not list it.
 
+The endpoints of §3c are a third addition a server may leave out: a server that carries them lists `team.move`
+in `/v1/info`, and one that does not answers them `not_found`. The adapter asks `/v1/info` before each of the two
+commands. For `team move` it answers `config` with `details.reason = "server_lacks_team_move"` when the server
+does not list it. For `team moved` it answers `{"team_ref", "moved": false}` and asks the server nothing more:
+BAP/1 has a backend that cannot say whether a team moved answer that it did not (4.4.10), and a member's harness
+then does what it does for a team that did not move. Every `brigade-server` before 0.8.0 is such a server.
+
 ## 6. Proving a server
 
 Run Brigade's conformance suite through the bundled adapter against the server:
@@ -287,4 +348,5 @@ bin/brigade-conformance --env BRIGADE_REST_URL=<base> --adapter bin/brigade -- a
 
 A server is correct when the suite is green, `--slow` included. The suite makes its own teams, so the server
 must let the run create them. A server that leaves out the administration endpoints adds
-`--skip C-48,C-49,C-50`, and one that leaves out the endpoints of §3b adds `--skip C-53,C-54,C-55`.
+`--skip C-48,C-49,C-50`, one that leaves out the endpoints of §3b adds `--skip C-53,C-54,C-55`, and one that
+leaves out the endpoints of §3c adds `--skip C-51,C-52`.

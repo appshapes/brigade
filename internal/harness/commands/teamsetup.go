@@ -771,6 +771,13 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 		return err
 	}
 	inv.recordLabelOrigin(t.configDir, t.profile, label)
+	// A join there succeeded: what a follow of this machine recorded of a
+	// join the backend refused under the membership it held is over, and
+	// the next follow presents the move's ticket again where it has to
+	// (teammove.RejoinPause).
+	if err := write.ClearRejoinRefusal(t.configDir, t.profile); err != nil {
+		inv.logger().Debug("the record of a refused join was not removed", adapterlog.Err(err))
+	}
 	return inv.writePinAndReport(t, canon, f, "joined")
 }
 
@@ -931,6 +938,12 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 	}); err != nil {
 		return err
 	}
+	// What a follow of this checkout left for its sessions' prompts to say,
+	// that the backend the file names did not answer, refused this machine's
+	// membership, or names the backend the checkout joined as that one
+	// names it, is over: the checkout is joined there now, on its member's
+	// own word. It is one mark (config.MoveNotFollowedMark).
+	_ = os.Remove(config.MoveNotFollowedMark(t.stateDir, t.configDir, canon))
 	name := nameLine(f.TeamName)
 	if inv.inSession() {
 		head := did + " team \"" + name + "\" (" + sanitizeID(f.TeamRef) + ")"
@@ -1364,7 +1377,7 @@ func resolveTeamKeyIn(configDir, teamFlag, cwd string) (string, error) {
 	if teamFlag != "" {
 		var matches []string
 		for i, b := range bindings {
-			if b.TeamRef == teamFlag || b.TeamName == teamFlag {
+			if matchesTeam(b, teamFlag) {
 				matches = append(matches, keys[i])
 			}
 		}

@@ -21,6 +21,13 @@
 //! the team's owner. Naming an owner and taking a team back stay the operator's alone: [`answer`] has no
 //! path to either.
 //!
+//! A team that leaves this server for another backend has that recorded here by its owner, by request
+//! alone (the contract's section 3c): `/v1/team/move` records where the team went and the move ticket
+//! that admits a member there, or clears the record, and `/v1/team/moved` answers it to every active
+//! member, whose session follows the team on it. The record changes nothing else: the team, its members
+//! and its sessions are as they were, and nothing is refused for it. The operator has no command that
+//! writes it, and one that clears it: [`take_back`], which takes a team from whoever holds it.
+//!
 //! A take-in needs no credential, and the credential of the owner it makes rides its answer. When that
 //! answer is lost, nobody holds the credential, and the same request made again would join as a stranger.
 //! So a take-in may carry a retry key that its client minted and keeps: the server keeps the key's hash
@@ -38,12 +45,15 @@ use crate::error::Error;
 use crate::hash::{Entropy, new_credential, new_ref, same, sha256_hex};
 use crate::json::Document;
 use crate::limits;
-use crate::record::{AcceptedMessage, Entry, Event, Idempotency, Record, SessionChanges, SessionFacts};
+use crate::record::{
+    AcceptedMessage, Entry, Event, Idempotency, KeptTicket, Record, SessionChanges, SessionFacts,
+};
 use crate::state::{Session, State, Team};
 use crate::time::Timestamp;
 use crate::wire::{
     Ack, Command, Heartbeat, JOIN_SECRET_PREFIX, JoinSecret, Receive, Registration, Revocation, Send,
-    SessionList, TeamCreate, TeamJoin, TeamOpenMove, TeamRevoke, TeamTakeIn, TeamTransfer, check_team_name,
+    SessionList, TeamCreate, TeamJoin, TeamMove, TeamMoved, TeamOpenMove, TeamRevoke, TeamTakeIn,
+    TeamTransfer, check_team_name,
 };
 
 /// One request as it arrived.
@@ -162,6 +172,8 @@ pub fn execute(
         Command::TeamTakeIn(request) => team_take_in(state, failures, caller, may_own, request, now, entropy),
         Command::TeamOpenMove(request) => team_open_move(state, caller, request, now, entropy),
         Command::TeamCloseMove(team_ref) => team_close_move(state, caller, team_ref, now),
+        Command::TeamMove(request) => team_move(state, caller, request, now),
+        Command::TeamMoved(request) => team_moved(state, caller, request),
         Command::SessionRegister(request) => session_register(state, caller, request, now, entropy),
         Command::SessionHeartbeat(request) => session_heartbeat(state, caller, request, now),
         Command::SessionList(request) => session_list(state, caller, request, now),
@@ -271,13 +283,16 @@ pub fn set_owner(
 ///
 /// - the team has a new join secret, minted as a rotation mints one, and its count of secrets is one more,
 ///   and a move of the team that is open is closed, as a rotation closes it;
+/// - the record of where the team went, when its owner made one, is cleared: whoever held the team could
+///   have recorded a move to a server of their own, and every member that comes back would follow it;
 /// - every active membership ends and its open sessions are closed, with nobody spared, while a banned
 ///   member stays banned and a member that left stays as it was;
 /// - the team has no owner, so the first member to join it with the new secret over HTTP owns it, as on a
 ///   team that was just taken in.
 ///
 /// The answer is `team_ref`, `team_name`, `secret_version`, `join_secret`, `revoked` and
-/// `sessions_closed`. Its `join_secret` is the one place the new secret is: the caller writes it to the
+/// `sessions_closed`, and `move_cleared: true` when a record of where the team went was cleared: a team
+/// that had none is answered as it always was. Its `join_secret` is the one place the new secret is: the caller writes it to the
 /// operator's file and nowhere else.
 ///
 /// # Errors
@@ -297,6 +312,7 @@ pub fn take_back(
     let sessions_closed = team.open_sessions(|member| everyone.contains(member), now);
     let owned = team.owner().is_some();
     let moving = team.move_ticket.is_some();
+    let moved = team.moved_to.is_some();
     let team_name = team.team_name.clone();
     let mut events = vec![Event::TeamSecretRotated {
         team_ref: team_ref.to_owned(),
@@ -309,6 +325,13 @@ pub fn take_back(
         events.push(Event::TeamMoveClosed {
             team_ref: team_ref.to_owned(),
             by_owner: false,
+        });
+    }
+    // And it says nothing of a move from now on: the record of where the team went is its owner's word,
+    // and the owner is who the team is taken from.
+    if moved {
+        events.push(Event::TeamMoveCleared {
+            team_ref: team_ref.to_owned(),
         });
     }
     if revoked > 0 {
@@ -325,17 +348,18 @@ pub fn take_back(
         });
     }
     let entry = commit(state, now, events);
-    Ok(Outcome {
-        result: json!({
-            "team_ref": team_ref,
-            "team_name": team_name,
-            "secret_version": secret_version,
-            "join_secret": join_secret,
-            "revoked": revoked,
-            "sessions_closed": sessions_closed,
-        }),
-        entry,
-    })
+    let mut result = json!({
+        "team_ref": team_ref,
+        "team_name": team_name,
+        "secret_version": secret_version,
+        "join_secret": join_secret,
+        "revoked": revoked,
+        "sessions_closed": sessions_closed,
+    });
+    if moved {
+        result["move_cleared"] = json!(true);
+    }
+    Ok(Outcome { result, entry })
 }
 
 /// How many days a move ticket admits for when the request, or the operator, names no number.
@@ -983,6 +1007,84 @@ fn team_close_move(
     let principal_ref = authenticate(state, caller)?;
     owned_team(state, team_ref, &principal_ref)?;
     close_a_move(state, team_ref, true, now)
+}
+
+/// What `/v1/team/move` and `/v1/team/moved` answer for a team: BAP/1 4.4.10's result, `team_ref` and
+/// `moved`, and for a recorded move where the team went and when that was recorded. `certificate` is there
+/// when the record has one. The ticket is in the answer only when `with_ticket` says so.
+fn moved_result(team: &Team, with_ticket: bool) -> Value {
+    let mut result = Map::new();
+    result.insert("team_ref".into(), json!(team.team_ref));
+    result.insert("moved".into(), json!(team.moved_to.is_some()));
+    if let Some(moved) = &team.moved_to {
+        result.insert("adapter".into(), json!(moved.adapter));
+        result.insert("url".into(), json!(moved.url));
+        if !moved.certificate.is_empty() {
+            result.insert("certificate".into(), json!(moved.certificate));
+        }
+        result.insert("recorded_at".into(), json!(moved.recorded_at.rfc3339()));
+        if with_ticket {
+            result.insert("ticket".into(), json!(moved.ticket.expose()));
+        }
+    }
+    Value::Object(result)
+}
+
+/// `/v1/team/move`: the team's owner records on this server where the team went, with the move ticket
+/// the backend it went to made, or clears that record (the contract's section 3c; BAP/1 4.4.10).
+///
+/// A second record takes the place of the first. Clearing a team that has no record changes nothing and
+/// makes no entry. Neither changes anything else of the team: nobody is put out and nothing is refused
+/// from then on, so a member that has not followed yet still reaches the team here, and reads the record.
+/// The answer never carries the ticket.
+fn team_move(
+    state: &mut State,
+    caller: Option<&str>,
+    request: &TeamMove,
+    now: Timestamp,
+) -> Result<Outcome, Error> {
+    let principal_ref = authenticate(state, caller)?;
+    let (team_ref, event) = match request {
+        TeamMove::Clear { team_ref } => {
+            let team = owned_team(state, team_ref, &principal_ref)?;
+            let cleared = team.moved_to.is_some().then(|| Event::TeamMoveCleared {
+                team_ref: team_ref.clone(),
+            });
+            (team_ref, cleared)
+        }
+        TeamMove::Record {
+            team_ref,
+            adapter,
+            url,
+            certificate,
+            ticket,
+        } => {
+            owned_team(state, team_ref, &principal_ref)?;
+            let recorded = Event::TeamMoveRecorded {
+                team_ref: team_ref.clone(),
+                adapter: adapter.clone(),
+                url: url.clone(),
+                certificate: certificate.clone(),
+                ticket: KeptTicket::new(ticket.expose()),
+            };
+            (team_ref, Some(recorded))
+        }
+    };
+    let entry = commit(state, now, event.into_iter().collect());
+    let team = state.teams.get(team_ref).ok_or_else(Error::not_member)?;
+    Ok(Outcome {
+        result: moved_result(team, false),
+        entry,
+    })
+}
+
+/// `/v1/team/moved`: an active member reads whether the team's owner recorded here that the team went to
+/// another backend, and where (the contract's section 3c; BAP/1 4.4.10). The answer carries the ticket
+/// only when the request asks for it: the member's adapter asks when it has a file to write it to.
+fn team_moved(state: &State, caller: Option<&str>, request: &TeamMoved) -> Result<Outcome, Error> {
+    let principal_ref = authenticate(state, caller)?;
+    let team = member_team(state, &request.team_ref, &principal_ref)?;
+    Ok(Outcome::read(moved_result(team, request.with_ticket)))
 }
 
 fn team_leave(

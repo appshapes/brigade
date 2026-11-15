@@ -4,6 +4,7 @@ import (
 	"context"
 	json "encoding/json/v2"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -59,6 +60,18 @@ type backends struct {
 	// noRecord is true for an old backend whose adapter does not carry
 	// capability team.move.
 	noRecord bool
+	// newRecords is true for a new backend whose adapter carries capability
+	// team.move, as the `rest` adapter does from 0.57.0 (work item 341): it
+	// is then asked `team moved` with the membership this machine holds
+	// there. newMoved is what it answers, a team that did not move when nil,
+	// and newMovedErrs are the failures of its answers in turn, nil for one
+	// that is answered.
+	newRecords   bool
+	newMoved     *protocol.TeamMoveResult
+	newMovedErrs []error
+	// newMovedHangs has the new backend's `team moved` wait for as long as
+	// its caller does: a server that accepts the connection and says nothing.
+	newMovedHangs bool
 }
 
 type fakeCaller struct {
@@ -72,20 +85,40 @@ type fakeCaller struct {
 func (c fakeCaller) Describe(context.Context) (*protocol.DescribeResult, error) {
 	c.b.calls = append(c.b.calls, call{adapter: c.adapter, profile: c.profile, verb: "describe"})
 	capabilities := []string{"team.create", "team.join"}
-	if c.adapter != "rest" && !c.b.noRecord {
+	if (c.adapter != "rest" && !c.b.noRecord) || (c.adapter == "rest" && c.b.newRecords) {
 		capabilities = append(capabilities, teammove.Capability)
 	}
 	return &protocol.DescribeResult{Capabilities: capabilities}, nil
 }
 
-func (c fakeCaller) Call(_ context.Context, group, verb string, flags []string, stdin any) (*protocol.Envelope, error) {
+func (c fakeCaller) Call(ctx context.Context, group, verb string, flags []string, stdin any) (*protocol.Envelope, error) {
 	b := c.b
+	if b.newMovedHangs && c.adapter == "rest" && group+" "+verb == "team moved" {
+		b.calls = append(b.calls, call{adapter: c.adapter, profile: c.profile, verb: group + " " + verb})
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	b.calls = append(b.calls, call{adapter: c.adapter, profile: c.profile, verb: group + " " + verb, flags: slices.Clone(flags), stdin: stdin})
 	var result any
 	switch group + " " + verb {
 	case "profile init":
 		result = map[string]string{"state": "configured"}
 	case "team moved":
+		if c.adapter == "rest" {
+			// The new backend, asked what it records itself.
+			if len(b.newMovedErrs) > 0 {
+				err := b.newMovedErrs[0]
+				b.newMovedErrs = b.newMovedErrs[1:]
+				if err != nil {
+					return nil, err
+				}
+			}
+			result = &protocol.TeamMoveResult{TeamRef: teamRef}
+			if b.newMoved != nil {
+				result = b.newMoved
+			}
+			break
+		}
 		if b.movedErr != nil {
 			return nil, b.movedErr
 		}
@@ -150,6 +183,8 @@ type rig struct {
 	pin       teamstore.Pin
 	file      *teamfile.File
 	b         *backends
+	// now is the clock of the rig's follows.
+	now time.Time
 }
 
 func newRig(t *testing.T) *rig {
@@ -159,6 +194,7 @@ func newRig(t *testing.T) *rig {
 		oldKey: teamstore.Key("supabase", oldURL, teamRef), newKey: teamstore.Key("rest", newURL, teamRef),
 		pin:  teamstore.Pin{Adapter: "supabase", URL: oldURL, PublishableKey: oldKeyP, TeamRef: teamRef, ConsentedAt: time.Date(2026, 9, 6, 18, 0, 0, 0, time.UTC)},
 		file: &teamfile.File{Version: 1, Adapter: "rest", URL: newURL, Certificate: newPin, TeamRef: teamRef, TeamName: teamName},
+		now:  time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC),
 	}
 	if err := adapterkit.MkdirPrivate(r.configDir); err != nil {
 		t.Fatal(err)
@@ -190,7 +226,7 @@ func (r *rig) follow() (teammove.Outcome, error) {
 	r.t.Helper()
 	return teammove.Follow(r.t.Context(), teammove.Inputs{
 		ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin, Client: r.b.client,
-		Now: func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) },
+		Now: func() time.Time { return r.now },
 	})
 }
 
@@ -261,7 +297,10 @@ func TestFollowJoinsTheBackendTheRecordAndTheFileBothName(t *testing.T) {
 	if err != nil || !out.Followed || !out.Joined || out.Reason != "" {
 		t.Fatalf("follow: %+v, %v", out, err)
 	}
-	if got := r.b.verbs(); !slices.Equal(got, []string{"supabase:describe", "supabase:team moved", "rest:team join"}) {
+	// The new backend's adapter is asked what it offers once this machine is
+	// a member there, from its local files; one that keeps no record of a
+	// move is asked nothing else (work item 341).
+	if got := r.b.verbs(); !slices.Equal(got, []string{"supabase:describe", "supabase:team moved", "rest:team join", "rest:describe"}) {
 		t.Fatalf("adapter calls: %v", got)
 	}
 	moved, join := r.b.calls[1], r.b.calls[2]
@@ -319,8 +358,11 @@ func TestFollowIsRefusedAndChangesNothing(t *testing.T) {
 		{"the old backend's adapter keeps no record of moves", func(r *rig) { r.b.noRecord = true }, teammove.ReasonNoCapability, false},
 		{"the old backend refuses", func(r *rig) {
 			r.b.movedErr = &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+		}, teammove.ReasonOldBackendRefused, true},
+		{"the old backend does not answer", func(r *rig) {
+			r.b.movedErr = &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"}
 		}, teammove.ReasonOldBackendFailed, true},
-		{"the old backend answers a shape that is not the protocol's", func(r *rig) { r.b.moved = &protocol.TeamMoveResult{Moved: true} }, teammove.ReasonOldBackendFailed, true},
+		{"the old backend answers a shape that is not the protocol's", func(r *rig) { r.b.moved = &protocol.TeamMoveResult{Moved: true} }, teammove.ReasonOldBackendRefused, true},
 		{"no move is recorded", func(r *rig) { r.b.moved = &protocol.TeamMoveResult{TeamRef: teamRef} }, teammove.ReasonNoRecord, true},
 		{"the record names another url", func(r *rig) { r.b.moved.URL = "https://elsewhere.example.test" }, teammove.ReasonRecordElsewhere, true},
 		{"the record names another adapter", func(r *rig) { r.b.moved.Adapter = "other" }, teammove.ReasonRecordElsewhere, true},
@@ -430,7 +472,7 @@ func TestFollowInAnotherCheckoutJoinsNothing(t *testing.T) {
 	if err != nil || !out.Followed || out.Joined {
 		t.Fatalf("the second checkout: %+v, %v", out, err)
 	}
-	if got := r.b.verbs(); !slices.Equal(got, []string{"supabase:describe", "supabase:team moved"}) {
+	if got := r.b.verbs(); !slices.Equal(got, []string{"supabase:describe", "supabase:team moved", "rest:describe"}) {
 		t.Fatalf("adapter calls of the second checkout: %v", got)
 	}
 	if pin := r.currentPin(); !pin.Matches(r.file) || pin.MovedFrom != oldURL {
@@ -681,7 +723,7 @@ func TestFollowMovesAStaleServerProfileBeforeTheJoin(t *testing.T) {
 	if err != nil || !out.Followed || !out.Joined {
 		t.Fatalf("follow: %+v, %v", out, err)
 	}
-	if got := r.b.verbs(); !slices.Equal(got, []string{"supabase:describe", "supabase:team moved", "rest:profile init", "rest:team join"}) {
+	if got := r.b.verbs(); !slices.Equal(got, []string{"supabase:describe", "supabase:team moved", "rest:profile init", "rest:team join", "rest:describe"}) {
 		t.Fatalf("adapter calls: %v", got)
 	}
 	if init := r.b.called("profile init")[0]; !slices.Equal(init.flags, []string{"--force", "--url", newURL, "--certificate", newPin}) {
@@ -889,4 +931,617 @@ func TestAFollowSeesTheJoinThatWentAheadWhileItsBackendHung(t *testing.T) {
 			t.Fatalf("the follow of a machine that left meanwhile: %+v, %v; %d joins", out, err, len(r.b.called("team join")))
 		}
 	})
+}
+
+// TestFollowsFromTheBackendATeamLeaves: a session follows a move that a
+// Brigade server recorded from a later plugin than a move any other
+// backend recorded, because the record is read by the adapter of the
+// backend a team leaves and the `rest` adapter reads one from 0.57.0 on
+// (work item 341, ADR 0010).
+func TestFollowsFromTheBackendATeamLeaves(t *testing.T) {
+	t.Parallel()
+	if got := teammove.FollowsFrom("rest"); got != "0.57.0" {
+		t.Errorf("FollowsFrom(rest) = %q, want %q", got, "0.57.0")
+	}
+	if teammove.FollowsFromServerVersion != "0.57.0" {
+		t.Errorf("FollowsFromServerVersion = %q, want the release that carries the server's record, 0.57.0", teammove.FollowsFromServerVersion)
+	}
+	for _, adapter := range []string{"supabase", "fs", "", "an-adapter-of-their-own"} {
+		if got := teammove.FollowsFrom(adapter); got != teammove.FollowsFromVersion {
+			t.Errorf("FollowsFrom(%q) = %q, want %q", adapter, got, teammove.FollowsFromVersion)
+		}
+	}
+	for v, want := range map[string]struct{ server, other bool }{
+		"0.54.9":     {true, true},
+		"0.55.0":     {true, false},
+		"0.56.0":     {true, false},
+		"0.56.9-dev": {true, false},
+		"0.57.0":     {false, false},
+		"0.57.0-dev": {false, false},
+		"1.0.0":      {false, false},
+		"unknown":    {false, false},
+		"":           {false, false},
+		"0.57":       {false, false},
+	} {
+		if got := teammove.OlderThanFollowFrom("rest", v); got != want.server {
+			t.Errorf("OlderThanFollowFrom(rest, %q) = %v, want %v", v, got, want.server)
+		}
+		if got := teammove.OlderThanFollowFrom("supabase", v); got != want.other || got != teammove.OlderThanFollow(v) {
+			t.Errorf("OlderThanFollowFrom(supabase, %q) = %v, want %v", v, got, want.other)
+		}
+	}
+}
+
+// memberAtTheNewBackend gives the rig's machine a membership of the team
+// on the new backend, as a machine has that was on it before the team left
+// it, and a file in its directory that stands for the credential.
+func (r *rig) memberAtTheNewBackend() string {
+	r.t.Helper()
+	if err := write.EnsureBinding(r.configDir, r.newKey, "rest", newURL, "", newPin, teamRef, teamName, "p-before"); err != nil {
+		r.t.Fatal(err)
+	}
+	credential := filepath.Join(r.configDir, "teams", r.newKey, "credential.json")
+	if err := os.WriteFile(credential, []byte(`{"held":"before"}`+"\n"), 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+	return credential
+}
+
+// setAside lists the directories of the store's teams that carry a
+// create-time name: a membership set aside would be one, and no follow
+// leaves one.
+func (r *rig) setAside() []string {
+	r.t.Helper()
+	entries, err := os.ReadDir(filepath.Join(r.configDir, "teams"))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	var out []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "tmp-") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// TestFollowJoinsOnTheProfileItHoldsWhereTheNewBackendNoLongerHonoursIt: a
+// team that comes back to a backend its administrator had ended it on
+// (work item 341). The machine holds the membership it had there, and the
+// backend answers `unauthorized` to it. The follow does not pin the
+// checkout on its strength: it joins with the move's ticket, under the
+// profile it holds, so the adapter presents the credential that is there
+// and the backend acts for the same principal. Nothing is set aside: a
+// first form of this did that, and a banned member came back as a
+// principal the ban did not know.
+func TestFollowJoinsOnTheProfileItHoldsWhereTheNewBackendNoLongerHonoursIt(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	credential := r.memberAtTheNewBackend()
+	r.b.newRecords = true
+	r.b.newMovedErrs = []error{&protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}}
+	// The backend acts for the principal whose credential was presented.
+	r.b.join = &protocol.TeamJoinResult{TeamRef: teamRef, TeamName: teamName, PrincipalRef: "p-before", Rejoined: true}
+	out, err := r.follow()
+	if err != nil || !out.Followed || !out.Joined {
+		t.Fatalf("follow: %+v, %v", out, err)
+	}
+	if got := r.b.verbs(); !slices.Equal(got, []string{"supabase:describe", "supabase:team moved", "rest:describe", "rest:team moved", "rest:team join", "rest:describe", "rest:team moved"}) {
+		t.Fatalf("adapter calls: %v", got)
+	}
+	joined := r.b.called("team join")[0]
+	if req, ok := joined.stdin.(*protocol.TeamJoinRequest); !ok || joined.profile != r.newKey || req.JoinSecret != ticket || req.HumanLabel != label {
+		t.Fatalf("the join was not made under the profile the machine holds, with the ticket and the member's label")
+	}
+	binding, err := teamstore.LoadBinding(r.configDir, r.newKey)
+	if err != nil || binding.PrincipalRef != "p-before" || teamstore.VerifyBinding(binding, r.file) != nil {
+		t.Fatalf("the binding after the follow: %+v, %v", binding, err)
+	}
+	if data, err := os.ReadFile(credential); err != nil || !strings.Contains(string(data), "before") {
+		t.Fatalf("the credential the machine held is not where it was: %q, %v", data, err)
+	}
+	if aside := r.setAside(); len(aside) != 0 {
+		t.Fatalf("a membership was set aside: %v", aside)
+	}
+	if pin := r.currentPin(); !pin.Matches(r.file) || pin.MovedFrom != oldURL {
+		t.Fatalf("the pin after the follow: %+v", pin)
+	}
+}
+
+// TestFollowLeavesOutAMemberTheNewBackendRefusesToLetBackIn: the backend
+// answers `unauthorized` to the membership the machine holds and refuses
+// the join made with its credential, as it refuses a principal that is
+// banned. The checkout is not pinned, nothing of the membership is touched
+// or set aside, and the machine joined nothing as anyone else.
+func TestFollowLeavesOutAMemberTheNewBackendRefusesToLetBackIn(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	credential := r.memberAtTheNewBackend()
+	r.b.newRecords = true
+	refused := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	r.b.newMovedErrs = []error{refused}
+	r.b.joinErr = &protocol.Error{Code: protocol.CodeUnauthorized, Message: "this principal is banned from the team"}
+	out, _ := r.follow()
+	if out.Followed || out.Reason != teammove.ReasonRejoinRefused {
+		t.Fatalf("follow: %+v, want %s", out, teammove.ReasonRejoinRefused)
+	}
+	if joins := r.b.called("team join"); len(joins) != 1 || joins[0].profile != r.newKey {
+		t.Fatalf("the joins of a member who is refused: %v", r.b.verbs())
+	}
+	binding, err := teamstore.LoadBinding(r.configDir, r.newKey)
+	if err != nil || binding.PrincipalRef != "p-before" {
+		t.Fatalf("the membership the machine held after a refused join: %+v, %v", binding, err)
+	}
+	if _, err := os.Stat(credential); err != nil || len(r.setAside()) != 0 {
+		t.Fatalf("the credential is gone (%v) or something was set aside: %v", err, r.setAside())
+	}
+	if pin := r.currentPin(); pin != r.pin {
+		t.Fatalf("the pin moved: %+v", pin)
+	}
+}
+
+// TestFollowPresentsNoTicketForAWhileAfterARejoinIsRefused: the backend
+// does not honour the membership the machine holds and refuses the join
+// made with the ticket under its credential. A backend counts the joins a
+// principal fails, and a follow runs at every session's start: until this
+// each one presented the ticket again, and the member's own join with the
+// right secret found the count spent. The refusal is put on record, and
+// for RejoinPause no follow presents a ticket there, in this checkout or
+// another. The first follow after that asks once more: one that is refused
+// keeps the time of the first refusal and pauses again, and one that is
+// let in, a member whose ban was lifted, follows and removes the record.
+func TestFollowPresentsNoTicketForAWhileAfterARejoinIsRefused(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.memberAtTheNewBackend()
+	r.b.newRecords = true
+	notAMember := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	r.b.newMovedErrs = []error{notAMember, notAMember, notAMember, notAMember, notAMember, notAMember}
+	r.b.joinErr = &protocol.Error{Code: protocol.CodeUnauthorized, Message: "join secret rejected"}
+	joins := func() int { return len(r.b.called("team join")) }
+	refused := func(when string, wantJoins int) *teamstore.RejoinRefusal {
+		t.Helper()
+		out, _ := r.follow()
+		if out.Followed || out.Reason != teammove.ReasonRejoinRefused || joins() != wantJoins {
+			t.Fatalf("%s: %+v, %d joins; want %s and %d joins", when, out, joins(), teammove.ReasonRejoinRefused, wantJoins)
+		}
+		if pin := r.currentPin(); pin != r.pin {
+			t.Fatalf("%s: the pin moved: %+v", when, pin)
+		}
+		record, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey)
+		if err != nil {
+			t.Fatalf("%s: the record of the refusal: %v", when, err)
+		}
+		return record
+	}
+	began := r.now
+	if record := refused("the follow that is refused", 1); !record.RefusedAt.Equal(began) || !record.FirstRefusedAt.Equal(began) {
+		t.Fatalf("the record of the first refusal: %+v", record)
+	}
+	// Inside the pause, in this checkout and in another of the team: nothing is presented.
+	r.now = began.Add(time.Minute)
+	refused("a follow a minute later", 1)
+	other := filepath.Join(t.TempDir(), "checkout-2")
+	if err := write.Pin(r.configDir, other, r.pin); err != nil {
+		t.Fatal(err)
+	}
+	r.now = began.Add(teammove.RejoinPause - time.Second)
+	out, _ := teammove.Follow(t.Context(), teammove.Inputs{
+		ConfigDir: r.configDir, Checkout: other, File: r.file, Pin: &r.pin, Client: r.b.client, Now: func() time.Time { return r.now },
+	})
+	if out.Followed || out.Reason != teammove.ReasonRejoinRefused || joins() != 1 {
+		t.Fatalf("a follow of another checkout inside the pause: %+v, %d joins", out, joins())
+	}
+	// The pause is over: one more join is asked for, refused, and the pause begins again.
+	r.now = began.Add(teammove.RejoinPause)
+	if record := refused("the first follow after the pause", 2); !record.RefusedAt.Equal(r.now) || !record.FirstRefusedAt.Equal(began) {
+		t.Fatalf("the record of the second refusal keeps no time of the first: %+v", record)
+	}
+	r.now = r.now.Add(time.Minute)
+	refused("a follow inside the second pause", 2)
+	// The ban is lifted. Inside the pause nothing is asked; after it the member is let in.
+	r.b.joinErr = nil
+	r.b.join = &protocol.TeamJoinResult{TeamRef: teamRef, TeamName: teamName, PrincipalRef: "p-before", Rejoined: true}
+	r.now = began.Add(2 * teammove.RejoinPause)
+	out, err := r.follow()
+	if err != nil || !out.Followed || !out.Joined || joins() != 3 {
+		t.Fatalf("the follow after the ban was lifted and the pause had passed: %+v, %v, %d joins", out, err, joins())
+	}
+	if _, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the record of the refusal after a join that succeeded: %v", err)
+	}
+	if binding, err := teamstore.LoadBinding(r.configDir, r.newKey); err != nil || binding.PrincipalRef != "p-before" {
+		t.Fatalf("the membership after he was let in: %+v, %v", binding, err)
+	}
+}
+
+// TestFollowForgetsARefusalOnceTheBackendHonoursTheMembership: a refusal is
+// on record, and the backend honours the membership again, as it does after
+// a join made by any other road. The follow pins the checkout on it,
+// presents nothing, and removes the record.
+func TestFollowForgetsARefusalOnceTheBackendHonoursTheMembership(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.memberAtTheNewBackend()
+	r.b.newRecords = true
+	if err := write.RejoinRefusal(r.configDir, r.newKey, r.now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.follow()
+	if err != nil || !out.Followed || out.Joined || len(r.b.called("team join")) != 0 {
+		t.Fatalf("follow: %+v, %v; calls %v", out, err, r.b.verbs())
+	}
+	if _, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the record of the refusal after the backend honoured the membership: %v", err)
+	}
+}
+
+// TestFollowKeepsAMembershipTheNewBackendDidNotAnswerFor: any failure of
+// the new backend's answer but its `unauthorized` is no word about the
+// membership. Nothing is set aside, nothing is joined and no pin is
+// written; the next follow asks again, and follows on an answer.
+func TestFollowKeepsAMembershipTheNewBackendDidNotAnswerFor(t *testing.T) {
+	t.Parallel()
+	for name, failure := range map[string]error{
+		"unavailable": &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"},
+		"a deadline":  context.DeadlineExceeded,
+		"no ticket":   nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			credential := r.memberAtTheNewBackend()
+			r.b.newRecords = true
+			want := teammove.ReasonNewBackendFailed
+			if failure == nil {
+				// The backend refuses the membership, and the record carries no
+				// ticket to join with: the membership is not set aside for nothing.
+				failure, want = &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}, teammove.ReasonNoTicket
+				r.b.ticket = ""
+			}
+			r.b.newMovedErrs = []error{failure}
+			out, _ := r.follow()
+			if out.Followed || out.Reason != want {
+				t.Fatalf("follow: %+v, want %s", out, want)
+			}
+			if len(r.b.called("team join")) != 0 || len(r.setAside()) != 0 {
+				t.Fatalf("a follow whose question was not answered joined or set something aside: %v, %v", r.b.verbs(), r.setAside())
+			}
+			if _, err := os.Stat(credential); err != nil {
+				t.Fatalf("the membership the machine held is gone: %v", err)
+			}
+			if pin := r.currentPin(); pin != r.pin {
+				t.Fatalf("the pin moved: %+v", pin)
+			}
+			if want == teammove.ReasonNewBackendFailed {
+				// The next follow is answered, and follows with the membership it held.
+				out, err := r.follow()
+				if err != nil || !out.Followed || out.Joined {
+					t.Fatalf("the follow after that: %+v, %v", out, err)
+				}
+			}
+		})
+	}
+}
+
+// TestFollowTellsABackendThatRefusesFromOneThatDidNotAnswer: the new
+// backend answers the follow's question, and its answer is a refusal that
+// is not `unauthorized`: a credential it does not know, above all, which is
+// what a server started again from an older copy of its data answers. That
+// is not a backend that did not answer, and it is told apart: the caller
+// has a member to send to a join, not one to keep waiting. Nothing is
+// joined, nothing of the membership is touched and no pin is written.
+func TestFollowTellsABackendThatRefusesFromOneThatDidNotAnswer(t *testing.T) {
+	t.Parallel()
+	for name, refusal := range map[string]error{
+		"a credential it does not know": &protocol.Error{Code: protocol.CodeUnauthenticated, Message: "the credential is not known to this server"},
+		"no such endpoint":              &protocol.Error{Code: protocol.CodeNotFound, Message: "no such endpoint"},
+		"not an envelope":               &protocol.Error{Code: protocol.CodeInternal, Message: "the backend answered with something that is not a result envelope"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			credential := r.memberAtTheNewBackend()
+			r.b.newRecords = true
+			r.b.newMovedErrs = []error{refusal}
+			out, err := r.follow()
+			if out.Followed || out.Reason != teammove.ReasonNewBackendRefused || !errors.Is(err, refusal) {
+				t.Fatalf("follow: %+v, %v, want %s", out, err, teammove.ReasonNewBackendRefused)
+			}
+			if len(r.b.called("team join")) != 0 {
+				t.Fatalf("a follow that was refused joined: %v", r.b.verbs())
+			}
+			if _, err := os.Stat(credential); err != nil {
+				t.Fatalf("the membership the machine held is gone: %v", err)
+			}
+			if pin := r.currentPin(); pin != r.pin {
+				t.Fatalf("the pin moved: %+v", pin)
+			}
+		})
+	}
+}
+
+// TestFollowTellsABackendTheMemberJoinedThatRefusesFromOneThatDidNotAnswer
+// (work item 341): the one question a follow asks of the backend the
+// member joined, whether the team moved, is refused, or is not answered.
+// Until this both were one reason, and its readers took it for a backend
+// that did not answer: a member who had been revoked there, over a mark an
+// earlier follow left of the server the team moved to, was told at every
+// start that that server did not answer and that a session tries again,
+// and only his own join got him in. A refusal is an answer, as it is on
+// the other backend's side: the two are told apart, and neither sends a
+// join or moves the pin.
+func TestFollowTellsABackendTheMemberJoinedThatRefusesFromOneThatDidNotAnswer(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		failure error
+		// shape is an answer that is no record of the protocol's.
+		shape  bool
+		reason string
+	}{
+		"it no longer counts the member one": {failure: &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}, reason: teammove.ReasonOldBackendRefused},
+		"a credential it does not know":      {failure: &protocol.Error{Code: protocol.CodeUnauthenticated, Message: "the credential is not known to this server"}, reason: teammove.ReasonOldBackendRefused},
+		"not an envelope":                    {failure: &protocol.Error{Code: protocol.CodeInternal, Message: "the backend answered with something that is not a result envelope"}, reason: teammove.ReasonOldBackendRefused},
+		"a shape that is not the protocol's": {shape: true, reason: teammove.ReasonOldBackendRefused},
+		"it could not be reached":            {failure: &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"}, reason: teammove.ReasonOldBackendFailed},
+		"its answer did not come in time":    {failure: context.DeadlineExceeded, reason: teammove.ReasonOldBackendFailed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			r.b.movedErr = tc.failure
+			if tc.shape {
+				r.b.moved = &protocol.TeamMoveResult{Moved: true}
+			}
+			out, err := r.follow()
+			if out.Followed || out.Reason != tc.reason || err == nil || (tc.failure != nil && !errors.Is(err, tc.failure)) {
+				t.Fatalf("follow: %+v, %v, want %s", out, err, tc.reason)
+			}
+			if len(r.b.called("team moved")) != 1 || len(r.b.called("team join")) != 0 {
+				t.Fatalf("the adapter calls of a follow whose question was not answered with a record: %v", r.b.verbs())
+			}
+			if pin := r.currentPin(); pin != r.pin {
+				t.Fatalf("the pin moved: %+v", pin)
+			}
+		})
+	}
+}
+
+// TestAnAnswerTheProtocolCallsRetryableIsNoAnswerAboutTheMember (work item
+// 341): a backend answers `rate_limited`, with how long to wait. That says
+// nothing of the member or of the team: the protocol's own table calls it
+// retryable, as it calls a backend that could not be reached. Until this it
+// counted as a refusal wherever a follow asks a backend anything: the
+// backend the member joined took back what an earlier follow had left and
+// the member was told that the team file does not match; the backend the
+// team moved to was told as one that refuses the membership; and a join
+// was a join the backend refused. It is a backend that did not answer, in
+// each place, and nothing is joined, pinned or put on record for it. An
+// answer the table does not call retryable stays what it was.
+func TestAnAnswerTheProtocolCallsRetryableIsNoAnswerAboutTheMember(t *testing.T) {
+	t.Parallel()
+	notAMember := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	for name, tc := range map[string]struct {
+		// asked scripts err as the answer to what the follow asks.
+		asked func(r *rig, err error)
+		// retryable and other are the reasons of a retryable answer and of one
+		// the table does not call retryable.
+		retryable, other string
+		joins            int
+	}{
+		"the question to the backend the member joined": {
+			asked:     func(r *rig, err error) { r.b.movedErr = err },
+			retryable: teammove.ReasonOldBackendFailed, other: teammove.ReasonOldBackendRefused,
+		},
+		"the question to the backend the team moved to": {
+			asked: func(r *rig, err error) {
+				r.memberAtTheNewBackend()
+				r.b.newRecords, r.b.newMovedErrs = true, []error{err}
+			},
+			retryable: teammove.ReasonNewBackendFailed, other: teammove.ReasonNewBackendRefused,
+		},
+		"a machine's first join": {
+			asked:     func(r *rig, err error) { r.b.joinErr = err },
+			retryable: teammove.ReasonNewBackendFailed, other: teammove.ReasonJoinRefused, joins: 1,
+		},
+		"a join under the membership it holds": {
+			asked: func(r *rig, err error) {
+				r.memberAtTheNewBackend()
+				r.b.newRecords, r.b.newMovedErrs, r.b.joinErr = true, []error{notAMember}, err
+			},
+			retryable: teammove.ReasonNewBackendFailed, other: teammove.ReasonJoinRefused, joins: 1,
+		},
+	} {
+		for kind, answer := range map[string]struct {
+			err  *protocol.Error
+			want string
+		}{
+			"rate_limited": {&protocol.Error{Code: protocol.CodeRateLimited, Message: "slow down", RetryAfterMS: 1000}, tc.retryable},
+			"internal":     {&protocol.Error{Code: protocol.CodeInternal, Message: "the server failed"}, tc.other},
+		} {
+			t.Run(name+", "+kind, func(t *testing.T) {
+				t.Parallel()
+				if answer.err.Code.Retryable() != (kind == "rate_limited") {
+					t.Fatalf("the protocol's table calls %s retryable: %v; the test holds nothing", kind, answer.err.Code.Retryable())
+				}
+				r := newRig(t)
+				tc.asked(r, answer.err)
+				out, err := r.follow()
+				if out.Followed || out.Reason != answer.want || !errors.Is(err, answer.err) {
+					t.Fatalf("follow: %+v, %v, want %s", out, err, answer.want)
+				}
+				if joins := len(r.b.called("team join")); joins != tc.joins {
+					t.Fatalf("the follow presented the ticket %d times, want %d", joins, tc.joins)
+				}
+				if _, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey); !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("a refusal is on record: %v", err)
+				}
+				if pin := r.currentPin(); pin != r.pin {
+					t.Fatalf("the pin moved: %+v", pin)
+				}
+			})
+		}
+	}
+}
+
+// TestAJoinThatWasNotAnsweredIsABackendThatDidNotAnswer (work item 341):
+// the join a follow sends to the backend the team moved to gets no answer:
+// the backend could not be reached, or the caller's time ran out. Until this
+// every failure of that join was a join the backend refused, and a member
+// who never held a membership there was told at a session's start that the
+// team file does not match and to run `brigade team join`, of a server that
+// was only down. A join that was not answered is a backend that did not
+// answer, on the first join and on the join made under a membership the
+// machine holds alike: nothing is pinned, no binding is written, no refusal
+// is put on record or counted, and the next follow presents the ticket
+// again and follows.
+func TestAJoinThatWasNotAnsweredIsABackendThatDidNotAnswer(t *testing.T) {
+	t.Parallel()
+	notAMember := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	for name, failure := range map[string]error{
+		"unavailable": &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"},
+		"a deadline":  context.DeadlineExceeded,
+	} {
+		for road, held := range map[string]bool{"a first join": false, "a join under the membership it holds": true} {
+			t.Run(name+", "+road, func(t *testing.T) {
+				t.Parallel()
+				r := newRig(t)
+				if held {
+					// The backend no longer honours the membership the machine holds,
+					// so the follow joins with the ticket on that profile.
+					r.memberAtTheNewBackend()
+					r.b.newRecords = true
+					r.b.newMovedErrs = []error{notAMember, notAMember}
+					r.b.join = &protocol.TeamJoinResult{TeamRef: teamRef, TeamName: teamName, PrincipalRef: "p-before", Rejoined: true}
+				}
+				r.b.joinErr = failure
+				out, err := r.follow()
+				if out.Followed || out.Reason != teammove.ReasonNewBackendFailed || !errors.Is(err, failure) {
+					t.Fatalf("a follow whose join was not answered: %+v, %v, want %s", out, err, teammove.ReasonNewBackendFailed)
+				}
+				if joins := len(r.b.called("team join")); joins != 1 {
+					t.Fatalf("the follow presented the ticket %d times, want once", joins)
+				}
+				if _, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey); !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("a join that was not answered is on record as one the backend refused: %v", err)
+				}
+				if pin := r.currentPin(); pin != r.pin {
+					t.Fatalf("the pin moved: %+v", pin)
+				}
+				binding, berr := teamstore.LoadBinding(r.configDir, r.newKey)
+				if held && (berr != nil || binding.PrincipalRef != "p-before") {
+					t.Fatalf("the membership the machine held: %+v, %v", binding, berr)
+				}
+				if !held && berr == nil {
+					t.Fatalf("a binding for the new backend was written: %+v", binding)
+				}
+				if left := r.leftBehind(); len(left) != 0 || r.ticketOnDisk() {
+					t.Fatalf("the follow left %v in the store, ticket on disk %v", left, r.ticketOnDisk())
+				}
+				// The backend answers: the next follow presents the ticket again, with
+				// no pause, and follows.
+				r.b.joinErr = nil
+				out, err = r.follow()
+				if err != nil || !out.Followed || !out.Joined || len(r.b.called("team join")) != 2 {
+					t.Fatalf("the follow after the backend answered: %+v, %v; calls %v", out, err, r.b.verbs())
+				}
+			})
+		}
+	}
+}
+
+// TestFollowGoesNowhereBetweenTwoBackendsThatNameEachOther: the backend
+// the file names itself records that the team moved to the backend the
+// checkout is pinned to (work item 341). A session follows neither,
+// whether the machine held a membership there or joined with the ticket to
+// find out, and the pin stays; a record there that names any other place
+// stops nothing.
+func TestFollowGoesNowhereBetweenTwoBackendsThatNameEachOther(t *testing.T) {
+	t.Parallel()
+	back := &protocol.TeamMoveResult{TeamRef: teamRef, Moved: true, Adapter: "supabase", URL: oldURL + "/", RecordedAt: time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)}
+	for _, member := range []bool{true, false} {
+		r := newRig(t)
+		if member {
+			r.memberAtTheNewBackend()
+		}
+		r.b.newRecords, r.b.newMoved = true, back
+		out, err := r.follow()
+		if err != nil || out.Followed || out.Reason != teammove.ReasonEachOther {
+			t.Fatalf("a machine that was a member there (%v): %+v, %v", member, out, err)
+		}
+		if joins := len(r.b.called("team join")); (joins != 0) == member {
+			t.Fatalf("a machine that was a member there (%v) joined %d times", member, joins)
+		}
+		if pin := r.currentPin(); pin != r.pin {
+			t.Fatalf("the pin moved between two backends that name each other: %+v", pin)
+		}
+	}
+	// A record that names a third place is the new backend's own move on,
+	// and no reason to stay: a chain is followed one move at a time.
+	r := newRig(t)
+	r.memberAtTheNewBackend()
+	on := *back
+	on.Adapter, on.URL = "rest", "https://third.example.test"
+	r.b.newRecords, r.b.newMoved = true, &on
+	if out, err := r.follow(); err != nil || !out.Followed {
+		t.Fatalf("a new backend that records a move to a third: %+v, %v", out, err)
+	}
+}
+
+// TestSameAddress: what is trivially one server's address, and what is not.
+func TestSameAddress(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		a, b string
+		same bool
+	}{
+		{"https://brigade.example.com", "https://brigade.example.com", true},
+		{"https://Brigade.Example.com:443/", "https://brigade.example.com", true},
+		{"HTTPS://brigade.example.com", "https://brigade.example.com//", true},
+		{"http://LOCALHOST:80", "http://localhost", true},
+		{"https://brigade.example.com/team/", "https://brigade.example.com/team", true},
+		{"https://[::1]:8743", "https://[::1]:8743/", true},
+		{"https://brigade.example.com:8743", "https://brigade.example.com", false},
+		{"https://brigade.example.com:80", "https://brigade.example.com", false},
+		{"http://brigade.example.com", "https://brigade.example.com", false},
+		{"https://brigade.example.com/a", "https://brigade.example.com/b", false},
+		{"https://brigade.example.com/Team", "https://brigade.example.com/team", false},
+		{"http://localhost:8743", "http://127.0.0.1:8743", false},
+		{"https://user@brigade.example.com", "https://brigade.example.com", false},
+		{"not an address", "not an address", true},
+		{"not an address", "another", false},
+		{"", "https://brigade.example.com", false},
+	} {
+		if got := teammove.SameAddress(tc.a, tc.b); got != tc.same || teammove.SameAddress(tc.b, tc.a) != tc.same {
+			t.Errorf("SameAddress(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.same)
+		}
+	}
+}
+
+// TestFollowGivesTheNewBackendsAnswerABoundOfItsOwn (work item 341): the
+// follow asks the backend the team moved to one question under the lock
+// that every follow and every join of the machine takes. A server that
+// accepts the connection and says nothing held that lock until the hook's
+// own deadline, as the old backend's question can. The question has a
+// bound of its own: the follow gives up on it long before its caller would,
+// changes nothing, and the next follow asks again. It is not run beside the
+// other tests: it measures time.
+func TestFollowGivesTheNewBackendsAnswerABoundOfItsOwn(t *testing.T) {
+	defer teammove.SetNewBackendWait(200 * time.Millisecond)()
+	r := newRig(t)
+	r.memberAtTheNewBackend()
+	r.b.newRecords, r.b.newMovedHangs = true, true
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
+	defer cancel()
+	began := time.Now()
+	out, _ := teammove.Follow(ctx, teammove.Inputs{
+		ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin, Client: r.b.client,
+		Now: func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) },
+	})
+	if took := time.Since(began); out.Followed || out.Reason != teammove.ReasonNewBackendFailed || took > 2*time.Second {
+		t.Fatalf("a follow whose new backend says nothing: %+v after %s, want %s well inside the caller's 4s", out, took, teammove.ReasonNewBackendFailed)
+	}
+	if pin := r.currentPin(); pin != r.pin || len(r.b.called("team join")) != 0 {
+		t.Fatalf("the pin moved (%+v) or the machine joined: %v", pin, r.b.verbs())
+	}
 }

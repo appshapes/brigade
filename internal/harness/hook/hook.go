@@ -596,6 +596,10 @@ type run struct {
 	// (keepUnresolved): a team file that holds a secret, or that was pointed
 	// elsewhere, is the member's to hear of in any case.
 	fileRefused string
+	// notFollowed is why this run's follow did not follow, where the reason
+	// has a line of its own (notFollowedLine): the resolution then says that
+	// line where it would say the drift line.
+	notFollowed string
 	// settingRefused is the line a start that keeps a running session says
 	// when what its resolution refused was the member's own settings and not
 	// the team: an option that cannot be read, a frame text that fails a
@@ -1058,6 +1062,61 @@ func notJoinedLine(teamName, command string) string {
 // change needs the secret file (owner ruling 3): the join backstop, not
 // the refusal, is what a re-pointed file runs into.
 const driftLine = "Brigade: not connected: .brigade.json does not match the team you joined here — run `brigade team join` to review the change (a cross-team change needs --secret-file)."
+
+// eachOtherLine is said in place of the drift line when the backend the
+// member joined records that the team moved to the backend the file names,
+// and that backend itself records that the team moved back (work item 341;
+// teammove.ReasonEachOther). One of the two records is out of date and
+// nothing on this machine says which, so the session follows neither. Like
+// the drift line it echoes nothing from the file, and names no host.
+const eachOtherLine = "Brigade: not connected: .brigade.json names another backend for the team you joined here, and that backend and the one you joined each record that the team moved to the other, so this session follows neither. The team's administrator clears the record that is out of date: `brigade team move --show --from <host>` reads one, and `brigade team move --clear --from <host>` clears it."
+
+// newBackendSilentLine is said in place of the drift line when the backend
+// the member joined recorded the move to the backend the file names, and
+// that backend did not answer what the follow asked of it (work item 341;
+// teammove.ReasonNewBackendFailed: it could not be reached, or did not
+// answer in time): the question asked with the membership this machine
+// holds there, or the join made with the move's ticket, which is the first
+// thing asked where the machine holds none. The
+// file is vouched for and nothing is wrong with it: the drift line's words,
+// that it does not match and that `brigade team join` reviews the change,
+// would send the member to a join for a server that is only down. The
+// checkout stays joined where it was, and the follow is tried again. The
+// line does not say that nothing was changed: where a join was sent, a
+// directory for that backend is in the member's store by then, and the
+// backend may have carried the join out though its answer did not arrive.
+const newBackendSilentLine = "Brigade: not connected: the team's administrator recorded that the team moved to another backend, and that backend did not answer, so this session could not follow the team there yet. This checkout stays joined where it was: a session tries again when it starts, and this one at its next prompts."
+
+// membershipRefusedLine is said in place of the drift line when the backend
+// the member joined recorded the move to the backend the file names, this
+// machine holds a membership there, and that backend refuses it (work item
+// 341). It answered the follow's question with a refusal that is not a
+// backend out of reach (teammove.ReasonNewBackendRefused: a credential it
+// does not know, above all); or it answered that the caller is no member
+// and then refused the join made with the move's ticket under the
+// credential the machine holds (teammove.ReasonRejoinRefused: a member who
+// was put out and whose ticket no longer admits, or one who is banned, who
+// reads the same). The file is vouched for, and waiting mends nothing:
+// what helps is a join with the team's current secret, made on the profile
+// the machine holds, and the line names that command with the flag a
+// session needs. Like the drift line it names no host. A refused join is
+// told once, not at every start (refusalUntold): the starts after it say
+// the drift line.
+const membershipRefusedLine = "Brigade: not connected: the team's administrator recorded that the team moved to another backend, and that backend refuses the membership this machine holds there. To join the team there, run `brigade team join --secret-file <path>` with the file of the team's current join secret, which its administrator has."
+
+// notFollowedLine is the line of a follow that did not follow: the drift
+// line, but for the reasons that have a line of their own.
+func notFollowedLine(reason string) string {
+	switch reason {
+	case teammove.ReasonEachOther:
+		return eachOtherLine
+	case teammove.ReasonNewBackendFailed:
+		return newBackendSilentLine
+	case teammove.ReasonNewBackendRefused, teammove.ReasonRejoinRefused:
+		return membershipRefusedLine
+	}
+	return driftLine
+}
 
 // followedLine is the one line of a session that followed its team to
 // another backend (work item 273, ADR 0003), said in place of the member's

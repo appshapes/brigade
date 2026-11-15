@@ -5,6 +5,8 @@ package e2e
 import (
 	"bytes"
 	"encoding/json/v2"
+	"errors"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -47,6 +49,35 @@ func logLines(path, msg string) int {
 func (r *rig) restPrompt(s session) result {
 	r.t.Helper()
 	return r.restHook(s, "prompt", s.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default"}))
+}
+
+// promptedUntilMoved prompts s, through prompt, until its session is
+// registered under the team key newKey, a session that was attached to
+// nothing included, and returns what those prompts printed. One prompt does
+// it where the machine has time to spare. A prompt
+// has a few seconds for the registration, and on a loaded machine an
+// adapter child may not start within them: the session then says once that
+// it could not be registered, stays where it is, and tries again at a later
+// prompt, a minute later at the earliest. That is what its member sees, and
+// the member prompts again; here the minute is made to pass by taking the
+// stamp away. waitLong is the hang catcher for a session that never moves.
+func (r *rig) promptedUntilMoved(s session, newKey string, prompt func(session) result) result {
+	r.t.Helper()
+	var said result
+	testutil.Eventually(r.t, waitLong, pollEvery, func() bool {
+		res := prompt(s)
+		said.stdout += res.stdout
+		said.stderr += res.stderr
+		if r.mapExists(s) && r.mustMap(s).TeamKey == newKey {
+			return true
+		}
+		r.t.Logf("a prompt did not move the session, and it is prompted again: stdout %q\nstderr %s", res.stdout, res.stderr)
+		if err := os.Remove(config.RegisterRetryStamp(r.stateDirOf(s), s.pid)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			r.t.Fatalf("the registration's retry stamp: %v", err)
+		}
+		return false
+	})
+	return said
 }
 
 // serverRoster is what `brigade sessions --json` answers from s, by
@@ -94,7 +125,10 @@ func (r *rig) serverRoster(s session) map[string]struct{ name, inbound string } 
 //     follow, the second registers the session on the server under the
 //     name it had. The server's roster lists it, a new watcher serves it,
 //     the old one is gone and has closed the old session, and a message
-//     sent on the server reaches it.
+//     sent on the server reaches it. (A session moves at a prompt that has
+//     time to register it, which on a loaded machine is not always the
+//     first: wherever a prompt moves a session here, the session is
+//     prompted until it has moved, and what those prompts said is held.)
 //  5. The quiet session moves and stays quiet.
 //  6. The session that holds a message stays until the message is
 //     released, through a /clear too, and moves then. A prompt of a moved
@@ -310,11 +344,11 @@ func TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary(t *testing.
 	}
 	// Her own session moves on her own join: nothing is followed, and the line says what happened.
 	asked := questions()
-	res = r.restPrompt(alice)
+	res = r.promptedUntilMoved(alice, newKey, r.restPrompt)
 	aliceMap := r.mustMap(alice)
 	if aliceMap.TeamKey != newKey || aliceMap.BrigadeSessionID == old[alice.pid] || aliceMap.SessionName != aliceName ||
-		!strings.Contains(res.stdout, `this checkout is joined to team "`+teamName+`" at `+strings.TrimPrefix(backend.url, "https://")) ||
-		!strings.Contains(res.stdout, `this session is "`+aliceName+`" (`+aliceMap.BrigadeSessionID+`)`) || strings.Contains(res.stdout, "followed") {
+		strings.Count(res.stdout, `this checkout is joined to team "`+teamName+`" at `+strings.TrimPrefix(backend.url, "https://")) != 1 ||
+		strings.Count(res.stdout, `this session is "`+aliceName+`" (`+aliceMap.BrigadeSessionID+`)`) != 1 || strings.Contains(res.stdout, "followed") {
 		t.Fatalf("the administrator's session after her join: stdout %q\nmap %+v", res.stdout, aliceMap)
 	}
 	if questions() != asked || strings.Contains(journal(), "with its move ticket") {
@@ -356,19 +390,19 @@ func TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary(t *testing.
 		t.Fatalf("the address of the file with no record was connected to %d times", n)
 	}
 	began = time.Now()
-	res = r.restPrompt(bob)
-	// The prompt hook's timeout is 5 s: both prompts are whole processes of the built binary, measured here.
-	t.Logf("the prompt that started the follow took %v, and the prompt that moved the session %v", first.Round(time.Millisecond), time.Since(began).Round(time.Millisecond))
+	res = r.promptedUntilMoved(bob, newKey, r.restPrompt)
+	// The prompt hook's timeout is 5 s: the prompts are whole processes of the built binary, measured here.
+	t.Logf("the prompt that started the follow took %v, and the prompts that moved the session %v", first.Round(time.Millisecond), time.Since(began).Round(time.Millisecond))
 	bobMap := r.mustMap(bob)
-	if !strings.Contains(res.stdout, `followed team "`+teamName+`" to `+strings.TrimPrefix(backend.url, "https://")+`, trusting the server certificate `+backend.certificate) ||
+	if strings.Count(res.stdout, `followed team "`+teamName+`" to `+strings.TrimPrefix(backend.url, "https://")+`, trusting the server certificate `+backend.certificate) != 1 ||
 		!strings.Contains(res.stdout, "recorded that move on "+oldHost) || !strings.Contains(res.stdout, "with the move's ticket, under the label you had") ||
-		!strings.Contains(res.stdout, `this session is "`+bobName+`" (`+bobMap.BrigadeSessionID+`)`) ||
+		strings.Count(res.stdout, `this session is "`+bobName+`" (`+bobMap.BrigadeSessionID+`)`) != 1 ||
 		strings.Contains(res.stdout+res.stderr, ticket) || strings.Contains(res.stdout, bobLabel) ||
 		strings.Contains(res.stderr, "session is gone server-side") {
-		t.Fatalf("the prompt that moved the session: stdout %q\nstderr %s", res.stdout, res.stderr)
+		t.Fatalf("the prompts that moved the session: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	if bobMap.TeamKey != newKey || bobMap.BrigadeSessionID == old[bob.pid] || bobMap.SessionName != bobName || !sessionmap.IsBundledRest(bobMap.AdapterCommand) {
-		t.Fatalf("bob's map after the second prompt: %+v", bobMap)
+		t.Fatalf("bob's map after it moved: %+v", bobMap)
 	}
 	// The server's roster lists the session under the name it had.
 	if listed := r.serverRoster(alice); listed[bobMap.BrigadeSessionID].name != bobName || listed[aliceMap.BrigadeSessionID].name != aliceName {
@@ -402,13 +436,13 @@ func TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary(t *testing.
 		t.Fatalf("bob's map after a prompt from his other checkout: %+v", m)
 	}
 
-	// --- 6. the quiet session moves in one prompt, the checkout having followed, and stays quiet ---------------
-	res = r.restPrompt(quiet)
+	// --- 6. the quiet session moves with no follow of its own, the checkout having followed, and stays quiet ----
+	res = r.promptedUntilMoved(quiet, newKey, r.restPrompt)
 	quietMap := r.mustMap(quiet)
-	if !strings.Contains(res.stdout, "this machine had joined it there already") || quietMap.TeamKey != newKey ||
+	if strings.Count(res.stdout, "this machine had joined it there already") != 1 || quietMap.TeamKey != newKey ||
 		quietMap.Inbound != "hold" || quietMap.InboundRequest != "hold" || quietMap.SessionName != "billing-quiet" ||
-		!strings.Contains(res.stdout, "inbound: hold") {
-		t.Fatalf("the quiet session after its prompt: stdout %q\nmap %+v", res.stdout, quietMap)
+		!strings.Contains(res.stdout, "inbound: hold") || strings.Contains(res.stderr, followStarted) {
+		t.Fatalf("the quiet session after its prompt: stdout %q\nstderr %s\nmap %+v", res.stdout, res.stderr, quietMap)
 	}
 	if listed := r.serverRoster(alice); listed[quietMap.BrigadeSessionID].inbound != "hold" {
 		t.Fatalf("the server's roster shows the quiet session as %q", listed[quietMap.BrigadeSessionID].inbound)
@@ -448,10 +482,10 @@ func TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary(t *testing.
 		t.Fatalf("the released message did not reach the session: %q", got)
 	}
 	testutil.Eventually(t, waitLong, pollEvery, func() bool { return pending() == 0 })
-	res = r.restPrompt(held)
+	res = r.promptedUntilMoved(held, newKey, r.restPrompt)
 	heldMap := r.mustMap(held)
 	if heldMap.TeamKey != newKey || heldMap.BrigadeSessionID == old[held.pid] || heldMap.Inbound != "hold" ||
-		!strings.Contains(res.stdout, `this session is "billing-held" (`+heldMap.BrigadeSessionID+`)`) || strings.Contains(res.stdout, "followed team") {
+		strings.Count(res.stdout, `this session is "billing-held" (`+heldMap.BrigadeSessionID+`)`) != 1 || strings.Contains(res.stdout, "followed team") {
 		t.Fatalf("the session after its message was released: stdout %q\nmap %+v", res.stdout, heldMap)
 	}
 

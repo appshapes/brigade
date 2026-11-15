@@ -1,9 +1,11 @@
 # When your team moves
 
-A team can move from one backend to another: from a Supabase project to a Brigade server your organisation runs.
-Its administrator moves it with one command, and you run nothing: no join and no command. Once you have pulled
-the changed `.brigade.json`, the next session you start in the project follows the team, on plugin 0.55.0 or
-later. A session that is already running follows at its next prompts. Either tells you so in one line:
+A team can move from one backend to another: from a Supabase project to a Brigade server your organisation runs,
+or from one Brigade server to another. Its administrator moves it with one command, and you run nothing: no join
+and no command. Once you have pulled the changed `.brigade.json`, the next session you start in the project
+follows the team: on plugin 0.55.0 or later when the team leaves a Supabase project, and on 0.57.0 or later when
+it leaves a server. A session that is already running follows at its next prompts. Either tells you so in one
+line:
 
 ```text
 Brigade: this checkout followed team "ops" to brigade.example.com:8743, trusting the server certificate sha256:…: the team's administrator recorded that move on abc.supabase.co, the backend you joined it on, and this machine joined it there with the move's ticket, under the label you had. To leave the team run `brigade team leave`; to stay put until you join a moved team yourself, set the option follow_team_move to off.
@@ -62,12 +64,80 @@ moves at its next prompt after you joined in the checkout it was started in.
 
 ## If the session says the file does not match
 
-Then nothing vouched for the change: the administrator has not recorded a move, or recorded another server than
-the file names, or the move has ended. Ask your administrator before you join anything. A team file that changed
-with no record behind it is exactly what this check is for.
+Then nothing vouched for the change, or the session could not find out whether anything did. The line is the
+same in every case and names no cause, because the file is not to be trusted until something vouches for it:
 
-A plugin older than 0.55.0 does not follow either, though the move is recorded: update it
-([Update](../update/README.md)) and start a new session, or join with the secret file.
+- **Nothing vouched for it.** The administrator has not recorded a move, or recorded another server than the
+  file names, or the backend the file names did not take the move's ticket because the move has ended: its
+  ticket ran out, or the move was closed. Ask your administrator before you join anything. A team file that
+  changed with no record behind it is exactly what this check is for.
+- **The backend you joined did not answer**, or said to wait. It is the only backend a session asks whether
+  the team moved, so the session learned nothing, and it says of a backend that is only out of reach what it
+  says of a file nobody vouched for. The next session asks again, and this one at its next prompts. If that
+  backend is gone for good, ask your administrator and join the team where it is with the secret file.
+- **The backend you joined no longer counts you a member**: you left the team on it, or were revoked there.
+  That is its answer, and waiting mends nothing: no session of yours follows from that backend again. Ask
+  your administrator, and join the team where it is with the secret file,
+  `/brigade:join ~/brigade-<team>.secret`.
+- **Another session of yours was following or joining** at that moment, for more than ten seconds. The next
+  session asks again, and this one at its next prompts.
+- **You left the team on the backend it moved to** (`brigade team leave`): no session joins you again. Join
+  yourself to come back.
+- **The backend the team moved to did not take the move's ticket under the membership your machine holds**,
+  and a session of yours has said so: that the backend refuses the membership is said once, and the sessions
+  after it say that the file does not match, until one of them is let in or you have joined there yourself.
+- **The session does not follow by itself**: the option `follow_team_move` is off, or the session names its
+  adapter itself.
+- **This machine's own record of the team cannot be used**: the membership the checkout was joined with is
+  missing or is not the one the checkout names, or Brigade's files could not be read or written.
+
+A session that could not ask, because the backend you joined did not answer or another session of yours held
+it up, says something else where an earlier session of the checkout did ask and was told that the backend the
+team moved to did not answer, that it refuses the membership, or that the two backends name each other: it says
+that again, because that is the last thing known. A backend you joined that no longer counts you a member is
+not such a case. It answered, so what an earlier session was told is taken back, and the session says that the
+file does not match.
+
+A plugin older than 0.55.0 does not follow either, though the move is recorded, and neither does one older than
+0.57.0 when the team left a Brigade server: update it ([Update](../update/README.md)) and start a new session, or
+join with the secret file.
+
+**If the team moved twice.** A move is followed from the backend your machine is on, one move at a time. If the
+team went on to a third backend before a session of yours followed the first move, the backend you joined
+records a move to the second, the file names the third, and the session says that the file does not match. Join
+the team where it is now with the secret file, `/brigade:join ~/brigade-<team>.secret`. Your administrator can
+tell you that this is what happened.
+
+**If the session says that the two backends each record that the team moved to the other.** The backend you
+joined says the team went where the file names, and that one says the team went back. One of the two records is
+out of date, nothing on your machine says which, and the session follows neither: a file that flipped between
+the two would otherwise send it back and forth. It says so once and stays where it is. Tell your administrator,
+who clears the record that is out of date.
+
+**If the team comes back to a server you were on before.** Your machine still holds the membership it had
+there. Where the administrator ended that membership after the team had left, the server refuses it, and the
+session joins again with the move's ticket, with no command of yours, under the credential your machine holds:
+you come back as the member you were. Where the membership is still good, the session uses it and joins
+nothing. Where the server refuses that join too, because the administrator banned you there or the move's
+ticket no longer admits, a session says once that the backend refuses the membership your machine holds, with
+the command that joins. No session presents the ticket again for fifteen minutes; the first to start after that
+asks once more.
+
+**If the session says that the backend the team moved to did not answer.** The move is recorded and the file is
+the right one; the new backend could not be reached, did not answer in time, or said to wait, when the session
+asked it about the membership your machine holds there or, where it holds none, joined it with the move's
+ticket. Your checkout stays joined where it was, and nothing is yours to do: the next session follows when it
+starts, and this one at one of its next prompts. Until then a prompt says the same. Where a join was sent, two
+things may have changed all the same: Brigade's files hold a directory for that backend from then on, and the
+backend may have carried the join out though its answer never arrived. The next session joins again; where
+the first join was carried out, your machine is then on that backend's roster twice.
+
+**If the session says that the backend refuses the membership this machine holds there.** The move is recorded
+and the file is the right one, and the backend the team moved to answered: it does not know the credential your
+machine holds for it, or it no longer counts you a member and did not take the move's ticket. Waiting does not
+mend that. Ask your administrator for the file of the team's current join secret and run
+`brigade team join --secret-file <path>` in the project (`/brigade:join <path>` in a session); the session
+connects at its next prompt.
 
 A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
 you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or

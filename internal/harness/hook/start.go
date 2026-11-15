@@ -1182,6 +1182,11 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		return nil, "", "", false
 	}
 	if pin.Matches(tf) {
+		// The checkout is where its team file says: what an earlier follow
+		// left for its prompts, of a backend the file named then, is nothing
+		// to say of it now, and would be said falsely the next time the file
+		// names that backend (work item 341).
+		r.dropNotFollowedMark(f.stateDir, opts.ConfigDir, canon)
 		// A follow that ran outside a session's start had nobody to tell:
 		// the first hook of the checkout after it says its line.
 		r.tellFollowed(f, opts, tf, canon, pin)
@@ -1190,8 +1195,12 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		// file in front of us is unconsented input until a human reviews
 		// the change in a terminal, or until the backend the member joined
 		// says the team went where the file says (followMove).
-		r.fileRefused = driftLine
-		r.say(driftLine)
+		// Two answers of the follow have a line of their own: the two
+		// backends each record that the team moved to the other, and the one
+		// the team moved to did not answer.
+		line := notFollowedLine(r.notFollowed)
+		r.fileRefused = line
+		r.say(line)
 		return nil, "", "", false
 	}
 	key = teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)
@@ -1249,6 +1258,16 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		// new backend before its next prompt: it is told that the old one
 		// is being asked, once in a conversation, as a session that is
 		// attached is (moveSession).
+		//
+		// What the prompt says in place of the drift line is what the last
+		// follow of the checkout, this session's start or a child, left: the
+		// two backends naming each other; a refusal of this machine's
+		// membership and of the join made under it that the member has not
+		// been told of, once; or the backend the team moved to silent, or
+		// refusing the membership. It is the line a start says of each, not
+		// that the file does not match. The follow started below finds what
+		// is so now.
+		r.notFollowed = r.leftByLastFollow(f, opts, canon, tf)
 		if r.startFollow(ctx, f, opts, canon) {
 			r.tell(f, in, toldAsked, movedRetryLine)
 		}
@@ -1259,12 +1278,34 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		Client: r.moveClient(opts.ConfigDir, f.stateDir),
 		Now:    r.deps.Now, Log: r.log,
 	})
+	// Why it did not follow is left for the session's next prompt where the
+	// prompt has the same line to say, the two backends naming each other
+	// included, and taken back by any other outcome that learned something:
+	// a start that follows leaves nothing of what an earlier follow said.
+	r.markNotFollowed(f.stateDir, opts.ConfigDir, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), out.Reason)
 	if !out.Followed {
 		attrs := []any{slog.String("reason", out.Reason)}
 		if err != nil {
 			attrs = append(attrs, log.Err(err))
 		}
 		r.log.Info("the team file names another backend for this team, and the move was not followed", attrs...)
+		r.notFollowed = out.Reason
+		switch {
+		case learnedNothing(out.Reason):
+			// This start's follow could not ask: it did not get the lock, or
+			// the backend the member joined did not answer it. It has no
+			// word of its own on the backend the file names, and the mark is
+			// as the last follow that asked left it (markNotFollowed): the
+			// start says what that one left, as its prompts will. Until this
+			// it said that the file does not match, of a server the mark and
+			// the next prompt said was only down (work item 341).
+			r.notFollowed = r.leftByLastFollow(f, opts, canon, tf)
+		case out.Reason == teammove.ReasonRejoinRefused && !r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)):
+			// The member was told of this refusal already, by this start's
+			// like or by a prompt: this one says what a team file nobody
+			// followed is told.
+			r.notFollowed = ""
+		}
 		return false
 	}
 	r.log.Info("followed the team's recorded move", slog.Bool("joined", out.Joined))

@@ -30,8 +30,9 @@
   create --adapter rest` writes all of it. A file that names another certificate is a changed file: each member
   reviews the change with `team join`, which needs no secret for it. A plugin before 0.52.0 reads such a file as
   broken and connects to nothing.
-- **A team that moves from a Supabase project to a Brigade server** has these members rewritten by the one
-  command of the move, `brigade team move --to <url> --secret-file <path>`, with everything else left as it was:
+- **A team that moves to a Brigade server**, from a Supabase project or from another server, has these members
+  rewritten by the one command of the move, `brigade team move --to <url> --secret-file <path>`, with everything
+  else left as it was:
   never change them by hand to move a team ([Move the team to a server](../members/move-the-team.md)).
 - **A member this version does not define** is ignored and named in one line at session start.
 - **Size and versions.** A plugin of 0.10.0 or earlier reads the file against a closed schema and refuses the whole

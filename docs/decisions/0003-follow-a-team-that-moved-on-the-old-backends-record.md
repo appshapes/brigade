@@ -1,6 +1,6 @@
 # 0003. Follow a team that moved, on the old backend's record and a move ticket
 
-- **Status:** Accepted; superseded in part by 0006, 0007 and 0008
+- **Status:** Accepted; superseded in part by 0006, 0007, 0008 and 0010
 - **Date:** 2026-11-13
 - **Supersedes:** none
 

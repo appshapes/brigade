@@ -32,15 +32,27 @@ import (
 // and handed a ticket back as a file, and the administrator edited the
 // team file by hand, joined the server and recorded the move.
 //
+// The backend the team leaves is whichever keeps the record of where a team
+// went: a Supabase project, the filesystem store, and from 0.57.0 another
+// Brigade server, of 0.8.0 or later (work item 341, ADR 0010).
+//
 // The order is the design's, and each step is one a second run repeats
 // without harm:
 //
 //	a. check, changing nothing but the date of a record that is there (checkMove)
 //	b. take the team in on the server, as its owner (takeIn)
+//	b'. clear what the server itself records of the team having left it (clearReturn)
 //	c. open the move; the ticket goes to a private file (openMove)
 //	d. record the move on the backend the team leaves (recordMoveTo)
 //	e. only then rewrite the team file, the binding and the pin (writeMove)
 //	f. say what was done and what is left (reportMove)
+//
+// Step b' is for a team that comes back (A to B, then B to A): the server
+// it returns to still says that the team went away. That record is cleared
+// before the backend the team leaves records anything, so that the two
+// never name each other: a session that follows one record is not sent
+// back by the other. A clear that fails stops the move there, with nothing
+// recorded on the backend the team leaves.
 //
 // A repeated take-in is a join that still owns, a second open replaces the
 // ticket, a second record replaces the first, and the files are written
@@ -85,11 +97,20 @@ const (
 	reasonNoTeamTakeIn      = "no_team_take_in"
 	reasonServerLacksTakeIn = "server_lacks_team_take_in"
 	reasonMigrationDrift    = "migration_drift"
-	reasonOtherJoinSecret   = "other_join_secret" //nolint:gosec // G101: a details.reason token, not a credential
-	reasonNotTheCreator     = "not_the_teams_creator"
-	reasonNotOwnerThere     = "not_owner_at_destination"
-	reasonCreateToken       = "create_token" //nolint:gosec // G101: a details.reason token, not a credential
-	reasonTeamNameUnknown   = "team_name_unknown"
+	// reasonServerLacksMove is the `rest` adapter's own word for a server
+	// that keeps no record of where a team went: one older than 0.8.0.
+	reasonServerLacksMove = "server_lacks_team_move"
+	// reasonReturnNotCleared: the server the team moves to records that the
+	// team left it, and that record could not be cleared.
+	reasonReturnNotCleared = "destination_record_not_cleared"
+	// reasonSameServer: the server named by --to holds the team with the
+	// very membership this machine has on the backend the team is on.
+	reasonSameServer      = "same_server"
+	reasonOtherJoinSecret = "other_join_secret" //nolint:gosec // G101: a details.reason token, not a credential
+	reasonNotTheCreator   = "not_the_teams_creator"
+	reasonNotOwnerThere   = "not_owner_at_destination"
+	reasonCreateToken     = "create_token" //nolint:gosec // G101: a details.reason token, not a credential
+	reasonTeamNameUnknown = "team_name_unknown"
 	// reasonTeamFileUnwritable: the team file as it is cannot be rewritten
 	// to name the server.
 	reasonTeamFileUnwritable = "team_file_unwritable"
@@ -117,17 +138,20 @@ type moveEnd struct {
 
 // moveToResult is the --json result of `team move --to`.
 type moveToResult struct {
-	TeamRef        string         `json:"team_ref"`
-	TeamName       string         `json:"team_name"`
-	From           moveEnd        `json:"from"`
-	To             moveEnd        `json:"to"`
-	TakenIn        bool           `json:"taken_in"`
-	PrincipalRef   string         `json:"principal_ref"`
-	MoveEndsAt     time.Time      `json:"move_ends_at"`
-	TicketReplaced bool           `json:"ticket_replaced"`
-	RecordedAt     time.Time      `json:"recorded_at"`
-	TeamFile       string         `json:"team_file"`
-	OlderSessions  []olderSession `json:"older_sessions"`
+	TeamRef        string    `json:"team_ref"`
+	TeamName       string    `json:"team_name"`
+	From           moveEnd   `json:"from"`
+	To             moveEnd   `json:"to"`
+	TakenIn        bool      `json:"taken_in"`
+	PrincipalRef   string    `json:"principal_ref"`
+	MoveEndsAt     time.Time `json:"move_ends_at"`
+	TicketReplaced bool      `json:"ticket_replaced"`
+	RecordedAt     time.Time `json:"recorded_at"`
+	// ReturnCleared says that the server the team moved to held a record of
+	// the team having left it, which this run cleared.
+	ReturnCleared bool           `json:"destination_record_cleared"`
+	TeamFile      string         `json:"team_file"`
+	OlderSessions []olderSession `json:"older_sessions"`
 	// RosterTruncated says that older_sessions was read from a roster the
 	// backend cut short, and may lack sessions.
 	RosterTruncated bool `json:"roster_truncated"`
@@ -176,6 +200,12 @@ type serverMove struct {
 	rosterCut bool
 	replaces  *protocol.TeamMoveResult
 	recorded  bool
+	// memberThere says that this machine holds a membership of the team on
+	// the server already: the team was there before, or a run before this
+	// one took it in. returned is the record the server itself held of the
+	// team having left it, which step b' cleared; nil when it held none.
+	memberThere bool
+	returned    *protocol.TeamMoveResult
 }
 
 // moveTo runs the move.
@@ -189,6 +219,9 @@ func (inv Invocation) moveTo(flags moveFlags) error {
 	}
 	taken, err := inv.takeIn(m)
 	if err != nil {
+		return err
+	}
+	if err := inv.clearReturn(m); err != nil {
 		return err
 	}
 	ticketFile, err := m.ticketFile()
@@ -314,6 +347,15 @@ func (inv Invocation) checkMove(flags moveFlags) (*serverMove, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The server as this machine already knows it: an address that is
+	// trivially the one the team file or a membership of the team carries
+	// (the host in another case, the scheme's own port, a slash at the end)
+	// is that server, under the spelling it is known by. Without this the
+	// same server would be taken for another, and joined a second time.
+	to = knownSpelling(configDir, f, to)
+	if f.Adapter == config.BundledRestName && f.URL == to && f.Certificate != certificate {
+		return nil, onThatServerAlready(to, f.Certificate, certificate)
+	}
 	m := &serverMove{
 		filePath: path, canon: canon, file: f, configDir: configDir,
 		dest: &teamfile.File{
@@ -331,7 +373,16 @@ func (inv Invocation) checkMove(flags moveFlags) (*serverMove, error) {
 		return nil, err
 	}
 	if m.source, m.sourceKey, err = moveFrom(configDir, f, flags.from, m.pointed); err != nil {
-		return nil, err
+		var perr *protocol.Error
+		if !m.pointed || flags.from != "" || !errors.As(err, &perr) || perr.Details["reason"] != "team_ambiguous" {
+			return nil, err
+		}
+		// The file names the server already and this machine has joined the
+		// team on more than one other backend: a team that moved before. The
+		// one it is leaving is found, not asked for, where it can be.
+		if m.source, m.sourceKey, err = inv.sourceOfRerun(m); err != nil {
+			return nil, err
+		}
 	}
 	m.label = m.source.HumanLabel
 	if m.teamName = m.source.TeamName; m.teamName == "" {
@@ -374,6 +425,9 @@ func (inv Invocation) checkMove(flags moveFlags) (*serverMove, error) {
 	}
 	if err := requireTakeIn(m.to); err != nil {
 		return nil, err
+	}
+	if there, berr := teamstore.LoadBinding(configDir, m.destKey); berr == nil && there.TeamRef == f.TeamRef {
+		m.memberThere = true
 	}
 	if err := inv.checkOldBackend(m); err != nil {
 		return nil, err
@@ -488,7 +542,7 @@ func moveFrom(configDir string, f *teamfile.File, from string, pointed bool) (*a
 		}
 		return source, key, err
 	}
-	if from != "" && from != f.URL && from != teammove.Host(f.URL) {
+	if from != "" && !teammove.SameAddress(from, f.URL) && from != teammove.Host(f.URL) {
 		return nil, "", &protocol.Error{
 			Code:    protocol.CodeConfig,
 			Message: "--from names another backend than this project's " + teamfile.FileName + ": a team moves from the backend its team file names",
@@ -509,6 +563,279 @@ func moveFrom(configDir string, f *teamfile.File, from string, pointed bool) (*a
 		}
 	}
 	return source, key, nil
+}
+
+// knownSpelling answers the address this machine already knows a server
+// by, when to is trivially the same address (teammove.SameAddress): the
+// team file's own, else that of a membership of the team on a Brigade
+// server. Any other address is answered as it was typed.
+func knownSpelling(configDir string, f *teamfile.File, to string) string {
+	if f.Adapter == config.BundledRestName && teammove.SameAddress(to, f.URL) {
+		return f.URL
+	}
+	bindings, _, err := listBindings(configDir)
+	if err != nil {
+		return to
+	}
+	for _, b := range bindings {
+		if b.TeamRef == f.TeamRef && b.Adapter == config.BundledRestName && teammove.SameAddress(to, b.URL) {
+			return b.URL
+		}
+	}
+	return to
+}
+
+// onThatServerAlready refuses a move to the server the team file names,
+// under another certificate than the file has or under none (work item
+// 341). Until this the file did not count as naming the server already,
+// because the pins differed; the backend the team "leaves" was then the
+// very membership on that server, the profile was repointed to the pin
+// that was typed, a move was opened, and the server recorded that the team
+// had moved to itself. A team does not move to the server it is on,
+// whatever the certificate, and it is refused before anything is aligned
+// or asked, as the record's own forms refuse (noMoveToRecord). What the
+// person may have meant has two other names: a server that has a new
+// certificate is a change of the team file and a join, and a move to this
+// server that is run again names the pin the file has.
+func onThatServerAlready(to, has, typed string) *protocol.Error {
+	host := attrLine(hostOf(to))
+	differs := "with another certificate than the one --certificate names"
+	switch {
+	case typed == "":
+		differs = "with a certificate's pin, and --certificate names none"
+	case has == "":
+		differs = "with no certificate's pin, and --certificate names one"
+	}
+	again := "a move to " + host + " that is run again names what the file has: no --certificate"
+	if has != "" {
+		again = "a move to " + host + " that is run again names the pin the file has: `--certificate " + pinLine(has) + "`"
+	}
+	return &protocol.Error{
+		Code: protocol.CodeConfig,
+		Message: host + " is the server this team is on: this project's " + teamfile.FileName + " names it, " + differs +
+			". A team is moved to another server, never onto the one it is on. A server's new certificate is a change of `certificate` in " +
+			teamfile.FileName + " and a `brigade team join` in each checkout, not a move; and " + again + ". Nothing was changed",
+		Details: map[string]string{"reason": "no_move"},
+	}
+}
+
+// sourceOfRerun finds the backend the team is leaving for a command that
+// is run again on a machine that has joined the team on more than one
+// other backend, which is every machine whose team moved before (work item
+// 341). Until this the command asked for --from, though it was the same
+// command a page, a skill and every stop of the command say to run again.
+//
+// What says which backend the team is leaving is this checkout: the
+// backend its pin still names, which a run that was stopped after it wrote
+// the team file and before it wrote the pin leaves, or the backend its pin
+// says it followed from (MovedFrom, which a session's follow writes). That
+// candidate is taken when it alone records a move to the server, or when no
+// candidate's record does (a record that was cleared). A record alone
+// never chooses: a backend the team left long ago for this very server
+// still says so, and it would be taken for the one that counts, the
+// command recording there while the sessions on the backend the team is
+// really on are told nothing. And the checkout does not choose alone
+// either, where another candidate records the move beside its own: a
+// checkout that was left behind at an earlier move is pinned to exactly
+// such a backend, and nothing on this machine tells it from the checkout
+// the team is leaving (rerunStandOf). Where the checkout says nothing, as
+// in the checkout the command itself pinned to the server, or says one
+// thing while a record says another, or names one of two that both record
+// the move, nothing is chosen: the command changes nothing, names the
+// candidates, and prints itself for each with its --from.
+//
+// A candidate whose record cannot be read is not one that holds none: it
+// may be the very backend the team is leaving. So nothing is chosen while
+// one does not answer either: the command names it, and says to run it
+// again when it answers, or with --from.
+func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string, error) {
+	bindings, keys, err := listBindings(m.configDir)
+	if err != nil {
+		return nil, "", err
+	}
+	var candidates, recorded, unread []int
+	for i, b := range bindings {
+		if b.TeamRef != m.file.TeamRef || keys[i] == m.destKey {
+			continue
+		}
+		candidates = append(candidates, i)
+		t, terr := inv.dialectTarget(b.Adapter, keys[i])
+		if terr != nil {
+			unread = append(unread, i)
+			continue
+		}
+		record, _, rerr := inv.recordOn(t)
+		switch {
+		case rerr != nil:
+			unread = append(unread, i)
+		case record != nil && record.Moved && record.Adapter == m.dest.Adapter && teammove.SameAddress(record.URL, m.dest.URL):
+			recorded = append(recorded, i)
+		}
+	}
+	// A candidate is named by its host, and by its whole address where the
+	// host names another backend of the team too, the server among them: the
+	// name is what follows --from in the commands printed below.
+	hostOfCandidate := func(i int) string {
+		return attrLine(backendName(bindings, m.file.TeamRef, bindings[i].URL))
+	}
+	sorted := func(named []int) []string {
+		hosts := make([]string, 0, len(named))
+		for _, i := range named {
+			hosts = append(hosts, hostOfCandidate(i))
+		}
+		slices.Sort(hosts)
+		return hosts
+	}
+	// hostsOf lists backends between brackets, and subject names them where
+	// they are the subject of a sentence, whose verb follows their number:
+	// "A", "A and B", "A, B and D".
+	hostsOf := func(named []int) string { return strings.Join(sorted(named), ", ") }
+	subject := func(named []int) string {
+		hosts := sorted(named)
+		if len(hosts) < 2 {
+			return strings.Join(hosts, "")
+		}
+		return strings.Join(hosts[:len(hosts)-1], ", ") + " and " + hosts[len(hosts)-1]
+	}
+	reruns := func() string {
+		lines := make([]string, 0, len(candidates))
+		for _, i := range candidates {
+			lines = append(lines, "`brigade team move --to "+toServer(m.dest.URL, m.dest.Certificate)+" --secret-file <path> --from "+hostOfCandidate(i)+"`")
+		}
+		slices.Sort(lines)
+		return strings.Join(lines, ", or ")
+	}
+	if len(unread) > 0 {
+		it, did := "it answers", " did not answer what it records of this team"
+		if len(unread) > 1 {
+			it, did = "they answer", " did not answer what they record of this team"
+		}
+		return nil, "", &protocol.Error{
+			Code: protocol.CodeUnavailable,
+			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + subject(unread) + did +
+				", so which one the team is leaving is not known: a backend that cannot be read may be the one. Run the same command again when " + it +
+				", or with the backend it leaves named: " + reruns() + ". Nothing was changed",
+			Details: map[string]string{"reason": "team_ambiguous"},
+		}
+	}
+	// The candidate this checkout names: the backend its pin still names, or
+	// the one its pin says it followed from.
+	own := -1
+	if pin, pinned, perr := teamstore.LookupPin(m.configDir, m.canon); perr == nil && pinned && pin.TeamRef == m.file.TeamRef {
+		pinKey := teamstore.Key(pin.Adapter, pin.URL, pin.TeamRef)
+		for _, i := range candidates {
+			if keys[i] == pinKey || (pin.MovedFrom != "" && pinKey == m.destKey && bindings[i].URL == pin.MovedFrom) {
+				own = i
+				break
+			}
+		}
+	}
+	stand := rerunStandOf(own, recorded)
+	if stand == rerunOwn {
+		return bindings[own], keys[own], nil
+	}
+	why := "none of them records a move to " + m.toHost() + ", and nothing in this checkout says which one it was joined to before"
+	switch stand {
+	case rerunOwn, rerunNothing:
+		// rerunOwn returned above, and rerunNothing is the words above.
+	case rerunOwnAndAnother:
+		others, so := slices.DeleteFunc(slices.Clone(recorded), func(i int) bool { return i == own }), "so does "
+		if len(others) > 1 {
+			so = "so do "
+		}
+		why = "this checkout was joined to " + hostOfCandidate(own) + ", which records a move to " + m.toHost() + ", and " + so + subject(others) +
+			": a record says that the team once left a backend for this server and not that it is leaving it now, and a checkout that was left behind at an earlier move is joined to such a backend"
+	case rerunAnother:
+		record := " that records a move to "
+		if len(recorded) > 1 {
+			record = " that record a move to "
+		}
+		why = "this checkout was joined to " + hostOfCandidate(own) + ", and it is " + subject(recorded) + record + m.toHost()
+	case rerunRecordAlone:
+		why = subject(recorded) + " records a move to " + m.toHost() + ", which says that the team once left it for this server and not that it is leaving it now, and nothing in this checkout says which one it was joined to before"
+		if len(recorded) > 1 {
+			why = subject(recorded) + " each record a move to " + m.toHost() + ", which says that the team once left each of them for this server and not that it is leaving one of them now, and nothing in this checkout says which one it was joined to before"
+		}
+	}
+	return nil, "", &protocol.Error{
+		Code: protocol.CodeConfig,
+		Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "): " + why +
+			", so which one the team is leaving is not known. Run the same command with the backend it leaves named: " + reruns() + ". Nothing was changed",
+		Details: map[string]string{"reason": "team_ambiguous"},
+	}
+}
+
+// A rerunStand is how the backends a rerun may be leaving stand to the
+// checkout it is run in and to the records they hold (sourceOfRerun).
+type rerunStand int
+
+const (
+	// rerunOwn: the checkout names one of them, and it is taken.
+	rerunOwn rerunStand = iota
+	// rerunOwnAndAnother: the checkout names one, which records the move,
+	// and another records it too.
+	rerunOwnAndAnother
+	// rerunAnother: the checkout names one, and only others record the move.
+	rerunAnother
+	// rerunRecordAlone: the checkout names none, and one or more record the
+	// move.
+	rerunRecordAlone
+	// rerunNothing: the checkout names none, and none records the move.
+	rerunNothing
+)
+
+// rerunStandOf is the whole choice of sourceOfRerun: own is the candidate
+// the checkout names, -1 when it names none, and recorded are the
+// candidates whose record names the server. The checkout's candidate is
+// taken only where it alone records the move, or where none does. Where
+// another records it too, the checkout may be one that was left behind at
+// an earlier move, pinned to a backend the team left long ago for this
+// very server: until this it was taken all the same, and the command
+// opened the move again and recorded on that backend (work item 341).
+func rerunStandOf(own int, recorded []int) rerunStand {
+	switch {
+	case own >= 0 && (len(recorded) == 0 || (len(recorded) == 1 && recorded[0] == own)):
+		return rerunOwn
+	case own >= 0 && slices.Contains(recorded, own):
+		return rerunOwnAndAnother
+	case own >= 0:
+		return rerunAnother
+	case len(recorded) > 0:
+		return rerunRecordAlone
+	}
+	return rerunNothing
+}
+
+// recordOn asks a backend what it records of where the team went, under
+// the command's budget (teammove.Recorded, the one probe every part of
+// Brigade uses). keeps is false for a backend that keeps no such record.
+func (inv Invocation) recordOn(t *target) (record *protocol.TeamMoveResult, keeps bool, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), adapterclient.DefaultTimeout)
+	defer cancel()
+	return teammove.Recorded(ctx, t.client)
+}
+
+// clearOn asks a backend to clear its record of where the team went, under
+// the command's budget (teammove.ClearRecord, the one clear every part of
+// Brigade uses), and says what became of it. The error is the cause of an
+// outcome that is not teammove.Cleared.
+func (inv Invocation) clearOn(t *target) (teammove.ClearOutcome, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), adapterclient.DefaultTimeout)
+	defer cancel()
+	return teammove.ClearRecord(ctx, t.client)
+}
+
+// toServer is what follows `--to` in a command a refusal prints for its
+// reader to run: the server's address, and `--certificate` with its pin
+// where the server has one. A line printed without the pin is not the same
+// command for a server that made its own certificate: it names a server
+// with no pin, which is another destination than the one the team file or
+// a membership names, and the command would refuse it or fail to trust it.
+func toServer(url, certificate string) string {
+	if certificate == "" {
+		return attrLine(url)
+	}
+	return attrLine(url) + " --certificate " + pinLine(certificate)
 }
 
 // checkMoveSecret is checkJoinSecret for the secret a move presents to the
@@ -599,7 +926,10 @@ func (inv Invocation) checkOldBackend(m *serverMove) error {
 	m.rosterCut = list.Truncated
 	for i := range list.Sessions {
 		s := &list.Sessions[i]
-		if s.BrigadeVersion == nil || !teammove.OlderThanFollow(*s.BrigadeVersion) {
+		// From a Brigade server a session follows from a later plugin than
+		// from any other backend: the one whose `rest` adapter reads a
+		// server's record.
+		if s.BrigadeVersion == nil || !teammove.OlderThanFollowFrom(m.source.Adapter, *s.BrigadeVersion) {
 			continue
 		}
 		m.older = append(m.older, olderSession{
@@ -726,11 +1056,25 @@ func (m *serverMove) cannotRecord(err error) error {
 				". The project's owner applies it with `make backend-install project=" + project + "` in a checkout of the Brigade repository; then run this again. Nothing was changed",
 			Details: map[string]string{"reason": reasonMigrationDrift},
 		}
+	case perr.Details["reason"] == reasonServerLacksMove:
+		return &protocol.Error{
+			Code: protocol.CodeConfig,
+			Message: "the server this team is on (" + m.fromHost() + ") keeps no record of where a team goes: it is older than 0.8.0. " +
+				"Its operator updates it to 0.8.0 or later; then run this again. Until then a team on it is moved by pointing " + teamfile.FileName +
+				" at the new server, and each member joins there with the secret file. Nothing was changed",
+			Details: map[string]string{"reason": reasonServerLacksMove},
+		}
 	case perr.Code == protocol.CodeUnauthorized:
+		who, whose, where := "the member who created this team on "+m.fromHost(), "administrator's", "administrator's machine"
+		if m.source.Adapter == config.BundledRestName {
+			// A team on a server has an owner, which a transfer and the
+			// server's operator can change: the creator is not always it.
+			who, whose, where = "the owner of this team on "+m.fromHost(), "owner's", "owner's machine, or have the owner transfer the team to you first"
+		}
 		return &protocol.Error{
 			Code: protocol.CodeUnauthorized,
-			Message: "only the member who created this team on " + m.fromHost() + " can move it: where a team went is its administrator's to record there. " +
-				"Run this on the administrator's machine. Nothing was changed",
+			Message: "only " + who + " can move it: where a team went is its " + whose + " to record there. " +
+				"Run this on the " + where + ". Nothing was changed",
 			Details: map[string]string{"reason": reasonNotTheCreator},
 		}
 	}
@@ -761,25 +1105,32 @@ func (m *serverMove) consequence() string {
 		out += " This replaces the record " + m.fromHost() + " holds of a move to " +
 			moveDestination(m.replaces.Adapter, m.replaces.URL, m.replaces.Certificate) + "."
 	}
-	if older := olderLine(m.older, m.rosterCut); older != "" {
+	if m.memberThere {
+		// The server is asked nothing before the answer, so whether it
+		// holds such a record is not known yet: what is done about one is.
+		out += " This machine has joined the team on " + m.toHost() + " before: if " + m.toHost() +
+			" records that the team left it, that record is cleared first, because the team is there again."
+	}
+	if older := olderLine(m.older, m.rosterCut, teammove.FollowsFrom(m.source.Adapter)); older != "" {
 		out += " " + older + "."
 	}
 	return out
 }
 
 // olderLine names the sessions that will not follow, "" when there is
-// none. A roster the backend cut short may lack some: the line then says
+// none. follows is the first plugin version that follows a move from the
+// backend the team leaves (teammove.FollowsFrom). A roster the backend cut short may lack some: the line then says
 // that the list is not complete, and says it where no session was named.
-func olderLine(older []olderSession, cut bool) string {
+func olderLine(older []olderSession, cut bool, follows string) string {
 	const notAll = "the roster it was read from was cut short, so this list is not complete"
 	if len(older) == 0 {
 		if cut {
-			return "no session that is online was seen on a plugin older than " + teammove.FollowsFromVersion + ", but " + notAll
+			return "no session that is online was seen on a plugin older than " + follows + ", but " + notAll
 		}
 		return ""
 	}
 	if cut {
-		return olderLine(older, false) + "; " + notAll
+		return olderLine(older, false, follows) + "; " + notAll
 	}
 	names := make([]string, 0, olderShown)
 	for i, s := range older {
@@ -793,9 +1144,9 @@ func olderLine(older []olderSession, cut bool) string {
 		list += " and " + strconv.Itoa(rest) + " more"
 	}
 	if len(older) == 1 {
-		return "1 session that is online runs a plugin older than " + teammove.FollowsFromVersion + " and will not follow until its member updates it: " + list
+		return "1 session that is online runs a plugin older than " + follows + " and will not follow until its member updates it: " + list
 	}
-	return strconv.Itoa(len(older)) + " sessions that are online run a plugin older than " + teammove.FollowsFromVersion +
+	return strconv.Itoa(len(older)) + " sessions that are online run a plugin older than " + follows +
 		" and will not follow until their members update it: " + list
 }
 
@@ -861,6 +1212,9 @@ func (inv Invocation) takeIn(m *serverMove) (*protocol.TeamTakeInResult, error) 
 		return nil, protocolMismatch("team take-in answered a team other than the one the secret names")
 	}
 	if !taken.Owner {
+		if known := m.sameData(taken.PrincipalRef); known != nil {
+			return nil, inv.sameServer(m, known, fresh)
+		}
 		return nil, &protocol.Error{
 			Code: protocol.CodeConflict,
 			Message: m.team() + " is held on " + m.toHost() + " and owned by someone else, so its move is not yours to open there: the server's operator can name its owner. " +
@@ -870,6 +1224,103 @@ func (inv Invocation) takeIn(m *serverMove) (*protocol.TeamTakeInResult, error) 
 		}
 	}
 	return taken, nil
+}
+
+// sameData answers the membership of this machine that the server which
+// just answered "held, and owned by someone else" holds too, nil when it
+// holds none: the principal of a membership this machine has of the team,
+// on any backend, is on that server's roster. A server makes the
+// references of its principals itself, at random, so one on two servers
+// means one set of data: a server this machine knows under another address
+// (another name of the machine, a spelling the command could not see
+// through), or a server started from a copy of its data directory. Every
+// membership the machine holds is looked for, not only the one on the
+// backend the team is leaving: a team that moved from A to B and is
+// pointed at A by another address is A all the same. The membership the
+// take-in itself made, mine, is the one that is always there and is left
+// out. The roster names no owner; a principal of this machine's being
+// there is the whole test. A roster that cannot be read answers nil, and
+// the command says what it has always said.
+func (m *serverMove) sameData(mine string) *adapterkit.Profile {
+	bindings, keys, err := listBindings(m.configDir)
+	if err != nil {
+		return nil
+	}
+	held := map[string]*adapterkit.Profile{}
+	for i, b := range bindings {
+		if b.TeamRef == m.file.TeamRef && keys[i] != m.destKey && b.PrincipalRef != "" && b.PrincipalRef != mine {
+			// The backend the team is leaving first: it is the one a line names.
+			if _, seen := held[b.PrincipalRef]; !seen || keys[i] == m.sourceKey {
+				held[b.PrincipalRef] = b
+			}
+		}
+	}
+	if len(held) == 0 {
+		return nil
+	}
+	roster, err := call(func(ctx context.Context) (*adapterclient.MembersResult, error) { return m.to.client.TeamMembers(ctx) })
+	if err != nil {
+		return nil
+	}
+	var known *adapterkit.Profile
+	for i := range roster.Members {
+		b, ok := held[roster.Members[i].PrincipalRef]
+		if !ok {
+			continue
+		}
+		if b.URL == m.source.URL && b.Adapter == m.source.Adapter {
+			return b
+		}
+		if known == nil {
+			known = b
+		}
+	}
+	return known
+}
+
+// sameServer refuses a move to a server this machine already knows under
+// another address, or to a copy of one's data (sameData), and ends the
+// membership the take-in made there: this machine had no credential for
+// that address, so the take-in was the join of a new member, and the
+// administrator would be on the roster twice. known is the membership the
+// server was found to hold. Only a membership this run made is ended
+// (fresh). When it cannot be, the refusal names the one command that ends
+// it. It never names the operator's --set-owner: on that server it would
+// take the team from the administrator's own membership.
+func (inv Invocation) sameServer(m *serverMove, known *adapterkit.Profile, fresh bool) error {
+	left := false
+	if fresh {
+		if _, err := call(func(ctx context.Context) (*protocol.Envelope, error) {
+			return m.to.client.Call(ctx, "team", "leave", nil, nil)
+		}); err == nil {
+			left = true
+			if _, rerr := call(func(ctx context.Context) (*protocol.Envelope, error) {
+				return m.to.client.Call(ctx, "profile", "reset", nil, nil)
+			}); rerr != nil {
+				inv.logger().Debug("the profile of a membership that was ended was not removed")
+			}
+		}
+	}
+	second := "The membership this command made on " + m.toHost() + " to find that out is ended"
+	if !left {
+		second = "This machine holds a second membership of the team under that address, which `brigade adapter " + config.BundledRestName +
+			" --profile " + m.destKey + " team leave` ends"
+	}
+	knownHost := attrLine(hostOf(known.URL))
+	what := "and a team is not moved to either. " +
+		"A server's address changes by a fresh server at the new one, which its operator starts (docs/project-owner/server/move-to-another-server.md in the Brigade repository). "
+	if known.URL != m.source.URL || known.Adapter != m.source.Adapter {
+		// A server the team was on before, not the one it is on: a team may
+		// go back to it, by the address this machine knows it by.
+		what = "and a team is not moved to a copy. To move the team back to " + knownHost + ", name it by the address this machine knows it by: `--to " + toServer(known.URL, known.Certificate) + "`. "
+	}
+	return &protocol.Error{
+		Code: protocol.CodeConflict,
+		Message: m.toHost() + " holds " + m.team() + " with the membership this machine has on " + knownHost +
+			": it is the same server under another address, or a copy of its data, " + what +
+			second + ". Nothing was recorded, and " + teamfile.FileName + " is unchanged",
+		Details: map[string]string{"reason": reasonSameServer},
+	}
 }
 
 // refusedBeforeTheServerActed reports whether a take-in's failure is one
@@ -945,8 +1396,9 @@ func (m *serverMove) notTakenIn(err error) error {
 		}
 	case perr.Details["reason"] == reasonOtherJoinSecret:
 		return &protocol.Error{
-			Code:    protocol.CodeConflict,
-			Message: m.toHost() + " already holds a team of this reference under another join secret, so this team cannot be taken in there: tell the server's operator. " + unchanged,
+			Code: protocol.CodeConflict,
+			Message: m.toHost() + " already holds a team of this reference under another join secret, so this team cannot be taken in there: tell the server's operator. " +
+				"If the team was on " + m.toHost() + " before and its join secret was rotated since on either side, name the file of the secret it has on " + m.toHost() + ". " + unchanged,
 			Details: map[string]string{"reason": reasonOtherJoinSecret},
 		}
 	case perr.Code == protocol.CodeUnauthorized:
@@ -962,6 +1414,77 @@ func (m *serverMove) notTakenIn(err error) error {
 	}
 	out := *perr
 	out.Message = "the server at " + m.toHost() + " did not take the team in: " + perr.Message + ". " + unchanged
+	return &out
+}
+
+// clearReturn is step b': the server the team moves to is asked whether
+// it records that this team left it, and a record that is there is
+// cleared. That is a team that comes back: it moved from this server to
+// the backend it is now leaving, its owner recorded that here, and the
+// record is still here. Left as it is, the two backends would each say
+// that the team is on the other, and whichever a team file named would be
+// followed: a session could be sent back and forth by a file alone.
+//
+// It runs after the take-in, which is what makes this machine a member
+// that may read the record and says that it owns the team, and before
+// anything is recorded on the backend the team leaves. A clear that is
+// refused or fails stops the move: the team is taken in, no move is
+// opened, and the backend the team leaves holds what it held. A server
+// that keeps no such record (one before 0.8.0) answers that the team did
+// not move, and nothing is cleared.
+func (inv Invocation) clearReturn(m *serverMove) error {
+	held, keeps, err := inv.recordOn(m.to)
+	if err != nil {
+		return m.returnNotCleared(err, nil, false)
+	}
+	if !keeps || !held.Moved {
+		return nil
+	}
+	switch outcome, cerr := inv.clearOn(m.to); outcome {
+	case teammove.ClearRefused:
+		// The server refused before it acted, or answered a record: it stands.
+		return m.returnNotCleared(cerr, held, true)
+	case teammove.ClearUnanswered:
+		return m.returnNotCleared(cerr, held, false)
+	case teammove.Cleared:
+		m.returned = held
+	}
+	return nil
+}
+
+// returnNotCleared says, in front of the step's own failure, which server
+// holds what when step b' stops a move: the server took the team in, it
+// still holds its record that the team left it (held, when that was read),
+// and the backend the team leaves was asked to record nothing. stands says
+// that the record is known to stand: the clear was refused, or answered a
+// record. A clear that failed any other way may have reached the server
+// and been carried out with its answer lost, and the message says that,
+// and where the record is read.
+func (m *serverMove) returnNotCleared(err error, held *protocol.TeamMoveResult, stands bool) error {
+	var perr *protocol.Error
+	if !errors.As(err, &perr) {
+		perr = &protocol.Error{Code: protocol.CodeInternal, Message: "the step failed on this machine"}
+	}
+	out := *perr
+	where := "the team is taken in on " + m.toHost() + ", and whether " + m.toHost() + " records that the team left it could not be read"
+	switch {
+	case held != nil && stands:
+		where = "the team is taken in on " + m.toHost() + ", and " + m.toHost() + " still records that the team left it for " +
+			moveDestination(held.Adapter, held.URL, held.Certificate) + ": that record could not be cleared"
+	case held != nil:
+		// The request may have reached the server and been carried out,
+		// with the answer lost on the way back: what is true is that it is
+		// not known, and where to read it.
+		where = "the team is taken in on " + m.toHost() + ", which recorded that the team left it for " +
+			moveDestination(held.Adapter, held.URL, held.Certificate) + ": the answer to the clear of that record did not arrive, so the record may be cleared all the same " +
+			"(`brigade team move --show --from " + attrLine(backendNameIn(m.configDir, m.file.TeamRef, m.dest.URL)) + "` says)"
+	}
+	out.Message = where + ". Its move was not opened, and " + m.fromHost() + " was asked to record nothing: it holds what it held, and no session follows this move. " +
+		"The cause: " + perr.Message + ". Run the same command again to finish the move: every step of it is safe to repeat"
+	out.Details = map[string]string{"reason": reasonReturnNotCleared}
+	if cause := perr.Details["reason"]; cause != "" {
+		out.Details["cause"] = cause
+	}
 	return &out
 }
 
@@ -1068,6 +1591,15 @@ func (m *serverMove) stopped(err error, where string) error {
 		perr = &protocol.Error{Code: protocol.CodeInternal, Message: "the step failed on this machine"}
 	}
 	out := *perr
+	if m.returned != nil {
+		// Step b' cleared the record the server held of the team's earlier
+		// move away from it, and that is not undone by a later step that
+		// fails: whoever had not followed that earlier move follows nothing
+		// until this one is finished.
+		where += " (the record " + m.toHost() + " held that the team had left it for " +
+			moveDestination(m.returned.Adapter, m.returned.URL, m.returned.Certificate) +
+			" is cleared, so a member who had not followed that earlier move does not follow it now)"
+	}
 	out.Message = where + ": " + perr.Message + ". Run the same command again to finish the move: every step of it is safe to repeat"
 	return &out
 }
@@ -1089,6 +1621,7 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 			MoveEndsAt:      opened.EndsAt,
 			TicketReplaced:  opened.Replaced,
 			RecordedAt:      recorded.RecordedAt,
+			ReturnCleared:   m.returned != nil,
 			TeamFile:        m.filePath,
 			OlderSessions:   older,
 			RosterTruncated: m.rosterCut,
@@ -1111,21 +1644,70 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 	lines := []string{
 		took,
 		labelSent(m.label, taken.PrincipalRef),
+	}
+	if m.returned != nil {
+		lines = append(lines, "cleared the record on "+m.toHost()+" that the team had left it for "+
+			moveDestination(m.returned.Adapter, m.returned.URL, m.returned.Certificate)+": the team is on "+m.toHost()+" again")
+	}
+	lines = append(lines,
 		open,
-		"recorded on " + m.fromHost() + ": " + m.team() + " moved to " + moveDestination(m.dest.Adapter, m.dest.URL, m.dest.Certificate),
+		"recorded on "+m.fromHost()+": "+m.team()+" moved to "+moveDestination(m.dest.Adapter, m.dest.URL, m.dest.Certificate),
 		file,
 		"left to do:",
-		"  commit and push " + teamfile.FileName + " in every repository of the team: a member's next session in a checkout that has the new file follows, with no command of theirs, until " + ends,
-	}
-	if older := olderLine(m.older, m.rosterCut); older != "" {
+		"  commit and push "+teamfile.FileName+" in every repository of the team: a member's next session in a checkout that has the new file follows, with no command of theirs, until "+ends,
+	)
+	if older := olderLine(m.older, m.rosterCut, teammove.FollowsFrom(m.source.Adapter)); older != "" {
 		lines = append(lines, "  "+older)
 	}
 	if gateway {
-		lines = append(lines, "  this team's "+teamfile.FileName+" has a gateway member: the mail and Slack gateways are the server operator's to configure on "+m.toHost()+
-			" (docs/project-owner/server/gateways.md in the Brigade repository)")
+		gateways := "  this team's " + teamfile.FileName + " has a gateway member: the mail and Slack gateways are the server operator's to configure on " + m.toHost() +
+			" (docs/project-owner/server/gateways.md in the Brigade repository)"
+		if m.source.Adapter == config.BundledRestName {
+			// The server the team leaves keeps the team as it is, its
+			// gateways included: they go on answering there.
+			gateways += "; the ones on " + m.fromHost() + " go on carrying mail and Slack to the team there until its operator takes the team out of that server's gateway configuration " +
+				"(docs/project-owner/server/move-to-another-server.md)"
+		}
+		lines = append(lines, gateways)
+	}
+	if m.source.Adapter == config.BundledRestName {
+		lines = append(lines, "  "+m.fromHost()+" keeps the team as it is: nothing there was ended, and a member who has not followed still reaches it. "+
+			"Ending it there is a later step of its own (docs/team-admin/members/move-the-team.md)")
 	}
 	return writeLines(inv.Out, append(lines,
-		"to undo: `brigade team move --clear` stops "+m.fromHost()+" from saying where the team went, so no session follows from then on. "+
+		"to undo: `"+m.clearCommand()+"` stops "+m.fromHost()+" from saying where the team went, so no session follows from then on. "+
 			"The move on "+m.toHost()+" stays open until "+ends+", or until its operator closes it or you rotate the team's join secret there",
 	)...)
+}
+
+// clearCommand is the command that clears the record this move made, as
+// the administrator runs it in this checkout afterwards (clearCommandFor).
+func (m *serverMove) clearCommand() string {
+	return clearCommandFor(m.configDir, m.file.TeamRef, m.destKey, m.source.URL)
+}
+
+// clearCommandFor is the command that clears the record of a team's move
+// on the backend at sourceURL, as the administrator runs it in a checkout
+// whose team file names the backend destKey is the team's key on. The
+// record's own forms find the backend that holds it as the one other
+// membership of the team this machine holds beside the one the team file
+// names; a team that moved before leaves more than one, and the command
+// then needs --from to say which. So the backend is named whenever it
+// would be asked for, and by what names one backend (backendName): its
+// host, and its whole address where the host names two.
+func clearCommandFor(configDir, teamRef, destKey, sourceURL string) string {
+	bindings, keys, err := listBindings(configDir)
+	if err != nil {
+		return "brigade team move --clear"
+	}
+	others := 0
+	for i, b := range bindings {
+		if b.TeamRef == teamRef && keys[i] != destKey {
+			others++
+		}
+	}
+	if others > 1 {
+		return "brigade team move --clear --from " + attrLine(backendName(bindings, teamRef, sourceURL))
+	}
+	return "brigade team move --clear"
 }

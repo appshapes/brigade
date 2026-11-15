@@ -740,7 +740,10 @@ func TestATeamMovesToAServerThatAsksForACreationTokenThroughTheRealBinary(t *tes
 // TestAMemberWhoDidNotCreateTheTeamIsRefusedBeforeAServerIsAskedThroughTheRealBinary
 // holds the sentence the option team_move_in_session is described with, in
 // the plugin's manifest and on the options page: "It changes nothing for a
-// team you did not create". A member who joined the team and did not create
+// team you do not own" (the owner, since a team on a server is moved by
+// its owner, who need not have created it: work item 341; in a Supabase
+// project or the filesystem store, as here, the owner is the creator). A
+// member who joined the team and did not create
 // it holds what the command asks for, a checkout that is joined and the
 // team's secret file, and is not its administrator. The command's checks
 // find that out on the backend the team is on, where only the team's
@@ -754,7 +757,7 @@ func TestATeamMovesToAServerThatAsksForACreationTokenThroughTheRealBinary(t *tes
 // both pins and the old backend's record are as they were.
 func TestAMemberWhoDidNotCreateTheTeamIsRefusedBeforeAServerIsAskedThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
-	const promise = "It changes nothing for a team you did not create"
+	const promise = "It changes nothing for a team you do not own"
 	for _, page := range []string{"plugin/.claude-plugin/plugin.json", "docs/team-member/configure/options.md"} {
 		text, err := os.ReadFile(filepath.Join(testutil.RepoRoot(t), page))
 		if err != nil || !strings.Contains(string(text), promise) {

@@ -255,6 +255,41 @@ pub struct TeamOpenMove {
     pub ticket_days: u32,
 }
 
+/// `/v1/team/move` (the contract's section 3c): the team's owner records where the team went, or clears
+/// that record. The two forms of BAP/1 4.4.10's `team move`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TeamMove {
+    /// Record where the team went.
+    Record {
+        /// The team.
+        team_ref: String,
+        /// The adapter of the backend the team went to.
+        adapter: String,
+        /// The url of that backend.
+        url: String,
+        /// The pin of that backend's certificate; empty when the request gave none.
+        certificate: String,
+        /// The move ticket: a join secret of this team, as the backend it went to made it. It prints
+        /// without its secret half.
+        ticket: JoinSecret,
+    },
+    /// Clear the record.
+    Clear {
+        /// The team.
+        team_ref: String,
+    },
+}
+
+/// `/v1/team/moved` (the contract's section 3c): an active member reads where the team went.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TeamMoved {
+    /// The team.
+    pub team_ref: String,
+    /// Whether the answer is to carry the move ticket of a recorded move. A request that does not ask
+    /// for it is answered without it, so the ticket travels only to a caller that will keep it.
+    pub with_ticket: bool,
+}
+
 /// Whom a `/v1/team/revoke-member` revokes: the two forms of BAP/1 4.4.10.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Revocation {
@@ -427,6 +462,10 @@ pub enum Command {
     TeamOpenMove(TeamOpenMove),
     /// `/v1/team/close-move`, with the team whose move is closed.
     TeamCloseMove(String),
+    /// `/v1/team/move`.
+    TeamMove(TeamMove),
+    /// `/v1/team/moved`.
+    TeamMoved(TeamMoved),
     /// `/v1/session/register`.
     SessionRegister(Registration),
     /// `/v1/session/heartbeat`.
@@ -480,6 +519,11 @@ impl Command {
             "/v1/team/take-in" => team_take_in(document),
             "/v1/team/open-move" => team_open_move(document),
             "/v1/team/close-move" => Ok(Self::TeamCloseMove(document.named_required_text("team_ref")?)),
+            "/v1/team/move" => team_move(document),
+            "/v1/team/moved" => Ok(Self::TeamMoved(TeamMoved {
+                team_ref: document.named_required_text("team_ref")?,
+                with_ticket: document.named_boolean("with_ticket")?.unwrap_or(false),
+            })),
             "/v1/session/register" => session_register(document),
             "/v1/session/heartbeat" => session_heartbeat(document),
             "/v1/session/list" => session_list(document),
@@ -507,6 +551,8 @@ impl Command {
                 | "/v1/team/take-in"
                 | "/v1/team/open-move"
                 | "/v1/team/close-move"
+                | "/v1/team/move"
+                | "/v1/team/moved"
                 | "/v1/session/register"
                 | "/v1/session/heartbeat"
                 | "/v1/session/list"
@@ -540,12 +586,13 @@ impl Command {
     pub fn team_scoped_path(path: &str) -> bool {
         matches!(
             path,
-            "/v1/team/members" | "/v1/session/register" | "/v1/session/list"
+            "/v1/team/members" | "/v1/team/moved" | "/v1/session/register" | "/v1/session/list"
         )
     }
 
     /// Whether the request at `path` is one of those that only a team's owner is answered: the three of
-    /// the contract's section 3a, and the two that open and close a team's move (section 3b). It names its
+    /// the contract's section 3a, the two that open and close a team's move (section 3b), and the one
+    /// that records where a team went or clears that record (section 3c). It names its
     /// team in a `team_ref`, and that the caller owns the team is checked before the rest of the request is
     /// read: a caller that is not the owner learns nothing from what else the request held.
     #[must_use]
@@ -557,6 +604,7 @@ impl Command {
                 | "/v1/team/transfer"
                 | "/v1/team/open-move"
                 | "/v1/team/close-move"
+                | "/v1/team/move"
         )
     }
 }
@@ -681,6 +729,43 @@ fn team_open_move(document: &Document) -> Result<Command, Error> {
     Ok(Command::TeamOpenMove(TeamOpenMove {
         team_ref,
         ticket_days: u32::try_from(days).unwrap_or(MOVE_TICKET_DEFAULT_DAYS),
+    }))
+}
+
+/// The two forms of `/v1/team/move`, read in this order: the team, then `clear`, which goes with no member
+/// of a record, then the destination as BAP/1 4.4.10 holds it (the adapter, the url, the certificate), and
+/// the ticket last. The ticket is a join secret that carries the team the request names, within the
+/// server's own cap: anything else is refused in fixed words that name `ticket` and hold nothing of it.
+fn team_move(document: &Document) -> Result<Command, Error> {
+    const OF_A_RECORD: [&str; 4] = ["adapter", "url", "certificate", "ticket"];
+    let team_ref = document.named_required_text("team_ref")?;
+    if document.named_boolean("clear")?.unwrap_or(false) {
+        if OF_A_RECORD.iter().any(|member| document.has_value(member)) {
+            return Err(Error::refused_value(
+                "clear",
+                "given with team_ref alone: a request records where a team went or clears the record",
+            ));
+        }
+        return Ok(Command::TeamMove(TeamMove::Clear { team_ref }));
+    }
+    let adapter = document.named_required_text("adapter")?;
+    cap_chars("adapter", &adapter, limits::MAX_MOVE_ADAPTER_CHARS)?;
+    let url = document.named_required_text("url")?;
+    cap_chars("url", &url, limits::MAX_MOVE_URL_CHARS)?;
+    let certificate = document.named_text("certificate")?.unwrap_or_default();
+    cap_chars("certificate", &certificate, limits::MAX_MOVE_CERTIFICATE_CHARS)?;
+    let ticket = document.named_required_text("ticket")?;
+    let ticket = JoinSecret::parse(&ticket)
+        .ok()
+        .filter(|ticket| ticket.team_ref() == team_ref)
+        .filter(|ticket| ticket.expose().chars().count() <= limits::MAX_MOVE_TICKET_CHARS)
+        .ok_or_else(Error::not_a_move_ticket)?;
+    Ok(Command::TeamMove(TeamMove::Record {
+        team_ref,
+        adapter,
+        url,
+        certificate,
+        ticket,
     }))
 }
 
@@ -852,7 +937,10 @@ fn message_ack(document: &Document) -> Result<Command, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, JoinSecret, RetryKey, Revocation, TeamOpenMove, TeamRevoke, TeamTransfer};
+    use super::{
+        Command, JoinSecret, RetryKey, Revocation, TeamMove, TeamMoved, TeamOpenMove, TeamRevoke,
+        TeamTransfer,
+    };
     use crate::error::{Code, Error};
 
     fn refused(path: &str, body: &str) -> Error {
@@ -1169,6 +1257,115 @@ mod tests {
         assert!(!Command::open_path("/v1/credential/revoke"));
         assert!(Command::team_scoped_path("/v1/session/register"));
         assert!(!Command::team_scoped_path("/v1/team/leave"));
+    }
+
+    #[test]
+    fn the_two_requests_of_where_a_team_went_are_read_as_the_contract_has_them() {
+        // The record is its owner's to write and clear, and every active member's to read: the first is
+        // checked as the administration requests are, the second as a roster is, and neither runs
+        // without a credential.
+        assert!(Command::known_path("/v1/team/move") && Command::known_path("/v1/team/moved"));
+        assert!(Command::administration_path("/v1/team/move"));
+        assert!(!Command::team_scoped_path("/v1/team/move"));
+        assert!(Command::team_scoped_path("/v1/team/moved"));
+        assert!(!Command::administration_path("/v1/team/moved"));
+        for path in ["/v1/team/move", "/v1/team/moved"] {
+            assert!(
+                !Command::open_path(path) && !Command::creation_path(path),
+                "{path}"
+            );
+            assert_eq!(field(&refused(path, "{}")), "team_ref", "{path}");
+        }
+        let record =
+            r#"{"team_ref":"t","adapter":"rest","url":"https://b.example","ticket":"brg1.t.s","more":1}"#;
+        let Command::TeamMove(TeamMove::Record {
+            team_ref,
+            adapter,
+            url,
+            certificate,
+            ticket,
+        }) = Command::parse("/v1/team/move", record.as_bytes()).unwrap()
+        else {
+            panic!("not a record");
+        };
+        assert_eq!(
+            (
+                team_ref.as_str(),
+                adapter.as_str(),
+                url.as_str(),
+                certificate.as_str()
+            ),
+            ("t", "rest", "https://b.example", "")
+        );
+        assert_eq!(ticket.expose(), "brg1.t.s");
+        // The ticket prints without its secret half, as a join secret does.
+        assert_eq!(format!("{ticket:?}"), "brg1.t.[redacted]");
+        for clear in [
+            r#"{"team_ref":"t","clear":true}"#,
+            r#"{"team_ref":"t","clear":true,"url":null,"ticket":null}"#,
+        ] {
+            assert_eq!(
+                Command::parse("/v1/team/move", clear.as_bytes()).unwrap(),
+                Command::TeamMove(TeamMove::Clear { team_ref: "t".into() }),
+                "{clear}"
+            );
+        }
+        // A ticket is a join secret of the team the request names: one of another team, and what is no
+        // join secret, are refused by the name of the member, in words that hold none of it.
+        for ticket in ["brg1.other.s", "not-a-ticket", "brg1.t."] {
+            let body = format!(r#"{{"team_ref":"t","adapter":"rest","url":"u","ticket":"{ticket}"}}"#);
+            let error = refused("/v1/team/move", &body);
+            assert_eq!(
+                (field(&error), reason(&error)),
+                ("ticket", "invalid_value"),
+                "{ticket}"
+            );
+            assert!(!error.message.contains(ticket), "{ticket}");
+            // Nor do they spell the format of a join secret, which the adapter's redactor takes for one.
+            assert!(!error.message.contains("brg1"), "{}", error.message);
+        }
+        // `clear: true` goes with no member of a record that is not null, an empty one included, and
+        // `clear: false`, like a `clear` that is null, is no `clear`: the request is then a record.
+        for beside in [r#""url":"""#, r#""certificate":"x""#, r#""adapter":"rest""#] {
+            let error = refused(
+                "/v1/team/move",
+                &format!(r#"{{"team_ref":"t","clear":true,{beside}}}"#),
+            );
+            assert_eq!(
+                (field(&error), reason(&error)),
+                ("clear", "invalid_value"),
+                "{beside}"
+            );
+        }
+        for clear in ["false", "null"] {
+            let body = format!(
+                r#"{{"team_ref":"t","clear":{clear},"adapter":"rest","url":"u","ticket":"brg1.t.s"}}"#
+            );
+            assert!(
+                matches!(
+                    Command::parse("/v1/team/move", body.as_bytes()).unwrap(),
+                    Command::TeamMove(TeamMove::Record { .. })
+                ),
+                "{clear}"
+            );
+        }
+        for (body, with_ticket) in [
+            (r#"{"team_ref":"t"}"#, false),
+            (r#"{"team_ref":"t","with_ticket":null}"#, false),
+            (r#"{"team_ref":"t","with_ticket":false}"#, false),
+            (r#"{"team_ref":"t","with_ticket":true}"#, true),
+        ] {
+            assert_eq!(
+                Command::parse("/v1/team/moved", body.as_bytes()).unwrap(),
+                Command::TeamMoved(TeamMoved {
+                    team_ref: "t".into(),
+                    with_ticket,
+                }),
+                "{body}"
+            );
+        }
+        let error = refused("/v1/team/moved", r#"{"team_ref":"t","with_ticket":1}"#);
+        assert_eq!((field(&error), reason(&error)), ("with_ticket", "invalid_value"));
     }
 
     #[test]

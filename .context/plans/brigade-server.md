@@ -749,8 +749,13 @@ command (execution log P103-4), and on 2026-11-15 the roadmap went on to the sta
 session `6611b` (execution log P103-5), with work item 329 waiting on the owner and 341 new: a team on a server
 cannot yet be moved to another server by the one command. That session, `89-server-9-second-team-and-roadmap`,
 brought work item 323 to `master` (execution log P104-1: the certificate of the appshapes team's server is
-watched) and, at its account's usage limit, handed the roadmap on the same day to the standby the owner had set
-up, the session `a88e4` (execution log P104-3). That one named itself `89-server-10-timing-tests-and-server-move`
-and brought work item 336 to `master` (execution log P104-2: the timing tests wait on what they are about), with
-341 in its rounds of fixes on a branch and work item 354 new (a join whose answer is lost leaves a second
-membership on a server).
+watched), led work item 341 on a branch and, at its account's usage limit, handed the roadmap on the same day to
+the standby the owner had set up, the session `a88e4` (execution log P104-3). That one named itself
+`89-server-10-timing-tests-and-server-move` and brought work item 336 to `master` (execution log P104-2: the
+timing tests wait on what they are about), and then 341, after three more rounds of fixes that a verifier who
+wrote none of the code asked for (execution log P104-4): a server keeps the record of where a team went, two
+requests behind the capability `team.move` in the contract's new section 3c, so the one command moves a team from
+one server to another and its members follow. The decision is ADR 0010, which supersedes ADR 0003's sentence that
+the `rest` adapter carries no record; the old server keeps the team as it is, and nothing ends a team on a server
+yet. It ships as server 0.8.0 and in the next plugin release, 0.57.0, neither released by that work item. Work
+item 354 is new from its verification: a join whose answer is lost leaves a second membership on a server.

@@ -42,8 +42,10 @@ from scratch. `make test` runs it against the fs adapter and, through `bin/briga
 for [the backend REST contract](../../backend-rest-v1.md) that runs the fs adapter in-process), against the
 bundled `rest` adapter. The three team administration cases (C-48 to C-50) run in the second: the fs adapter does
 not advertise `team.admin`, so they are skipped in the first. The two cases of a team's move (C-51 and C-52) run in
-the first and against the Supabase adapter: the `rest` adapter does not advertise `team.move`, because a move's
-record is kept by the backend a team leaves. The three cases of the backend a team goes to (C-53 to C-55: `team
+both, against the Supabase adapter and, in `make server-test`, against the built server: from plugin 0.57.0 and
+server 0.8.0 the `rest` adapter advertises `team.move` too, because a server keeps the record of where a team went
+(work item 341, ADR 0010), and the server's own test names the two cases so that a run which skipped them would
+fail. The three cases of the backend a team goes to (C-53 to C-55: `team
 take-in`, `team open-move` and `team close-move`) run in the second and in `make server-test`, against the stand-in
 and against the built server: only the `rest` adapter advertises `team.take_in`. The move itself, a member's session following its team with no
 command run, is proven end to end from the fs adapter in `make server-test`, and from the local Supabase stack by
@@ -55,7 +57,11 @@ stops it, the command stopped at each step and run again, the move made from ins
 answer is lost and the same command run again, the sessions that are running when the command is run from one of
 them, a record that exists and is not cleared, the command killed in the middle of a step, a finished move run
 again and stopped, a server that asks for a creation token, and a member who did not create the team), and from
-the local Supabase stack in `make test-move-live`. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
+the local Supabase stack in `make test-move-live`. A team's move from one server to another (work item 341) is in
+`internal/harness/e2e/rest_server_move_test.go`, between two stand-in servers in `make test` and two built servers
+over TLS in `make server-test`: the move by its owner with a member's next session following at its start, the
+sessions that are running following at their next prompts, a team that comes back to a server it left, a member
+who missed a move, and, with the built server only, a destination that is a copy of the old server's data. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
 `--setup <cmd>` when principals are provisioned out of band ([Write an adapter](../change/adapters.md)). Its own
 positive control is four deliberately broken builds of the reference adapter, each of which must fail exactly its
 own cases.

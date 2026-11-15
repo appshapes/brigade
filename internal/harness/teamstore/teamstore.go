@@ -243,3 +243,62 @@ func LoadLabelOrigin(configDir, key string) (*LabelOrigin, error) {
 // errLabelOriginMalformed is fixed text: the record's contents are the
 // member's, and the error is at most a debug line.
 var errLabelOriginMalformed = errors.New("teamstore: label.json is not a readable record")
+
+// RejoinRefusalFile is the name of a RejoinRefusal inside `teams/<key>/`.
+const RejoinRefusalFile = "rejoin-refused.json"
+
+// RejoinRefusalVersion is the rejoin-refused.json schema version this
+// binary writes.
+const RejoinRefusalVersion = 1
+
+// A RejoinRefusal records that a backend refused a join made there under
+// the membership this machine holds: the follow of a team's move found
+// that the backend no longer honours the membership, presented the move's
+// ticket under the credential that is there, and was refused (work item
+// 341). A backend counts the joins a principal fails and stops hearing it
+// after a few, the right secret included, so a refusal is not asked for
+// again at every session's start: while the record is fresh a follow
+// presents no ticket to that backend for that team (teammove.RejoinPause).
+// The record is removed when a join there succeeds, the member's own
+// `brigade team join` included. It holds two times and nothing else: no
+// ticket, no secret and nothing of the backend's answer.
+type RejoinRefusal struct {
+	Version int `json:"version"`
+	// RefusedAt is when the backend last refused.
+	RefusedAt time.Time `json:"refused_at"`
+	// FirstRefusedAt is when it first refused since a join there last
+	// succeeded: a later refusal keeps it. It names the refusal a session
+	// tells its member of once.
+	FirstRefusedAt time.Time `json:"first_refused_at"`
+}
+
+// RejoinRefusalPath is the record's path for a team key.
+func RejoinRefusalPath(configDir, key string) (string, error) {
+	dir, err := adapterkit.ProfileDir(configDir, key)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, RejoinRefusalFile), nil
+}
+
+// LoadRejoinRefusal reads the record. A missing record answers
+// fs.ErrNotExist; one that is not private, does not parse or holds no time
+// is an error too, which every reader treats as no record.
+func LoadRejoinRefusal(configDir, key string) (*RejoinRefusal, error) {
+	path, err := RejoinRefusalPath(configDir, key)
+	if err != nil {
+		return nil, err
+	}
+	data, err := adapterkit.ReadStrict(path)
+	if err != nil {
+		return nil, err
+	}
+	var r RejoinRefusal
+	if err := json.Unmarshal(data, &r); err != nil || r.Version != RejoinRefusalVersion || r.RefusedAt.IsZero() || r.FirstRefusedAt.IsZero() {
+		return nil, errRejoinRefusalMalformed
+	}
+	return &r, nil
+}
+
+// errRejoinRefusalMalformed is fixed text, as errLabelOriginMalformed is.
+var errRejoinRefusalMalformed = errors.New("teamstore: rejoin-refused.json is not a readable record")

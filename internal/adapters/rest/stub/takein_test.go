@@ -76,8 +76,8 @@ func (h *harness) closeMove(m member) bool {
 func TestInfoListsTeamTakeIn(t *testing.T) {
 	t.Parallel()
 	without := newHarness(t, Options{WithoutTakeIn: true})
-	if kept, _ := without.must("", "/v1/info", `{}`)["capabilities"].([]any); len(kept) != 1 || kept[0] != "team.admin" {
-		t.Errorf("/v1/info of a server without the take-in endpoints: capabilities %v, want [team.admin]", kept)
+	if kept, _ := without.must("", "/v1/info", `{}`)["capabilities"].([]any); len(kept) != 2 || kept[0] != "team.admin" || kept[1] != "team.move" {
+		t.Errorf("/v1/info of a server without the take-in endpoints: capabilities %v, want [team.admin team.move]", kept)
 	}
 	alice := without.create("ops")
 	unknown := without.post(alice.credential, "/v1/nosuch", `{}`)

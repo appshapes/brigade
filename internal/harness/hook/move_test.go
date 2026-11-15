@@ -266,7 +266,10 @@ func TestHookFollowsATeamThatMovedOnItsAdministratorsRecord(t *testing.T) {
 	if strings.Contains(out+errOut, moveTicket) || strings.Contains(out, movedLabel) {
 		t.Fatalf("the ticket or the member's label reached a stream")
 	}
-	if verbs := asked(seam); !slices.Equal(verbs, []string{"team moved", "team join", "session register"}) {
+	// The second `team moved` is the new backend's: once the machine is a
+	// member there it is asked what it records of the team itself, before
+	// the pin is written (work item 341).
+	if verbs := asked(seam); !slices.Equal(verbs, []string{"team moved", "team join", "team moved", "session register"}) {
 		t.Fatalf("adapter calls: %v", verbs)
 	}
 	moved, joined := seam.callsFor("team moved")[0], seam.callsFor("team join")[0]

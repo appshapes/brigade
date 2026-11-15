@@ -17,6 +17,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0007. Let a session move a team, behind an option that is on by default](0007-let-a-session-move-a-team.md)
 - [0008. Follow a move from a running session at its next prompts](0008-follow-a-move-from-a-running-session-at-its-next-prompts.md)
 - [0009. Name every ADR that supersedes a part in the Status line](0009-name-every-adr-that-supersedes-a-part-in-the-status-line.md)
+- [0010. Keep the record of a team's move on the server it leaves](0010-keep-the-record-of-a-teams-move-on-the-server-it-leaves.md)
 
 ## Record a decision
 

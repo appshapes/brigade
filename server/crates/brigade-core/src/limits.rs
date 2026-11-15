@@ -35,6 +35,18 @@ pub const MAX_HARNESS_CHARS: usize = 256;
 /// snapshot. A server that kept whatever it was sent would keep a megabyte for one request of a caller it
 /// does not know. This bound is the server's own, far above any reference a backend makes (a UUID is 36).
 pub const MAX_TAKEN_IN_TEAM_REF_CHARS: usize = 256;
+/// The cap on the adapter's name in the record of where a team went, in code points (BAP/1 4.4.10).
+pub const MAX_MOVE_ADAPTER_CHARS: usize = 64;
+/// The cap on the url in the record of where a team went, in code points (BAP/1 4.4.10).
+pub const MAX_MOVE_URL_CHARS: usize = 2048;
+/// The cap on the certificate pin in the record of where a team went, in code points (BAP/1 4.4.10).
+pub const MAX_MOVE_CERTIFICATE_CHARS: usize = 128;
+/// The cap on the move ticket in the record of where a team went, in code points. BAP/1 gives a join
+/// secret no cap, and this is the one secret a server keeps as it is: in its state, in the record and in
+/// every snapshot that holds the record. A ticket is the reference of the team, which the server holds
+/// already, and a secret part of some tens of characters; this bound is the server's own, far above any
+/// ticket a server makes, and it keeps the record of a move well inside the longest entry the log takes.
+pub const MAX_MOVE_TICKET_CHARS: usize = 1024;
 /// The fewest characters of a take-in's retry key (the contract's section 3b): what 128 random bits are
 /// written in at the least, in the alphabet a credential has. A key that its client minted from fewer
 /// bits is its client's own risk; a shorter text cannot hold that many and is refused.

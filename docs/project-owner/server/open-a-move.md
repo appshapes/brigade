@@ -89,10 +89,23 @@ team's owner opened or closed by request leaves `member <reference> opened the m
 its ticket admits until <time>` and `member <reference> closed the move of team <name> (<team_ref>): its ticket
 admits nobody from now on`.
 
+## The record of a move away from this server
+
+A move that is opened here lets members in who followed the team **to** this server. A team that leaves this
+server for another is the other half: from 0.8.0 its owner records here where the team went, with the ticket the
+other server made, and the team's members follow on that record
+([Move a team to another server](move-to-another-server.md)). You run nothing for it. The journal names it:
+`member <reference> recorded that team <name> (<team_ref>) moved to <address> (adapter <name>): its members'
+sessions follow it there, and the team stays here as it is`, and `member <reference> cleared the record of where
+team <name> (<team_ref>) went: no session follows it from here from now on`. The two are separate: opening or
+closing a move here does not touch the record, and the record does not open or close a move.
+
 ## An older server
 
 Server 0.4.x does not start on a data directory in which a move was opened. Before going back to one, restore the
 copy you took before the update ([Keep the server](keep-the-server.md)). Server 0.5.0 and 0.6.0 start on what
 0.7.0 wrote, a team taken in by request and a move opened by one included; they answer none of the three
 requests, and they keep no retry key: a take-in whose answer was lost, run again after one of them wrote a
-snapshot of the directory, joins as a member.
+snapshot of the directory, joins as a member. A server before 0.8.0 does not start on a data directory on which a
+team's owner has recorded a move away, until the record is cleared and the server has stopped once since
+([Keep the server](keep-the-server.md#update-it)).

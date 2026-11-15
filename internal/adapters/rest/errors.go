@@ -48,6 +48,10 @@ const (
 	// reasonServerLacksTeamTakeIn: the profile's server does not list
 	// team.take_in in /v1/info (the contract's sections 3b and 5).
 	reasonServerLacksTeamTakeIn = "server_lacks_team_take_in"
+	// reasonServerLacksTeamMove: the profile's server does not list
+	// `team.move` in `/v1/info`, so it keeps no record of where a team
+	// went.
+	reasonServerLacksTeamMove = "server_lacks_team_move"
 	// reasonTicketFile: the move ticket could not be written to the file
 	// --ticket-file names, after the server opened the move.
 	reasonTicketFile = "ticket_file_unwritable"

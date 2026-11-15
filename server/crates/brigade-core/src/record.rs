@@ -216,6 +216,37 @@ pub struct Idempotency {
     pub fingerprint: String,
 }
 
+/// The ticket of a move as the server a team leaves keeps it, in the record of where the team went.
+///
+/// It is the one secret a server keeps as it is and not as a hash: a member's machine has to present it
+/// at the backend the team went to, so the server that hands it out has to hold it (BAP/1 4.4.10, the
+/// contract's section 3c). It is written whole to the log and to a snapshot, which is why the type is its
+/// own: it prints as nothing of itself, so that no line and no debug rendering of a record or a state
+/// holds it, and the one way to its text says that it is being exposed.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct KeptTicket(String);
+
+impl KeptTicket {
+    /// A ticket to keep.
+    #[must_use]
+    pub fn new(ticket: &str) -> Self {
+        Self(ticket.to_owned())
+    }
+
+    /// The whole ticket, for the one use it has: the answer to an active member that asks for it.
+    #[must_use]
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for KeptTicket {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("[redacted]")
+    }
+}
+
 /// What a record says happened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -307,6 +338,35 @@ pub enum Event {
         /// [`Event::TeamMoveOpened`]'s is.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         by_owner: bool,
+    },
+    /// The team's owner recorded, on this server, that the team went to another backend: where, and the
+    /// move ticket that admits a member there. It is the record a member's session follows its team on
+    /// (BAP/1 4.4.10, the contract's section 3c), and it changes nothing else about the team: its members,
+    /// its sessions and its join secret are as they were. A team has one such record at most: a second
+    /// takes the place of the first. The log holds the ticket itself, the one secret it holds whole,
+    /// because an active member is handed it.
+    #[serde(rename = "team.move_recorded")]
+    TeamMoveRecorded {
+        /// The team.
+        team_ref: String,
+        /// The adapter of the backend the team went to, as its team file names it.
+        adapter: String,
+        /// The url of that backend.
+        url: String,
+        /// The pin of that backend's certificate, when its team file carries one. It is written only
+        /// then.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        certificate: String,
+        /// The move ticket: a join secret of the team at the backend it went to.
+        ticket: KeptTicket,
+    },
+    /// The record of where a team went was cleared: by the team's owner, in an entry of its own, or by the
+    /// server's operator that takes the team back, in the entry of the take-back. The server says nothing
+    /// of a move from now on.
+    #[serde(rename = "team.move_cleared")]
+    TeamMoveCleared {
+        /// The team.
+        team_ref: String,
     },
     /// A principal became an active member of a team: a new membership, or one that was revoked and is
     /// active again with the day it first joined. It joined with the secret the team has now, whose
@@ -440,7 +500,9 @@ pub enum Event {
 
 #[cfg(test)]
 mod tests {
-    use super::{AcceptedMessage, Event, Idempotency, Record, SessionChanges};
+    use super::{
+        AcceptedMessage, Entry, Event, Idempotency, KeptTicket, LONGEST_ENCODED_BYTES, Record, SessionChanges,
+    };
     use crate::time::Timestamp;
 
     #[test]
@@ -540,6 +602,21 @@ mod tests {
                 team_ref: "t".into(),
                 by_owner: true,
             },
+            Event::TeamMoveRecorded {
+                team_ref: "t".into(),
+                adapter: "rest".into(),
+                url: "https://brigade.example.com".into(),
+                certificate: String::new(),
+                ticket: KeptTicket::new("brg1.t.ticket"),
+            },
+            Event::TeamMoveRecorded {
+                team_ref: "t".into(),
+                adapter: "rest".into(),
+                url: "https://brigade.example.com".into(),
+                certificate: "sha256:00".into(),
+                ticket: KeptTicket::new("brg1.t.ticket"),
+            },
+            Event::TeamMoveCleared { team_ref: "t".into() },
             Event::TeamSecretRotated {
                 team_ref: "t".into(),
                 join_secret_hash: "s2".into(),
@@ -665,6 +742,91 @@ mod tests {
         let owners = r#"{"version":1,"at":5,"kind":"team.move_closed","team_ref":"t","by_owner":true}"#;
         assert_eq!(written(closed(true)), owners);
         assert_eq!(Record::decode(owners.as_bytes()).unwrap().event, closed(true));
+    }
+
+    #[test]
+    fn the_records_of_where_a_team_went_are_named_as_the_log_keeps_them() {
+        // A build that does not know these two kinds refuses the entry that holds one, so the names and
+        // the members are held here: a server before 0.8.0 does not start on a log that holds either.
+        let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        let recorded = |certificate: &str| Event::TeamMoveRecorded {
+            team_ref: "t".into(),
+            adapter: "rest".into(),
+            url: "https://brigade.example.com".into(),
+            certificate: certificate.into(),
+            ticket: KeptTicket::new("brg1.t.ticket"),
+        };
+        let without = r#"{"version":1,"at":5,"kind":"team.move_recorded","team_ref":"t","adapter":"rest","url":"https://brigade.example.com","ticket":"brg1.t.ticket"}"#;
+        assert_eq!(written(recorded("")), without);
+        assert_eq!(Record::decode(without.as_bytes()).unwrap().event, recorded(""));
+        let with = r#"{"version":1,"at":5,"kind":"team.move_recorded","team_ref":"t","adapter":"rest","url":"https://brigade.example.com","certificate":"sha256:00","ticket":"brg1.t.ticket"}"#;
+        assert_eq!(written(recorded("sha256:00")), with);
+        assert_eq!(
+            Record::decode(with.as_bytes()).unwrap().event,
+            recorded("sha256:00")
+        );
+        let cleared = r#"{"version":1,"at":5,"kind":"team.move_cleared","team_ref":"t"}"#;
+        assert_eq!(written(Event::TeamMoveCleared { team_ref: "t".into() }), cleared);
+        assert_eq!(
+            Record::decode(cleared.as_bytes()).unwrap().event,
+            Event::TeamMoveCleared { team_ref: "t".into() }
+        );
+    }
+
+    #[test]
+    fn a_move_ticket_is_written_whole_and_printed_as_nothing_of_itself() {
+        // The log and a snapshot hold the ticket, because a member is handed it. Nothing that prints a
+        // record for a person does: the debug rendering of the ticket, of the record and of the entry
+        // holds no part of it.
+        // The ticket is put together here: no file of the repository holds the shape of one.
+        let ticket = concat!("brg1", ".team-reference.", "the-secret-part-of-the-ticket");
+        let record = Record::new(
+            Timestamp(5),
+            Event::TeamMoveRecorded {
+                team_ref: "team-reference".into(),
+                adapter: "rest".into(),
+                url: "https://brigade.example.com".into(),
+                certificate: String::new(),
+                ticket: KeptTicket::new(ticket),
+            },
+        );
+        assert!(String::from_utf8(record.encode()).unwrap().contains(ticket));
+        let entry = Entry {
+            sequence: 1,
+            records: vec![record.clone()],
+        };
+        for printed in [
+            format!("{:?}", KeptTicket::new(ticket)),
+            format!("{record:?}"),
+            format!("{entry:?}"),
+            format!("{record:#?}"),
+        ] {
+            assert!(!printed.contains("the-secret-part"), "{printed}");
+            assert!(printed.contains("[redacted]"), "{printed}");
+        }
+        assert_eq!(KeptTicket::new(ticket).expose(), ticket);
+    }
+
+    #[test]
+    fn the_longest_record_of_a_move_fits_the_longest_entry() {
+        // Every character of the destination is one JSON writes as six bytes, and the ticket is at its
+        // cap: the record is far inside what the log takes.
+        let control = |count: usize| "\u{1}".repeat(count);
+        let record = Record::new(
+            Timestamp(i64::MAX),
+            Event::TeamMoveRecorded {
+                team_ref: "t".repeat(crate::limits::MAX_TAKEN_IN_TEAM_REF_CHARS),
+                adapter: control(crate::limits::MAX_MOVE_ADAPTER_CHARS),
+                url: control(crate::limits::MAX_MOVE_URL_CHARS),
+                certificate: control(crate::limits::MAX_MOVE_CERTIFICATE_CHARS),
+                ticket: KeptTicket::new(&"\u{10FFFF}".repeat(crate::limits::MAX_MOVE_TICKET_CHARS)),
+            },
+        );
+        let entry = Entry {
+            sequence: u64::MAX,
+            records: vec![record],
+        };
+        assert!(entry.encode().len() < LONGEST_ENCODED_BYTES / 4);
     }
 
     #[test]

@@ -9,6 +9,186 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A team moves from one Brigade server to another with the one
+  command, and its members follow** (work item 341, ADR 0010). Until now
+  `brigade team move --to` moved a team from a Supabase project only. A
+  member's session follows a team on a record kept by the backend the
+  team leaves, and a server kept none: from a checkout whose team was on
+  a server the command refused with "the backend this team was joined on
+  keeps no record of where a team goes", and each member joined the new
+  server with the secret file. Now a server keeps that record, from
+  server 0.8.0, and the bundled `rest` adapter carries the two commands
+  that write and read it, `team move` and `team moved` (capability
+  `team.move`; the backend contract's new section 3c, two requests a
+  server may leave out). The command is the one it was: run by the
+  team's owner in a checkout of the team, with the new server's URL and
+  the team's secret file. The adapter protocol is unchanged.
+- **What it needs.** The server the team leaves at 0.8.0 or later, the
+  server it goes to at 0.7.0 or later, and this plugin on every machine:
+  a session on a plugin older than 0.57.0 does not follow a team that
+  leaves a server, and the command names the ones that are online by
+  that number, where it names them by 0.55.0 for a team that leaves a
+  Supabase project. A server older than 0.8.0 is asked what it offers
+  and nothing else, and the command says that its operator updates it,
+  before the new server is asked anything.
+- **Who may, on a server.** The team's owner there, who need not be the
+  member who created it: the refusal now says "only the owner of this
+  team on <host> can move it" for a team on a server. The record's own
+  forms say the same of the record, `--clear` and `--ticket-file` alike:
+  a server answers "not an active member of this team" to everyone who
+  may not write or clear it, which is untrue of a member who does not
+  own the team, so the command reads the record, which every active
+  member may, and says that only the owner clears or records it.
+- **The server a team leaves keeps the team as it is.** Nothing is
+  ended, closed or refused there because the team moved, so a member who
+  has not followed still reaches it and reads where the team went. The
+  command says so in what is left to do, and says what the old server's
+  gateways go on doing. Ending the team there is a later step of its
+  administrator's, and a server has no command that removes a team.
+- **A team that comes back.** A team that moved from server A to B and
+  moves back finds A still recording that it left. The command clears
+  that record on A once A has answered that the caller owns the team
+  there, and before B is asked to record anything, so the two servers
+  never each say that the team is on the other. A clear that is refused
+  or fails stops the move with nothing recorded, and the refusal says
+  which server holds what. The lines and the `--json` result
+  (`destination_record_cleared`) say when a record was cleared, and the
+  question says beforehand that one will be, on a machine that has
+  joined the team on that server before. The record's older form,
+  `brigade team move --ticket-file`, clears it the same way and says so;
+  where it cannot, and that record names the backend the team is
+  leaving, it records nothing and names the command that clears it. A
+  stop after the record was cleared says that it is gone, and a clear
+  whose answer did not arrive says that the record may be cleared and
+  that `brigade team move --show --from <host>` reads it, in either form
+  of the command.
+- **A team is not moved onto the server it is on.** `brigade team move
+  --to` with the address `.brigade.json` already names, under another
+  `--certificate` or none, is refused before anything is asked: it used
+  to repoint the machine's membership to the pin that was typed and have
+  the server record that the team had moved to itself. A server's new
+  certificate is a change of the team file and a `brigade team join`.
+- **`--on` names two backends of one team apart by their url.** Where a
+  host and port name two servers of the team, under two paths, the
+  refusal names both urls; it used to say to add `--team`, which was
+  given. The line that says which backend `team rotate-secret` or
+  `team revoke-member` acts on then carries the whole address, where the
+  host alone would not say which.
+- **A session goes nowhere between two backends that name each other.**
+  No command leaves two backends each recording that the team moved to
+  the other, and a session does not rely on that: when the backend it
+  would follow to itself records that the team went back to the backend
+  it is on, it follows neither, says so once, and stays where it is. The
+  administrator clears the record that is out of date. What a follow
+  left of the two for the checkout's next prompts is taken back when the
+  file names the backend the checkout is on again, at a session's start
+  and at a running session's prompt, so it is not said later of records
+  that have changed.
+- **A member who was revoked on a server follows the team back there.**
+  A team that returns to a server finds its members' machines holding the
+  memberships they had there, which the administrator may have ended
+  after the team left. A session used to take such a membership for a
+  good one, pin the checkout to the server and stay unconnected, with
+  `team join` answering "already joined". Now it asks the server with
+  it, and on `unauthorized` joins with the move's ticket under the
+  credential the machine holds, so the server acts for the same
+  principal: a revoked member comes back as who they were, and an owner
+  answered `unauthorized` once by something in front of the server owns
+  the team still. A principal the server refuses that join too stays
+  out, one that is banned or one whose ticket no longer admits. The
+  member is told once that the backend refuses the membership their
+  machine holds, with the command that joins,
+  `brigade team join --secret-file <path>` and the file of the team's
+  current join secret; and no session presents the ticket again for
+  fifteen minutes, because a server counts the joins a principal fails
+  and the member's own join has to be heard. The first session to start
+  after that asks once more, so a member whose ban is lifted comes back.
+  While a move is open a revocation alone therefore keeps nobody out,
+  and a ban holds for the installation it names: a person who resets
+  Brigade or uses another machine is a new principal, so a person is
+  kept out by a ban together with a rotation, which closes the move. A
+  server that does not answer, or that says to wait (`rate_limited`,
+  which the protocol's table calls retryable as it calls a server out of
+  reach), leaves the checkout joined where it was, and the session says
+  so, at its start and at the prompts after it, where it used to say
+  that `.brigade.json` does not match: whether the server was asked
+  about the membership the machine holds or, where it holds none, was
+  sent the join with the move's ticket. A join that was not answered is
+  no refusal, and no refusal is put on record for it; a directory for
+  the server is in the member's store by then, and the server may have
+  carried the join out though its answer did not arrive. A session
+  that starts while it cannot ask at all, because the
+  backend it joined does not answer or another follow of the machine
+  holds the lock, says what the last follow that asked left, as its
+  prompts do; where none left anything it says, as it did, that the
+  file does not match. A backend the member joined that refuses the
+  question, as it refuses a member it has put out, has answered: what an
+  earlier follow left is taken back, and the session says that the file
+  does not match, which names the join that helps. A server the team
+  moved to that answers another refusal, a credential it does not know
+  above all, is told as a server that refuses the membership, with the
+  same command, and not as one to wait for.
+- **`team rotate-secret` and `team revoke-member` say which backend they
+  act on, and take `--on <url or host>`.** After a move a checkout is
+  joined to the server the team went to, and a team command goes there
+  whatever the `.brigade.json` of an older commit names: ending the team
+  on the backend it left rotated the secret of the one it lives on. Both
+  commands now print `team … acts on team "<name>" (<team_ref>) at
+  <host>` before the adapter is asked, carry the backend as `url` in
+  their result, and act on the backend `--on` names when the machine has
+  joined the team on more than one.
+- **The server a team is on is no place to move it to, under any
+  address.** An address that differs from the one `.brigade.json` or a
+  membership carries only in the host's case, the scheme's own port or a
+  slash at the end is that server. One the command cannot see through
+  (another DNS name, or a server started from a copy of the data
+  directory) is found once it has answered: a membership the machine
+  has of the team, on the backend the team is on or on one it was on
+  before, is on its roster. The command then says that it
+  is the same server or a copy of its data, ends the membership its
+  take-in made, and never names the operator's `--set-owner`, which on
+  that server would take the team from the administrator's own
+  membership.
+- **The last line of a move names a command that runs.** `brigade team
+  move --to` ends with the command that clears the record it made. When
+  the machine has joined the team on more than one other backend, after
+  an earlier move or an attempt that left it joined elsewhere, that line
+  is now `brigade team move --clear --from <host>`: without `--from` the
+  command asks which backend is meant. The record's own form,
+  `brigade team move --ticket-file`, names the backend in its last line
+  in the same way. Where one host names two backends of the team, two
+  servers on one machine or behind one front under two paths, the host
+  names both, so every command a move prints carries the backend's whole
+  address after `--from` there, and runs as it is printed. The same
+  `--to` command run again on a machine that has joined the team on more
+  than one other backend finds the one the team is leaving where the
+  checkout says which it is: the backend its pin still names, after a
+  run that was stopped before it wrote the pin, or the one a session
+  there followed from. A record alone does not choose, because a backend
+  the team left long ago for the same server still says so; and for the
+  same reason the checkout does not choose alone where another backend
+  records a move to the server beside its own, which is what a checkout
+  left behind at an earlier move shows. Where the checkout says nothing,
+  as in the one the command itself joined to the server, or names one of
+  two backends that both record the move, it changes nothing, names the
+  backends and prints itself for each with its `--from`; and where one of
+  those backends does not answer what it records, it chooses none
+  either, and says to run it again when it answers.
+  The line either refusal prints is the whole command: it carries
+  `--certificate sha256:…` for a server that made its own certificate,
+  as does the address the command prints for a move back to an earlier
+  server.
+- **Pages.** A new page for the two operators, "Move a team to another
+  server", with what each must have in place, what a team with gateways
+  does, and why the server a team goes to must not be a copy of the old
+  one's data directory; the Team Admin's page of the move covers both
+  kinds of backend, what `--clear` does and does not undo, and what a
+  member who missed a move does: a team that moves twice is followed one
+  move at a time. `docs/security.md` sections 20 and 21 say what a
+  server that keeps the record opens.
+
 ### Changed
 
 - **The plugin's page says where a session's messages go for a team on a

@@ -66,6 +66,9 @@ type team struct {
 	// retry is what the team keeps of a take-in that carried a retry key,
 	// nil for a team that keeps none (takein.go).
 	retry *takeInRetry
+	// moved is the record of where the team went, nil for a team whose
+	// owner recorded no move (move.go).
+	moved *movedTo
 }
 
 // founded records a team that was just created: the caller is its owner

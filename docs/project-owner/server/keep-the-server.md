@@ -86,11 +86,31 @@ The data directory carries over. A release whose notes say that the log's format
 a directory across; until the log's own format is frozen, that can mean starting a new log from the newest
 snapshot.
 
+Going back to an earlier release is not always possible, and the release's notes say when. From 0.8.0: a server
+before 0.8.0 does not start on a data directory on which a team's owner has recorded that the team moved away
+([Move a team to another server](move-to-another-server.md)), until that record is cleared and the server has
+stopped once since. A 0.7.0 ends with status 1, and what it writes first is one of two things. Where a snapshot
+holds the record, as one does once the 0.8.0 has stopped, started again or reached its next snapshot since the
+record, it writes `the snapshot <file> is passed over: it is of format 4, and this build reads formats 1 to 3`,
+once for each such snapshot it meets before one it can read, and then `the log could not be read from the
+snapshot's position, <n>: not an entry: unknown variant `team.move_recorded`, expected one of …`. Where the 0.8.0
+was killed after the record and before its next snapshot, no snapshot holds the record yet, and it writes the
+second line alone. Neither line names the version to run, because 0.7.0 was released before there was one: it is
+0.8.0 or later. On a directory where no move was recorded, 0.7.0 and 0.8.0 start on each other's.
+
 ## Move it
 
-Stop the server, copy the data directory to the new machine, and start the server there with the same options. If
-members reach it by the same URL, nothing else changes. A changed URL is a changed backend to a member: each one
-joins again with the secret.
+**To another machine, at the same URL.** Stop the server, copy the data directory to the new machine, and start
+the server there with the same options. Members reach it by the URL they know, and nothing else changes.
+
+**To another URL.** A changed URL is a changed backend to a member. Do not start the copy at the new URL: a
+server that holds the teams already is no place to move them to
+([why](move-to-another-server.md#the-server-the-team-goes-to-must-not-be-a-copy)). From server 0.8.0 and plugin
+0.57.0, start a fresh server at the new URL and keep the old one running: each Team Admin moves their team with
+one command, `brigade team move --to <url> --secret-file <path>`, and the members follow with no command of
+theirs ([Move a team to another server](move-to-another-server.md)). Stop the old server when every team has
+moved and its members have followed. With an older server or plugin, each member joins the new URL with the
+secret file, as before.
 
 ## Replace its certificate
 

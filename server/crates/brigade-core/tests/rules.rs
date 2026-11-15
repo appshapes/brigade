@@ -4428,6 +4428,8 @@ enum Asks {
     TeamTakeIn,
     TeamOpenMove,
     TeamCloseMove,
+    TeamMove,
+    TeamMoved,
     SessionRegister,
     SessionHeartbeat,
     SessionList,
@@ -4452,6 +4454,8 @@ fn asks(command: &Command) -> Asks {
         Command::TeamTakeIn(_) => Asks::TeamTakeIn,
         Command::TeamOpenMove(_) => Asks::TeamOpenMove,
         Command::TeamCloseMove(_) => Asks::TeamCloseMove,
+        Command::TeamMove(_) => Asks::TeamMove,
+        Command::TeamMoved(_) => Asks::TeamMoved,
         Command::SessionRegister(_) => Asks::SessionRegister,
         Command::SessionHeartbeat(_) => Asks::SessionHeartbeat,
         Command::SessionList(_) => Asks::SessionList,
@@ -4499,7 +4503,7 @@ fn every_request_the_server_reads_ends_the_key_of_the_owner_that_asks_it_or_leav
     // and is refused.
     use Leaves::{ARecord, ARefusal, Nothing};
     let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
-    let requests: [OwnersAsk; 28] = [
+    let requests: [OwnersAsk; 33] = [
         (
             "/v1/team/create",
             |_, _, _, _| json!({"team_name": "second"}),
@@ -4614,6 +4618,45 @@ fn every_request_the_server_reads_ends_the_key_of_the_owner_that_asks_it_or_leav
         (
             "/v1/team/close-move",
             |_, _, _, _| json!({"team_ref": ELSEWHERE}),
+            Nothing,
+            false,
+        ),
+        (
+            "/v1/team/move",
+            |_, _, _, _| {
+                json!({
+                    "team_ref": ELSEWHERE, "adapter": "rest", "url": "https://brigade.example.com",
+                    "ticket": secret_of(ELSEWHERE, "the-ticket-of-the-move"),
+                })
+            },
+            ARecord,
+            false,
+        ),
+        (
+            "/v1/team/move",
+            |_, _, _, _| {
+                let other = secret_of("another-team", "the-ticket-of-another-team");
+                json!({"team_ref": ELSEWHERE, "adapter": "rest", "url": "https://brigade.example.com", "ticket": other})
+            },
+            ARefusal,
+            false,
+        ),
+        (
+            // A team that keeps a key holds no record of where it went, so there is nothing to clear.
+            "/v1/team/move",
+            |_, _, _, _| json!({"team_ref": ELSEWHERE, "clear": true}),
+            Nothing,
+            false,
+        ),
+        (
+            "/v1/team/moved",
+            |_, _, _, _| json!({"team_ref": ELSEWHERE}),
+            Nothing,
+            false,
+        ),
+        (
+            "/v1/team/moved",
+            |_, _, _, _| json!({"team_ref": ELSEWHERE, "with_ticket": true}),
             Nothing,
             false,
         ),
@@ -5735,8 +5778,12 @@ struct Counted {
     ended_with: std::collections::BTreeSet<&'static str>,
 }
 
-/// The kinds of record that end a retry key, as the log names them.
-const ENDS_A_KEY: [&str; 10] = [
+/// The kinds of record that end a retry key, as the log names them. One kind that the rule ends a key
+/// with is not among them, `team.move_cleared`: a team that keeps a key holds no record of where it went
+/// (only its owner's own request records one, and that request ends the key; a take-back, which leaves a
+/// team without an owner, clears the record), so no request reaches a key through it. The rule is held
+/// for it by `the_record_of_where_a_team_went_ends_the_retry_key_its_team_keeps`.
+const ENDS_A_KEY: [&str; 11] = [
     "credential.revoked",
     "member.joined",
     "member.left",
@@ -5745,6 +5792,7 @@ const ENDS_A_KEY: [&str; 10] = [
     "session.opened",
     "team.move_closed",
     "team.move_opened",
+    "team.move_recorded",
     "team.owner_changed",
     "team.secret_rotated",
 ];
@@ -5779,6 +5827,8 @@ fn ends_the_key(event: &Event, team_ref: &str, kept_for: &str) -> Option<&'stati
             team_ref: of,
             by_owner,
         } => (of == team_ref && *by_owner).then_some("team.move_closed"),
+        Event::TeamMoveRecorded { team_ref: of, .. } => (of == team_ref).then_some("team.move_recorded"),
+        Event::TeamMoveCleared { team_ref: of } => (of == team_ref).then_some("team.move_cleared"),
         // Another owner, and another secret.
         Event::TeamOwnerChanged {
             team_ref: of,
@@ -6004,7 +6054,10 @@ fn whatever_is_asked_a_retry_key_is_kept_for_the_owner_a_take_in_made_and_answer
     ];
     const KEYS: [Option<&str>; 4] = [None, Some(KEY), Some(OTHER_KEY), Some(THIRD_KEY)];
     let mut rig = Rig::new();
-    let mut choices = Choices(0x0328_0011_2026_1114);
+    // The seed is the walk's own: one from which it reaches every rule the assertions at its end name.
+    // It changes when the requests the walk chooses from do, as they did with the two that record and
+    // clear where a team went (work item 341): another list of requests is another walk.
+    let mut choices = Choices(0x0341_0000_2026_1115);
     // What the walk knows: every secret and ticket a team ever had, the last the one it has; every
     // credential an answer ever carried, known to the server still or not; the last one it was given
     // for each principal; and who ever joined each team.
@@ -6093,10 +6146,10 @@ fn whatever_is_asked_a_retry_key_is_kept_for_the_owner_a_take_in_made_and_answer
         let team_body = json!({"team_ref": team});
         // Whose credential the request carries: the caller's, the owner's, or nobody's for the
         // operator's commands.
-        let chosen = choices.below(44);
+        let chosen = choices.below(47);
         let carries = match chosen {
             0..=21 | 24..=25 | 30 | 40..=43 => caller.clone(),
-            22..=23 | 26..=29 | 31..=33 => owner.clone(),
+            22..=23 | 26..=29 | 31..=33 | 44..=46 => owner.clone(),
             _ => None,
         };
         let before = Before {
@@ -6173,6 +6226,17 @@ fn whatever_is_asked_a_retry_key_is_kept_for_the_owner_a_take_in_made_and_answer
                     "session_name": format!("s{step}"), "activity": "busy", "inbound": "accept",
                 }),
             ),
+            // Where the team went, recorded by its owner and cleared by it: the two requests of the
+            // contract's section 3c that leave a record.
+            44..=45 => rig.call(
+                carried,
+                "/v1/team/move",
+                json!({
+                    "team_ref": team, "adapter": "rest", "url": format!("https://moved-{step}.example"),
+                    "ticket": secret_of(team, &format!("ticket-{step}")),
+                }),
+            ),
+            46 => rig.call(carried, "/v1/team/move", json!({"team_ref": team, "clear": true})),
             _ => rig.call(carried, "/v1/team/create", json!({"team_name": "of-its-own"})),
         };
         // The principal a take-in must be answered for: the one the team keeps the key of, when the
@@ -6402,4 +6466,471 @@ fn whatever_is_asked_a_retry_key_is_kept_for_the_owner_a_take_in_made_and_answer
          took {took_in} teams in"
     );
     assert_eq!(replayed(&rig), rig.state);
+}
+
+// ---- the record of where a team went (the contract's section 3c; work item 341, ADR 0010) ----
+
+/// A move ticket of `team_ref` as the backend a team goes to makes one: a join secret of that team.
+fn ticket_of(team_ref: &str, random: &str) -> String {
+    secret_of(team_ref, random)
+}
+
+/// A record of a move to `url`, as the team's owner asks for it.
+fn move_to(team_ref: &str, url: &str, ticket: &str) -> Value {
+    json!({"team_ref": team_ref, "adapter": "rest", "url": url, "ticket": ticket})
+}
+
+/// The kind of every record of an entry, as the log names it.
+fn kinds(entry: &Entry) -> Vec<String> {
+    entry
+        .records
+        .iter()
+        .map(|record| {
+            text(
+                &serde_json::from_slice::<Value>(&record.encode()).unwrap(),
+                "kind",
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_owner_alone_records_where_a_team_went_and_every_active_member_reads_it() {
+    const SECRET_PART: &str = "the-secret-part-of-the-ticket";
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let alice = member_of(&take_in(&mut rig, None, &secret, "alice").unwrap());
+    let bob = rig.join(&secret, "bob");
+    let carol = rig.join(&secret, "carol");
+    let (stranger, _) = rig.create("stranger");
+    rig.ok(&carol, "/v1/team/leave", json!({"team_ref": ELSEWHERE}));
+    // The owner has a session, so the team keeps no retry key and the state is the plain one.
+    rig.register(&alice, "alpha");
+    let uniform = wire(&Error::not_member());
+    let ticket = ticket_of(ELSEWHERE, SECRET_PART);
+    let none = json!({"team_ref": ELSEWHERE, "moved": false});
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+
+    // No move recorded: every active member reads that, in two members and no more, and a request for
+    // the ticket is answered the same.
+    for caller in [&alice, &bob] {
+        for body in [
+            json!({"team_ref": ELSEWHERE}),
+            json!({"team_ref": ELSEWHERE, "with_ticket": true}),
+        ] {
+            assert_eq!(rig.ok(caller, "/v1/team/moved", body), none);
+        }
+    }
+    // Nobody else reads anything: a member that left, a member of another team, and a team that does
+    // not exist are one answer.
+    for caller in [&carol, &stranger] {
+        assert_eq!(
+            wire(&rig.err(caller, "/v1/team/moved", json!({"team_ref": ELSEWHERE}))),
+            uniform
+        );
+    }
+    assert_eq!(
+        wire(&rig.err(&bob, "/v1/team/moved", json!({"team_ref": "no-such-team"}))),
+        uniform
+    );
+
+    // Only the owner writes the record or clears it. Everybody else reads the one refusal, for a record
+    // and for a clear byte for byte, whatever else the request held: the owner is checked before the
+    // request's shape.
+    let record = move_to(ELSEWHERE, "https://brigade.example.com", &ticket);
+    let clear = json!({"team_ref": ELSEWHERE, "clear": true});
+    let broken = json!({"team_ref": ELSEWHERE, "clear": "yes", "ticket": 7});
+    for body in [&record, &clear, &broken] {
+        for caller in [&bob, &carol, &stranger] {
+            let refused = rig.err(caller, "/v1/team/move", body.clone());
+            assert_eq!(refused.code, Code::Unauthorized, "{body}");
+            assert_eq!(wire(&refused), uniform, "{body}");
+        }
+        let mut nowhere = body.clone();
+        nowhere["team_ref"] = json!("no-such-team");
+        assert_eq!(
+            wire(&rig.err(&alice, "/v1/team/move", nowhere)),
+            uniform,
+            "{body}"
+        );
+    }
+    for path in ["/v1/team/move", "/v1/team/moved"] {
+        for credential in [None, Some("not-a-credential")] {
+            let refused = rig.call(credential, path, record.clone()).unwrap_err();
+            assert_eq!(refused.code, Code::Unauthenticated, "{path}");
+        }
+        let unnamed = rig.err(&bob, path, json!({}));
+        assert_eq!(
+            (unnamed.code, unnamed.details["field"].as_str()),
+            (Code::InvalidInput, "team_ref"),
+            "{path}"
+        );
+    }
+    // The owner that clears a record the team does not have changes nothing, and nothing above did.
+    assert_eq!(rig.ok(&alice, "/v1/team/move", clear.clone()), none);
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+
+    // The owner records the move: the answer is BAP/1's, with no certificate and no ticket, and the
+    // log holds one entry of one record, the ticket whole.
+    rig.advance(5);
+    let recorded = rig.ok(&alice, "/v1/team/move", record.clone());
+    assert_eq!(
+        recorded,
+        json!({
+            "team_ref": ELSEWHERE, "moved": true, "adapter": "rest", "url": "https://brigade.example.com",
+            "recorded_at": rig.now.rfc3339(),
+        })
+    );
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(kinds(&rig.log[entries]), ["team.move_recorded"]);
+    assert!(
+        String::from_utf8(rig.log[entries].encode())
+            .unwrap()
+            .contains(&ticket)
+    );
+    // Every active member reads the record, without the ticket unless it asks for it.
+    for caller in [&alice, &bob] {
+        assert_eq!(
+            rig.ok(caller, "/v1/team/moved", json!({"team_ref": ELSEWHERE})),
+            recorded
+        );
+        for asked in [json!(false), Value::Null] {
+            assert_eq!(
+                rig.ok(
+                    caller,
+                    "/v1/team/moved",
+                    json!({"team_ref": ELSEWHERE, "with_ticket": asked})
+                ),
+                recorded
+            );
+        }
+        let mut with_ticket = recorded.clone();
+        with_ticket["ticket"] = json!(ticket);
+        assert_eq!(
+            rig.ok(
+                caller,
+                "/v1/team/moved",
+                json!({"team_ref": ELSEWHERE, "with_ticket": true})
+            ),
+            with_ticket
+        );
+    }
+    // Nobody else reads it, with or without the ticket, in the bytes of a team that does not exist.
+    for caller in [&carol, &stranger] {
+        let refused = rig.err(
+            caller,
+            "/v1/team/moved",
+            json!({"team_ref": ELSEWHERE, "with_ticket": true}),
+        );
+        assert_eq!(wire(&refused), uniform);
+    }
+    // Reading leaves no record.
+    assert_eq!(rig.log.len(), entries + 1);
+
+    // The record refuses nothing: the team is here as it was. A member registers a session, a message
+    // is sent, the secret still joins and the roster is the roster.
+    let alpha = rig.register(&alice, "alpha-again");
+    let beta = rig.register(&bob, "beta");
+    rig.send(&alice, &alpha, &beta, "after the move was recorded")
+        .unwrap();
+    assert_eq!(rig.receive(&bob, &beta).len(), 1);
+    let dave = rig.join(&secret, "dave");
+    assert!(active(&mut rig, &alice).contains(&dave.principal_ref));
+    // A member the owner revokes reads no record from then on, and a banned one neither.
+    revoke(&mut rig, &alice, &dave.principal_ref, Some(true)).unwrap();
+    assert_eq!(
+        wire(&rig.err(&dave, "/v1/team/moved", json!({"team_ref": ELSEWHERE}))),
+        uniform
+    );
+
+    // A second record takes the place of the first, with its certificate and its own time.
+    rig.advance(60);
+    let mut again = move_to(ELSEWHERE, "https://other.example.com:8743", &ticket);
+    again["certificate"] = json!("sha256:00ff");
+    let replaced = rig.ok(&alice, "/v1/team/move", again);
+    assert_eq!(
+        replaced,
+        json!({
+            "team_ref": ELSEWHERE, "moved": true, "adapter": "rest", "url": "https://other.example.com:8743",
+            "certificate": "sha256:00ff", "recorded_at": rig.now.rfc3339(),
+        })
+    );
+    assert_eq!(
+        rig.ok(&bob, "/v1/team/moved", json!({"team_ref": ELSEWHERE})),
+        replaced
+    );
+
+    // No answer above, no refusal and no rendering of the state or of the log for a person holds the
+    // ticket: the state and the records print it as nothing of itself.
+    assert!(rig.state.teams[ELSEWHERE].moved_to.is_some());
+    for printed in [
+        format!("{:?}", rig.state),
+        format!("{:#?}", rig.state),
+        format!("{:?}", rig.log),
+        format!("{replaced}"),
+    ] {
+        assert!(!printed.contains(SECRET_PART), "{printed}");
+    }
+    // The log read back from its bytes makes the same state, the ticket in it.
+    assert_eq!(replayed(&rig), rig.state);
+    assert_eq!(
+        rig.state.teams[ELSEWHERE]
+            .moved_to
+            .as_ref()
+            .map(|moved| moved.ticket.expose()),
+        Some(ticket.as_str())
+    );
+
+    // The owner clears it, as often as it likes: one record for the first, none after.
+    let entries = rig.log.len();
+    assert_eq!(rig.ok(&alice, "/v1/team/move", clear.clone()), none);
+    assert_eq!(kinds(&rig.log[entries]), ["team.move_cleared"]);
+    assert_eq!(rig.ok(&alice, "/v1/team/move", clear), none);
+    assert_eq!(rig.log.len(), entries + 1);
+    for caller in [&alice, &bob] {
+        assert_eq!(
+            rig.ok(
+                caller,
+                "/v1/team/moved",
+                json!({"team_ref": ELSEWHERE, "with_ticket": true})
+            ),
+            none
+        );
+    }
+    assert_eq!(rig.state.teams[ELSEWHERE].moved_to, None);
+    assert_eq!(replayed(&rig), rig.state);
+}
+
+#[test]
+fn a_record_of_where_a_team_went_is_held_to_its_shape_and_no_refusal_holds_the_ticket() {
+    const SECRET_PART: &str = "the-secret-part-of-the-ticket";
+    let mut rig = Rig::new();
+    let (alice, _) = rig.create("alice");
+    rig.register(&alice, "alpha");
+    let team_ref = alice.team_ref.clone();
+    let ticket = ticket_of(&team_ref, SECRET_PART);
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let good = move_to(&team_ref, "https://brigade.example.com", &ticket);
+    let with = |member: &str, value: Value| {
+        let mut body = good.clone();
+        body[member] = value;
+        body
+    };
+    let long = |count: usize| json!("u".repeat(count));
+    // What is wrong, and the member the refusal names with its reason. The destination is BAP/1's
+    // (4.4.10): an adapter of at most 64 code points, a url of at most 2048, a certificate of at most 128.
+    let refusals: Vec<(Value, &str, &str)> = vec![
+        (with("adapter", Value::Null), "adapter", "required"),
+        (with("adapter", json!("")), "adapter", "required"),
+        (with("adapter", json!(7)), "adapter", "invalid_value"),
+        (
+            with("adapter", long(limits::MAX_MOVE_ADAPTER_CHARS + 1)),
+            "adapter",
+            "too_long",
+        ),
+        (with("url", Value::Null), "url", "required"),
+        (
+            with("url", long(limits::MAX_MOVE_URL_CHARS + 1)),
+            "url",
+            "too_long",
+        ),
+        (
+            with("certificate", long(limits::MAX_MOVE_CERTIFICATE_CHARS + 1)),
+            "certificate",
+            "too_long",
+        ),
+        (with("certificate", json!(true)), "certificate", "invalid_value"),
+        (with("ticket", Value::Null), "ticket", "required"),
+        (with("ticket", json!(["a", "list"])), "ticket", "invalid_value"),
+        // What is no join secret, a join secret of another team, and one longer than the server keeps.
+        (with("ticket", json!(SECRET_PART)), "ticket", "invalid_value"),
+        (
+            with("ticket", json!(ticket_of("another-team", SECRET_PART))),
+            "ticket",
+            "invalid_value",
+        ),
+        (
+            with(
+                "ticket",
+                json!(ticket_of(
+                    &team_ref,
+                    &SECRET_PART.repeat(limits::MAX_MOVE_TICKET_CHARS / SECRET_PART.len() + 1)
+                )),
+            ),
+            "ticket",
+            "invalid_value",
+        ),
+        // A clear goes with the team alone, and is a boolean.
+        (with("clear", json!(true)), "clear", "invalid_value"),
+        (
+            json!({"team_ref": team_ref, "clear": true, "url": "https://brigade.example.com"}),
+            "clear",
+            "invalid_value",
+        ),
+        (
+            json!({"team_ref": team_ref, "clear": "true"}),
+            "clear",
+            "invalid_value",
+        ),
+        // `clear` false is no clear: the request is a record, and is held to one.
+        (
+            json!({"team_ref": team_ref, "clear": false}),
+            "adapter",
+            "required",
+        ),
+    ];
+    for (body, field, why) in refusals {
+        let refused = rig.err(&alice, "/v1/team/move", body.clone());
+        assert_eq!(
+            (refused.code, refused.details["field"].as_str(), reason(&refused)),
+            (Code::InvalidInput, field, why),
+            "{field} {why}"
+        );
+        assert!(!wire(&refused).contains(SECRET_PART), "{field} {why}");
+    }
+    let refused = rig.err(
+        &alice,
+        "/v1/team/moved",
+        json!({"team_ref": team_ref, "with_ticket": "yes"}),
+    );
+    assert_eq!(
+        (refused.code, refused.details["field"].as_str()),
+        (Code::InvalidInput, "with_ticket")
+    );
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+
+    // Each member at its cap is a record, and a ticket at the server's cap is kept whole.
+    let widest = ticket_of(&team_ref, "t");
+    let widest = format!(
+        "{widest}{}",
+        "t".repeat(limits::MAX_MOVE_TICKET_CHARS - widest.chars().count())
+    );
+    let mut body = move_to(&team_ref, "u", &widest);
+    body["adapter"] = long(limits::MAX_MOVE_ADAPTER_CHARS);
+    body["url"] = long(limits::MAX_MOVE_URL_CHARS);
+    body["certificate"] = long(limits::MAX_MOVE_CERTIFICATE_CHARS);
+    rig.ok(&alice, "/v1/team/move", body);
+    let read = rig.ok(
+        &alice,
+        "/v1/team/moved",
+        json!({"team_ref": team_ref, "with_ticket": true}),
+    );
+    assert_eq!(read["ticket"], json!(widest));
+    // An unknown member beside a request is not read, as on every request.
+    let mut more = good.clone();
+    more["more"] = json!(1);
+    rig.ok(&alice, "/v1/team/move", more);
+    assert_eq!(replayed(&rig), rig.state);
+}
+
+#[test]
+fn a_take_back_clears_the_record_of_where_a_team_went_and_a_rotation_and_a_new_owner_keep_it() {
+    let mut rig = Rig::new();
+    let (alice, secret) = rig.create("alice");
+    let bob = rig.join(&secret, "bob");
+    rig.register(&alice, "alpha");
+    let team_ref = alice.team_ref.clone();
+    let ticket = ticket_of(&team_ref, "the-ticket-of-the-move");
+    let asked = json!({"team_ref": team_ref});
+    let recorded = rig.ok(
+        &alice,
+        "/v1/team/move",
+        move_to(&team_ref, "https://brigade.example.com", &ticket),
+    );
+
+    // A rotation of the join secret ends what let anyone in here. The record lets nobody in here: it
+    // says where the team went, and every member reads it as before.
+    rotate(&mut rig, &alice);
+    assert_eq!(rig.ok(&bob, "/v1/team/moved", asked.clone()), recorded);
+    // A move the operator opens and closes on this server is another thing than the record of a move
+    // away from it, and neither touches the other.
+    rig.open_move(&team_ref, 30).unwrap();
+    rig.close_move(&team_ref).unwrap();
+    assert_eq!(rig.ok(&bob, "/v1/team/moved", asked.clone()), recorded);
+    // The team's next owner has the record, to read and to clear, and the one before it has not.
+    rig.ok(
+        &alice,
+        "/v1/team/transfer",
+        json!({"team_ref": team_ref, "principal_ref": bob.principal_ref}),
+    );
+    assert_eq!(rig.ok(&alice, "/v1/team/moved", asked.clone()), recorded);
+    let clear = json!({"team_ref": team_ref, "clear": true});
+    assert_eq!(
+        wire(&rig.err(&alice, "/v1/team/move", clear.clone())),
+        wire(&Error::not_member())
+    );
+    // A member that leaves, the owner included, changes nothing of it.
+    rig.ok(&alice, "/v1/team/leave", asked.clone());
+    assert_eq!(rig.ok(&bob, "/v1/team/moved", asked.clone()), recorded);
+
+    // The operator takes the team back: the record is cleared in the take-back's own entry, with the
+    // rotation, and the answer says so. Whoever held the team could have sent every member that comes
+    // back to a server of their own.
+    let entries = rig.log.len();
+    let taken = rig.take_back(&team_ref).unwrap();
+    assert_eq!(taken["move_cleared"], json!(true));
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(
+        kinds(&rig.log[entries]),
+        [
+            "team.secret_rotated",
+            "team.move_cleared",
+            "members.revoked_by_version",
+            "team.owner_changed"
+        ]
+    );
+    assert_eq!(rig.state.teams[&team_ref].moved_to, None);
+    // The first member to join with the new secret owns the team, and reads no move.
+    let carol = rig.join(&text(&taken, "join_secret"), "carol");
+    assert_eq!(
+        rig.ok(&carol, "/v1/team/moved", asked.clone()),
+        json!({"team_ref": team_ref, "moved": false})
+    );
+    // A team that has no record is taken back as before, and the answer says that nothing was cleared.
+    let entries = rig.log.len();
+    let again = rig.take_back(&team_ref).unwrap();
+    assert_eq!(again.get("move_cleared"), None);
+    assert!(!kinds(&rig.log[entries]).contains(&"team.move_cleared".to_owned()));
+    assert_eq!(replayed(&rig), rig.state);
+}
+
+#[test]
+fn the_record_of_where_a_team_went_ends_the_retry_key_its_team_keeps() {
+    // The owner a take-in made, which holds the credential and has asked nothing yet: the team keeps
+    // its key. Its own request that records where the team went leaves a record, and the key ends with
+    // it, as with every record of the owner's own (ADR 0006).
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let alice = member_of(&take_in_keyed(&mut rig, None, &secret, KEY).unwrap());
+    assert!(rig.state.teams[ELSEWHERE].take_in_retry.is_some());
+    // Reading leaves no record and ends nothing.
+    rig.ok(&alice, "/v1/team/moved", json!({"team_ref": ELSEWHERE}));
+    assert!(rig.state.teams[ELSEWHERE].take_in_retry.is_some());
+    let ticket = ticket_of(ELSEWHERE, "the-ticket-of-the-move");
+    rig.ok(
+        &alice,
+        "/v1/team/move",
+        move_to(ELSEWHERE, "https://brigade.example.com", &ticket),
+    );
+    assert!(rig.state.teams[ELSEWHERE].take_in_retry.is_none());
+    assert!(rig.state.principals[&alice.principal_ref].retry_key_in.is_empty());
+    // The same take-in is a stranger's join from now on.
+    let again = take_in_keyed(&mut rig, None, &secret, KEY).unwrap();
+    assert_eq!(again["owner"], json!(false));
+    assert_ne!(again["principal_ref"], json!(alice.principal_ref));
+    assert_eq!(replayed(&rig), rig.state);
+
+    // No request reaches a kept key through a clear: a team that keeps a key holds no record. The rule
+    // is the same all the same, and a log that held such a record would end the key: the record is
+    // applied here by hand.
+    let mut rig = Rig::new();
+    take_in_keyed(&mut rig, None, &secret, KEY).unwrap();
+    assert!(rig.state.teams[ELSEWHERE].take_in_retry.is_some());
+    rig.state.apply(&Record::new(
+        rig.now,
+        Event::TeamMoveCleared {
+            team_ref: ELSEWHERE.to_owned(),
+        },
+    ));
+    assert!(rig.state.teams[ELSEWHERE].take_in_retry.is_none());
 }

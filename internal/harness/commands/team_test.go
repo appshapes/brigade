@@ -325,8 +325,9 @@ func TestTeamJoinPassesStdioThroughOutsideSession(t *testing.T) {
 // of the three administrative verbs hands the adapter its streams,
 // forwards `--principal`, `--ban`, `--max-version` and `--secret-file`
 // verbatim and in order, consumes `--team` and `--log-level` for the
-// harness, forwards stdin (the JSON form) and the adapter's exit status,
-// and prints nothing of its own.
+// harness, forwards stdin (the JSON form) and the adapter's exit status.
+// `transfer` prints nothing of its own; the other two say which backend
+// they act on (TestTeamAdminVerbsNameTheBackendAndTakeOn).
 func TestTeamAdminVerbsPassThroughOutsideSession(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

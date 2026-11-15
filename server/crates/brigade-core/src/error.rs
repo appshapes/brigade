@@ -317,6 +317,21 @@ impl Error {
         .with("reason", "invalid_value")
     }
 
+    /// A move ticket that is not a join secret of the team it is recorded for, or is longer than the
+    /// server keeps (BAP/1 4.4.10). No part of the input is in the answer, and neither is the format of
+    /// a join secret: the adapter's redactor takes that format for a secret, and the person would read
+    /// the hint as redacted. The words say what a ticket is.
+    #[must_use]
+    pub fn not_a_move_ticket() -> Self {
+        Self::new(
+            Code::InvalidInput,
+            "ticket is not a move ticket of this team; expected the join secret that the backend the team \
+             went to made when its move was opened, which carries this team's reference",
+        )
+        .with("field", "ticket")
+        .with("reason", "invalid_value")
+    }
+
     /// The failure as the envelope's `error` member.
     #[must_use]
     pub fn object(&self) -> Value {
