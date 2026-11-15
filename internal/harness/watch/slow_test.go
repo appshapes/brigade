@@ -87,9 +87,9 @@ func TestUnreachableBackendRetriesSlowly(t *testing.T) {
 		if l["msg"] != "watch child failed; restarting" {
 			continue
 		}
-		delay, _ := l["delay"].(float64)
-		if slow, _ := l["slow"].(bool); slow != (time.Duration(delay) >= every/2) {
-			t.Errorf("a restart with slow=%v waits %v (the slow schedule starts at %v)", slow, time.Duration(delay), every/2)
+		delay := time.Duration(fx.logInt(l, "delay"))
+		if slow, _ := l["slow"].(bool); slow != (delay >= every/2) {
+			t.Errorf("a restart with slow=%v waits %v (the slow schedule starts at %v)", slow, delay, every/2)
 		}
 	}
 	if got, want := fx.notice(), slowNoticePrefix+"400ms"+slowNoticeSuffix; got != want {

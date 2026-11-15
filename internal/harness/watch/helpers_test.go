@@ -12,10 +12,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
+	"math/big"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -880,7 +883,11 @@ func completeLines(data []byte) [][]byte {
 }
 
 // logLines parses the watcher log (NDJSON) into maps; a missing log is
-// empty, and a record still being written is not yet a line.
+// empty, and a record still being written is not yet a line. A number is
+// kept as the text the watcher wrote, a jsontext.Value: decoded into an
+// `any` it would be a float64, which prints a pid of 1007317 as
+// 1.007317e+06 and holds no whole number above 2^53 exactly (work item
+// 336). sameLogValue compares one and logInt reads one.
 func (fx *fixture) logLines() []map[string]any {
 	fx.t.Helper()
 	data, err := os.ReadFile(fx.logPath())
@@ -890,7 +897,7 @@ func (fx *fixture) logLines() []map[string]any {
 	var out []map[string]any
 	for _, line := range completeLines(data) {
 		var m map[string]any
-		if err := json.Unmarshal(line, &m); err != nil {
+		if err := json.Unmarshal(line, &m, logNumbersAsWritten); err != nil {
 			fx.t.Fatalf("log line is not JSON: %q", line)
 		}
 		out = append(out, m)
@@ -898,7 +905,60 @@ func (fx *fixture) logLines() []map[string]any {
 	return out
 }
 
-// logCount counts log lines whose msg is msg and whose attributes match.
+// logNumbersAsWritten decodes a JSON number that lands in an `any` as its
+// own text, where the decoder's choice is a float64.
+var logNumbersAsWritten = json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, v *any) error {
+	if dec.PeekKind() == '0' {
+		*v = jsontext.Value(nil)
+	}
+	return errors.ErrUnsupported // the decoder's own way, into what v now holds
+}))
+
+// sameLogValue reports whether a member of a log line is want. A number
+// is compared as a number, never as what the two sides print: with a whole
+// Go number of any kind exactly, whatever its size and however the log
+// wrote it (1007317 and 1.007317e+06 are one number), and with a float as
+// the float64 nearest to what the log wrote. A number and a text of its
+// digits are not the same, either way round. Anything else, a text or a
+// truth value, is the same when both print the same, which is how a named
+// string type matches.
+func sameLogValue(got, want any) bool {
+	number, isNumber := got.(jsontext.Value)
+	wanted := reflect.ValueOf(want)
+	var whole *big.Rat
+	switch {
+	case wanted.CanInt():
+		whole = new(big.Rat).SetInt64(wanted.Int())
+	case wanted.CanUint():
+		whole = new(big.Rat).SetUint64(wanted.Uint())
+	case wanted.CanFloat():
+		written, err := strconv.ParseFloat(string(number), 64)
+		return isNumber && err == nil && written == wanted.Float()
+	default:
+		return !isNumber && fmt.Sprint(got) == fmt.Sprint(want)
+	}
+	written, ok := new(big.Rat).SetString(string(number))
+	return isNumber && ok && written.Cmp(whole) == 0
+}
+
+// logInt reads a whole number of a log line, a count or a duration in
+// nanoseconds, and 0 for a member the line has not.
+func (fx *fixture) logInt(l map[string]any, key string) int64 {
+	fx.t.Helper()
+	v, has := l[key]
+	if !has {
+		return 0
+	}
+	number, _ := v.(jsontext.Value)
+	n, err := strconv.ParseInt(string(number), 10, 64)
+	if err != nil {
+		fx.t.Fatalf("the log's %s is %v, which is no whole number", key, v)
+	}
+	return n
+}
+
+// logCount counts log lines whose msg is msg and whose attributes match
+// (sameLogValue).
 func (fx *fixture) logCount(msg string, attrs map[string]any) int {
 	n := 0
 	for _, l := range fx.logLines() {
@@ -907,7 +967,7 @@ func (fx *fixture) logCount(msg string, attrs map[string]any) int {
 		}
 		ok := true
 		for k, v := range attrs {
-			if fmt.Sprint(l[k]) != fmt.Sprint(v) {
+			if !sameLogValue(l[k], v) {
 				ok = false
 				break
 			}
@@ -932,6 +992,52 @@ func (fx *fixture) waitLog(msg string, attrs map[string]any) {
 		what += fmt.Sprintf(" with %v", attrs)
 	}
 	await(fx.t, what, func() bool { return fx.logHas(msg, attrs) })
+}
+
+// TestLogCountComparesNumbersAsNumbers is logCount's own test (work item
+// 336). A number of the log decoded into an `any` is a float64, which
+// prints 1007317 as 1.007317e+06 and holds no whole number above 2^53
+// exactly, and the helper compared what the two sides print: on a host
+// whose pids had reached a million, TestCodexQueueNothingWhenTheProcessIsGone
+// waited 30 s for a `watcher starting` line that was in the log.
+func TestLogCountComparesNumbersAsNumbers(t *testing.T) {
+	t.Parallel()
+	fx := &fixture{t: t, dirs: testutil.NewDirs(t.TempDir()), claudePID: 4242}
+	if err := os.MkdirAll(filepath.Dir(fx.logPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const line = `{"level":"INFO","msg":"watcher starting","host_pid":1007317,"sequence":9223372036854775807,` +
+		`"exponent":1.007317e+06,"share":0.25,"exit":0,"name":"1007317","slow":false}` + "\n"
+	if err := os.WriteFile(fx.logPath(), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		attrs map[string]any
+		want  int
+	}{
+		{"a pid of a million or more, as an int", map[string]any{"host_pid": 1007317}, 1},
+		{"the same pid as an int64", map[string]any{"host_pid": int64(1007317)}, 1},
+		{"the same pid as a float64", map[string]any{"host_pid": float64(1007317)}, 1},
+		{"the pid beside it", map[string]any{"host_pid": 1007318}, 0},
+		{"the largest int64", map[string]any{"sequence": int64(math.MaxInt64)}, 1},
+		{"the largest int64 as a uint64", map[string]any{"sequence": uint64(math.MaxInt64)}, 1},
+		{"the int64 beside the largest, the same float64", map[string]any{"sequence": int64(math.MaxInt64 - 1)}, 0},
+		{"a number the log wrote with an exponent", map[string]any{"exponent": 1007317}, 1},
+		{"a fraction", map[string]any{"share": 0.25}, 1},
+		{"another fraction", map[string]any{"share": 0.5}, 0},
+		{"zero", map[string]any{"exit": 0}, 1},
+		{"a text of digits, as text", map[string]any{"name": "1007317"}, 1},
+		{"a number is no text", map[string]any{"host_pid": "1007317"}, 0},
+		{"a text is no number", map[string]any{"name": 1007317}, 0},
+		{"a truth value", map[string]any{"slow": false}, 1},
+		{"a member the line has not", map[string]any{"failures": 0}, 0},
+		{"every member at once", map[string]any{"host_pid": 1007317, "sequence": int64(math.MaxInt64), "name": "1007317"}, 1},
+	} {
+		if got := fx.logCount("watcher starting", tc.attrs); got != tc.want {
+			t.Errorf("%s: %d line(s) match %v, want %d", tc.name, got, tc.attrs, tc.want)
+		}
+	}
 }
 
 // await waits for cond as testutil.Eventually does, a hang catcher and no
