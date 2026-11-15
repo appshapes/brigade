@@ -757,7 +757,9 @@ built servers by a verifier who wrote none of the code (execution log P104-4): a
 requests behind the capability `team.move` in the contract's new section 3c, so the one command moves a team from
 one server to another and its members follow. The decision is ADR 0010, which supersedes ADR 0003's sentence that
 the `rest` adapter carries no record; the old server keeps the team as it is, and nothing ends a team on a server
-yet. It ships as server 0.8.0 and in the next plugin release, 0.57.0, neither released by that work item. Work
+yet. It ships as server 0.8.0 and in the next plugin release, 0.57.0, neither released by that work item. Both were
+released that day, and the owner's host and the thinktech team's server run 0.8.0 since then (execution log
+P104-5). Work
 items 354, 357 and 359 are new from its verification: a join whose answer is lost leaves a second membership on a
 server, an address with shell characters is printed in a command as it stands, and 359 holds the low findings
 that were left so that the feature could land.
