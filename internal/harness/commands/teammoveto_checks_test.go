@@ -3,6 +3,7 @@
 package commands
 
 import (
+	"encoding/json/v2"
 	"io"
 	"os"
 	"path/filepath"
@@ -39,9 +40,15 @@ func TestTeamMoveToWritesOneSpellingOfTheDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	take := r.f.rec.specsOf("team take-in")[0]
+	var sent struct {
+		Backend map[string]string `json:"backend"`
+	}
+	if err := json.Unmarshal(take.Stdin, &sent); err != nil {
+		t.Fatal(err)
+	}
 	if i := slices.Index(take.Argv, "--profile"); take.Argv[i+1] != key ||
-		!strings.Contains(string(take.Stdin), `"backend":{"url":"`+typed+`","certificate":"`+moveNewPin+`"}`) {
-		t.Fatalf("the take-in: %s", argvOf(take))
+		len(sent.Backend) != 2 || sent.Backend["url"] != typed || sent.Backend["certificate"] != moveNewPin {
+		t.Fatalf("the take-in: %s, backend %v", argvOf(take), sent.Backend)
 	}
 	if got := string(r.f.rec.specsOf("team move")[1].Stdin); got != `{"adapter":"rest","url":"`+typed+`","certificate":"`+moveNewPin+`"}` {
 		t.Fatalf("the destination recorded: %s", got)
