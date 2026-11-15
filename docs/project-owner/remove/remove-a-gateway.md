@@ -27,7 +27,8 @@ Several teams share the connector, the Slack app, the secrets and the tick: remo
 ## After a team moved to a Brigade server
 
 The team's gateways go on, on the server ([Open the gateways](../server/gateways.md)), so only what is inside the
-project is taken away, once they answer there: steps 2, 3 and 6.
+project is taken away, once they answer there: steps 2, 3 and 6, and of those only what no other team of the
+project still uses, as above.
 
 - **Not step 1.** In a checkout that followed the team, a team command goes to the server, and would revoke the
   gateway there. The gateway's member in this project goes when the Team Admin ends the team on the old backend

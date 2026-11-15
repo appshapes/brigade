@@ -12,7 +12,7 @@ Server](../../project-owner/server/README.md).
 1. **No shared code.** `server/` is a Rust workspace of its own. It touches the rest of the repository through the
    contract page and through the conformance suite run with the bundled `rest` adapter, and nothing else.
 2. **Outside the acceptance gate.** `make test` and `make push` run no Rust. The server has its own targets and its
-   own CI job, `server`, which the `master` ruleset does not require until the first server release.
+   own CI job, `server`, which the `master` ruleset requires since the first server release.
 3. **Its own version and dependency list.** `server/VERSION` (a test holds `Cargo.toml` to it) and
    `server/deny.toml`, which names every crate the server links. A new crate is added there in the change that
    adds it. The HTTP and TLS stack is hyper, tokio and tokio-rustls on ring (owner ruling, 2026-11-12).
