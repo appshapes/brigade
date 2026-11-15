@@ -647,17 +647,15 @@ func TestAMoveAnsweredLateDoesNotWaitForAPidfile(t *testing.T) {
 			return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
 		}
 	}
-	type ended struct {
-		exit        int
-		out, errOut string
-	}
-	done := make(chan ended, 1)
-	go func() {
-		exit, out, errOut := f.run(SubPrompt, f.promptDoc("default"))
-		done <- ended{exit, out, errOut}
-	}()
+	// The prompt runs beside the test and is waited for when the test ends,
+	// on a failing path too, after the backend has been let go: the wait is
+	// registered first, so it runs last, and the hook writes nothing into a
+	// directory that is being removed.
+	var hooks sync.WaitGroup
+	t.Cleanup(hooks.Wait)
 	let := sync.OnceFunc(func() { close(answer) })
 	t.Cleanup(let)
+	done := f.promptBeside(&hooks)
 	testutil.Await(t, budget, pollInterval, "the hook's registration to reach the backend the team went to", func() bool {
 		if asked.Load() == 1 {
 			return true
@@ -677,7 +675,7 @@ func TestAMoveAnsweredLateDoesNotWaitForAPidfile(t *testing.T) {
 		t.Fatalf("with its registration unanswered the session is at %+v, %d watchers started: want it where it was", m, f.spawner.count()-spawns)
 	}
 	let()
-	var got ended
+	var got hookEnd
 	select {
 	case got = <-done:
 	case <-time.After(budget):

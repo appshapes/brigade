@@ -129,9 +129,14 @@ func TestSessionEndCloseFailureStillExitsZero(t *testing.T) {
 // asks for the close under a deadline that has passed, says that the close
 // did not complete, and still takes the session down on this machine. The
 // control is TestSessionEndReasons, whose ends close under the fixture's
-// budget. Every fixture has a long one (unhurried): were the end bounded
-// by anything but the dependency, by the constant it once read, a busy
-// machine would decide what the tests of an end see (work item 336).
+// budget. Every fixture has a long one (unhurried), so that the end's own
+// budget is not what a busy machine uses up before the close is asked
+// (work item 336); that a budget made longer is the end's too is
+// TestSessionEndRunsUnderABudgetMadeLonger's. One bound of real time is
+// left under it: the close has a cap of its own, one second from the moment
+// it is asked (adapterclient.CloseTimeout), which no fixture raises, and a
+// close that takes a busy machine longer than that is given up on in a
+// test as it is in production.
 func TestSessionEndGivesItsCloseWhatItsBudgetLeaves(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

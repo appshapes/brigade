@@ -733,7 +733,11 @@ type saidLines struct {
 // budget a slow git call would have had all of the 1.4 s and left the
 // close none: the tests of what the end records and closes
 // (TestStateEntryFollowsTheSession, TestStateCommitsSinceStart) would
-// have had a busy machine decide both.
+// have had a busy machine decide both by that. With the minute a slow git
+// call leaves the close its time. The close's own cap is not the hook's to
+// raise and stays: one second from the moment it is asked
+// (adapterclient.CloseTimeout), in a fixture as in production, so a close
+// that takes a busy machine longer than that is still given up on.
 func (f *fixture) unhurried() {
 	f.deps.PromptBudget, f.deps.StopBudget, f.deps.GitBudget = time.Minute, time.Minute, time.Minute
 	f.deps.GrokStartBudget, f.deps.EndBudget = time.Minute, time.Minute
