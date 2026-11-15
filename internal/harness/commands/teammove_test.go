@@ -906,3 +906,25 @@ func TestACommandPrintedForTheOwnersMachineCarriesTheWholeAddress(t *testing.T) 
 		t.Errorf("the line of a record that stands lacks %q:\n%s", need, r.f.out.String())
 	}
 }
+
+// TestAClearThatIsToldToWaitIsNotToldAsRefused (work item 341): the
+// record's own form clears the record a server holds of the team's
+// leaving. A server that answers the clear with a wait was told as one
+// that refused it: "that record could not be cleared", with the owner sent
+// to clear it by hand. It is a clear that was not answered, and the stop
+// says to run the command again.
+func TestAClearThatIsToldToWaitIsNotToldAsRefused(t *testing.T) {
+	t.Parallel()
+	r := newMoveRig(t, true)
+	left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"supabase","url":"` + r.oldURL + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	r.there.on("team moved", okAnswer(left)).on("team move", failAnswer(protocol.CodeRateLimited, "slow down"))
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeRateLimited, reasonBackendsNameEachOther)
+	for _, need := range []string{"the answer to the clear of that record did not arrive", "The cause: slow down", "run this again"} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the stop of a clear that was told to wait lacks %q: %s", need, perr.Message)
+		}
+	}
+	if strings.Contains(perr.Message, "could not be cleared") || strings.Contains(perr.Message, "clears it, in a checkout of the team") {
+		t.Errorf("a clear that was told to wait is told as refused: %s", perr.Message)
+	}
+}

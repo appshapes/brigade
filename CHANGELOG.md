@@ -63,7 +63,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   stop after the record was cleared says that it is gone, and a clear
   whose answer did not arrive says that the record may be cleared and
   that `brigade team move --show --from <host>` reads it, in either form
-  of the command.
+  of the command. A server that answers the clear with a wait is one
+  that did not answer it, and not one that refused.
 - **A team is not moved onto the server it is on.** `brigade team move
   --to` with the address `.brigade.json` already names, under another
   `--certificate` or none, is refused before anything is asked: it used
@@ -183,7 +184,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   two backends that both record the move, it changes nothing, names the
   backends and prints itself for each with its `--from`; and where one of
   those backends does not answer what it records, it chooses none
-  either, and says to run it again when it answers.
+  either, and says to run it again when it answers. A backend that
+  answers that this member may not read its record is not the one the
+  team is leaving: it is left out, and with one backend left the
+  command goes on from that one.
   The line either refusal prints is the whole command: it carries
   `--certificate sha256:…` for a server that made its own certificate,
   as does the address the command prints for a move back to an earlier

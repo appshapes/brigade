@@ -2388,3 +2388,45 @@ func TestAnAdapterThatCannotDescribeItselfTakesNothingBackThroughTheRealBinary(t
 		t.Fatalf("the start with his adapter back: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
 	}
 }
+
+// TestARerunLeavesOutAServerThatRefusesToSayWhatItRecordsThroughTheRealBinary:
+// a team went from A to B and from B to C, and the same command is run
+// again. The administrator's machine has joined the team on A and on B, and
+// A now answers that she may not read what it records, as a server does of
+// a member it has put out. Until this A was listed with the servers that
+// did not answer: the command changed nothing and said to run it again
+// when A answers, which it never will. A server that refuses the read is
+// not the one the team is leaving, whose owner reads its record: it is
+// left out, one server is left, and the command goes on from it as it does
+// on a machine that has joined the team on one other backend.
+func TestARerunLeavesOutAServerThatRefusesToSayWhatItRecordsThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	var refuses atomic.Bool
+	_, a := startFront(t, startRestBackend(t), func(req *http.Request, _ []byte) (int, string) {
+		if refuses.Load() && req.URL.Path == "/v1/team/moved" {
+			return http.StatusForbidden, notAMember
+		}
+		return 0, ""
+	}, nil)
+	b, c := startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	r.movedTo(b, r.secretFile)
+	r.movedTo(c, r.secretFile)
+	onA, onB := r.recordOn(r.configDir, a), r.recordOn(r.configDir, b)
+	if !onA.Moved || onA.URL != b.url || !onB.Moved || onB.URL != c.url {
+		t.Fatalf("the records before the rerun: A %+v, B %+v", onA, onB)
+	}
+	refuses.Store(true)
+	res := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
+	refuses.Store(false)
+	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") || !strings.Contains(res.stderr, "from "+hostOf(b)+" to "+hostOf(c)) || strings.Contains(res.stderr, "did not answer") {
+		t.Fatalf("the same command while an earlier server refuses the read: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if now := r.recordOn(r.configDir, a); !now.RecordedAt.Equal(onA.RecordedAt) || now.URL != b.url {
+		t.Fatalf("A's record was written: %+v, was %+v", now, onA)
+	}
+	if now := r.recordOn(r.configDir, b); !now.Moved || now.URL != c.url || !now.RecordedAt.After(onB.RecordedAt) {
+		t.Fatalf("B's record after the rerun: %+v, was %+v", now, onB)
+	}
+}

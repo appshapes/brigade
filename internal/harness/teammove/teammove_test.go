@@ -1307,6 +1307,52 @@ func TestFollowTellsABackendTheMemberJoinedThatRefusesFromOneThatDidNotAnswer(t 
 	}
 }
 
+// clearing is a Caller that answers the clear of a record with err, or
+// with a team that has not moved.
+type clearing struct{ err error }
+
+func (clearing) Describe(context.Context) (*protocol.DescribeResult, error) {
+	return &protocol.DescribeResult{Capabilities: []string{teammove.Capability}}, nil
+}
+
+func (c clearing) Call(context.Context, string, string, []string, any) (*protocol.Envelope, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	raw, err := json.Marshal(&protocol.TeamMoveResult{TeamRef: teamRef})
+	if err != nil {
+		return nil, err
+	}
+	return &protocol.Envelope{OK: true, ProtocolVersion: protocol.ProtocolVersion, Result: raw}, nil
+}
+
+// TestAClearAnsweredWithAWaitIsAClearThatWasNotAnswered (work item 341):
+// what became of a clear is read by the one reading a follow has of a
+// backend's answer. A backend that says to wait, which the protocol's
+// table calls retryable, has not refused the clear: it was told as a
+// refusal, a record known to stand, and the owner was sent to clear it by
+// hand. It is a clear that was not answered, as one that could not be
+// reached is. A refusal that is an answer stays a refusal.
+func TestAClearAnsweredWithAWaitIsAClearThatWasNotAnswered(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		err  error
+		want teammove.ClearOutcome
+	}{
+		"cleared":                   {nil, teammove.Cleared},
+		"it says to wait":           {&protocol.Error{Code: protocol.CodeRateLimited, Message: "slow down", RetryAfterMS: 1000}, teammove.ClearUnanswered},
+		"it could not be reached":   {&protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"}, teammove.ClearUnanswered},
+		"its answer is no envelope": {&protocol.Error{Code: protocol.CodeInternal, Message: "the backend answered with something that is not a result envelope"}, teammove.ClearUnanswered},
+		"the caller's time ran out": {context.DeadlineExceeded, teammove.ClearUnanswered},
+		"the caller may not":        {&protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}, teammove.ClearRefused},
+		"no such endpoint":          {&protocol.Error{Code: protocol.CodeNotFound, Message: "no such endpoint"}, teammove.ClearRefused},
+	} {
+		if got, err := teammove.ClearRecord(t.Context(), clearing{err: tc.err}); got != tc.want || (tc.err != nil && !errors.Is(err, tc.err)) {
+			t.Errorf("%s: outcome %d, %v, want %d", name, got, err, tc.want)
+		}
+	}
+}
+
 // undescribed is a Caller whose describe fails with err, as the adapter of
 // the backend the member joined does when it is not set up, prints what is
 // no envelope, or does not end in time. It is asked nothing else.

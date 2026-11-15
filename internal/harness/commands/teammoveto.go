@@ -647,26 +647,40 @@ func onThatServerAlready(to, has, typed string) *protocol.Error {
 // A candidate whose record cannot be read is not one that holds none: it
 // may be the very backend the team is leaving. So nothing is chosen while
 // one does not answer either: the command names it, and says to run it
-// again when it answers, or with --from.
+// again when it answers, or with --from. A backend that answers that this
+// member may not read its record is another matter: it is not the backend
+// the team is leaving, and is no candidate (teammove.RefusesCaller).
 func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string, error) {
 	bindings, keys, err := listBindings(m.configDir)
 	if err != nil {
 		return nil, "", err
 	}
-	var candidates, recorded, unread []int
+	var candidates, recorded, unread, refusing []int
 	for i, b := range bindings {
 		if b.TeamRef != m.file.TeamRef || keys[i] == m.destKey {
 			continue
 		}
-		candidates = append(candidates, i)
 		t, terr := inv.dialectTarget(b.Adapter, keys[i])
 		if terr != nil {
-			unread = append(unread, i)
+			candidates, unread = append(candidates, i), append(unread, i)
 			continue
 		}
 		record, _, rerr := inv.recordOn(t)
+		if teammove.RefusesCaller(rerr) {
+			// The backend answered that this member may not read what it
+			// records. The one the team is leaving is its owner's to record
+			// on, and its owner reads it: so this is not that one, and it is
+			// no candidate. Until this it was listed with the backends that
+			// did not answer, and the command said to run it again when it
+			// answers, which it never would (work item 341).
+			refusing = append(refusing, i)
+			continue
+		}
+		candidates = append(candidates, i)
 		switch {
 		case rerr != nil:
+			// It did not answer, or answered what is no record: it may be
+			// the one, and nothing is chosen while it cannot be read.
 			unread = append(unread, i)
 		case record != nil && record.Moved && record.Adapter == m.dest.Adapter && teammove.SameAddress(record.URL, m.dest.URL):
 			recorded = append(recorded, i)
@@ -704,6 +718,24 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		}
 		slices.Sort(lines)
 		return strings.Join(lines, ", or ")
+	}
+	// With the backends that refuse the read left out, one candidate or none
+	// may remain: the command then goes on as it does on a machine that has
+	// joined the team on one other backend, or on none (moveFrom).
+	if len(refusing) > 0 && len(candidates) == 1 {
+		return bindings[candidates[0]], keys[candidates[0]], nil
+	}
+	if len(refusing) > 0 && len(candidates) == 0 {
+		they := "the other backends this machine has joined this team on (" + hostsOf(refusing) + ") no longer count"
+		if len(refusing) == 1 {
+			they = "the other backend this machine has joined this team on (" + hostsOf(refusing) + ") no longer counts"
+		}
+		return nil, "", &protocol.Error{
+			Code: protocol.CodeConfig,
+			Message: "this project's " + teamfile.FileName + " names that server already, and " + they + " it a member of the team: " +
+				"there is nothing left to move from here (`brigade team status` names the team this checkout is on)",
+			Details: map[string]string{"reason": "no_move"},
+		}
 	}
 	if len(unread) > 0 {
 		it, did := "it answers", " did not answer what it records of this team"

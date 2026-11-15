@@ -747,8 +747,13 @@ const (
 func ClearRecord(ctx context.Context, client Caller) (ClearOutcome, error) {
 	env, err := client.Call(ctx, "team", "move", []string{"--clear"}, nil)
 	if err != nil {
+		// A clear the backend refused before it acted leaves a record that is
+		// known to stand. One that was not answered does not (unanswered: a
+		// backend out of reach and one that says to wait, which until this
+		// was told as a refusal, work item 341), and neither does a failure
+		// of the backend or an answer that is no envelope.
 		var perr *protocol.Error
-		if errors.As(err, &perr) && perr.Code != protocol.CodeUnavailable && perr.Code != protocol.CodeInternal && perr.Code != protocol.CodeProtocolMismatch {
+		if !unanswered(err) && errors.As(err, &perr) && perr.Code != protocol.CodeInternal && perr.Code != protocol.CodeProtocolMismatch {
 			return ClearRefused, err
 		}
 		return ClearUnanswered, err
@@ -796,6 +801,21 @@ func unanswered(err error) bool {
 	}
 	var perr *protocol.Error
 	return errors.As(err, &perr) && perr.Code.Retryable()
+}
+
+// RefusesCaller reports whether err is a backend's answer that the caller
+// may not ask what it asked: `unauthorized`, the caller is no active member
+// of the team there, or `unauthenticated`, a credential the backend does
+// not know. It is an answer about the caller, and so never true of a
+// question that was not answered (unanswered), nor of an answer that says
+// nothing of the caller: a failure of the backend, or something that is no
+// envelope.
+func RefusesCaller(err error) bool {
+	if unanswered(err) {
+		return false
+	}
+	var perr *protocol.Error
+	return errors.As(err, &perr) && (perr.Code == protocol.CodeUnauthorized || perr.Code == protocol.CodeUnauthenticated)
 }
 
 // oldBackendReason is the reason of a follow whose question to the backend

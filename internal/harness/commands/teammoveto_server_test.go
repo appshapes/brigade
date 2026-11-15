@@ -771,3 +771,107 @@ func TestTheCommandsAMovePrintsCarryALongAddressWhole(t *testing.T) {
 		t.Errorf("the result's address of the server the team left: %v, want %s", from["url"], r.oldURL)
 	}
 }
+
+// TestARerunLeavesOutABackendThatRefusesToSayWhatItRecords (work item 341):
+// a command that is run again asks every backend this machine has joined
+// the team on what it records. One that answers that the caller may not
+// ask, `unauthorized` or `unauthenticated`, was listed with the ones that
+// did not answer: "did not answer what it records … Run the same command
+// again when it answers", which it never will. Such a backend is not the
+// one the team is leaving, whose owner reads its record: it is no
+// candidate. With one left the command goes on as it does on a machine
+// that has joined the team on one other backend, and with none it refuses
+// as it does where there is none. A backend that did not answer, and one
+// that answered something that is no record, stay as they were: either may
+// be the one.
+func TestARerunLeavesOutABackendThatRefusesToSayWhatItRecords(t *testing.T) {
+	t.Parallel()
+	const earlier = "earlier.example.test:8743"
+	// rerun is a machine that has joined the team on the server the file
+	// names already, on the server it left and on one before that.
+	rerun := func() *moveToRig {
+		t.Helper()
+		r := newMoveToRig(t)
+		r.fromAServer()
+		cfg := r.f.dirs.BrigadeConfig
+		if err := write.EnsureBinding(cfg, teamstore.Key("rest", "https://"+earlier, setupTeamRef), "rest", "https://"+earlier, "", "", setupTeamRef, "devs", "p_earlier"); err != nil {
+			t.Fatal(err)
+		}
+		if err := write.EnsureBinding(cfg, r.newKey, "rest", r.newURL, "", moveNewPin, setupTeamRef, "devs", "p_new"); err != nil {
+			t.Fatal(err)
+		}
+		r.writeFile(strings.NewReplacer(r.oldURL, r.newURL, moveOldPin, moveNewPin).Replace(r.original))
+		canon, err := teamfile.Canonicalize(r.top)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := write.Pin(cfg, canon, teamstore.Pin{Adapter: "rest", URL: r.newURL, Certificate: moveNewPin, TeamRef: setupTeamRef, ConsentedAt: fixtureNow}); err != nil {
+			t.Fatal(err)
+		}
+		r.f.rec.on("team take-in", okAnswer(r.takenIn(false, true)))
+		return r
+	}
+	notAMember := failAnswer(protocol.CodeUnauthorized, "not an active member of this team")
+
+	// The earlier one refuses the read, and the one the team left answers:
+	// the earlier one is left out, and the command goes on with the other.
+	for name, refusal := range map[string]answer{
+		"no active member":      notAMember,
+		"an unknown credential": failAnswer(protocol.CodeUnauthenticated, "the credential is not known to this server"),
+	} {
+		r := rerun()
+		// The server answers the earlier backend's question first, and then its own.
+		r.there.on("team moved", refusal, okAnswer(r.notMoved()))
+		if err := Team(r.inv(true, r.args()...)); err != nil {
+			t.Fatalf("%s: the same command with one backend left: %v", name, err)
+		}
+		if out := r.f.out.String(); !strings.Contains(out, "recorded on "+r.oldHost+":") || len(r.prompts) != 1 || !strings.Contains(r.prompts[0], "from "+r.oldHost+" to "+r.newHost) {
+			t.Errorf("%s: the move did not go on from the one backend left:\n%s\n%v", name, out, r.prompts)
+		}
+	}
+
+	// Both refuse: there is nothing left to move from here.
+	r := rerun()
+	r.f.rec.on("team moved", notAMember)
+	r.there.on("team moved", notAMember)
+	perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeConfig, "no_move")
+	for _, need := range []string{"names that server already", earlier, r.oldHost, "no longer count", "nothing left to move from here"} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the refusal where every other backend refuses the read lacks %q: %s", need, perr.Message)
+		}
+	}
+	if len(r.prompts) != 0 || strings.Contains(perr.Message, "did not answer") {
+		t.Errorf("the refusal where every other backend refuses the read: %s; %d confirmations", perr.Message, len(r.prompts))
+	}
+
+	// One that answers what is no record may be the one: nothing is chosen.
+	r = rerun()
+	r.there.on("team moved", failAnswer(protocol.CodeInternal, "the backend answered with something that is not a result envelope"))
+	perr = wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, "team_ambiguous")
+	if !strings.Contains(perr.Message, earlier+" did not answer what it records of this team") || !strings.Contains(perr.Message, "--from "+earlier) || !strings.Contains(perr.Message, "--from "+r.oldHost) {
+		t.Errorf("the refusal where a backend answers what is no record: %s", perr.Message)
+	}
+}
+
+// TestTeamMoveToTellsAClearThatIsToldToWaitAsOneThatWasNotAnswered (work
+// item 341): the same for the one command, which clears the record a
+// server holds of the team's leaving when the team comes back to it. A
+// clear answered with a wait was told as a record that stands and could
+// not be cleared. It is a clear that was not answered.
+func TestTeamMoveToTellsAClearThatIsToldToWaitAsOneThatWasNotAnswered(t *testing.T) {
+	t.Parallel()
+	r := newMoveToRig(t)
+	r.fromAServer()
+	left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"rest","url":"` + r.oldURL + `","certificate":"` + moveOldPin + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	r.there.on("team moved", okAnswer(left))
+	r.there.on("team move", failAnswer(protocol.CodeRateLimited, "slow down"))
+	perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeRateLimited, reasonReturnNotCleared)
+	for _, need := range []string{"the answer to the clear of that record did not arrive, so the record may be cleared all the same", "The cause: slow down", "Run the same command again to finish the move"} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the stop of a clear that was told to wait lacks %q: %s", need, perr.Message)
+		}
+	}
+	if strings.Contains(perr.Message, " still records that the team left it for ") {
+		t.Errorf("a clear that was told to wait is told as a record that stands: %s", perr.Message)
+	}
+}
