@@ -13,6 +13,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -45,6 +46,29 @@ func (s stoppedAtTheWatcher) Spawn(ctx context.Context, spec SpawnSpec) (int, er
 		<-s.release
 	}
 	return s.watchers.Spawn(ctx, spec)
+}
+
+// heldHook runs one prompt of stopped, a copy of the fixture whose seams
+// hold the hook somewhere, beside the test, and returns once the hook
+// stands at reached. A hook that ends without getting there fails the test
+// at once: nothing waits for a place the hook never comes to. The hook is
+// let go, and waited for, when the test ends.
+func heldHook(t *testing.T, stopped *fixture, reached <-chan struct{}, release chan struct{}, env ...string) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		stopped.run(SubPrompt, stopped.sessionPromptDoc(), env...)
+	}()
+	t.Cleanup(func() {
+		close(release)
+		<-done
+	})
+	select {
+	case <-reached:
+	case <-done:
+		t.Fatalf("the hook ended before it came to where it was to be stopped")
+	}
 }
 
 // noticeOf reports whether the fixture's session has a move's notice.
@@ -83,13 +107,7 @@ func TestAMoveWhoseHookWasStoppedIsSaidByTheNextPrompt(t *testing.T) {
 			held := stoppedAtTheWatcher{watchers: f.spawner, reached: make(chan struct{}), release: make(chan struct{}), once: &sync.Once{}}
 			stopped := *f
 			stopped.deps.Spawner = held
-			var hook sync.WaitGroup
-			hook.Go(func() { stopped.run(SubPrompt, stopped.sessionPromptDoc()) })
-			t.Cleanup(func() {
-				close(held.release)
-				hook.Wait()
-			})
-			<-held.reached
+			heldHook(t, &stopped, held.reached, held.release)
 			if m := f.mustMap(); m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" || !f.noticeOf() {
 				t.Fatalf("the hook stands at the watcher with the map %q, %q and a notice: %v", m.TeamKey, m.BrigadeSessionID, f.noticeOf())
 			}
@@ -120,6 +138,87 @@ func TestAMoveWhoseHookWasStoppedIsSaidByTheNextPrompt(t *testing.T) {
 	}
 }
 
+// TestAMoveWhoseHookWasStoppedAfterItsLinesIsSaidByTheNextPrompt: a hook
+// can be stopped after it printed its lines as well, and what it printed is
+// discarded all the same: the notice has to outlive the lines, and goes
+// only as the hook's last act. The hook that moves the session is held in
+// the poll that follows its lines; the notice is still there, and the next
+// prompt says the move. It says how the checkout arrived too: the hook that
+// was stopped had said it, to nobody.
+func TestAMoveWhoseHookWasStoppedAfterItsLinesIsSaidByTheNextPrompt(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	seam := attachedMember(t, f, movedDoc(movedURL, movedPin), map[string][]fakeadapter.Response{
+		"message receive": {okResp(receiveDoc())},
+	})
+	before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+		t.Fatalf("lines = %q", got)
+	}
+	// The hook polls the backend the session moved to, and is held there.
+	reached, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	stopped := *f
+	inner := f.deps.Spawn
+	stopped.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if verbOf(spec.Argv) == "message receive" && profileOf(adapterCall{Argv: spec.Argv}) == newKey {
+			once.Do(func() { close(reached) })
+			<-release
+		}
+		return inner(ctx, spec)
+	}
+	heldHook(t, &stopped, reached, release, config.OptionPollOnPrompt+"=true")
+	if m := f.mustMap(); m.BrigadeSessionID != "brigade-sess-2" || !f.noticeOf() {
+		t.Fatalf("the hook stands in its poll with the map %q and a notice: %v", m.BrigadeSessionID, f.noticeOf())
+	}
+	got := f.prompted()
+	want := []string{followedLine(tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+	if !slices.Equal(got, want) || f.noticeOf() || len(seam.callsFor("session register")) != 2 {
+		t.Fatalf("the prompt after the hook that was stopped:\n%q\nwant\n%q; a notice is left: %v", got, want, f.noticeOf())
+	}
+}
+
+// TestAMoveSaidFromItsNoticeOwesNoLineTheConversationHeard: the line of how
+// the checkout arrived is said once in a conversation. A session that was
+// held back by a message heard it at the prompt that found the message; the
+// message is released, the hook that then moves the session is stopped, and
+// the next prompt says the context line with the session's new id and not
+// the arrival line a second time.
+func TestAMoveSaidFromItsNoticeOwesNoLineTheConversationHeard(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	f.prompted()
+	entries := heldEntries(1, "payments-api")
+	if err := pendingStoreOf(f).Save(inbound.PendingFile{Entries: entries, UpdatedAt: fixedTime}); err != nil {
+		t.Fatal(err)
+	}
+	arrival := followedLine(tf, &before, true, "brigade")
+	if got := f.prompted(); !slices.Contains(got, arrival) || !slices.Contains(got, moveWaitsLine(1)) {
+		t.Fatalf("the prompt that found the message: %q", got)
+	}
+	if err := pendingStoreOf(f).Save(inbound.PendingFile{UpdatedAt: fixedTime}); err != nil {
+		t.Fatal(err)
+	}
+	held := stoppedAtTheWatcher{watchers: f.spawner, reached: make(chan struct{}), release: make(chan struct{}), once: &sync.Once{}}
+	stopped := *f
+	stopped.deps.Spawner = held
+	heldHook(t, &stopped, held.reached, held.release)
+	if m := f.mustMap(); m.TeamKey != newKey || !f.noticeOf() {
+		t.Fatalf("the hook stands at the watcher with the map %q and a notice: %v", m.TeamKey, f.noticeOf())
+	}
+	if got := f.prompted(); !slices.Equal(got, []string{startLine("payments-api", "brigade-sess-2", teamName, "accept")}) {
+		t.Fatalf("the prompt after the hook that was stopped: %q", got)
+	}
+}
+
 // sessionPromptDoc is a prompt document of the fixture's host.
 func (f *fixture) sessionPromptDoc() string {
 	if f.codex() {
@@ -133,8 +232,10 @@ func (f *fixture) sessionPromptDoc() string {
 // the session being where it was. A notice that is there over a map that
 // still names the session it was left for is of a registration that was
 // not recorded (the hook was stopped before it wrote the map): the next
-// prompt removes it, says nothing of it, and makes the move itself. And a
-// notice no prompt can read is removed.
+// prompt removes it, says nothing of it, and makes the move itself. So does
+// a notice of a move from the backend the map still names, whatever session
+// it was left for: a session that is on the backend a move was from has not
+// made that move. And a notice no prompt can read is removed.
 func TestAMovesNoticeGoesWithTheHookThatLeftIt(t *testing.T) {
 	t.Parallel()
 
@@ -170,6 +271,9 @@ func TestAMovesNoticeGoesWithTheHookThatLeftIt(t *testing.T) {
 	}{
 		{"a notice of a registration that was not recorded", func(f *fixture) string {
 			return `{"version":1,"was":"brigade-sess-1","from":"` + f.teamKey + `","arrival":true}`
+		}},
+		{"a notice of a move from the backend the session is on, left for another session", func(f *fixture) string {
+			return `{"version":1,"was":"a-session-before","from":"` + f.teamKey + `","arrival":true}`
 		}},
 		{"a notice that cannot be read", func(*fixture) string { return `{"version":7,"was":` }},
 		{"a notice that names no backend a store could hold", func(*fixture) string {
@@ -257,4 +361,53 @@ func TestAStartSettlesTheNoticeOfAMove(t *testing.T) {
 	if got := f.prompted(); strings.Contains(strings.Join(got, "\n"), "this session is") || strings.Contains(strings.Join(got, "\n"), "followed team") {
 		t.Fatalf("the prompt after the start said the move: %q", got)
 	}
+}
+
+// TestAStartThatResolvesNoTeamAndASessionsEndSettleTheNoticeToo: the two
+// other hooks that come after a hook that was stopped. A `/clear` in a
+// directory with no team file keeps the session and says its context line,
+// with the id it has now: the notice has nothing left to tell. And a
+// session that ends takes its notice with it, as it takes its stamps: the
+// next process under the same id finds none.
+func TestAStartThatResolvesNoTeamAndASessionsEndSettleTheNoticeToo(t *testing.T) {
+	t.Parallel()
+	moved := func(t *testing.T) *fixture {
+		t.Helper()
+		f := newMemberFixture(t)
+		f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+		attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+		oldKey := f.teamKey
+		f.moveTeamFile("team-1")
+		f.prompted()
+		if got := f.prompted(); len(got) != 2 {
+			t.Fatalf("the prompt that moved the session: %q", got)
+		}
+		notice := `{"version":1,"was":"brigade-sess-1","from":"` + oldKey + `","arrival":true}`
+		if err := adapterkit.WriteAtomic(config.MovedNotice(f.stateDir, f.key()), []byte(notice+"\n")); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+
+	t.Run("a start in a directory with no team file", func(t *testing.T) {
+		t.Parallel()
+		f := moved(t)
+		bare := filepath.Join(t.TempDir(), "no-checkout")
+		if err := os.MkdirAll(bare, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.nativeID, f.cwd = otherConversation, bare
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+		if exit != 0 || !slices.Equal(lines(out), []string{startLine("payments-api", "brigade-sess-2", teamName, "accept")}) || f.noticeOf() {
+			t.Fatalf("exit %d, lines %q; a notice is left: %v\n%s", exit, lines(out), f.noticeOf(), errOut)
+		}
+	})
+
+	t.Run("the session's end", func(t *testing.T) {
+		t.Parallel()
+		f := moved(t)
+		if exit, _, errOut := f.run(SubSessionEnd, f.endDoc("exit")); exit != 0 || f.noticeOf() {
+			t.Fatalf("exit %d; a notice is left: %v\n%s", exit, f.noticeOf(), errOut)
+		}
+	})
 }

@@ -222,8 +222,7 @@ func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 // registered and never that it is `not connected`, and stamps the attempt,
 // so the prompts of the next minute do not wait again.
 //
-// What is held is when the hook stopped waiting, read where the backend is
-// asked. How long the prompt then took to end is not: it is the hook's
+// How long the prompt took to end after that is not held: it is the hook's
 // stamps, each a file synced to disk, and beside other agents' work on
 // this machine it was 0.25 s in one run and 2.8 s in another (2026-11-14).
 // A hook that is stopped in that time has moved nobody.
@@ -231,9 +230,8 @@ func TestAPromptWhoseNewBackendHangsGivesUpAtTheRegistrationsDeadline(t *testing
 	t.Parallel()
 	// The registration's deadline is written out, a second short of the
 	// budget: a test that took it from the constant would pass whatever the
-	// constant said. within is what the hook may take between its start and
-	// its budget's.
-	const budget, deadline, within = 2500 * time.Millisecond, 1500 * time.Millisecond, 250 * time.Millisecond
+	// constant said.
+	const budget, deadline = 2500 * time.Millisecond, 1500 * time.Millisecond
 	f := newMemberFixture(t)
 	f.deps.PromptBudget = budget
 	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
@@ -249,30 +247,15 @@ func TestAPromptWhoseNewBackendHangsGivesUpAtTheRegistrationsDeadline(t *testing
 	}
 	blocked, release := hangingBackend(f, registers)
 	t.Cleanup(release)
-	// When the hook stopped waiting for the registration, as time since the
-	// prompt began.
-	var began time.Time
-	var gaveUp atomic.Int64
-	hanging := f.deps.Spawn
-	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
-		res, err := hanging(ctx, spec)
-		if registers(spec) {
-			gaveUp.Store(int64(time.Since(began)))
-		}
-		return res, err
-	}
 	spawns := f.spawner.count()
 
-	began = time.Now()
 	got, took := f.timed()
 	if blocked.Load() != 1 {
 		t.Fatalf("%d registrations were sent to the new backend, want 1", blocked.Load())
 	}
-	// It waited for the registration until that one's deadline and no
-	// longer.
-	if at := time.Duration(gaveUp.Load()); at < deadline || at >= deadline+within {
-		t.Fatalf("the registration was given up %v after the prompt began, want at its deadline of %v, a second short of the budget of %v", at, deadline, budget)
-	}
+	// It waited for the registration, which never answers, until that one's
+	// deadline. That the deadline is a second short of the budget, and no
+	// more, is TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt's.
 	if took < deadline {
 		t.Fatalf("the prompt took %v, less than the registration's deadline of %v", took, deadline)
 	}
@@ -309,18 +292,22 @@ func TestAPromptWhoseNewBackendHangsGivesUpAtTheRegistrationsDeadline(t *testing
 // not be registered. The control is the same backend answering in good
 // time, which moves the session and says so.
 //
-// What is held is the registration's deadline, read where the backend is
-// asked: the deadline its call was made under, and when its caller stopped
-// waiting. How long the whole prompt took is not: after the deadline the
-// hook still writes its stamps, each a file synced to disk, and that took
-// 0.25 s in one run and 2.8 s in another beside other agents' work on this
-// machine (measured 2026-11-14). The second is for that, and where it is
-// not enough the move's notice is (move_notice_test.go).
+// Nothing here is held against the clock of the machine. The second is
+// read where the backends are asked: the deadline the registration was made
+// under, and the deadline of the poll that follows it in the same hook,
+// which runs under the hook's whole budget. Their difference is the
+// registration's second exactly, however long the hook took to get there.
+// And the backend that answers late is given up on before its answer
+// because its caller's deadline comes first, not because a prompt was
+// timed: the hook's other work, its stamps, each a file synced to disk,
+// took 0.25 s in one run and 2.8 s in another beside other agents' work on
+// this machine (measured 2026-11-14). Where the second is not enough for
+// that, the move's notice is what tells the session (move_notice_test.go).
 func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 	t.Parallel()
-	// The deadline is written out, a second short of the budget; within is
-	// what the hook may take between its start and its budget's.
-	const budget, deadline, within = 3 * time.Second, 2 * time.Second, 250 * time.Millisecond
+	// The second is written out: a test that took it from the constant would
+	// pass whatever the constant said.
+	const budget, second = 3 * time.Second, time.Second
 	for _, tc := range []struct {
 		name string
 		// answers is how long the new backend takes to register the session.
@@ -335,7 +322,9 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 			f := newMemberFixture(t)
 			f.deps.PromptBudget = budget
 			f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
-			attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+			attachedMember(t, f, movedDoc(movedURL, movedPin), map[string][]fakeadapter.Response{
+				"message receive": {okResp(receiveDoc())},
+			})
 			before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
 			f.moveTeamFile("team-1")
 			tf := f.movedFile()
@@ -344,52 +333,52 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 			}
 			// A backend that takes its time, as a real one does: its answer
 			// reaches a caller that is still waiting, and nobody else. It notes
-			// the deadline its call was made under and, when the caller stopped
-			// waiting, when: both as time since the prompt began.
-			var began time.Time
-			var due, gaveUp atomic.Int64
+			// the deadline its call was made under, and whether its caller
+			// stopped waiting; the poll of the same hook notes its own.
+			var registerBy, pollBy atomic.Int64
+			var gaveUp atomic.Bool
 			inner := f.deps.Spawn
 			f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
-				if verbOf(spec.Argv) != "session register" || profileOf(adapterCall{Argv: spec.Argv}) != newKey {
+				onNew := profileOf(adapterCall{Argv: spec.Argv}) == newKey
+				if d, ok := ctx.Deadline(); ok && onNew && verbOf(spec.Argv) == "message receive" {
+					pollBy.Store(d.UnixNano())
+				}
+				if verbOf(spec.Argv) != "session register" || !onNew {
 					return inner(ctx, spec)
 				}
 				if d, ok := ctx.Deadline(); ok {
-					due.Store(int64(d.Sub(began)))
+					registerBy.Store(d.UnixNano())
 				}
 				select {
 				case <-time.After(tc.answers):
 					return inner(ctx, spec)
 				case <-ctx.Done():
-					gaveUp.Store(int64(time.Since(began)))
+					gaveUp.Store(true)
 					return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
 				}
 			}
-			began = time.Now()
-			got, took := f.timed()
-			m := f.mustMap()
-			// The registration was made under a deadline a second short of the
-			// hook's budget, whatever the backend then did.
-			if at := time.Duration(due.Load()); at < deadline || at >= deadline+within {
-				t.Fatalf("the registration's deadline was %v after the prompt began, want %v: a second short of the budget of %v", at, deadline, budget)
+			began := time.Now()
+			exit, out, errOut := f.run(SubPrompt, f.promptDoc("default"), config.OptionPollOnPrompt+"=true")
+			took := time.Since(began)
+			got, m := lines(out), f.mustMap()
+			if exit != 0 || registerBy.Load() == 0 {
+				t.Fatalf("exit %d; the registration was made under a deadline: %v\n%s", exit, registerBy.Load() != 0, errOut)
 			}
 			if !tc.moves {
+				// The caller stopped waiting before the backend answered, and
+				// not before its deadline.
+				if !gaveUp.Load() || took < budget-second {
+					t.Fatalf("a registration answered after its deadline was waited for: %v; the prompt took %v, the deadline being %v", !gaveUp.Load(), took, budget-second)
+				}
 				if m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" {
 					t.Fatalf("a registration answered after its deadline moved the session: %+v", m)
 				}
 				if !slices.Equal(got, []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine}) {
 					t.Fatalf("lines = %q", got)
 				}
-				// The caller stopped waiting at the deadline, before the backend
-				// answered.
-				if at := time.Duration(gaveUp.Load()); at < deadline || at >= tc.answers {
-					t.Fatalf("the registration was given up %v after the prompt began: want at its deadline of %v, before the backend's answer at %v", at, deadline, tc.answers)
-				}
-				if took < deadline {
-					t.Fatalf("the prompt took %v, less than the registration's deadline of %v", took, deadline)
-				}
 				return
 			}
-			if gaveUp.Load() != 0 {
+			if gaveUp.Load() {
 				t.Fatalf("a registration answered in good time was given up")
 			}
 			if m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" {
@@ -398,6 +387,14 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 			want := []string{followedLine(tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
 			if !slices.Equal(got, want) {
 				t.Fatalf("lines = %q\nwant %q", got, want)
+			}
+			// The poll that followed ran under the hook's whole budget: the
+			// registration's deadline was a second before the hook's.
+			if pollBy.Load() == 0 {
+				t.Fatalf("the hook did not poll the backend the session moved to: the test holds nothing of the second")
+			}
+			if left := time.Duration(pollBy.Load() - registerBy.Load()); left != second {
+				t.Fatalf("the registration's deadline was %v before the hook's, want %v", left, second)
 			}
 		})
 	}

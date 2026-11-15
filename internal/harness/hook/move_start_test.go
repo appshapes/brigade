@@ -767,9 +767,10 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 
 	// The controls. A map with no live watcher may be one a dead process
 	// left: the start is of a session that is attached to nothing, and says
-	// so, the map as it was. And a member who left the team has a binding
-	// that names none: a session of theirs is not kept by a start that
-	// resolves nothing.
+	// so, the map as it was. A watcher that is alive and serves another
+	// session than the map names shows no running session either. And a
+	// member who left the team has a binding that names none: a session of
+	// theirs is not kept by a start that resolves nothing.
 	for _, tc := range []struct {
 		name string
 		gone func(t *testing.T, f *fixture)
@@ -777,6 +778,14 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 		{"no watcher is alive", func(t *testing.T, f *fixture) {
 			t.Helper()
 			if err := os.Remove(f.pidfilePath()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"the watcher that is alive serves another session", func(t *testing.T, f *fixture) {
+			t.Helper()
+			m := f.mustMap()
+			m.BrigadeSessionID = "a-session-the-watcher-does-not-serve"
+			if err := f.store().WriteByPID(m); err != nil {
 				t.Fatal(err)
 			}
 		}},
