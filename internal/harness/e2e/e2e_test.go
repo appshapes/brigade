@@ -350,8 +350,24 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	if _, err := os.Lstat(r.pidfilePath(carol)); err == nil {
 		t.Error("the pidfile survived the watcher's exit")
 	}
+	// The watcher closes the session on its way out under its production
+	// budget, one second (CloseWaitClean), which the rig cannot raise: one
+	// store write of the fs adapter, two files synced to disk, measured up
+	// to 6.2 s under a whole-tree `go test -race` on 2026-09-11. When the
+	// budget runs out the watcher stops its child, says so in its log and
+	// exits 0 with the session open, and the lease's expiry is authoritative
+	// (3.8). That line is the witness that the close was asked for through
+	// the real binary, and the only outcome held beside closed_at, as in
+	// TestSessionLifecycleThroughTheRealBinary, whose comment says where the
+	// close itself is asserted under a budget no disk decides. A bare
+	// closed_at here failed beside other suites on 2026-11-14 (work item
+	// 336).
 	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt == nil {
-		t.Errorf("the session was not closed: %+v", s)
+		if !r.logHas(carol, "watch child did not end after close; stopping it") {
+			t.Errorf("the session was not closed and the watcher's log does not say that its close budget ran out: %+v", s)
+		} else {
+			t.Logf("the watcher's close budget ran out; lease expiry is authoritative")
+		}
 	}
 	if out, err := os.ReadFile(stdout); err != nil || len(out) != 0 {
 		t.Errorf("the watcher wrote to stdout: %q (%v)", out, err)
