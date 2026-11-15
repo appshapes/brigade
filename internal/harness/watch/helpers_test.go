@@ -523,14 +523,13 @@ func (fx *fixture) send(body string) string {
 	return fx.sendWith(body, "")
 }
 
-// sendWith is send with an idempotency key. The send is made again while
-// the store's lock cannot be had (adapterCall); a send with no key is given
-// one of its own, so that asking twice is one message whatever happens.
+// sendWith is send with an idempotency key, and "" sends with none: a send
+// with no key stays one. The send is made again while the store's lock
+// cannot be had (adapterCall), which needs no key: the fs adapter takes its
+// store's lock once, before it reads or writes anything of a command
+// (openStore), so the send that was refused the lock left no message.
 func (fx *fixture) sendWith(body, key string) string {
 	fx.t.Helper()
-	if key == "" {
-		key = "send-" + testutil.RunID() + "-" + strconv.FormatInt(sendKeys.Add(1), 10)
-	}
 	res := adapterCall(fx, "the send to the watched session", func(ctx context.Context) (*protocol.SendResponse, error) {
 		return fx.peer.Send(ctx, &protocol.SendRequest{
 			SenderSessionID: fx.senderSessionID, RecipientSessionID: fx.sessionID, Body: body, IdempotencyKey: key,
@@ -538,9 +537,6 @@ func (fx *fixture) sendWith(body, key string) string {
 	})
 	return res.MessageID
 }
-
-// sendKeys numbers the keys sendWith gives.
-var sendKeys atomic.Int64
 
 // writeMap writes the by-pid map for the sleeper.
 func (fx *fixture) writeMap() {
@@ -1150,6 +1146,32 @@ func TestAdapterCallAsksAgainWhenTheLockCouldNotBeHad(t *testing.T) {
 	})
 	if got != "answered" || asked != 2 {
 		t.Fatalf("got %q after %d calls, want the answer after 2", got, asked)
+	}
+}
+
+// TestAFixturesSendCarriesNoIdempotencyKey is send's own test (work item
+// 336). For a while every send of a fixture was given a key of its own, so
+// that a send asked again would be one message, and no test of this package
+// sent a message the way a session with no key sends one. A send that is
+// asked again was refused the store's lock and left nothing (sendWith), so
+// it needs no key. The fs store keeps a record of each key a sender used,
+// under the sender's session: a send leaves none, and the control, a send
+// with a key, leaves one and is the same message when it is asked again.
+func TestAFixturesSendCarriesNoIdempotencyKey(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	fx.useFS()
+	keys := func() int {
+		records, _ := filepath.Glob(filepath.Join(fx.root, "teams", fx.teamRef, "idem", fx.senderSessionID, "*.json"))
+		return len(records)
+	}
+	first, second := fx.send("no key"), fx.send("no key")
+	if n := keys(); n != 0 || first == second || len(fx.inboxIDs()) != 2 {
+		t.Fatalf("two sends with no key left %d idempotency record(s) and %d message(s), %s and %s; want no record and two messages", n, len(fx.inboxIDs()), first, second)
+	}
+	keyed := fx.sendWith("a key", "key-1")
+	if again := fx.sendWith("a key", "key-1"); keys() != 1 || again != keyed || len(fx.inboxIDs()) != 3 {
+		t.Fatalf("the control, a send with a key asked twice, left %d idempotency record(s) and %d message(s), %s and %s; want one record and one more message: the test holds nothing otherwise", keys(), len(fx.inboxIDs()), keyed, again)
 	}
 }
 
