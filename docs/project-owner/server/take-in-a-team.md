@@ -58,9 +58,14 @@ takes the team in, opens its move and records it
   opening the team's move or registering a session: from then on the same command with that key is a
   member's join, and takes nothing from the owner. A rotation of the team's join secret ends the key as well.
   Without that file, on another machine or after the profile was reset, the command run again joins as a
-  member, and you name the owner ([Name a team's owner](name-the-owner.md)). On a machine that ran `brigade
-  team join` after the answer was lost, the command run again acts for the member that join made, keeps its
-  key file and says so: after `brigade team revoke-credentials` there, the same command owns the team.
+  member, and you name the owner ([Name a team's owner](name-the-owner.md)). On a machine that joined the team
+  on the server after the answer was lost, the command run again acts for the member that join made: it stops
+  and says that the team is owned by someone else and that you can name its owner. The retry key is still
+  there. The adapter keeps its file and says so in its own log (`logs/adapter-<profile>.log` under Brigade's
+  state directory), not on the terminal. Once that machine's credential at the server is revoked, the same
+  command owns the team: `brigade team revoke-credentials`, run in a checkout whose `.brigade.json` names the
+  server. In a checkout that still names the backend the team leaves, that command revokes the membership
+  there, the one the move is recorded with, so it is not run there.
 - The journal says who did it: `member <reference> took in team <name> (<team_ref>) with the join secret it has on
   another backend, and owns it`. No line holds the secret.
 - **Decide about the creation token first.** A team's reference is in its committed `.brigade.json`, so it is

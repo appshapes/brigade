@@ -620,8 +620,9 @@ func TestARetryKeyFileThatIsNoPrivateFileIsRefused(t *testing.T) {
 // TestARetryKeyThatCannotBeRemovedIsSaid: the credential is kept and the
 // key file cannot be removed. The take-in is done and succeeds, and stderr
 // says to remove the file, by its name: the server honours the key until
-// the team's join secret is rotated, so a file that stays is not left
-// there in silence. The line holds nothing of the key.
+// its owner first asks for something with the credential that the server
+// records, so a file that stays is not left there in silence. The line
+// holds nothing of the key.
 func TestARetryKeyThatCannotBeRemovedIsSaid(t *testing.T) {
 	t.Parallel()
 	b := newBackend(t)
