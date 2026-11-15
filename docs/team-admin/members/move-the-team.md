@@ -57,7 +57,9 @@ What it does, in this order:
    A team that was on that server before, and comes back, is there already: the server then still records
    that the team left it, and the command clears that record here, before anything is recorded on the backend
    the team leaves. So the two never each say that the team is on the other. When this machine has joined the
-   team on that server before, the question says that this will be done.
+   team on that server before, the question says that this will be done. A step that fails after that does not
+   put the record back, and the command says so: a member who had not yet followed the team's earlier move
+   away from that server follows nothing until this move is finished.
 4. **Opens the move.** The ticket goes to a private file under Brigade's state directory and is removed when the
    command ends. You never see it. A command that Ctrl-C or a kill ends between this step and the next cannot
    remove the file: it stays there, mode 0600, until the next run of the same move writes over it and removes
@@ -70,7 +72,10 @@ What it does, in this order:
 7. **Says what was done and what is left.**
 
 Run the same command again after a failure: every step is safe to repeat, and the command says so when it stops
-part way. Each run opens the move again, which replaces its ticket on the server, so run a move that is finished
+part way. On a machine that has joined the team on more than one earlier backend, which is every machine whose
+team moved before, the command run again finds the backend the team is leaving by itself: the one whose record
+names the server, or the one this checkout was last joined to. When neither says, as after `--clear`, it changes
+nothing, names them and the flag, and you run it again with `--from <host>`. Each run opens the move again, which replaces its ticket on the server, so run a move that is finished
 again only for a reason: if that run stops before it has recorded the new ticket, the record hands out the one
 that was replaced, and a member who has not followed yet does not follow until you run the command once more.
 Move at a quiet moment: messages that are waiting on the old backend stay there, and a running session that
@@ -99,12 +104,15 @@ was already there.
 | only the owner of this team can move it | The team is on a server, and this machine's member does not own it there. Run it on the owner's machine, or have the owner [transfer the team](transfer-the-team.md) to you first. |
 | the server this team is on keeps no record of where a team goes | It is older than 0.8.0. Its operator updates it ([Keep the server](../../project-owner/server/keep-the-server.md#update-it)); then run the command again. Until then each member joins the new server with the secret file. |
 | the team is taken in on the server, and it still records that the team left it | The team was on that server before, and its record of the leaving could not be cleared or read. Nothing was recorded on the backend the team is leaving, so no session follows yet. Remove the cause the refusal names and run the same command again. |
+| the answer to the clear of that record did not arrive, so the record may be cleared all the same | The same stop, when the server did not answer the clear: it may have cleared the record, and `brigade team move --show --from <that server's host>` says. Run the same command again either way. |
+| this machine has joined this team on more than one other backend | You ran a move again whose `.brigade.json` already names the server, and nothing says which backend the team is leaving. The refusal names them: run the same command with `--from <host>`. |
+| the same server under another address, or a copy of its data | The server you named holds the team with the membership your machine has on the server the team is on. A team is not moved to either. The command ended the membership it had made there; when it could not, it names the one command that does. To change a server's address, its operator starts a fresh server at the new one ([Move it](../../project-owner/server/keep-the-server.md#move-it)). |
 | the old backend holds a record of a move already, and a private file for its ticket could not be written | The command names the directory under Brigade's state directory: make it one you can write, and run the command again. |
 | the record was cleared while this command was checking it | Someone cleared it from another machine. Run the command again. |
 | the file holds the join secret of another team | Name the file `team create` wrote for this team. |
 | the server takes no team in by request | It is older than 0.7.0: [With an older server](#with-an-older-server). |
 | the server asks for a creation token, or refused the one you gave | Ask its operator for the token's file, and pass `--create-token-file <path>`. |
-| the team is held on the server and owned by someone else | Someone took the team in there before you, or this machine did in a run whose answer was lost and has joined the team as a member since. The server's operator names you its owner ([Name a team's owner](../../project-owner/server/name-the-owner.md)); then run the command again. |
+| the team is held on the server and owned by someone else | Someone took the team in there before you, or this machine did in a run whose answer was lost and has joined the team as a member since. The server's operator names you its owner ([Name a team's owner](../../project-owner/server/name-the-owner.md)); then run the command again. The command says this only of another server: of the server the team is on, or a copy of it, it says the row above and names no owner. |
 | the server holds a team of this reference under another join secret | Tell the server's operator: this team cannot be taken in there. If the team was on that server before and its join secret was rotated since, on either side, name the file of the secret it has on that server. |
 | the server did not take the team in | It could not be reached, or its answer did not arrive. Run the same command again, on the same machine. |
 | `Run the same command again to finish the move` | It stopped after the server took the team in. Remove the cause and run it again. |
@@ -124,7 +132,14 @@ before when:
 - the session runs in Grok Build and was running when the file changed: it follows when it starts;
 - the record names anything other than what the file they pulled names: check with `brigade team move --show`;
 - the ticket has ended, the move was closed, or you rotated the join secret on the server;
-- their session on the old backend has ended (they left the team there, or were revoked).
+- their session on the old backend has ended (they left the team there, or were revoked);
+- the two backends each record that the team moved to the other. The session says exactly that, once, and
+  follows neither. No command of Brigade's leaves two backends so; `brigade team move --show --from <host>`
+  reads each record, and `--clear --from <host>` clears the one that is out of date.
+
+A member whose machine was on the server before, and whom you revoked there when the team had left it, follows
+all the same when the team comes back: the server refuses the membership the machine held, the session sets it
+aside and joins with the move's ticket, as a machine that had never joined.
 
 ## A member who missed a move
 
@@ -179,7 +194,11 @@ server's side, and you do yours in three steps.
    ```
 
    It shows what it is about to record and asks. Where the team went is read from `.brigade.json`, so the record
-   names exactly what each member's session compares it with. The ticket is read from the file: it is never an
+   names exactly what each member's session compares it with. When the server the team goes to itself records
+   that the team left it, a team that comes back, the record's own form clears that record first, as the one
+   command does, and says so. When it cannot, and that record names the backend the team is leaving, it
+   records nothing and names the command that clears it: the two would otherwise each say that the team is on
+   the other. The ticket is read from the file: it is never an
    argument, and nothing printed repeats it. Keep the file outside the repository, and delete it once the move
    is recorded. Then [push the team file](#2-push-the-team-file).
 
@@ -196,24 +215,36 @@ server's side, and you do yours in three steps.
     the file at the old backend again, and each member who followed joins there again with `brigade team join`.
 
   A record that was cleared is made again by the same `brigade team move --to` command, which opens the move
-  again.
+  again. Where the machine has joined the team on more than one earlier backend, that run asks which one the
+  team is leaving, and names them: add `--from <host>`.
 - Clear the record **before** you point `.brigade.json` back at the old backend. If the file already names it,
   say which backend holds the record: `brigade team move --clear --from <the old backend's host>`, and
   `--show --from <host>` reads it. A team that moved before leaves your machine joined to more than one earlier
   backend, and `--clear` and `--show` then ask which is meant in the same way: the last line of the move names
   the command with its `--from`.
 - When no checkout is left to follow, end the team on the old backend ([End a team](../delete/end-a-team.md)),
-  with three differences. Run it in a checkout whose `.brigade.json` still names the old backend, one you
-  kept at the commit before the move: a team command goes to the backend the file names, and in a checkout
-  that followed that is the server. Give `rotate-secret` a new file, not the team's secret file, which still
-  joins the server. And leave `.brigade.json` in the repositories. The record goes with the team.
+  with four differences. A team command goes to the backend the checkout is **joined** to, which after the
+  move is the server, whatever the `.brigade.json` of an older commit names: `brigade team status` says which.
+  So name the old backend, with `--on <its url or host>`, on the two commands that end the team there
+  (its steps 1 and 2), and read what they print: each says the backend it acts on before it acts, and in its
+  result. Give `rotate-secret` a new file, not the team's secret file, which still joins the server. Leave its
+  step 3 out: `team leave` and `team reset` take no `--on`, and in a checkout that followed they would leave
+  the server the team lives on. And leave `.brigade.json` in the repositories. The record goes with the team.
 - **When the old backend is a server**, the move ends nothing there: the team stays as it was, and a member
-  who has not followed still reaches it. No command removes a team from a server. What you can do there, from
-  a checkout that still names it, once every member has followed: `brigade team rotate-secret --secret-file
-  <a new file>`, after which nobody new joins it, and `brigade team revoke-member --max-version <n>`, which
-  ends the memberships that joined with the earlier secret. Neither clears the record. A member you revoke
-  there reads no record from then on, so revoke only those who have followed. What the team wrote stays on
-  that server until its operator removes the data directory.
+  who has not followed still reaches it. No command removes a team from a server. What you can do there, once
+  every member has followed, from any checkout of the team:
+
+  ```sh
+  brigade team rotate-secret --on <the old server's url or host> --secret-file <a new file>
+  brigade team revoke-member --on <the old server's url or host> --max-version <n>
+  ```
+
+  After the first nobody new joins it, and the second ends the memberships that joined with the earlier
+  secret. Each prints `team … acts on team "<name>" (<team_ref>) at <host>` first: without `--on` that host is
+  the server the team lives on, and the two commands would close the move and put out the members who
+  followed. Neither clears the record. A member you revoke there reads no record from then on, so revoke only
+  those who have followed, in every checkout they have. What the team wrote stays on that server until its
+  operator removes the data directory.
 
 ## What you are deciding for your members
 

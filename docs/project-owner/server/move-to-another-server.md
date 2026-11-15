@@ -54,9 +54,12 @@ a server's own address changes without a join on every machine: [Move it](keep-t
   ([Update it](keep-the-server.md#update-it)).
 - **Ending the team there is a later step, and not yours.** No command removes a team from a server. Once every
   member has followed, the Team Admin can close the old server to it: rotate the join secret there, to a new
-  file, so that nobody new joins, and revoke the members
-  ([Move the team to a server](../../team-admin/members/move-the-team.md#undo-it-and-end-it)). What the team wrote
-  stays in the data directory until the directory goes.
+  file, so that nobody new joins, and revoke the members, each with `--on <the old server's url or host>`
+  ([Move the team to a server](../../team-admin/members/move-the-team.md#undo-it-and-end-it)). The flag matters:
+  after the move the Team Admin's checkout is joined to the new server, and without it the two commands act
+  there. Each says the server it acts on, and your journal has the rotation and the revocations. A member who
+  was revoked here and whose team later comes back joins again with the move's ticket, with no command. What
+  the team wrote stays in the data directory until the directory goes.
 
 ## A team with gateways on the server it leaves
 
@@ -77,15 +80,24 @@ step 2, a mail or a Slack message reaches only the sessions that are still on th
 ## The server the team goes to must not be a copy
 
 Start the new server on a data directory of its own. A server started from a copy of the old one's data directory,
-at another address, is no place to move the team to, for three reasons:
+at another address, is no place to move the team to, and neither is the old server itself under another address
+(a second DNS name, another port in front of it):
 
-- **It holds the team already**, with every member the old one had and the owner the old one has.
+- **It holds the team already**, with every member the old one has and the owner the old one has.
 - **The Team Admin's machine does not know it.** A member's machine knows a server by its address, and holds
   its credential for the old address only. So the command's take-in arrives with no credential and is the join
-  of a new member, and the command stops: `the team is held on <host> and owned by someone else`. The Team Admin
-  is then on that server twice, once as the member the copy held and once as the member the take-in made.
-- **Every member that followed would be there twice as well**, for the same reason: a follow joins with the
-  move's ticket and no credential the copy knows.
+  of a new member, who does not own the team.
+- **The command sees that and stops.** It finds the membership the Team Admin's machine has on the old server
+  on the roster of the one it was pointed at, and says so: `<host> holds team … with the membership this
+  machine has on <old host>: it is the same server under another address, or a copy of its data, and a team
+  is not moved to either`. It ends the membership its take-in had just made, so the Team Admin is on that
+  roster once, and records nothing. It does not print `--set-owner` for this, and you should not run it:
+  on the old server under another address it would take the team from the Team Admin's own membership, and
+  on a copy it would let the move go on, with every member who followed there twice, once as the member the
+  copy held and once as the member the ticket let in.
+- **An address that differs only in spelling is the same address.** The host in another case, the scheme's own
+  port (`:443`), a slash at the end: the command knows the server by the spelling `.brigade.json` has, and says
+  that the file names it already.
 
 A fresh server holds only what the move puts there: the team, its owner, and each member as they follow.
 

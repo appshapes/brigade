@@ -51,13 +51,59 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   which server holds what. The lines and the `--json` result
   (`destination_record_cleared`) say when a record was cleared, and the
   question says beforehand that one will be, on a machine that has
-  joined the team on that server before.
+  joined the team on that server before. The record's older form,
+  `brigade team move --ticket-file`, clears it the same way and says so;
+  where it cannot, and that record names the backend the team is
+  leaving, it records nothing and names the command that clears it. A
+  stop after the record was cleared says that it is gone, and a clear
+  whose answer did not arrive says that the record may be cleared and
+  that `brigade team move --show --from <host>` reads it.
+- **A session goes nowhere between two backends that name each other.**
+  No command leaves two backends each recording that the team moved to
+  the other, and a session does not rely on that: when the backend it
+  would follow to itself records that the team went back to the backend
+  it is on, it follows neither, says so once, and stays where it is. The
+  administrator clears the record that is out of date.
+- **A member who was revoked on a server follows the team back there.**
+  A team that returns to a server finds its members' machines holding the
+  memberships they had there, which the administrator may have ended
+  after the team left. A session used to take such a membership for a
+  good one, pin the checkout to the server and stay unconnected, with
+  `team join` answering "already joined". Now it asks the server with
+  it, and on `unauthorized` sets it aside and joins with the move's
+  ticket, as a machine that had never joined. Any other failure changes
+  nothing, and the next session or prompt asks again.
+- **`team rotate-secret` and `team revoke-member` say which backend they
+  act on, and take `--on <url or host>`.** After a move a checkout is
+  joined to the server the team went to, and a team command goes there
+  whatever the `.brigade.json` of an older commit names: ending the team
+  on the backend it left rotated the secret of the one it lives on. Both
+  commands now print `team … acts on team "<name>" (<team_ref>) at
+  <host>` before the adapter is asked, carry the backend as `url` in
+  their result, and act on the backend `--on` names when the machine has
+  joined the team on more than one.
+- **The server a team is on is no place to move it to, under any
+  address.** An address that differs from the one `.brigade.json` or a
+  membership carries only in the host's case, the scheme's own port or a
+  slash at the end is that server. One the command cannot see through
+  (another DNS name, or a server started from a copy of the data
+  directory) is found once it has answered: the membership the machine
+  has on the old address is on its roster. The command then says that it
+  is the same server or a copy of its data, ends the membership its
+  take-in made, and never names the operator's `--set-owner`, which on
+  that server would take the team from the administrator's own
+  membership.
 - **The last line of a move names a command that runs.** `brigade team
   move --to` ends with the command that clears the record it made. When
   the machine has joined the team on more than one other backend, after
   an earlier move or an attempt that left it joined elsewhere, that line
   is now `brigade team move --clear --from <host>`: without `--from` the
-  command asks which backend is meant.
+  command asks which backend is meant. The same `--to` command run again
+  on such a machine no longer asks: it finds the backend the team is
+  leaving by the record that names the server, or by the checkout's own
+  pin when a run was stopped before it wrote it. Where neither says, as
+  after `--clear`, it changes nothing and names the backends and the
+  flag.
 - **Pages.** A new page for the two operators, "Move a team to another
   server", with what each must have in place, what a team with gateways
   does, and why the server a team goes to must not be a copy of the old

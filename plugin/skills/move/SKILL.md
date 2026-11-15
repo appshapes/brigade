@@ -76,6 +76,11 @@ move itself is not one of them: it meets the session's own permission rule, as a
   server already holds for another owner is the operator's to settle. Do none of that yourself.
 - If it stopped **after** the team was taken in, it says `Run the same command again`: do that once the cause is
   gone. Every step is safe to repeat.
+- If it says that this machine has joined the team on more than one other backend, the team moved before and
+  nothing says which backend it is leaving now. The refusal names them. Ask the user which one, and run the
+  same command with `--from <host>`: that is their answer, not a second try of yours.
+- If it says that the server is the same server under another address, or a copy of its data, relay it and
+  stop: a team is not moved to either, and the server's address is its operator's to change.
 - If it says that the option `team_move_in_session` is off, the user turned moves off for their sessions:
   give them the command to run in their own terminal, and stop.
 
@@ -91,8 +96,12 @@ Repeat what the command said is left, in its words. Then:
    with the secret file as before.
 4. **The gateways**, when the command named them: they are the server operator's to configure.
 5. **The server the team left**, when the team was on one: it keeps the team as it is, and the command says so.
-   Ending the team there is the user's to decide, later.
-6. **To undo**: `brigade team move --clear`, and what the command said about the move on the server.
+   Ending the team there is the user's to decide, later, and takes `--on <that server's url or host>` on
+   `brigade team rotate-secret` and `brigade team revoke-member`: without it a team command acts on the
+   server the team moved to, which this checkout is joined to now.
+6. **To undo**: the command its last line named, as it named it, and what it said about the move on the
+   server. It is `brigade team move --clear`, with `--from <host>` when this machine has joined the team on
+   more than one earlier backend: without it the command asks which is meant.
 
 Unless the user asks for it separately, never apply a migration, configure a gateway, end the team on the old
 backend or close the move. The whole procedure is `docs/team-admin/members/move-the-team.md` in the Brigade

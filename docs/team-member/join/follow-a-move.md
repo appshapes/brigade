@@ -78,6 +78,17 @@ records a move to the second, the file names the third, and the session says tha
 the team where it is now with the secret file, `/brigade:join ~/brigade-<team>.secret`. Your administrator can
 tell you that this is what happened.
 
+**If the session says that the two backends each record that the team moved to the other.** The backend you
+joined says the team went where the file names, and that one says the team went back. One of the two records is
+out of date, nothing on your machine says which, and the session follows neither: a file that flipped between
+the two would otherwise send it back and forth. It says so once and stays where it is. Tell your administrator,
+who clears the record that is out of date.
+
+**If the team comes back to a server you were on before.** Your machine still holds the membership it had
+there. Where the administrator ended that membership after the team had left, the server refuses it, and the
+session sets it aside and joins again with the move's ticket, with no command of yours. Where the membership is
+still good, the session uses it and joins nothing.
+
 A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
 you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or
 two of the record being there.

@@ -89,9 +89,14 @@ snapshot.
 Going back to an earlier release is not always possible, and the release's notes say when. From 0.8.0: a server
 before 0.8.0 does not start on a data directory on which a team's owner has recorded that the team moved away
 ([Move a team to another server](move-to-another-server.md)), until that record is cleared and the server has
-stopped once since. It says that a snapshot of format 4 is passed over and that the log holds a record of a kind
-it does not know, `team.move_recorded`, and ends. On a directory where no move was recorded, 0.7.0 and 0.8.0 start
-on each other's.
+stopped once since. A 0.7.0 ends with status 1, and what it writes first is one of two things. Where a snapshot
+holds the record, as one does once the 0.8.0 has stopped, started again or reached its next snapshot since the
+record, it writes `the snapshot <file> is passed over: it is of format 4, and this build reads formats 1 to 3`,
+once for each such snapshot it meets before one it can read, and then `the log could not be read from the
+snapshot's position, <n>: not an entry: unknown variant `team.move_recorded`, expected one of …`. Where the 0.8.0
+was killed after the record and before its next snapshot, no snapshot holds the record yet, and it writes the
+second line alone. Neither line names the version to run, because 0.7.0 was released before there was one: it is
+0.8.0 or later. On a directory where no move was recorded, 0.7.0 and 0.8.0 start on each other's.
 
 ## Move it
 
