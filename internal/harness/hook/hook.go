@@ -268,6 +268,11 @@ type Deps struct {
 	// promptBudget. Only a test lowers it, to reach the doing reminder's
 	// budget guard (plan 5.4) without a real 3.5 s stall.
 	PromptBudget time.Duration
+	// FollowBudget bounds the whole follow of `brigade hook follow`, the
+	// child a prompt hook starts (move.go, work item 327); zero means
+	// followBudget. Only a test lowers it, to see a follow whose backend
+	// never answers end, and let go of its lock, without a real 55 s wait.
+	FollowBudget time.Duration
 	// Getppid answers this process's parent pid, which on Muse Code is the
 	// Muse process the hook serves (card 88; hooks are the host's direct
 	// children there); nil means os.Getppid. A test injects a sleeper's
@@ -287,6 +292,7 @@ func RealDeps() Deps {
 		Notifier:     notifier,
 		PidfileWait:  DefaultPidfileWait,
 		PromptBudget: promptBudget,
+		FollowBudget: followBudget,
 		Getppid:      os.Getppid,
 	}
 }
@@ -326,6 +332,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.PromptBudget <= 0 {
 		d.PromptBudget = prod.PromptBudget
+	}
+	if d.FollowBudget <= 0 {
+		d.FollowBudget = prod.FollowBudget
 	}
 	if d.Getppid == nil {
 		d.Getppid = prod.Getppid

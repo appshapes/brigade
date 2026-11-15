@@ -55,7 +55,7 @@ import (
 const (
 	// followBudget bounds the child's whole follow, as startBudget bounds
 	// the follow of a session's start: teammove.Follow puts no deadline on
-	// its own calls.
+	// its own calls. It is Deps.FollowBudget's production value.
 	followBudget = 55 * time.Second
 	// followInterval is the least time between two follows started for one
 	// checkout. A follow asks the backend the checkout joined one question,
@@ -326,7 +326,7 @@ func (r *run) follow() int {
 		r.log.Info("follow: the team file names no other backend for the team this checkout joined; nothing is followed")
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), followBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), r.deps.FollowBudget)
 	defer cancel()
 	out, err := teammove.Follow(ctx, teammove.Inputs{
 		ConfigDir: a.configDir, Checkout: canon, File: tf, Pin: pin,
