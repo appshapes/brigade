@@ -385,6 +385,71 @@ func TestAStartThatCannotReachTheNewBackendKeepsTheSession(t *testing.T) {
 	})
 }
 
+// TestAStartThatCannotWriteTheMapOfASessionItKeepsSaysItsLine: a start
+// that keeps a running session writes its map again for the conversation
+// that begins. Where that cannot be done the session is where it was, under
+// the map it had, and the start says so: the lines of a session that
+// stays, then its context line, and never that it is `not connected`. That
+// holds when messages wait for it, and when its registration on the new
+// backend was made and the new map could not be written, which is left to
+// its lease there.
+func TestAStartThatCannotWriteTheMapOfASessionItKeepsSaysItsLine(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		held bool
+		why  func() string
+	}{
+		{"messages wait for it", true, func() string { return moveWaitsLine(1) }},
+		{"the registration was made, and the map could not be written", false, func() string { return moveUnreachedLine }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+			seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+			before := f.checkoutPin()
+			f.moveTeamFile("team-1")
+			tf := f.movedFile()
+			if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+				t.Fatalf("lines = %q", got)
+			}
+			if tc.held {
+				if err := pendingStoreOf(f).Save(inbound.PendingFile{Entries: heldEntries(1, "payments-api"), UpdatedAt: fixedTime}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			first := f.nativeID
+			mapPath, err := f.store().ByPIDPath(f.key())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(filepath.Dir(mapPath), 0o500); err != nil { //nolint:gosec // G302: a directory, made unwritable on purpose
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(filepath.Dir(mapPath), 0o700) }) //nolint:gosec // G302: the directory's own mode again
+			registers := len(seam.callsFor("session register"))
+			f.nativeID = otherConversation
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+			if exit != 0 || strings.Contains(out, "not connected") {
+				t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+			}
+			want := []string{followedLine(tf, &before, true, "brigade"), tc.why(), startLine("payments-api", "brigade-sess-1", teamName, "accept")}
+			if got := lines(out); !slices.Equal(got, want) {
+				t.Fatalf("the start's lines:\n%q\nwant\n%q", got, want)
+			}
+			// The map is the one the session had; a registration was made only
+			// where nothing kept the session.
+			if m := f.mustMap(); m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || m.ClaudeSessionID != first {
+				t.Fatalf("the map: %q, %q, the conversation %q", m.TeamKey, m.BrigadeSessionID, m.ClaudeSessionID)
+			}
+			if made := len(seam.callsFor("session register")) - registers; (made == 0) != tc.held {
+				t.Fatalf("%d registrations were made; messages waited: %v", made, tc.held)
+			}
+		})
+	}
+}
+
 // TestAStartWhoseNewAdapterCannotDescribeKeepsTheSession: a registration
 // begins with the adapter's describe, and that can fail before the backend
 // is asked anything: a profile the adapter cannot read, an adapter that

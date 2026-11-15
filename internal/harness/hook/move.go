@@ -832,6 +832,14 @@ func (r *run) stay(ctx context.Context, f facts, in input, res resolved, existin
 func (r *run) keep(ctx context.Context, f facts, in input, res resolved, existing *sessionmap.ByPID, now time.Time, watcherRuns bool) {
 	kept := keptMap(in, existing, res.id.name, now)
 	r.tellKept(ctx, f, in, res.id, existing)
+	if err := res.store.WriteByPID(kept); err != nil {
+		// The session is where it was, under the map it had: a start that
+		// cannot write that map again says the session's line all the same,
+		// and not that a session which is attached is `not connected`.
+		r.log.Warn("the map of the session this start keeps was not refreshed", log.Err(err))
+		r.say(startLine(existing.SessionName, existing.BrigadeSessionID, existing.TeamName, existing.Inbound))
+		return
+	}
 	r.finish(ctx, f, in, res, kept, now, watcherRuns)
 }
 
