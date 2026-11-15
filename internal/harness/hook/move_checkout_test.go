@@ -290,9 +290,12 @@ func TestASessionFollowsItsOwnCheckoutWhereverItsPromptsComeFrom(t *testing.T) {
 			if pin := f.checkoutPin(); !pin.Matches(tf) {
 				t.Fatalf("the session's own checkout did not follow: %+v", pin)
 			}
+			// The line names the checkout that followed as the session's own:
+			// said of the directory this prompt comes from, "this checkout"
+			// would be untrue.
 			got := from(f, dir)
-			want := []string{followedLine(tf, &oldPin, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
-			if !slices.Equal(got, want) {
+			want := []string{followedLineOf(startedCheckout, tf, &oldPin, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+			if !slices.Equal(got, want) || strings.Contains(got[0], thisCheckout) {
 				t.Fatalf("the second prompt from %s:\n%q\nwant\n%q", where, got, want)
 			}
 			m := f.mustMap()
@@ -316,6 +319,30 @@ func TestASessionFollowsItsOwnCheckoutWhereverItsPromptsComeFrom(t *testing.T) {
 		})
 	}
 
+	// A prompt from a directory inside the session's own checkout says "this
+	// checkout", as it always has.
+	t.Run("a directory of its own checkout", func(t *testing.T) {
+		t.Parallel()
+		f := newMemberFixture(t)
+		f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+		registerSeam(t, f)
+		startMember(t, f)
+		oldPin := f.checkoutPin()
+		inside := filepath.Join(f.cwd, "cmd", "tool")
+		//nolint:gosec // G301: a checkout tree is an ordinary directory
+		if err := os.MkdirAll(inside, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		f.moveTeamFile("team-1")
+		tf := f.movedFile()
+		from(f, inside)
+		got := from(f, inside)
+		want := []string{followedLine(tf, &oldPin, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+		if !slices.Equal(got, want) {
+			t.Fatalf("the second prompt from a directory of its own checkout:\n%q\nwant\n%q", got, want)
+		}
+	})
+
 	// The same for a member who joined the new backend in the session's
 	// checkout with a command of their own: the pin is their consent, and the
 	// session moves at its next prompt, sent from another checkout.
@@ -333,7 +360,7 @@ func TestASessionFollowsItsOwnCheckoutWhereverItsPromptsComeFrom(t *testing.T) {
 		// the server by a pin that moved from nowhere.
 		f.addCheckoutPin(own, serverPin("team-1", ""))
 		got := from(f, dirs["a checkout still on the old backend"])
-		want := []string{rejoinedLine(tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+		want := []string{rejoinedLineOf(startedCheckout, tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
 		if !slices.Equal(got, want) || len(f.spawner.followed()) != 0 {
 			t.Fatalf("the prompt after the member's own join:\n%q\nwant\n%q; %d follows", got, want, len(f.spawner.followed()))
 		}

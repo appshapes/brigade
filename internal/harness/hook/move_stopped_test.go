@@ -188,3 +188,36 @@ func TestAMoveWhoseHookWasStoppedEndsTheEntryOfTheSessionItLeft(t *testing.T) {
 		t.Fatalf("the entry was ended a second time: %+v, %v", again, err)
 	}
 }
+
+// TestAMoveSaidFromItsNoticeNamesTheSessionsOwnCheckout: the prompt that
+// says a move whose hook was stopped can come from anywhere, as the prompt
+// that made the move could. From a repository of another team it says that
+// the checkout the session was started in followed, never that "this
+// checkout" did.
+func TestAMoveSaidFromItsNoticeNamesTheSessionsOwnCheckout(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	before := f.checkoutPin()
+	f.memberOf("team-2")
+	other, _ := f.addCheckout("other-team", serverFile("team-2"), serverPin("team-2", ""))
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	f.prompted()
+	held := stoppedAtTheWatcher{watchers: f.spawner, reached: make(chan struct{}), release: make(chan struct{}), once: &sync.Once{}}
+	stopped := *f
+	stopped.deps.Spawner = held
+	heldHook(t, &stopped, held.reached, held.release)
+	if f.mustMap().BrigadeSessionID != "brigade-sess-2" {
+		t.Fatalf("the hook stands at the watcher with the map of %q", f.mustMap().BrigadeSessionID)
+	}
+	home := f.cwd
+	f.cwd = other
+	got := f.prompted()
+	f.cwd = home
+	want := []string{followedLineOf(startedCheckout, tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+	if !slices.Equal(got, want) {
+		t.Fatalf("the prompt after the hook that was stopped, from a checkout of another team:\n%q\nwant\n%q", got, want)
+	}
+}

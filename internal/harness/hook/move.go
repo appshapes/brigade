@@ -132,11 +132,31 @@ func moveWaitsLine(n int) string {
 // own: nothing was followed, so the follow's line would not be true. The
 // file's values are consented to by then, and sanitised all the same.
 func rejoinedLine(tf *teamfile.File) string {
+	return rejoinedLineOf(thisCheckout, tf)
+}
+
+// rejoinedLineOf is rejoinedLine with the words that name the checkout
+// (followedLineOf).
+func rejoinedLineOf(checkout string, tf *teamfile.File) string {
 	where := attr(teammove.Host(tf.URL))
 	if tf.Certificate != "" {
 		where += ", trusting the server certificate " + certLine(tf.Certificate)
 	}
-	return "Brigade: this checkout is joined to team \"" + attr(tf.TeamName) + "\" at " + where + " now, and this session moves there with it."
+	return "Brigade: " + checkout + " is joined to team \"" + attr(tf.TeamName) + "\" at " + where + " now, and this session moves there with it."
+}
+
+// checkoutWords names the session's own checkout, canon, in a line a prompt
+// says: "this checkout" when the prompt comes from it, and what it is to
+// the session when the prompt comes from anywhere else. A prompt's
+// directory follows the model, and the lines of a move are said from
+// wherever the session works.
+func checkoutWords(in input, canon string) string {
+	if path, found := teamfile.Discover(in.Cwd); found {
+		if from, err := teamfile.Canonicalize(filepath.Dir(path)); err == nil && from == canon {
+			return thisCheckout
+		}
+	}
+	return startedCheckout
 }
 
 // A followedMark is what a follow that ran outside a session's start leaves
@@ -538,9 +558,10 @@ func (r *run) adoptCheckout(f facts, m *sessionmap.ByPID, canon string, pin *tea
 // team file names, for a session m that is still on the one the team left:
 // the follow's line when the pin says it moved from the backend the session
 // is on, with how the machine joined when a follow left word of it, and the
-// line of the member's own join otherwise.
-func (r *run) arrivalLine(f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin, m *sessionmap.ByPID) string {
-	return arrivalLineFrom(opts.ConfigDir, tf, pin, m.TeamKey, r.joinedByFollow(f, opts, tf, canon), r.commandName(f))
+// line of the member's own join otherwise. checkout is how the line names
+// the checkout (followedLineOf).
+func (r *run) arrivalLine(f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin, m *sessionmap.ByPID, checkout string) string {
+	return arrivalLineFrom(opts.ConfigDir, tf, pin, m.TeamKey, r.joinedByFollow(f, opts, tf, canon), r.commandName(f), checkout)
 }
 
 // joinedByFollow reports whether a follow left word, for the checkout, that
@@ -554,12 +575,12 @@ func (r *run) joinedByFollow(f facts, opts config.Options, tf *teamfile.File, ca
 // arrivalLineFrom is arrivalLine for a session that was on the backend the
 // team key from names: the follow's line when the pin moved from that
 // backend, the line of the member's own join otherwise.
-func arrivalLineFrom(configDir string, tf *teamfile.File, pin *teamstore.Pin, from string, joined bool, command string) string {
+func arrivalLineFrom(configDir string, tf *teamfile.File, pin *teamstore.Pin, from string, joined bool, command, checkout string) string {
 	old, err := teamstore.LoadBinding(configDir, from)
 	if err != nil || pin.MovedFrom == "" || pin.MovedFrom != old.URL {
-		return rejoinedLine(tf)
+		return rejoinedLineOf(checkout, tf)
 	}
-	return followedLine(tf, &teamstore.Pin{URL: pin.MovedFrom}, joined, command)
+	return followedLineOf(checkout, tf, &teamstore.Pin{URL: pin.MovedFrom}, joined, command)
 }
 
 // A movedNotice is what the prompt that moves a session leaves before it
@@ -619,7 +640,7 @@ func (r *run) dropMovedNotice(f facts) {
 // left ends (endLeft). A notice over a map that still names the session it
 // was left for is of a registration that was not recorded: the session is
 // where it was, and the notice goes. A notice that cannot be read goes too.
-func (r *run) sayMoved(ctx context.Context, f facts, m *sessionmap.ByPID) {
+func (r *run) sayMoved(ctx context.Context, f facts, in input, m *sessionmap.ByPID) {
 	path := config.MovedNotice(f.stateDir, f.pid)
 	data, err := adapterkit.ReadStrict(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -653,7 +674,7 @@ func (r *run) sayMoved(ctx context.Context, f facts, m *sessionmap.ByPID) {
 	r.writeByNative(store, m.ClaudeSessionID, m, now)
 	r.writeByHost(f, store, m.ClaudeSessionID, m, now)
 	if n.Arrival {
-		if line, canon, opts, ok := r.arrivalAfter(f, m, n); ok && r.fits(line) {
+		if line, canon, opts, ok := r.arrivalAfter(f, in, m, n); ok && r.fits(line) {
 			r.say(line)
 			r.dropFollowedMark(f, opts, canon)
 		}
@@ -699,7 +720,7 @@ func (r *run) endLeft(ctx context.Context, f facts, m *sessionmap.ByPID, was str
 // arrivalAfter is the arrival line of a move that was made, for sayMoved:
 // read again from the team file and the pin of the session's checkout,
 // with the backend and the follow's word the notice kept.
-func (r *run) arrivalAfter(f facts, m *sessionmap.ByPID, n movedNotice) (line, canon string, opts config.Options, ok bool) {
+func (r *run) arrivalAfter(f facts, in input, m *sessionmap.ByPID, n movedNotice) (line, canon string, opts config.Options, ok bool) {
 	if m.Checkout == "" {
 		return "", "", opts, false
 	}
@@ -715,7 +736,7 @@ func (r *run) arrivalAfter(f facts, m *sessionmap.ByPID, n movedNotice) (line, c
 	if err != nil || !pinned || !pin.Matches(tf) {
 		return "", "", opts, false
 	}
-	return arrivalLineFrom(opts.ConfigDir, tf, pin, n.From, n.Joined, r.commandName(f)), m.Checkout, opts, true
+	return arrivalLineFrom(opts.ConfigDir, tf, pin, n.From, n.Joined, r.commandName(f), checkoutWords(in, m.Checkout)), m.Checkout, opts, true
 }
 
 // sayArrival says line, the arrival line, once in a conversation, and
@@ -764,7 +785,7 @@ func moveContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // that failed is.
 func (r *run) reattach(ctx context.Context, f facts, in input, m *sessionmap.ByPID, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin) *sessionmap.ByPID {
 	newKey := teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)
-	line := r.arrivalLine(f, opts, tf, canon, pin, m)
+	line := r.arrivalLine(f, opts, tf, canon, pin, m, checkoutWords(in, canon))
 	// The member is told how the checkout got there at the first prompt that
 	// knows it, whether or not the session can move yet.
 	if held := r.heldCount(f, m); held > 0 {
@@ -842,7 +863,8 @@ func (r *run) stay(ctx context.Context, f facts, in input, res resolved, existin
 	if r.saidFollowed {
 		r.note(f, in, toldFollowed)
 	} else if pin, pinned, err := teamstore.LookupPin(res.opts.ConfigDir, res.checkout); err == nil && pinned {
-		r.sayArrival(f, in, res.opts, res.checkout, r.arrivalLine(f, res.opts, res.teamFile, res.checkout, pin, existing))
+		// A start resolved the checkout its own directory is in.
+		r.sayArrival(f, in, res.opts, res.checkout, r.arrivalLine(f, res.opts, res.teamFile, res.checkout, pin, existing, thisCheckout))
 	}
 	r.tell(f, in, word, line)
 	r.keep(ctx, f, in, res, existing, now, watcherRuns)
