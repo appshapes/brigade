@@ -1644,6 +1644,11 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 	for _, w := range warnings {
 		r.say(w)
 	}
+	if !r.moving {
+		// A start said the session's context line: the notice of a move
+		// whose hook was stopped has nothing left to tell.
+		r.dropMovedNotice(f)
+	}
 }
 
 // retirePointer removes the by-host pointer of the thread this host pid

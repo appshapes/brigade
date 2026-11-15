@@ -83,6 +83,8 @@ const (
 	moveRegisterSlack = time.Second
 	// followedMarkVersion is the version of the mark a follow leaves.
 	followedMarkVersion = 1
+	// movedNoticeVersion is the version of the notice a move leaves.
+	movedNoticeVersion = 1
 )
 
 // The lines a running session hears about its team's move, each once in a
@@ -538,12 +540,145 @@ func (r *run) adoptCheckout(f facts, m *sessionmap.ByPID, canon string, pin *tea
 // is on, with how the machine joined when a follow left word of it, and the
 // line of the member's own join otherwise.
 func (r *run) arrivalLine(f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin, m *sessionmap.ByPID) string {
-	old, err := teamstore.LoadBinding(opts.ConfigDir, m.TeamKey)
+	return arrivalLineFrom(opts.ConfigDir, tf, pin, m.TeamKey, r.joinedByFollow(f, opts, tf, canon), r.commandName(f))
+}
+
+// joinedByFollow reports whether a follow left word, for the checkout, that
+// this machine joined the backend the team file names with the move's
+// ticket.
+func (r *run) joinedByFollow(f facts, opts config.Options, tf *teamfile.File, canon string) bool {
+	mark, marked := readFollowedMark(config.MoveFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
+	return marked && mark.Joined
+}
+
+// arrivalLineFrom is arrivalLine for a session that was on the backend the
+// team key from names: the follow's line when the pin moved from that
+// backend, the line of the member's own join otherwise.
+func arrivalLineFrom(configDir string, tf *teamfile.File, pin *teamstore.Pin, from string, joined bool, command string) string {
+	old, err := teamstore.LoadBinding(configDir, from)
 	if err != nil || pin.MovedFrom == "" || pin.MovedFrom != old.URL {
 		return rejoinedLine(tf)
 	}
-	mark, marked := readFollowedMark(config.MoveFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
-	return followedLine(tf, &teamstore.Pin{URL: pin.MovedFrom}, marked && mark.Joined, r.commandName(f))
+	return followedLine(tf, &teamstore.Pin{URL: pin.MovedFrom}, joined, command)
+}
+
+// A movedNotice is what the prompt that moves a session leaves before it
+// registers it (config.MovedNotice): the session and the backend the move
+// is from, and what this conversation is still owed of how the checkout
+// arrived. It holds no line and nothing of the new backend: a prompt that
+// finds it says the lines from the map and the store as they then are.
+type movedNotice struct {
+	Version int `json:"version"`
+	// Was is the id of the session that moves, and From the team key of the
+	// backend it is on: a map that still names either was not moved.
+	Was  string `json:"was"`
+	From string `json:"from"`
+	// Arrival is true when the conversation has not heard how the checkout
+	// came to be on the new backend; Joined is the follow's word, at the
+	// time, that this machine joined there with the move's ticket.
+	Arrival bool `json:"arrival,omitzero"`
+	Joined  bool `json:"joined,omitzero"`
+}
+
+// leaveMovedNotice writes the notice of a move that is about to be made,
+// and reports whether it is down. A move whose notice cannot be written is
+// not made: were its hook stopped, nothing would tell the session.
+func (r *run) leaveMovedNotice(f facts, n movedNotice) bool {
+	path := config.MovedNotice(f.stateDir, f.pid)
+	data, err := json.Marshal(n)
+	if err == nil {
+		if err = adapterkit.MkdirPrivate(filepath.Dir(path)); err == nil {
+			err = adapterkit.WriteAtomic(path, append(data, '\n'))
+		}
+	}
+	if err != nil {
+		r.log.Warn("prompt: the notice of this session's move was not written; the session is not moved", log.Err(err))
+		return false
+	}
+	return true
+}
+
+// dropMovedNotice removes the notice of a move: its lines were said and
+// the hook is ending, or the move was not made.
+func (r *run) dropMovedNotice(f facts) {
+	if err := os.Remove(config.MovedNotice(f.stateDir, f.pid)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.log.Debug("the notice of a move was not removed", log.Err(err))
+	}
+}
+
+// sayMoved says the lines of a move whose hook did not: a notice is there
+// that a prompt hook left before it registered the session, and the map
+// names another session on another backend than the notice does, so the
+// move was made and the hook was stopped before it ended. Claude Code
+// discards what a hook printed when it stops it, so nothing was said: this
+// prompt says how the checkout arrived, when the conversation was owed
+// that, and the context line of the session as it is now, with the host's
+// own line after it. A notice over a map that still names the session it
+// was left for is of a registration that was not recorded: the session is
+// where it was, and the notice goes. A notice that cannot be read goes too.
+func (r *run) sayMoved(f facts, m *sessionmap.ByPID) {
+	path := config.MovedNotice(f.stateDir, f.pid)
+	data, err := adapterkit.ReadStrict(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	var n movedNotice
+	if err != nil || json.Unmarshal(data, &n) != nil || n.Version != movedNoticeVersion || n.Was == "" || adapterkit.CheckProfileName(n.From) != nil {
+		r.log.Warn("prompt: the notice of a move is not usable; removed")
+		r.dropMovedNotice(f)
+		return
+	}
+	if n.Was == m.BrigadeSessionID || n.From == m.TeamKey {
+		r.log.Info("prompt: a move of this session was begun and not made; the session is where it was")
+		r.dropMovedNotice(f)
+		return
+	}
+	r.log.Info("prompt: the hook that moved this session was stopped before it said so; saying it now")
+	// The notice stays until this hook ends, as the one that left it meant
+	// it to: were this hook stopped too, the next would say the lines.
+	r.movedSaid = true
+	if n.Arrival {
+		if line, canon, opts, ok := r.arrivalAfter(f, m, n); ok && r.fits(line) {
+			r.say(line)
+			r.dropFollowedMark(f, opts, canon)
+		}
+	}
+	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
+	switch {
+	case f.muse():
+		r.say(armLine(r.commandName(f)))
+	case f.codex():
+		r.say(codexLine(r.commandName(f)))
+	}
+	// What the hook that moved the session left undone when it was stopped:
+	// what the conversation was told of the move is over, no retry is owed,
+	// and the doing line is asked for again, the new registration having
+	// none (leftBehind).
+	r.forgetTold(f)
+	_ = os.Remove(retryStampPath(f.stateDir, f.pid))
+	_ = os.Remove(doingStampPath(f.stateDir, f.pid))
+}
+
+// arrivalAfter is the arrival line of a move that was made, for sayMoved:
+// read again from the team file and the pin of the session's checkout,
+// with the backend and the follow's word the notice kept.
+func (r *run) arrivalAfter(f facts, m *sessionmap.ByPID, n movedNotice) (line, canon string, opts config.Options, ok bool) {
+	if m.Checkout == "" {
+		return "", "", opts, false
+	}
+	opts, err := r.options()
+	if err != nil {
+		return "", "", opts, false
+	}
+	tf, err := teamfile.Parse(filepath.Join(m.Checkout, teamfile.FileName))
+	if err != nil {
+		return "", "", opts, false
+	}
+	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, m.Checkout)
+	if err != nil || !pinned || !pin.Matches(tf) {
+		return "", "", opts, false
+	}
+	return arrivalLineFrom(opts.ConfigDir, tf, pin, n.From, n.Joined, r.commandName(f)), m.Checkout, opts, true
 }
 
 // sayArrival says line, the arrival line, once in a conversation, and
@@ -610,15 +745,27 @@ func (r *run) reattach(ctx context.Context, f facts, in input, m *sessionmap.ByP
 		}
 	}
 	r.log.Info("prompt: the team moved; registering this session on the backend it is on now")
+	// The notice is down before the session is registered: a hook that is
+	// stopped once the map names the new session has said nothing, and the
+	// next prompt says it from the notice (sayMoved).
+	if !r.leaveMovedNotice(f, movedNotice{
+		Version: movedNoticeVersion, Was: m.BrigadeSessionID, From: m.TeamKey,
+		Arrival: !slices.Contains(r.told(f, in), toldFollowed), Joined: r.joinedByFollow(f, opts, tf, canon),
+	}) {
+		return nil
+	}
 	// The registration is resolved from the session's own checkout, as its
 	// first one was: the team, the pin, the workspace label and file sync
-	// are that checkout's, wherever this prompt comes from.
+	// are that checkout's, wherever this prompt comes from. The hook does
+	// not wait for the new watcher's pidfile: nothing here reads it, a
+	// watcher that did not come up is started by the next prompt, and the
+	// wait was half a second of the time a move has to be said in.
 	own := in
 	own.Cwd = canon
 	var lines []string
 	cctx, cancel := moveContext(ctx)
 	r.held, r.moving = &lines, true
-	r.connect(cctx, f, own, min(r.deps.PidfileWait, promptPidfileWait))
+	r.connect(cctx, f, own, 0)
 	r.held, r.moving = nil, false
 	cancel()
 	next, err := sessionmap.Store{StateDir: f.stateDir}.ReadByPID(f.pid)
@@ -627,11 +774,14 @@ func (r *run) reattach(ctx context.Context, f facts, in input, m *sessionmap.ByP
 		// What the registration would have said is dropped, a `not connected`
 		// line being untrue of it.
 		r.log.Warn("prompt: this session was not registered on the team's new backend; it stays where it is", slog.Int("lines_dropped", len(lines)))
+		r.dropMovedNotice(f)
 		r.stampRetry(f)
 		r.sayArrival(f, in, opts, canon, line)
 		r.tell(f, in, toldUnreached, moveUnreachedLine)
 		return nil
 	}
+	// The lines are said, and the notice goes when this hook ends (prompt).
+	r.movedSaid = true
 	r.sayArrival(f, in, opts, canon, line)
 	for _, l := range lines {
 		if r.fits(l) {
@@ -791,6 +941,8 @@ func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *s
 	if r.fileRefused != "" {
 		r.say(keptFileLine(r.fileRefused))
 	}
+	// The context line is said: a move's notice has nothing left to tell.
+	r.dropMovedNotice(f)
 }
 
 // keptFileLine is what a start that keeps a running session says of a team

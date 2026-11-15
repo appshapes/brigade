@@ -523,6 +523,10 @@ type run struct {
 	// then keeps the session where it is (stay) records the line as heard
 	// by this conversation and does not say it twice.
 	saidFollowed bool
+	// movedSaid is true once this prompt has said the lines of a move, its
+	// own or one whose hook was stopped (sayMoved): the move's notice is
+	// removed when the hook ends, and not before.
+	movedSaid bool
 	// fileRefused is the line this run's resolution said of the team file
 	// it found: that it cannot be used, or that it does not match what the
 	// member joined (resolveTeam). A start that keeps a running session

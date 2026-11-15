@@ -18,9 +18,11 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
+	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakesock"
 )
@@ -33,9 +35,9 @@ import (
 // needs the server itself, so it runs only where `make server-test` names
 // one.
 //
-//  1. Bob has five checkouts of the team and three running sessions with a
-//     watcher each: in the first checkout, in the second, and in one that
-//     never gets the changed file.
+//  1. Bob has five checkouts of the team and four running sessions with a
+//     watcher each: in the first checkout, in the second, in the third, and
+//     in one that never gets the changed file.
 //  2. A session that starts while the file has no record behind it is
 //     attached to nothing. Its registration retry starts the follow as a
 //     child and says once that the backend bob joined is being asked.
@@ -54,7 +56,10 @@ import (
 //     stays on the server; and the session of that checkout, cleared and
 //     prompted from one that is on the server, stays on the old backend.
 //     Each says the context line of the session where it is.
-//  7. The server stops. `/clear` in a session that has not moved yet keeps
+//  7. A prompt hook that moved a session is killed before it printed
+//     anything. The session's next prompt says the move: how the checkout
+//     arrived and the context line with the id the session has now.
+//  8. The server stops. `/clear` in a session that has not moved yet keeps
 //     it where it is, on the backend that still serves it: it says that it
 //     could not be registered, never that it is not connected, and the
 //     prompts of the next minute do not try again.
@@ -134,6 +139,8 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	second.cwd = dir2
 	third := r.newSession("bob", "", "billing-third", fakesock.New(t).Path(), token)
 	third.cwd = behind
+	fifth := r.newSession("bob", "", "billing-fifth", fakesock.New(t).Path(), token)
+	fifth.cwd = dir3
 	alice := r.newSession("alice", "", aliceName, "", "")
 	start := func(s session, source string) result {
 		t.Helper()
@@ -141,7 +148,7 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	}
 	old := map[int]string{}
 	watcher := map[int]int{}
-	for _, s := range []session{first, second, third, alice} {
+	for _, s := range []session{first, second, third, fifth, alice} {
 		start(s, "startup")
 		m := r.mustMap(s)
 		if m.TeamKey != oldKey || m.TeamRef != r.teamRef {
@@ -466,12 +473,69 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	where(first, "after its prompt", newKey, firstMap.BrigadeSessionID, canon)
 	where(third, "after its prompt", oldKey, old[third.pid], canonBehind)
 
-	// --- 7. the server stops: /clear keeps a session that has not moved, and says so ---------------------------
+	// --- 7. a hook that is stopped after it moved the session: the next prompt says the move -------------------
+	// The fifth session's checkout followed in step 4, and the session has not been prompted since. Its prompt
+	// hook is stopped where Claude Code's timeout would stop one: after it wrote the session's new map, before
+	// it printed anything. The watcher's log is made a pipe that nobody reads, and the hook opens it to start
+	// the watcher, which is the first thing it does once the map is written: it waits there until it is killed.
+	watcherLog := filepath.Join(r.stateDir, "logs", "watcher-"+strconv.Itoa(fifth.pid)+".log")
+	if err := os.Rename(watcherLog, watcherLog+".before"); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(watcherLog, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(watcherLog) })
+	//nolint:gosec // G204: the argv is a binary this test built; no shell is involved
+	hook := exec.CommandContext(t.Context(), r.brigade, "hook", "prompt")
+	hook.Env, hook.Dir = r.restEnv(fifth), r.dirs.Home
+	hook.Stdin = strings.NewReader(fifth.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default"}))
+	var printed bytes.Buffer
+	hook.Stdout = &printed
+	if err := hook.Start(); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.mustMap(fifth).TeamKey == newKey })
+	fifthMap := r.mustMap(fifth)
+	notice := config.MovedNotice(r.stateDir, fifth.pid)
+	if _, err := os.Stat(notice); err != nil || fifthMap.BrigadeSessionID == old[fifth.pid] {
+		t.Fatalf("the hook that moved the session left no notice before it registered it: %v\nmap %+v", err, fifthMap)
+	}
+	if err := hook.Process.Kill(); err != nil {
+		t.Fatalf("the hook had ended before it could be stopped: %v", err)
+	}
+	if err := hook.Wait(); err == nil || printed.Len() != 0 {
+		t.Fatalf("the hook was not stopped before it printed: %v, stdout %q", err, printed.String())
+	}
+	if err := os.Remove(watcherLog); err != nil {
+		t.Fatal(err)
+	}
+	// The session has a new id and was told nothing. Its next prompt says the move.
+	res = r.restPrompt(fifth)
+	if !strings.Contains(res.stdout, "followed team") || !strings.Contains(res.stdout, `this session is "billing-fifth" (`+fifthMap.BrigadeSessionID+`)`) {
+		t.Fatalf("the prompt after the hook that was stopped: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	if _, err := os.Stat(notice); err == nil {
+		t.Fatalf("the notice outlived the prompt that said the move")
+	}
+	where(fifth, "after the prompt that said the move", newKey, fifthMap.BrigadeSessionID, canon3)
+	// The watcher the session had sees within its tick that the map names another session, and ends; a prompt
+	// after that starts the one that serves the session on the server. No prompt says the move again.
+	testutil.Eventually(t, waitLong, 250*time.Millisecond, func() bool {
+		if res := r.restPrompt(fifth); strings.Contains(res.stdout, "followed team") || strings.Contains(res.stdout, "this session is") {
+			t.Fatalf("a later prompt said the move again: stdout %q", res.stdout)
+		}
+		v, err := pidfile.Check(r.pidfilePath(fifth), procutil.Lookup)
+		return err == nil && v.Found && v.Alive && v.Entry.BrigadeSessionID == fifthMap.BrigadeSessionID
+	})
+	watcher[fifth.pid] = r.liveWatcher(fifth).PID
+
+	// --- 8. the server stops: /clear keeps a session that has not moved, and says so ---------------------------
 	// The sessions that are on the server end first, while it can still be told.
-	for _, s := range []session{first, orphan, fourth, alice} {
+	for _, s := range []session{first, fifth, orphan, fourth, alice} {
 		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 	}
-	testutil.Eventually(t, waitLong, pollEvery, func() bool { return !alive(watcher[first.pid]) })
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return !alive(watcher[first.pid]) && !alive(watcher[fifth.pid]) })
 	stopServer(t, backend)
 	// Bob's second session was never prompted: it is on the old backend, its checkout on the server.
 	where(second, "the second session before its /clear", oldKey, old[second.pid], canon2)

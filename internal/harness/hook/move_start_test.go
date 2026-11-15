@@ -710,11 +710,13 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 		gone func(t *testing.T, f *fixture)
 	}{
 		{"no watcher is alive", func(t *testing.T, f *fixture) {
+			t.Helper()
 			if err := os.Remove(f.pidfilePath()); err != nil {
 				t.Fatal(err)
 			}
 		}},
 		{"the member left the team", func(t *testing.T, f *fixture) {
+			t.Helper()
 			binding, err := teamstore.LoadBinding(f.configDir, f.teamKey)
 			if err != nil {
 				t.Fatal(err)
