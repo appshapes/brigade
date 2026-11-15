@@ -165,12 +165,37 @@ type resolved struct {
 // connect registers (or re-attaches to) the Brigade session and prints
 // the context line. pidfileWait bounds the wait for the watcher's pidfile;
 // the prompt hook's retry passes a shorter one. Every failure prints a
-// `not connected` line and returns; the exit status is the caller's 0.
+// `not connected` line and returns, but for a start of a session that is
+// running, which is kept where it is and says so (keep, stay,
+// keepUnresolved); the exit status is the caller's 0.
 func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.Duration) {
 	if f.host == config.HostGrok && !r.claimGrok(f, in) {
 		return
 	}
+	// A start over a session that is running is a `/clear` of it, and its
+	// document's directory is wherever the model is: one that is not joined,
+	// one with no team file, one whose file has no record behind it. What
+	// the resolution says of such a directory (`not joined`, `not
+	// connected`) is not true of the session, so it is held until it is
+	// known whether a team was resolved, and dropped when the session is
+	// kept (keepUnresolved).
+	running := r.runningSession(f)
+	var said []string
+	if running != nil {
+		r.held = &said
+	}
 	res, ok := r.resolve(ctx, f, in)
+	if running != nil {
+		r.held = nil
+	}
+	if !ok && running != nil && stillMember(running) {
+		r.log.Info("this start resolved no team where it comes from; the running session is kept where it is", slog.Int("lines_dropped", len(said)))
+		r.keepUnresolved(ctx, f, in, running)
+		return
+	}
+	for _, line := range said {
+		r.say(line)
+	}
 	if !ok {
 		return
 	}
@@ -1110,7 +1135,8 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 	}
 	tf, err = teamfile.Parse(path)
 	if err != nil {
-		r.fail("session-start: team file", err, teamFileLine(err))
+		r.fileRefused = teamFileLine(err)
+		r.fail("session-start: team file", err, r.fileRefused)
 		return nil, "", "", false
 	}
 	canon, err := teamfile.Canonicalize(filepath.Dir(path))
@@ -1137,6 +1163,7 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		// file in front of us is unconsented input until a human reviews
 		// the change in a terminal, or until the backend the member joined
 		// says the team went where the file says (followMove).
+		r.fileRefused = driftLine
 		r.say(driftLine)
 		return nil, "", "", false
 	}

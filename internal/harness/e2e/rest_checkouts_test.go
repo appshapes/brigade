@@ -447,6 +447,15 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	if got := strings.Count(journal(), byTicket); got != joins || len(r.serverRoster(alice)) != listed {
 		t.Fatalf("the two starts joined or registered on the server: %d joins by ticket, %d sessions listed, want %d and %d", got, len(r.serverRoster(alice)), joins, listed)
 	}
+	// A `/clear` in a directory that is no checkout at all resolves no team, and the session that is running is
+	// kept all the same: its map names the conversation that began, and it says the context line and nothing of
+	// a session that is not connected.
+	third.cwd, third.nativeID = r.dirs.Home, third.nativeID+"-again"
+	res = start(third, "clear")
+	if !strings.Contains(res.stdout, `this session is "billing-third" (`+old[third.pid]+`)`) || strings.Contains(res.stdout, "not connected") || strings.Contains(res.stdout, "not joined") {
+		t.Fatalf("/clear in a directory with no team file: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	where(third, "after a /clear in a directory with no team file", oldKey, old[third.pid], canonBehind)
 	// A prompt of each, back in its own checkout, changes nothing either.
 	first.cwd, third.cwd = r.checkout, behind
 	for _, s := range []session{first, third} {

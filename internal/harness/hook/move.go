@@ -680,25 +680,127 @@ func (r *run) stay(ctx context.Context, f facts, in input, res resolved, existin
 // one only the backend that issued it knows. One that fails is the
 // watcher's to repeat, and a line it would have blanked stands.
 func (r *run) keep(ctx context.Context, f facts, in input, res resolved, existing *sessionmap.ByPID, now time.Time, watcherRuns bool) {
+	kept := keptMap(in, existing, res.id.name, now)
+	r.tellKept(ctx, f, in, res.id, existing)
+	r.finish(ctx, f, in, res, kept, now, watcherRuns)
+}
+
+// keptMap is the map of a session that a start keeps where it is: the map
+// it had, with what a conversation changes and nothing else.
+func keptMap(in input, existing *sessionmap.ByPID, name string, now time.Time) *sessionmap.ByPID {
 	kept := *existing
 	kept.ClaudeSessionID = in.SessionID
-	kept.SessionName = res.id.name
+	kept.SessionName = name
 	if in.PermissionMode != "" {
 		kept.PermissionMode = in.PermissionMode
 	}
 	kept.TranscriptPath = transcriptPath(in)
 	kept.UpdatedAt = now
+	return &kept
+}
+
+// tellKept is the heartbeat of a start that keeps a session: to the backend
+// the map names, through the map's own adapter, with the name and the
+// activity this start resolved.
+func (r *run) tellKept(ctx context.Context, f facts, in input, id identity, existing *sessionmap.ByPID) {
 	adapter, err := config.AdapterFromArgv(existing.AdapterCommand)
 	if err != nil {
 		r.log.Warn("the map's adapter command is unusable; the backend this session is on is not told of the conversation that begins", log.Err(err))
+		return
+	}
+	where := resolved{id: id, client: r.client(adapter, existing.TeamKey, existing.ConfigDir, f.stateDir)}
+	if herr := r.heartbeat(ctx, where, existing.BrigadeSessionID, existing.Inbound, blankDoingLine(in, existing, existing.DoingMode)); herr != nil {
+		r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(herr))
+	}
+}
+
+// runningSession is the map of the session that is running in this
+// process when a session's start begins: one whose watcher is alive and
+// serves it. A start over such a map is a `/clear` of a running session,
+// wherever its document's directory is, and connect has to know that before
+// the resolution says anything. Nil for a prompt, for Grok Build, whose
+// starts are left as they are, and for a map with no live watcher, which
+// may be one a dead process left.
+func (r *run) runningSession(f facts) *sessionmap.ByPID {
+	if !r.starting || f.host == config.HostGrok {
+		return nil
+	}
+	m, err := (sessionmap.Store{StateDir: f.stateDir}).ReadByPID(f.pid)
+	if err != nil {
+		return nil
+	}
+	if v := r.checkPidfile(f); !v.Found || !v.Alive || v.Entry.BrigadeSessionID != m.BrigadeSessionID {
+		return nil
+	}
+	return m
+}
+
+// stillMember reports whether this machine is still a member of the team a
+// session is registered on, on the backend it is on: the binding under the
+// map's team key names the map's team. A member who left the team (`team
+// leave`) has a binding that names none, and a session of theirs is not one
+// to keep.
+func stillMember(m *sessionmap.ByPID) bool {
+	binding, err := teamstore.LoadBinding(m.ConfigDir, m.TeamKey)
+	return err == nil && m.TeamRef != "" && binding.TeamRef == m.TeamRef
+}
+
+// keepUnresolved ends a session's start that resolved no team where it
+// comes from, over a session that is running (runningSession) and whose
+// member is still in its team (stillMember): `/clear` in a checkout that is
+// not joined, in a directory with no team file, or over a team file with no
+// record behind it. Such a start used to return before it read the map,
+// with the line of a session that is not connected, or none. The session
+// was attached all the same, and its map went on naming the conversation
+// that ended: the doing line was not asked for in the one that began, that
+// conversation had no resume hint, and on Muse Code its shell found no
+// session. So the start keeps the session as a start that resolved another
+// backend keeps it (keep): the map takes what a conversation changes, the
+// pointers are filed for the conversation that begins, the backend the
+// session is on is told, and the line is the context line of the session
+// where it is. Nothing of what was resolved is in the map, because nothing
+// was. What the resolution said is dropped, being said of a session that
+// is not connected or not joined, but for one thing the member has to hear
+// whatever session they are in: that the team file there was refused
+// (keptFileLine).
+func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *sessionmap.ByPID) {
+	now := r.deps.Now()
+	store := sessionmap.Store{StateDir: f.stateDir}
+	id := r.identity(f, in)
+	r.retirePointer(f, store, existing, in)
+	kept := keptMap(in, existing, id.name, now)
+	r.tellKept(ctx, f, in, id, existing)
+	if err := store.WriteByPID(kept); err != nil {
+		// The session is where it was, under the map it had.
+		r.log.Warn("the map of the session this start keeps was not refreshed", log.Err(err))
+		kept = existing
 	} else {
-		where := res
-		where.client = r.client(adapter, existing.TeamKey, existing.ConfigDir, f.stateDir)
-		if herr := r.heartbeat(ctx, where, existing.BrigadeSessionID, existing.Inbound, blankDoingLine(in, existing, existing.DoingMode)); herr != nil {
-			r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(herr))
+		r.writeByNative(store, in.SessionID, kept, now)
+		r.writeByHost(f, store, in.SessionID, kept, now)
+		if opts, oerr := r.options(); oerr == nil {
+			r.stateStart(ctx, f, opts, kept, now)
 		}
 	}
-	r.finish(ctx, f, in, res, &kept, now, watcherRuns)
+	r.say(startLine(kept.SessionName, kept.BrigadeSessionID, kept.TeamName, kept.Inbound))
+	switch {
+	case f.muse():
+		r.say(armLine(r.commandName(f)))
+	case f.codex():
+		r.say(codexLine(r.commandName(f)))
+	}
+	if r.fileRefused != "" {
+		r.say(keptFileLine(r.fileRefused))
+	}
+}
+
+// keptFileLine is what a start that keeps a running session says of a team
+// file the resolution refused: the refusal's own words (a file that does
+// not match the team the member joined, one that holds what looks like a
+// secret, one that does not parse), without its claim that the session is
+// not connected, which it is.
+func keptFileLine(refusal string) string {
+	rest := strings.TrimPrefix(strings.TrimPrefix(refusal, "Brigade: not connected: "), "Brigade: not connected ")
+	return "Brigade: this session stays where it is. In the directory this conversation began in: " + rest
 }
 
 // heldCount is how many messages wait for the session in its pending file:

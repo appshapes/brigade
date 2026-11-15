@@ -523,6 +523,14 @@ type run struct {
 	// then keeps the session where it is (stay) records the line as heard
 	// by this conversation and does not say it twice.
 	saidFollowed bool
+	// fileRefused is the line this run's resolution said of the team file
+	// it found: that it cannot be used, or that it does not match what the
+	// member joined (resolveTeam). A start that keeps a running session
+	// where it is drops what the resolution said of a session that is not
+	// connected, and says this one, in the words of a session that is
+	// (keepUnresolved): a team file that holds a secret, or that was pointed
+	// elsewhere, is the member's to hear of in any case.
+	fileRefused string
 	// optionsEnv is the environment ParseOptions reads: environ itself on
 	// Claude Code; on a host with an options file (Muse Code, Codex CLI)
 	// environ plus the entries the file supplies (config.OptionsEnviron),

@@ -577,6 +577,174 @@ func TestTheRetryOfASessionAttachedToNothingSaysThatBrigadeIsAsking(t *testing.T
 	})
 }
 
+// TestAStartThatResolvesNoTeamKeepsARunningSession: `/clear` fires a
+// session's start in the same process, from wherever the model is. A start
+// that resolves no team there (the file of the session's own checkout names
+// a backend with no record behind it; another checkout whose file does; a
+// checkout that is not joined; a directory with no team file) used to
+// return before it read the map, with the line of a session that is not
+// connected or not joined, or none. The session was attached all the same,
+// and its map went on naming the conversation that ended. Now the start
+// keeps it: no registration, the watcher it had, the map and the resume
+// hint for the conversation that began, one heartbeat to the backend it is
+// on, and the context line of the session where it is as its only line. On
+// Muse Code the shell of the conversation that began finds the session, and
+// the arming line follows.
+func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
+	t.Parallel()
+	notMoved := okResp(mustJSON(map[string]any{"team_ref": "team-1", "moved": false}))
+	for _, host := range []config.Host{config.HostClaude, config.HostMuse} {
+		for _, where := range []string{
+			"its own checkout, with no record behind the file",
+			"another checkout, with no record behind the file",
+			"a checkout that is not joined",
+			"a directory with no team file",
+		} {
+			t.Run(string(host)+"/"+where, func(t *testing.T) {
+				t.Parallel()
+				f := movingFixture(t, host)
+				f.noAdapterOption = true
+				seam := attachedMember(t, f, nil, map[string][]fakeadapter.Response{"team moved": {notMoved}})
+				first, own, oldPin := f.nativeID, f.canon(), f.checkoutPin()
+				from := f.cwd
+				switch where {
+				case "its own checkout, with no record behind the file":
+					f.moveTeamFile("team-1")
+				case "another checkout, with no record behind the file":
+					from, _ = f.addCheckout("changed", serverFile("team-1"), pinDoc(oldPin))
+				case "a checkout that is not joined":
+					from, _ = f.addCheckout("unjoined", fileOf(oldPin), nil)
+				default:
+					from = filepath.Join(t.TempDir(), "no-checkout")
+					if err := os.MkdirAll(from, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				registers, spawns, beats := len(seam.callsFor("session register")), f.spawner.count(), len(seam.callsFor("session heartbeat"))
+				f.nativeID, f.cwd = otherConversation, from
+				exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("clear"))
+				if exit != 0 || strings.Contains(out, "not connected") || strings.Contains(out, "not joined") {
+					t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+				}
+				m := f.mustMap()
+				if m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || m.Checkout != own || m.ClaudeSessionID != otherConversation {
+					t.Fatalf("the map after the start names %q, %q, the checkout %q and the conversation %q", m.TeamKey, m.BrigadeSessionID, m.Checkout, m.ClaudeSessionID)
+				}
+				want := []string{startLine(m.SessionName, "brigade-sess-1", teamName, "accept")}
+				if host == config.HostMuse {
+					want = append(want, armLine(f.pluginBin))
+				}
+				// A team file that does not match what the member joined is theirs
+				// to hear of, in the words of a session that is connected.
+				if strings.Contains(where, "no record") {
+					want = append(want, keptFileLine(driftLine))
+				}
+				if got := lines(out); !slices.Equal(got, want) || m.SessionName == "" {
+					t.Fatalf("the start's lines:\n%q\nwant\n%q", got, want)
+				}
+				if n := len(seam.callsFor("session register")); n != registers || f.spawner.count() != spawns {
+					t.Fatalf("the start registered %d time(s) and started %d watcher(s)", n-registers, f.spawner.count()-spawns)
+				}
+				if entry, err := pidfile.Read(f.pidfilePath()); err != nil || entry.BrigadeSessionID != "brigade-sess-1" || !alive(f.spawner.watcherPID) {
+					t.Fatalf("the session's watcher: %+v, %v", entry, err)
+				}
+				// The backend the session is on is told of the conversation that
+				// began, once.
+				if sent := seam.callsFor("session heartbeat")[beats:]; len(sent) != 1 || profileOf(sent[0]) != f.teamKey || !slices.Contains(sent[0].Argv, "brigade-sess-1") {
+					t.Fatalf("the start sent %d heartbeat(s): want one, to the backend the session is on, for its id", len(sent))
+				}
+				if bn, err := f.store().ReadByNative(otherConversation); err != nil || bn.BrigadeSessionID != "brigade-sess-1" || bn.TeamKey != f.teamKey {
+					t.Fatalf("the resume hint of the conversation that began: %+v, %v", bn, err)
+				}
+				if host != config.HostMuse {
+					return
+				}
+				// The shell of the conversation that began finds the session, and
+				// the road of the one that ended is gone.
+				if p, err := f.store().ReadByHost(string(config.HostMuse), otherConversation); err != nil || p.BrigadeSessionID != "brigade-sess-1" || p.HostPID != f.key() {
+					t.Fatalf("the pointer of the conversation that began: %+v, %v", p, err)
+				}
+				if _, err := f.store().ReadByHost(string(config.HostMuse), first); err == nil {
+					t.Fatalf("the pointer of the conversation that ended is still there")
+				}
+			})
+		}
+	}
+
+	// What the resolution said of a session that is not connected is not
+	// said of one that is; that the team file there was refused is, whatever
+	// the refusal: a file that holds what looks like a join secret is the
+	// member's to hear of from any session.
+	t.Run("a team file that holds what looks like a secret", func(t *testing.T) {
+		t.Parallel()
+		f := newMemberFixture(t)
+		attachedMember(t, f, nil, nil)
+		leaked := fileOf(f.checkoutPin())
+		leaked["note"] = moveTicket
+		dir, _ := f.addCheckout("leaked", leaked, nil)
+		f.nativeID, f.cwd = otherConversation, dir
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+		got := lines(out)
+		if exit != 0 || len(got) != 2 || got[0] != startLine("payments-api", "brigade-sess-1", teamName, "accept") ||
+			!strings.Contains(got[1], "looks like a join secret") || strings.Contains(out, "not connected") || strings.Contains(out, moveTicket) {
+			t.Fatalf("exit %d, lines %q: %s", exit, got, errOut)
+		}
+	})
+	for _, refusal := range []string{
+		driftLine,
+		"Brigade: not connected: .brigade.json contains what looks like a join secret — remove it and rotate now (brigade team rotate-secret).",
+		"Brigade: not connected (config: team_file_unreadable): fix .brigade.json.",
+	} {
+		if line := keptFileLine(refusal); strings.Contains(line, "not connected") || !strings.HasPrefix(line, "Brigade: this session stays where it is.") || !strings.Contains(line, ".brigade.json") {
+			t.Errorf("the kept session's line of %q: %q", refusal, line)
+		}
+	}
+
+	// The controls. A map with no live watcher may be one a dead process
+	// left: the start is of a session that is attached to nothing, and says
+	// so, the map as it was. And a member who left the team has a binding
+	// that names none: a session of theirs is not kept by a start that
+	// resolves nothing.
+	for _, tc := range []struct {
+		name string
+		gone func(t *testing.T, f *fixture)
+	}{
+		{"no watcher is alive", func(t *testing.T, f *fixture) {
+			if err := os.Remove(f.pidfilePath()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"the member left the team", func(t *testing.T, f *fixture) {
+			binding, err := teamstore.LoadBinding(f.configDir, f.teamKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding.TeamRef, binding.TeamName, binding.PrincipalRef = "", "", "p-left"
+			if err := adapterkit.SaveProfile(f.configDir, f.teamKey, binding); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			seam := attachedMember(t, f, nil, nil)
+			first := f.nativeID
+			unjoined, _ := f.addCheckout("unjoined", fileOf(f.checkoutPin()), nil)
+			tc.gone(t, f)
+			beats := len(seam.callsFor("session heartbeat"))
+			f.nativeID, f.cwd = otherConversation, unjoined
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+			if got := lines(out); exit != 0 || len(got) != 1 || !strings.HasPrefix(got[0], "Brigade: not joined:") {
+				t.Fatalf("exit %d, lines %q: %s", exit, got, errOut)
+			}
+			if m := f.mustMap(); m.ClaudeSessionID != first || len(seam.callsFor("session heartbeat")) != beats {
+				t.Fatalf("the start rewrote the map for the conversation %q, or sent a heartbeat", m.ClaudeSessionID)
+			}
+		})
+	}
+}
+
 // TestAStartKeepsTheShellsRoadToAMuseSessionThatStays: on Muse Code a
 // command in the model's shell finds its session through a pointer filed
 // under the native session id, and a start whose document names another id
