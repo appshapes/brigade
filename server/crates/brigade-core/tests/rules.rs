@@ -4236,10 +4236,35 @@ fn a_retry_key_ends_with_the_secret_and_says_truly_who_owns_the_team() {
 
     // The operator's take-back gives the team a new secret, and ends the key with the old one.
     let mut rig = Rig::new();
-    take_in_keyed(&mut rig, None, &secret, KEY).unwrap();
+    let taken_from = member_of(&take_in_keyed(&mut rig, None, &secret, KEY).unwrap());
     assert!(rig.state.teams[ELSEWHERE].take_in_retry.is_some());
-    rig.take_back(ELSEWHERE).unwrap();
+    let new_secret = text(&rig.take_back(ELSEWHERE).unwrap(), "join_secret");
     assert_eq!(rig.state.teams[ELSEWHERE].take_in_retry, None);
+    assert_eq!(replayed(&rig), rig.state);
+    // The team has no owner then, and the first take-in with its new secret owns it by the join, as on
+    // a team the operator took in: with a key of its own, that key is the one the team keeps from then
+    // on, and the key the team was taken from answers for nobody.
+    let owner = take_in_keyed(&mut rig, None, &new_secret, OTHER_KEY).unwrap();
+    assert_eq!(
+        (&owner["taken_in"], &owner["owner"]),
+        (&json!(false), &json!(true))
+    );
+    assert_ne!(owner["principal_ref"], json!(taken_from.principal_ref));
+    assert_eq!(
+        rig.state.teams[ELSEWHERE]
+            .take_in_retry
+            .as_ref()
+            .map(|kept| (kept.key_hash.clone(), kept.principal_ref.clone())),
+        Some((sha256_hex(OTHER_KEY), text(&owner, "principal_ref")))
+    );
+    let stranger = take_in_keyed(&mut rig, None, &new_secret, KEY).unwrap();
+    assert_eq!(stranger["owner"], json!(false));
+    assert_ne!(stranger["principal_ref"], json!(taken_from.principal_ref));
+    let again = take_in_keyed(&mut rig, None, &new_secret, OTHER_KEY).unwrap();
+    assert_eq!(
+        (&again["principal_ref"], &again["owner"]),
+        (&owner["principal_ref"], &json!(true))
+    );
     assert_eq!(replayed(&rig), rig.state);
 }
 
@@ -4717,5 +4742,506 @@ fn a_take_in_made_again_after_its_principal_gave_its_credential_up_issues_one_an
         ]
     );
     assert!(known(&mut rig, &issued));
+    assert_eq!(replayed(&rig), rig.state);
+}
+
+/// A third key of the same form as [`KEY`].
+const THIRD_KEY: &str = "YS10aGlyZC1rZXktZm9yLXRoZS1ydWxlcy1vbmx5LTAz";
+
+/// Numbers that are the same in every run: what the walk below chooses by.
+struct Choices(u64);
+
+impl Choices {
+    fn below(&mut self, bound: usize) -> usize {
+        // xorshift64*: enough to ask the same teams something else at every step.
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        (self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33) as usize % bound
+    }
+
+    fn one_of<'a, T>(&mut self, of: &'a [T]) -> Option<&'a T> {
+        if of.is_empty() {
+            None
+        } else {
+            Some(&of[self.below(of.len())])
+        }
+    }
+}
+
+/// What a step of the walk asked, as far as the rules of a retry key read it.
+#[derive(Debug)]
+enum Asked {
+    /// `/v1/team/take-in`, with what it presented.
+    TakeIn {
+        team: &'static str,
+        secret: String,
+        key: Option<&'static str>,
+    },
+    /// `/v1/credential/revoke`, with the credential it presented.
+    RevokeOwn(String),
+    /// Anything else: a join, an administration request, one of the operator's commands.
+    Other,
+}
+
+/// What a team was before a step, as far as the rules of a retry key read it.
+#[derive(Clone)]
+struct TeamBefore {
+    owner: Option<String>,
+    join_secret_hash: String,
+    /// The hash of the key the team kept, the principal it kept it for, and whether the team banned it.
+    keeps: Option<(String, String, bool)>,
+}
+
+/// What the server held before a step: the teams of the walk, and the principal the caller's
+/// credential named. The walk keeps the rest itself, because a copy of the whole state at every step is
+/// the whole walk squared.
+struct Before {
+    teams: std::collections::BTreeMap<&'static str, TeamBefore>,
+    caller: Option<String>,
+}
+
+/// What the walk has seen the server make: every principal, and whom every credential ever named.
+#[derive(Default)]
+struct Seen {
+    principals: std::collections::BTreeSet<String>,
+    named: std::collections::BTreeMap<String, String>,
+}
+
+/// Holds one step against the rules of a retry key: what the server held before it, what it holds now,
+/// the entry the step made and what was asked. It returns how many keys the step kept and how many
+/// take-ins it made again.
+fn held_to_the_rules_of_a_retry_key(
+    before: &Before,
+    seen: &Seen,
+    after: &State,
+    entry: &Entry,
+    asked: &Asked,
+) -> (usize, usize) {
+    let events: Vec<&Event> = entry.records.iter().map(|record| &record.event).collect();
+    let issues_for = |principal: &str| {
+        events.iter().any(
+            |event| matches!(event, Event::CredentialIssued { principal_ref, .. } if principal_ref == principal),
+        )
+    };
+    let (mut kept, mut repeated) = (0, 0);
+    for event in &events {
+        match event {
+            // A key is kept by a take-in, with that key, of a caller the server did not know: for the
+            // principal the entry made, which owns the team from this entry on, on a team that had no
+            // owner or was not there, with the team's own secret and never with the ticket of a move.
+            Event::MemberJoined {
+                team_ref,
+                principal_ref,
+                retry_key_hash,
+                by_move_ticket,
+                ..
+            } if !retry_key_hash.is_empty() => {
+                let Asked::TakeIn {
+                    team,
+                    secret,
+                    key: Some(key),
+                } = asked
+                else {
+                    panic!("a key was kept for {asked:?}");
+                };
+                assert_eq!((team_ref.as_str(), retry_key_hash), (*team, &sha256_hex(key)));
+                assert_eq!(before.caller, None, "a key was kept for a caller the server knew");
+                assert!(
+                    !seen.principals.contains(principal_ref) && issues_for(principal_ref),
+                    "a key was kept for a principal that was there"
+                );
+                assert!(
+                    before.teams.get(team).is_none_or(|team| team.owner.is_none()),
+                    "a key was kept on a team that had its owner"
+                );
+                assert_eq!(after.teams[*team].owner(), Some(principal_ref.as_str()));
+                assert_eq!(after.teams[*team].join_secret_hash, sha256_hex(secret));
+                assert!(!by_move_ticket, "a key was kept for a join by the ticket");
+                kept += 1;
+            }
+            // A credential is issued for a principal that was there by one request alone: a take-in
+            // with the team's secret and the key the team keeps for that principal, from a caller the
+            // server does not know, for a principal the team did not ban.
+            Event::CredentialIssued { principal_ref, .. } if seen.principals.contains(principal_ref) => {
+                let Asked::TakeIn {
+                    team,
+                    secret,
+                    key: Some(key),
+                } = asked
+                else {
+                    panic!("a credential was issued for a principal that was there, by {asked:?}");
+                };
+                let team = &before.teams[team];
+                let (key_hash, kept_for, banned) = team.keeps.as_ref().expect("the team kept no key");
+                assert_eq!((key_hash, kept_for), (&sha256_hex(key), principal_ref));
+                assert_eq!(team.join_secret_hash, sha256_hex(secret));
+                assert_eq!(
+                    before.caller, None,
+                    "a caller the server knew was answered for another"
+                );
+                assert!(!banned, "a banned principal got a credential");
+                // The credential of this entry is the one credential the principal has from now on.
+                assert_eq!(
+                    after
+                        .credentials
+                        .values()
+                        .filter(|named| *named == principal_ref)
+                        .count(),
+                    1,
+                    "a take-in made again left a credential before it known"
+                );
+                repeated += 1;
+            }
+            // A credential is made unknown by its own holder, or by the take-in made again of the
+            // principal it names, and by nothing else.
+            Event::CredentialRevoked { credential_hash } => match asked {
+                Asked::RevokeOwn(credential) => assert_eq!(&sha256_hex(credential), credential_hash),
+                Asked::TakeIn { .. } => assert!(
+                    issues_for(&seen.named[credential_hash]),
+                    "a take-in made the credential of another principal unknown"
+                ),
+                Asked::Other => panic!("a credential was made unknown by a request that is neither"),
+            },
+            _ => {}
+        }
+    }
+    for (team_ref, team) in &after.teams {
+        let was = before.teams.get(team_ref.as_str());
+        // What a team keeps changes in two ways: a join writes a key, or the team's secret is rotated.
+        let keeps = |keeps: Option<(&String, &String)>| {
+            keeps.map(|(hash, kept_for)| (hash.clone(), kept_for.clone()))
+        };
+        let now = keeps(
+            team.take_in_retry
+                .as_ref()
+                .map(|kept| (&kept.key_hash, &kept.principal_ref)),
+        );
+        let then = keeps(
+            was.and_then(|team| team.keeps.as_ref())
+                .map(|(hash, kept_for, _)| (hash, kept_for)),
+        );
+        if now != then {
+            let wrote = events.iter().any(|event| {
+                matches!(event, Event::MemberJoined { team_ref: of, retry_key_hash, .. } if of == team_ref && !retry_key_hash.is_empty())
+            });
+            let rotated = events.iter().any(
+                |event| matches!(event, Event::TeamSecretRotated { team_ref: of, .. } if of == team_ref),
+            );
+            assert!(
+                if now.is_some() { wrote } else { rotated && !wrote },
+                "what {team_ref} keeps changed by {asked:?}"
+            );
+        }
+        // A rotation leaves a team no key, in the entry that rotates.
+        let rotated = events
+            .iter()
+            .any(|event| matches!(event, Event::TeamSecretRotated { team_ref: of, .. } if of == team_ref));
+        assert!(
+            !(rotated && team.take_in_retry.is_some()),
+            "{team_ref} keeps a key past a rotation"
+        );
+        // A take-in never takes a team from the owner it has.
+        if let (Asked::TakeIn { .. }, Some(owner)) = (asked, was.and_then(|team| team.owner.as_deref())) {
+            assert_eq!(
+                team.owner(),
+                Some(owner),
+                "a take-in changed the owner of {team_ref}"
+            );
+        }
+    }
+    (kept, repeated)
+}
+
+/// The rules of a retry key over a walk of twenty thousand requests on two dozen teams, chosen by numbers
+/// that are the same in every run: take-ins and joins with every pairing of the team's secret, an old
+/// one, an invented one and a ticket with three keys and none, from callers the server knows, knew and
+/// never knew, and between them every request that changes who owns a team, who is in it and what
+/// opens it, the operator's included. Whatever is asked, a key is kept only for the owner a take-in
+/// made, a credential is issued for a principal that was there only to the holder of that key and the
+/// team's secret, a credential is made unknown only by its holder or by that take-in, a rotation leaves
+/// no key, and a take-in never changes the owner a team has. And the other way: every take-in that
+/// carries the key a team keeps and the team's secret, from a caller the server does not know, is
+/// answered for the principal the first one made, unless the team banned it, and every other one from
+/// such a caller for a principal that is new.
+#[test]
+fn whatever_is_asked_a_retry_key_is_kept_for_the_owner_a_take_in_made_and_answers_for_nobody_else() {
+    use std::collections::BTreeMap;
+    const TEAMS: [&str; 24] = [
+        "walk-00", "walk-01", "walk-02", "walk-03", "walk-04", "walk-05", "walk-06", "walk-07", "walk-08",
+        "walk-09", "walk-10", "walk-11", "walk-12", "walk-13", "walk-14", "walk-15", "walk-16", "walk-17",
+        "walk-18", "walk-19", "walk-20", "walk-21", "walk-22", "walk-23",
+    ];
+    const KEYS: [Option<&str>; 4] = [None, Some(KEY), Some(OTHER_KEY), Some(THIRD_KEY)];
+    let mut rig = Rig::new();
+    let mut choices = Choices(0x0328_0005_2026_1114);
+    // What the walk knows: every secret and ticket a team ever had, the last the one it has; every
+    // credential an answer ever carried, known to the server still or not; the last one it was given
+    // for each principal; and who ever joined each team.
+    let mut secrets: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    let mut tickets: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    let mut credentials: Vec<String> = Vec::new();
+    let mut holds: BTreeMap<String, String> = BTreeMap::new();
+    let mut joined: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    let mut seen = Seen::default();
+    let (mut kept, mut repeated, mut honoured, mut refused, mut took_in) = (0, 0, 0, 0, 0);
+    let mut banned_refused = 0;
+    for step in 0..20_000 {
+        // Twenty minutes a step: the bound on failed joins holds nobody for the whole walk.
+        rig.advance(1200);
+        // A team more comes into the walk every eight hundred steps, so that each is taken in, or
+        // imported, by a request of another kind.
+        let team = TEAMS[choices.below((1 + step / 800).min(TEAMS.len()))];
+        let caller = match choices.below(10) {
+            0..=3 => None,
+            4 => Some("a-credential-the-server-never-issued".to_owned()),
+            _ => choices.one_of(&credentials).cloned(),
+        };
+        let before = Before {
+            teams: TEAMS
+                .iter()
+                .filter_map(|team| {
+                    let held = rig.state.teams.get(*team)?;
+                    let keeps = held.take_in_retry.as_ref().map(|kept| {
+                        let banned = held.members[&kept.principal_ref].banned;
+                        (kept.key_hash.clone(), kept.principal_ref.clone(), banned)
+                    });
+                    let team_before = TeamBefore {
+                        owner: held.owner().map(str::to_owned),
+                        join_secret_hash: held.join_secret_hash.clone(),
+                        keeps,
+                    };
+                    Some((*team, team_before))
+                })
+                .collect(),
+            caller: caller
+                .as_ref()
+                .and_then(|credential| rig.state.principal_of(&sha256_hex(credential)))
+                .map(str::to_owned),
+        };
+        // A full copy of the state while it is small, for what a refused request leaves.
+        let whole = (step < 1_500).then(|| rig.state.clone());
+        let entries = rig.log.len();
+        // The credential of the team's owner, when the walk holds one, and somebody who joined the team.
+        // Who is revoked or banned is, two times in three, the principal whose key the team keeps: a
+        // team that banned it is where a take-in made again must be refused.
+        let owner = before
+            .teams
+            .get(team)
+            .and_then(|held| holds.get(held.owner.as_ref()?).cloned());
+        let kept_for = before
+            .teams
+            .get(team)
+            .and_then(|held| held.keeps.as_ref())
+            .map(|(_, kept_for, _)| kept_for.clone());
+        let member = choices
+            .one_of(joined.get(team).map_or(&[][..], Vec::as_slice))
+            .cloned();
+        let revoked = match choices.below(3) {
+            0 | 1 if kept_for.is_some() => kept_for.clone(),
+            _ => member.clone(),
+        };
+        let secret = {
+            let known = secrets.get(team).map_or(&[][..], Vec::as_slice);
+            match choices.below(20) {
+                0..=11 if !known.is_empty() => known[known.len() - 1].clone(),
+                12..=14 if known.len() > 1 => known[choices.below(known.len() - 1)].clone(),
+                15..=17 => tickets
+                    .get(team)
+                    .and_then(|of_team| of_team.last())
+                    .cloned()
+                    .unwrap_or_else(|| secret_of(team, "never-a-ticket-of-the-team")),
+                _ if before.teams.contains_key(team) => secret_of(team, &format!("invented-{step}")),
+                _ => secret_of(team, &format!("first-{step}")),
+            }
+        };
+        let mut asked = Asked::Other;
+        let team_body = json!({"team_ref": team});
+        let answer = match choices.below(40) {
+            0..=17 => {
+                let key = KEYS[choices.below(KEYS.len())];
+                let mut body = json!({"join_secret": secret, "team_name": "ops"});
+                if let Some(key) = key {
+                    body["retry_key"] = json!(key);
+                }
+                asked = Asked::TakeIn {
+                    team,
+                    secret: secret.clone(),
+                    key,
+                };
+                // One take-in in twelve is one that may not own, as a gateway's request inside the
+                // server is.
+                rig.may_own = choices.below(12) != 0;
+                let answer = rig.call(caller.as_deref(), "/v1/team/take-in", body);
+                rig.may_own = true;
+                answer
+            }
+            18..=21 => rig.call(caller.as_deref(), "/v1/team/join", json!({"join_secret": secret})),
+            22..=23 => rig.call(
+                owner.as_deref(),
+                "/v1/team/transfer",
+                json!({"team_ref": team, "principal_ref": member}),
+            ),
+            24..=25 => rig.call(caller.as_deref(), "/v1/team/leave", team_body),
+            26..=28 => {
+                let mut body = json!({"team_ref": team, "principal_ref": revoked});
+                if let Some(ban) = [None, Some(true), Some(true), Some(false)][choices.below(4)] {
+                    body["ban"] = json!(ban);
+                }
+                rig.call(owner.as_deref(), "/v1/team/revoke-member", body)
+            }
+            29 => rig.call(owner.as_deref(), "/v1/team/rotate-secret", team_body),
+            30 => {
+                asked = caller.clone().map_or(Asked::Other, Asked::RevokeOwn);
+                rig.call(caller.as_deref(), "/v1/credential/revoke", json!({}))
+            }
+            31..=32 => rig.call(owner.as_deref(), "/v1/team/open-move", team_body),
+            33 => rig.call(owner.as_deref(), "/v1/team/close-move", team_body),
+            34 => rig.import("ops", &secret),
+            35 => rig.take_back(team),
+            36..=37 => rig.set_owner(team, member.as_deref().unwrap_or("nobody")),
+            38 => rig.open_move(team, 1 + choices.below(40) as u32),
+            _ => rig.close_move(team),
+        };
+        // The principal a take-in must be answered for: the one the team keeps the key of, when the
+        // request carries that key and the team's secret, from a caller the server does not know, and
+        // the team did not ban that principal.
+        let must_answer_for = match &asked {
+            Asked::TakeIn {
+                secret,
+                key: Some(key),
+                ..
+            } if before.caller.is_none() => before.teams.get(team).and_then(|held| {
+                let (key_hash, kept_for, banned) = held.keeps.as_ref()?;
+                (*key_hash == sha256_hex(key) && held.join_secret_hash == sha256_hex(secret) && !banned)
+                    .then(|| kept_for.clone())
+            }),
+            _ => None,
+        };
+        let entry = rig.log.get(entries);
+        match entry {
+            Some(entry) => {
+                let (kept_now, repeated_now) =
+                    held_to_the_rules_of_a_retry_key(&before, &seen, &rig.state, entry, &asked);
+                (kept, repeated) = (kept + kept_now, repeated + repeated_now);
+            }
+            None => {
+                if let Some(whole) = whole {
+                    assert_eq!(
+                        whole, rig.state,
+                        "step {step} made no entry and changed the state"
+                    );
+                }
+            }
+        }
+        match answer {
+            Ok(result) => {
+                // What the walk learns of an answer: a credential, a secret, a ticket.
+                if let Some(credential) = result.get("credential").and_then(Value::as_str) {
+                    credentials.push(credential.to_owned());
+                    holds.insert(text(&result, "principal_ref"), credential.to_owned());
+                }
+                if let Some(new_secret) = result.get("join_secret").and_then(Value::as_str) {
+                    secrets.entry(team).or_default().push(new_secret.to_owned());
+                }
+                if let Some(ticket) = result.get("ticket").and_then(Value::as_str) {
+                    tickets.entry(team).or_default().push(ticket.to_owned());
+                }
+                if result.get("taken_in") == Some(&json!(true))
+                    || result.get("imported") == Some(&json!(true))
+                {
+                    secrets.entry(team).or_default().push(secret.clone());
+                    took_in += 1;
+                }
+                // An answer says `owner` truly, and a caller the server knew is answered for itself,
+                // with no credential.
+                if let Asked::TakeIn { .. } = &asked {
+                    let answered = text(&result, "principal_ref");
+                    assert_eq!(
+                        result["owner"],
+                        json!(rig.state.teams[team].owner() == Some(answered.as_str())),
+                        "step {step}"
+                    );
+                    match (&before.caller, &must_answer_for) {
+                        (Some(known), _) => {
+                            assert_eq!(&answered, known, "step {step}");
+                            assert!(result.get("credential").is_none(), "step {step}");
+                        }
+                        // The take-in made again is answered for the principal the first one made,
+                        // with a credential.
+                        (None, Some(kept_for)) => {
+                            assert_eq!(&answered, kept_for, "step {step}");
+                            assert!(result.get("credential").is_some(), "step {step}");
+                            honoured += 1;
+                        }
+                        // And any other, from a caller the server does not know, is a new principal's.
+                        (None, None) => assert!(
+                            !seen.principals.contains(&answered),
+                            "step {step}: a stranger was answered for a principal that was there"
+                        ),
+                    }
+                }
+            }
+            Err(_) => {
+                assert_eq!(
+                    rig.log.len(),
+                    entries,
+                    "step {step} was refused and made an entry"
+                );
+                assert_eq!(
+                    must_answer_for, None,
+                    "step {step}: a take-in made again was refused"
+                );
+                // The take-in made again of a principal the team banned: the key, the secret, no
+                // credential the server knows, and a refusal.
+                if let Asked::TakeIn {
+                    secret,
+                    key: Some(key),
+                    ..
+                } = &asked
+                    && before.caller.is_none()
+                    && before.teams.get(team).is_some_and(|held| {
+                        held.join_secret_hash == sha256_hex(secret)
+                            && held
+                                .keeps
+                                .as_ref()
+                                .is_some_and(|(key_hash, _, banned)| *banned && *key_hash == sha256_hex(key))
+                    })
+                {
+                    banned_refused += 1;
+                }
+                refused += 1;
+            }
+        }
+        // What the walk has seen the server make, for the steps after this one.
+        for record in entry.map_or(&[][..], |entry| &entry.records[..]) {
+            match &record.event {
+                Event::CredentialIssued {
+                    principal_ref,
+                    credential_hash,
+                } => {
+                    seen.principals.insert(principal_ref.clone());
+                    seen.named.insert(credential_hash.clone(), principal_ref.clone());
+                }
+                Event::MemberJoined {
+                    team_ref,
+                    principal_ref,
+                    ..
+                } => {
+                    let of_team = TEAMS.iter().find(|team| *team == team_ref).unwrap();
+                    joined.entry(of_team).or_default().push(principal_ref.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+    // The walk went where the rules are: keys kept, take-ins made again, requests refused, and a log
+    // that makes the same state when it is read again.
+    assert!(
+        kept >= 50 && repeated >= 50 && honoured == repeated && refused >= 2_000 && took_in >= 20,
+        "the walk kept {kept} keys, made {repeated} take-ins again and expected {honoured}, was refused \
+         {refused} times, {banned_refused} of them a banned principal's take-in made again, and took \
+         {took_in} teams in"
+    );
     assert_eq!(replayed(&rig), rig.state);
 }
