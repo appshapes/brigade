@@ -594,10 +594,10 @@ func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
 	deps.HeartbeatInterval, deps.LeaseSeconds = time.Hour, int(lease/time.Second)
 	r := fx.start(deps)
 	fx.waitLog("watch ready", nil)
-	await(t, "the store to show the session under a lease of 3s", func() bool {
+	testutil.Await(t, waitShort, pollEvery, "the store to show the session under a lease of 3s", func() bool {
 		s := fx.session()
 		return s.LeaseUntil.Sub(s.LastSeenAt) == lease
-	})
+	}, nil)
 	base := fx.session().LastSeenAt
 	// sent is when the watcher said it sent each heartbeat, and closest the
 	// least time between two that follow each other.
@@ -616,7 +616,7 @@ func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
 		}
 		return at, closest
 	}
-	awaitFor(t, waitLong, "two heartbeats after the one at ready, two of them less than two thirds of the lease apart", func() bool {
+	testutil.Await(t, waitLong, pollEvery, "two heartbeats after the one at ready, two of them less than two thirds of the lease apart", func() bool {
 		at, closest := sent()
 		return len(at) >= 3 && closest < 2*lease/3
 	}, func() string {
@@ -626,7 +626,7 @@ func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
 		}
 		return fmt.Sprintf("%d heartbeats came, the one at ready among them, the closest two %v apart", len(at), closest)
 	})
-	await(t, "the store's last_seen_at to move past the heartbeat at ready", func() bool { return fx.session().LastSeenAt.After(base) })
+	testutil.Await(t, waitShort, pollEvery, "the store's last_seen_at to move past the heartbeat at ready", func() bool { return fx.session().LastSeenAt.After(base) }, nil)
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

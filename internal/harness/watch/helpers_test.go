@@ -811,6 +811,21 @@ func (fx *fixture) notice() string {
 	return b.String()
 }
 
+// awaitNotice waits until the session's notice file carries every text,
+// and when it gives up says what the notice held.
+func awaitNotice(t *testing.T, fx *fixture, text ...string) {
+	t.Helper()
+	testutil.Await(t, waitShort, pollEvery, fmt.Sprintf("the session's notice with %q", text), func() bool {
+		n := fx.notice()
+		for _, want := range text {
+			if !strings.Contains(n, want) {
+				return false
+			}
+		}
+		return true
+	}, func() string { return "the notice held " + strconv.Quote(fx.notice()) })
+}
+
 // seenPath is the seen file of the fixture's Brigade session (P5-14: keyed
 // by the session id, not the pid; the literal join pins the layout
 // independently of inbound.SeenPath). Every fixture session id — "s1", or
@@ -991,7 +1006,7 @@ func (fx *fixture) waitLog(msg string, attrs map[string]any) {
 	if len(attrs) > 0 {
 		what += fmt.Sprintf(" with %v", attrs)
 	}
-	await(fx.t, what, func() bool { return fx.logHas(msg, attrs) })
+	testutil.Await(fx.t, waitShort, pollEvery, what, func() bool { return fx.logHas(msg, attrs) }, nil)
 }
 
 // TestLogCountComparesNumbersAsNumbers is logCount's own test (work item
@@ -1037,30 +1052,6 @@ func TestLogCountComparesNumbersAsNumbers(t *testing.T) {
 		if got := fx.logCount("watcher starting", tc.attrs); got != tc.want {
 			t.Errorf("%s: %d line(s) match %v, want %d", tc.name, got, tc.attrs, tc.want)
 		}
-	}
-}
-
-// await waits for cond as testutil.Eventually does, a hang catcher and no
-// performance bound, and when it gives up says what did not come (work
-// item 336: `condition not met within 30s` names nothing).
-func await(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	awaitFor(t, waitShort, what, cond, nil)
-}
-
-// awaitFor is await with the hang catcher's length and, when it gives up,
-// what seen answers beside what did not come.
-func awaitFor(t *testing.T, catcher time.Duration, what string, cond func() bool, seen func() string) {
-	t.Helper()
-	deadline := time.Now().Add(catcher)
-	for !cond() {
-		if !time.Now().Before(deadline) {
-			if seen != nil {
-				t.Fatalf("waited %v for %s, which did not come; %s", catcher, what, seen())
-			}
-			t.Fatalf("waited %v for %s, which did not come", catcher, what)
-		}
-		time.Sleep(pollEvery)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +16,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 )
 
 // How the tests of the state goroutine wait (work item 336). The goroutine
@@ -46,7 +46,7 @@ func (c *checkCount) checked() { c.n.Add(1) }
 func (c *checkCount) pass(t *testing.T) {
 	t.Helper()
 	from := c.n.Load()
-	await(t, "two more checks of the watcher's state goroutine", func() bool { return c.n.Load() >= from+2 })
+	testutil.Await(t, waitShort, pollEvery, "two more checks of the watcher's state goroutine", func() bool { return c.n.Load() >= from+2 }, nil)
 }
 
 // acts waits until the watcher has done what cond tells of, which what
@@ -67,19 +67,13 @@ func (c *checkCount) pass(t *testing.T) {
 // watcher, so a wait that gives up now says what the watcher warned of.
 func acts(t *testing.T, fx *fixture, what string, clock *fakeClock, step time.Duration, cond func() bool) {
 	t.Helper()
-	awaitFor(t, waitLong, what+" (the watcher's clock running)", func() bool {
+	testutil.Await(t, waitLong, pollEvery, what+" (the watcher's clock running)", func() bool {
 		if cond() {
 			return true
 		}
 		clock.Advance(step)
 		return false
 	}, fx.warnings)
-}
-
-// awaitNotice waits until the session's notice file carries text.
-func awaitNotice(t *testing.T, fx *fixture, text string) {
-	t.Helper()
-	await(t, "the session's notice with "+strconv.Quote(text), func() bool { return strings.Contains(fx.notice(), text) })
 }
 
 // stateWaits gives the watcher a clock that stands at now until the test
@@ -397,7 +391,7 @@ func TestStateFansOut(t *testing.T) {
 			// intervals, and it stands again while the next is produced.
 			produced := func() int { return fx.logCount("state: digests produced", nil) }
 			for n := 1; ; n++ {
-				await(t, fmt.Sprintf("the watcher's line of the digests it produced, number %d", n), func() bool { return produced() >= n })
+				testutil.Await(t, waitShort, pollEvery, fmt.Sprintf("the watcher's line of the digests it produced, number %d", n), func() bool { return produced() >= n }, nil)
 				if fx.logHas("state: digests produced", map[string]any{"sent": float64(1), "missed": float64(1)}) {
 					break
 				}
@@ -495,12 +489,12 @@ func TestStateStandsDownAtTheLastLook(t *testing.T) {
 		}
 	})
 	fx.start(deps, fx.args()...)
-	await(t, "the watcher's line that another session produced the digest meanwhile", func() bool {
+	testutil.Await(t, waitShort, pollEvery, "the watcher's line that another session produced the digest meanwhile", func() bool {
 		if fx.logHas("state: digest produced", nil) {
 			t.Fatal("this session produced the digest another session had produced while it read the roster")
 		}
 		return fx.logHas("state: another session produced the digest meanwhile", map[string]any{"producer": "first", "label": "peer@example.com"})
-	})
+	}, nil)
 	checks.pass(t)
 	if fx.logHas("state: digest produced", nil) || fx.logHas("state: digests produced", nil) {
 		t.Fatal("a digest was produced after this session had stood down")

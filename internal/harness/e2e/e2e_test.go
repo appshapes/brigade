@@ -318,7 +318,7 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	if entry.PID != d.pid() || entry.BrigadeSessionID != m.BrigadeSessionID || entry.SocketPath != "" || entry.TokenSHA256 != "" {
 		t.Fatalf("pidfile: %+v (watcher %d)", entry, d.pid())
 	}
-	await(t, "the sink watcher's `watch ready` line", func() bool { return r.logHas(carol, "watch ready") })
+	testutil.Await(t, waitLong, pollEvery, "the sink watcher's `watch ready` line", func() bool { return r.logHas(carol, "watch ready") }, nil)
 
 	// bob sends from his own session; the record lands in the sink.
 	r.hook(bob, "session-start", bob.hookDoc("SessionStart", map[string]any{"source": "startup"}))
@@ -326,10 +326,10 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	res = r.mustRun(r.env(bob), "to the sink", "send", m.BrigadeSessionID, "--json")
 	sent := jsonResult[sendResult](t, res.stdout)
 	var records []sinkRecord
-	await(t, "the record of bob's message in the sink", func() bool {
+	testutil.Await(t, waitLong, pollEvery, "the record of bob's message in the sink", func() bool {
 		records = readSink(t, sink)
 		return len(records) >= 1
-	})
+	}, nil)
 	rec := records[0]
 	if len(records) != 1 || rec.MessageID != sent.MessageID || rec.SenderSessionID != bobMap.BrigadeSessionID || rec.TS.IsZero() {
 		t.Fatalf("sink records: %+v", records)
@@ -341,7 +341,7 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	if fi, err := os.Stat(sink); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Errorf("sink mode: %v %v", fi, err)
 	}
-	await(t, "the store to hold bob's message as acknowledged", func() bool { return len(r.storeIDs("acked", m.BrigadeSessionID)) == 1 })
+	testutil.Await(t, waitLong, pollEvery, "the store to hold bob's message as acknowledged", func() bool { return len(r.storeIDs("acked", m.BrigadeSessionID)) == 1 }, nil)
 
 	// SIGTERM ends it with exit 0, the pidfile gone and the session closed.
 	if exit := d.stop(t); exit != 0 {
@@ -390,19 +390,6 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	// No token in this variant; the recorder is still asserted live and
 	// the CLAUDE_CODE_MESSAGING_* names absent from every adapter child.
 	r.assertTokenNowhere("no-token-in-sink-mode-" + strconv.Itoa(carol.pid))
-}
-
-// await waits for cond as testutil.Eventually does, a hang catcher, and
-// when it gives up says what did not come (work item 336).
-func await(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(waitLong)
-	for !cond() {
-		if !time.Now().Before(deadline) {
-			t.Fatalf("waited %v for %s, which did not come", waitLong, what)
-		}
-		time.Sleep(pollEvery)
-	}
 }
 
 // rosterResult is the --json result of `brigade sessions`, the members

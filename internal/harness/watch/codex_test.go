@@ -147,15 +147,15 @@ func TestCodexQueueFollowsTheThreadOfTheMap(t *testing.T) {
 	deps.QueueCommand, record = queueRecorder(t, "0")
 	r := fx.start(deps, fx.args()...)
 	first := fx.send("first")
-	await(t, "the watcher's line that the first message was queued", func() bool {
+	testutil.Await(t, waitShort, pollEvery, "the watcher's line that the first message was queued", func() bool {
 		return fx.logCount("injection reported", map[string]any{"message_id": first, "outcome": "injected"}) == 1
-	})
+	}, nil)
 	fx.writeMapWith(func(m *sessionmap.ByPID) { m.ClaudeSessionID = "native-2" })
 	fx.waitLog("native session id updated from the by-pid map", nil)
 	second := fx.send("second")
-	await(t, "the watcher's line that the second message was queued", func() bool {
+	testutil.Await(t, waitShort, pollEvery, "the watcher's line that the second message was queued", func() bool {
 		return fx.logCount("injection reported", map[string]any{"message_id": second, "outcome": "injected"}) == 1
-	})
+	}, nil)
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -193,10 +193,10 @@ func TestCodexQueueNothingWhenTheProcessIsGone(t *testing.T) {
 	if err := syscall.Kill(fx.hostPID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	await(t, "the Codex process to be gone after its SIGKILL", func() bool {
+	testutil.Await(t, waitShort, pollEvery, "the Codex process to be gone after its SIGKILL", func() bool {
 		info, err := procutil.Lookup(fx.hostPID)
 		return err == nil && (!info.Exists || info.Zombie)
-	})
+	}, nil)
 	id := fx.send("lands on nobody")
 	fx.waitLog("injection failed; backing off", map[string]any{"message_id": id})
 	if code := r.stopAndWait(); code != 0 {

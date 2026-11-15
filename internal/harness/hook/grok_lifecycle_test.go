@@ -115,7 +115,7 @@ func TestGrokOverlappingInitialHooksKeepOneReceiver(t *testing.T) {
 			// its own: whoever finds the lock held is the second.
 			go func() { runHook(second); close(secondDone) }()
 			// A contending hook must not register while the first owns the receiver.
-			waitFor(t, "the second hook to find the receiver's lock held", func() bool {
+			testutil.Await(t, pollTimeout, pollInterval, "the second hook to find the receiver's lock held", func() bool {
 				if n := registrations.Load(); n > 1 {
 					t.Fatalf("the second hook registered while the first owned the receiver: %d registrations", n)
 				}
@@ -130,7 +130,7 @@ func TestGrokOverlappingInitialHooksKeepOneReceiver(t *testing.T) {
 				default:
 				}
 				return false
-			})
+			}, nil)
 			letGo.Do(func() { close(release) })
 			for _, hook := range []struct {
 				name string

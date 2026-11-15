@@ -14,6 +14,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 )
 
 // A holdCase is one watched session with a state folder, its entry and
@@ -125,23 +126,9 @@ func (c *holdCase) sent(t *testing.T, n int, attrs map[string]any) {
 // in the way how names.
 func (c *holdCase) ended(t *testing.T, how string) {
 	t.Helper()
-	await(t, "the watcher's line that a hold ended with nothing sent, how="+how, func() bool {
+	testutil.Await(t, waitShort, pollEvery, "the watcher's line that a hold ended with nothing sent, how="+how, func() bool {
 		return c.fx.logHas("decision: hold ended with nothing sent", map[string]any{"how": how})
-	})
-}
-
-// noticed waits until the session's notice file carries every text.
-func (c *holdCase) noticed(t *testing.T, text ...string) {
-	t.Helper()
-	await(t, fmt.Sprintf("the session's notice with %q", text), func() bool {
-		n := c.fx.notice()
-		for _, want := range text {
-			if !strings.Contains(n, want) {
-				return false
-			}
-		}
-		return true
-	})
+	}, nil)
 }
 
 // subscribe writes the owner's subscription with the recipients.
@@ -241,7 +228,7 @@ func TestHeldAskIsSentAfterTheWait(t *testing.T) {
 	if len(msgs) != 1 || msgs[0].Body != "to: @owner\n\nShip 0.48.0 now, or wait?\n\n- ship now\n- wait" || msgs[0].Summary != "Ship 0.48.0 now, or wait?" || msgs[0].Sender.SessionID != c.fx.sessionID {
 		t.Fatalf("the gateway's inbox: %+v", msgs)
 	}
-	c.noticed(t, "Brigade decision "+c.id+": your user did not answer here within their wait, so it was sent to them through the slack gateway; close it with the outcome when they answer.")
+	awaitNotice(t, c.fx, "Brigade decision "+c.id+": your user did not answer here within their wait, so it was sent to them through the slack gateway; close it with the outcome when they answer.")
 	// Once: the checks that follow find nothing held.
 	c.checks.pass(t)
 	if n := c.fx.logCount("decision: held ask sent", nil); n != 1 {
@@ -321,7 +308,7 @@ func TestHeldAskWithNoGateway(t *testing.T) {
 		if len(msgs) != 1 || msgs[0].Body != "Ship 0.48.0 now, or wait?\n\n- ship now\n- wait" || msgs[0].Summary != "Decision for owner@example.com: Ship 0.48.0 now, or wait?" {
 			t.Fatalf("the other session's inbox: %+v", msgs)
 		}
-		c.noticed(t, "so it was sent to another session of theirs as a team message")
+		awaitNotice(t, c.fx, "so it was sent to another session of theirs as a team message")
 	})
 	t.Run("nobody to send to", func(t *testing.T) {
 		t.Parallel()
@@ -345,7 +332,7 @@ func TestHeldAskWithNoGateway(t *testing.T) {
 		if d := c.decision(t); d.Sent != "" || d.HoldEnded != state.HoldUnsent || d.Held() || !d.Open() {
 			t.Fatalf("decision %+v", *d)
 		}
-		c.noticed(t, "Brigade decision "+c.id+": your user did not answer here within their wait, and it could not be sent")
+		awaitNotice(t, c.fx, "Brigade decision "+c.id+": your user did not answer here within their wait, and it could not be sent")
 		// The peer's own session is another member's: it got nothing.
 		if msgs := c.inbox(t, c.fx.peer, c.fx.senderSessionID); len(msgs) != 0 {
 			t.Fatalf("another member's session got the ask: %+v", msgs)
@@ -451,7 +438,7 @@ func TestHeldAsksEachGetTheirNotice(t *testing.T) {
 	c.askAs(t, second, c.clock.Now().Add(10*time.Millisecond), until.Add(300*time.Millisecond))
 	c.waitOver()
 	c.sent(t, 2, nil)
-	c.noticed(t, "Brigade decision "+c.id+": your user did not answer here within their wait", "Brigade decision "+second+": your user did not answer here within their wait")
+	awaitNotice(t, c.fx, "Brigade decision "+c.id+": your user did not answer here within their wait", "Brigade decision "+second+": your user did not answer here within their wait")
 	for _, id := range []string{c.id, second} {
 		if d := c.decisionOf(t, id); d.Sent != state.SentSlack || d.Held() {
 			t.Fatalf("decision %s: %+v", id, *d)

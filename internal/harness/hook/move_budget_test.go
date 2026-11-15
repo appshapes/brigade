@@ -18,6 +18,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
 
@@ -135,7 +136,7 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 			t.Fatalf("%d follow children started, want 1", n)
 		}
 		// The child is where a real one would be: waiting on the old backend.
-		waitFor(t, "the follow child's question to reach the backend that hangs", func() bool { return blocked.Load() == 1 })
+		testutil.Await(t, pollTimeout, pollInterval, "the follow child's question to reach the backend that hangs", func() bool { return blocked.Load() == 1 }, nil)
 		// The control: the question is on the record, so a hook that had asked
 		// it would have been seen waiting too.
 		if asks := seam.callsFor("team moved"); len(asks) != 1 || profileOf(asks[0]) != f.teamKey {
@@ -178,7 +179,7 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 		if n := len(f.spawner.followed()); n != 1 {
 			t.Fatalf("%d follow children started, want 1", n)
 		}
-		waitFor(t, "the follow child's question to reach the backend that hangs", func() bool { return blocked.Load() == 1 })
+		testutil.Await(t, pollTimeout, pollInterval, "the follow child's question to reach the backend that hangs", func() bool { return blocked.Load() == 1 }, nil)
 		if n := len(seam.callsFor("team moved")); n != asksAtStart+1 {
 			t.Fatalf("%d questions since the start, want the child's one", n-asksAtStart)
 		}
@@ -514,19 +515,6 @@ func TestAMoveDoesNotWaitForItsWatchersPidfile(t *testing.T) {
 		t.Fatalf("the prompt waited for the watcher's pidfile; it took %v\n%s", took, errOut)
 	}
 	t.Logf("the prompt that moved the session took %v", took.Round(time.Millisecond))
-}
-
-// waitFor waits for cond, which another goroutine makes true, and when it
-// gives up says what it waited for.
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(pollTimeout)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("waited %v for %s, which did not come", pollTimeout, what)
-		}
-		time.Sleep(pollInterval)
-	}
 }
 
 // TestAFollowWhoseBackendHangsEndsWithItsBudget: the child itself, with the
