@@ -3,20 +3,17 @@
 package watch_test
 
 import (
-	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/protocol"
-	"github.com/appshapes/brigade/internal/testutil"
 )
 
 // A holdCase is one watched session with a state folder, its entry and
@@ -117,7 +114,34 @@ func (c *holdCase) waitOver() { c.clock.Advance(holdWait) }
 // attributes, the watcher's clock running meanwhile (acts).
 func (c *holdCase) sent(t *testing.T, n int, attrs map[string]any) {
 	t.Helper()
-	acts(t, c.clock, holdEvery, func() bool { return c.fx.logCount("decision: held ask sent", attrs) == n })
+	what := fmt.Sprintf("%d held ask(s) sent, by the watcher's log", n)
+	if len(attrs) > 0 {
+		what += fmt.Sprintf(" with %v", attrs)
+	}
+	acts(t, what, c.clock, holdEvery, func() bool { return c.fx.logCount("decision: held ask sent", attrs) == n })
+}
+
+// ended waits until the watcher's log says a hold ended with nothing sent,
+// in the way how names.
+func (c *holdCase) ended(t *testing.T, how string) {
+	t.Helper()
+	await(t, "the watcher's line that a hold ended with nothing sent, how="+how, func() bool {
+		return c.fx.logHas("decision: hold ended with nothing sent", map[string]any{"how": how})
+	})
+}
+
+// noticed waits until the session's notice file carries every text.
+func (c *holdCase) noticed(t *testing.T, text ...string) {
+	t.Helper()
+	await(t, fmt.Sprintf("the session's notice with %q", text), func() bool {
+		n := c.fx.notice()
+		for _, want := range text {
+			if !strings.Contains(n, want) {
+				return false
+			}
+		}
+		return true
+	})
 }
 
 // subscribe writes the owner's subscription with the recipients.
@@ -145,18 +169,21 @@ func (c *holdCase) start(t *testing.T) {
 }
 
 // gateway registers a session with the Slack gateway's harness, as the
-// peer.
+// peer, and answers its id.
 func (c *holdCase) gateway(t *testing.T) string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-	defer cancel()
-	gw, err := c.fx.peer.Register(ctx, &protocol.SessionRegistration{
+	return c.fx.register(c.fx.peer, &protocol.SessionRegistration{
 		Harness: "gateway-slack", HarnessVersion: "0.1.0", SessionName: "slack-gateway", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return gw.SessionID
+	}).SessionID
+}
+
+// second registers another session of the asking member, and answers its
+// id.
+func (c *holdCase) second(t *testing.T) string {
+	t.Helper()
+	return c.fx.register(c.fx.owner, &protocol.SessionRegistration{
+		Harness: "codex", HarnessVersion: "test", SessionName: "second", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
+	}).SessionID
 }
 
 // decision loads the canonical copy.
@@ -175,16 +202,10 @@ func (c *holdCase) decisionOf(t *testing.T, id string) *state.Decision {
 	return d
 }
 
-// inbox is what the peer's client receives for a session.
+// inbox is what the client receives for a session.
 func (c *holdCase) inbox(t *testing.T, client *adapterclient.Client, sessionID string) []protocol.MessageEnvelope {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-	defer cancel()
-	got, err := client.Receive(ctx, sessionID, 10)
-	if err != nil {
-		t.Fatalf("receive: %v", err)
-	}
-	return got.Messages
+	return c.fx.received(client, sessionID)
 }
 
 // TestHeldAskIsSentAfterTheWait (card 236, askhold.go): the asking session's
@@ -196,14 +217,7 @@ func (c *holdCase) inbox(t *testing.T, client *adapterclient.Client, sessionID s
 func TestHeldAskIsSentAfterTheWait(t *testing.T) {
 	t.Parallel()
 	c := newHoldCase(t, time.Now().UTC().Add(-time.Minute))
-	ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-	defer cancel()
-	gw, err := c.fx.peer.Register(ctx, &protocol.SessionRegistration{
-		Harness: "gateway-slack", HarnessVersion: "0.1.0", SessionName: "slack-gateway", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	gw := c.gateway(t)
 	c.subscribe(t, `"@owner","owner@example.com"`)
 	until := c.askNow(t)
 	// Never before the wait has passed: the checks that run meanwhile send
@@ -221,15 +235,13 @@ func TestHeldAskIsSentAfterTheWait(t *testing.T) {
 	if theirs, err := state.ReadDecision(c.folder, c.id); err != nil || theirs.Sent != state.SentSlack {
 		t.Fatalf("the folder copy %+v %v", theirs, err)
 	}
-	msgs := c.inbox(t, c.fx.peer, gw.SessionID)
+	msgs := c.inbox(t, c.fx.peer, gw)
 	// The text `brigade decision` sends at once (card 193): the question,
 	// the options, and the question alone as the summary through a gateway.
 	if len(msgs) != 1 || msgs[0].Body != "to: @owner\n\nShip 0.48.0 now, or wait?\n\n- ship now\n- wait" || msgs[0].Summary != "Ship 0.48.0 now, or wait?" || msgs[0].Sender.SessionID != c.fx.sessionID {
 		t.Fatalf("the gateway's inbox: %+v", msgs)
 	}
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return strings.Contains(c.fx.notice(), "Brigade decision "+c.id+": your user did not answer here within their wait, so it was sent to them through the slack gateway; close it with the outcome when they answer.")
-	})
+	c.noticed(t, "Brigade decision "+c.id+": your user did not answer here within their wait, so it was sent to them through the slack gateway; close it with the outcome when they answer.")
 	// Once: the checks that follow find nothing held.
 	c.checks.pass(t)
 	if n := c.fx.logCount("decision: held ask sent", nil); n != 1 {
@@ -259,14 +271,7 @@ func TestHeldAskEndsWithNothingSent(t *testing.T) {
 			t.Parallel()
 			c := newHoldCase(t, tc.lastPrompt)
 			c.ask(t, tc.asked, tc.until)
-			ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-			defer cancel()
-			gw, err := c.fx.peer.Register(ctx, &protocol.SessionRegistration{
-				Harness: "gateway-slack", HarnessVersion: "0.1.0", SessionName: "slack-gateway", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			gw := c.gateway(t)
 			c.subscribe(t, `"@owner"`)
 			if tc.closed {
 				d := c.decision(t)
@@ -277,9 +282,7 @@ func TestHeldAskEndsWithNothingSent(t *testing.T) {
 			}
 			c.start(t)
 			if tc.ended != "" {
-				testutil.Eventually(t, waitShort, pollEvery, func() bool {
-					return c.fx.logHas("decision: hold ended with nothing sent", map[string]any{"how": tc.ended})
-				})
+				c.ended(t, tc.ended)
 			}
 			c.checks.pass(t)
 			d := c.decision(t)
@@ -289,7 +292,7 @@ func TestHeldAskEndsWithNothingSent(t *testing.T) {
 			if c.fx.logHas("decision: held ask sent", nil) {
 				t.Fatal("an ask went out")
 			}
-			if msgs := c.inbox(t, c.fx.peer, gw.SessionID); len(msgs) != 0 {
+			if msgs := c.inbox(t, c.fx.peer, gw); len(msgs) != 0 {
 				t.Fatalf("the gateway's inbox: %+v", msgs)
 			}
 		})
@@ -307,27 +310,18 @@ func TestHeldAskWithNoGateway(t *testing.T) {
 	t.Run("another session of the member", func(t *testing.T) {
 		t.Parallel()
 		c := newHoldCase(t, time.Now().UTC().Add(-time.Minute))
-		ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-		defer cancel()
-		other, err := c.fx.owner.Register(ctx, &protocol.SessionRegistration{
-			Harness: "codex", HarnessVersion: "test", SessionName: "second", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		other := c.second(t)
 		c.askNow(t)
 		c.waitOver()
 		c.sent(t, 1, map[string]any{"how": "session"})
-		if d := c.decision(t); d.Sent != state.SentSession || d.SentTo != other.SessionID || d.Held() {
+		if d := c.decision(t); d.Sent != state.SentSession || d.SentTo != other || d.Held() {
 			t.Fatalf("decision %+v", *d)
 		}
-		msgs := c.inbox(t, c.fx.owner, other.SessionID)
+		msgs := c.inbox(t, c.fx.owner, other)
 		if len(msgs) != 1 || msgs[0].Body != "Ship 0.48.0 now, or wait?\n\n- ship now\n- wait" || msgs[0].Summary != "Decision for owner@example.com: Ship 0.48.0 now, or wait?" {
 			t.Fatalf("the other session's inbox: %+v", msgs)
 		}
-		testutil.Eventually(t, waitShort, pollEvery, func() bool {
-			return strings.Contains(c.fx.notice(), "so it was sent to another session of theirs as a team message")
-		})
+		c.noticed(t, "so it was sent to another session of theirs as a team message")
 	})
 	t.Run("nobody to send to", func(t *testing.T) {
 		t.Parallel()
@@ -344,18 +338,14 @@ func TestHeldAskWithNoGateway(t *testing.T) {
 			t.Fatalf("the hold ended at the first checks that found no road: %+v", *d)
 		}
 		c.clock.Advance(c.giveUp)
-		testutil.Eventually(t, waitShort, pollEvery, func() bool {
-			return c.fx.logHas("decision: hold ended with nothing sent", map[string]any{"how": state.HoldUnsent})
-		})
+		c.ended(t, state.HoldUnsent)
 		if d := c.decision(t); d.UpdatedAt.Before(until.Add(c.giveUp)) {
 			t.Fatalf("the hold ended unsent at %s, before the give-up (%s after %s)", d.UpdatedAt, c.giveUp, until)
 		}
 		if d := c.decision(t); d.Sent != "" || d.HoldEnded != state.HoldUnsent || d.Held() || !d.Open() {
 			t.Fatalf("decision %+v", *d)
 		}
-		testutil.Eventually(t, waitShort, pollEvery, func() bool {
-			return strings.Contains(c.fx.notice(), "Brigade decision "+c.id+": your user did not answer here within their wait, and it could not be sent")
-		})
+		c.noticed(t, "Brigade decision "+c.id+": your user did not answer here within their wait, and it could not be sent")
 		// The peer's own session is another member's: it got nothing.
 		if msgs := c.inbox(t, c.fx.peer, c.fx.senderSessionID); len(msgs) != 0 {
 			t.Fatalf("another member's session got the ask: %+v", msgs)
@@ -395,25 +385,18 @@ func TestHeldAskWaitsForARoad(t *testing.T) {
 		t.Parallel()
 		c := newHoldCase(t, time.Now().UTC().Add(-time.Minute))
 		gw := c.gateway(t)
-		ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-		defer cancel()
-		other, err := c.fx.owner.Register(ctx, &protocol.SessionRegistration{
-			Harness: "codex", HarnessVersion: "test", SessionName: "second", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		other := c.second(t)
 		if err := os.WriteFile(state.ReportsPath(c.folder), []byte(`{"version":9}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		c.askNow(t)
 		c.waitOver()
-		testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.fx.logHas("decision: reports.json unreadable; the held ask waits", nil) })
+		c.fx.waitLog("decision: reports.json unreadable; the held ask waits", nil)
 		c.checks.pass(t)
 		if d := c.decision(t); !d.Held() {
 			t.Fatalf("the hold ended while the file was unreadable: %+v", *d)
 		}
-		if msgs := c.inbox(t, c.fx.owner, other.SessionID); len(msgs) != 0 {
+		if msgs := c.inbox(t, c.fx.owner, other); len(msgs) != 0 {
 			t.Fatalf("the ask went to another session of the member while their recipients were unknown: %+v", msgs)
 		}
 		c.subscribe(t, `"@owner"`)
@@ -421,7 +404,7 @@ func TestHeldAskWaitsForARoad(t *testing.T) {
 		if msgs := c.inbox(t, c.fx.peer, gw); len(msgs) != 1 {
 			t.Fatalf("the gateway's inbox: %+v", msgs)
 		}
-		if msgs := c.inbox(t, c.fx.owner, other.SessionID); len(msgs) != 0 {
+		if msgs := c.inbox(t, c.fx.owner, other); len(msgs) != 0 {
 			t.Fatalf("the other session's inbox: %+v", msgs)
 		}
 	})
@@ -430,19 +413,13 @@ func TestHeldAskWaitsForARoad(t *testing.T) {
 		c := newHoldCase(t, time.Now().UTC().Add(-time.Minute))
 		gw := c.gateway(t)
 		c.subscribe(t, `"@owner"`)
-		var refused atomic.Bool
-		c.spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
-			if strings.Contains(strings.Join(spec.Argv, " "), " message send") && refused.CompareAndSwap(false, true) {
-				return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend is busy"}
-			}
-			return adapterkit.Spawn(ctx, spec)
-		}
+		c.spawn = refusingOnce("message send")
 		c.askNow(t)
 		c.waitOver()
 		// Until the refusal the clock runs a millisecond at a look: enough for
 		// a roster read that failed to be tried again, and too little to move
 		// past the hold-back that the refusal starts.
-		acts(t, c.clock, time.Millisecond, func() bool {
+		acts(t, "the watcher's line that the held ask was not sent", c.clock, time.Millisecond, func() bool {
 			return c.fx.logHas("decision: the held ask was not sent", map[string]any{"how": "slack"})
 		})
 		// Held back, by the watcher's clock, which now stands still: the
@@ -474,11 +451,7 @@ func TestHeldAsksEachGetTheirNotice(t *testing.T) {
 	c.askAs(t, second, c.clock.Now().Add(10*time.Millisecond), until.Add(300*time.Millisecond))
 	c.waitOver()
 	c.sent(t, 2, nil)
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		n := c.fx.notice()
-		return strings.Contains(n, "Brigade decision "+c.id+": your user did not answer here within their wait") &&
-			strings.Contains(n, "Brigade decision "+second+": your user did not answer here within their wait")
-	})
+	c.noticed(t, "Brigade decision "+c.id+": your user did not answer here within their wait", "Brigade decision "+second+": your user did not answer here within their wait")
 	for _, id := range []string{c.id, second} {
 		if d := c.decisionOf(t, id); d.Sent != state.SentSlack || d.Held() {
 			t.Fatalf("decision %s: %+v", id, *d)
@@ -517,9 +490,7 @@ func TestHeldAskYieldsToACloseMadeElsewhere(t *testing.T) {
 	if err := theirs.SaveDecision(d); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return c.fx.logHas("decision: closed by another session of the member; the hold is over", nil)
-	})
+	c.fx.waitLog("decision: closed by another session of the member; the hold is over", nil)
 	// The wait passes, and the checks that follow send nothing for a
 	// decision that is closed.
 	c.waitOver()

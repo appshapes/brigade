@@ -147,13 +147,13 @@ func TestCodexQueueFollowsTheThreadOfTheMap(t *testing.T) {
 	deps.QueueCommand, record = queueRecorder(t, "0")
 	r := fx.start(deps, fx.args()...)
 	first := fx.send("first")
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+	await(t, "the watcher's line that the first message was queued", func() bool {
 		return fx.logCount("injection reported", map[string]any{"message_id": first, "outcome": "injected"}) == 1
 	})
 	fx.writeMapWith(func(m *sessionmap.ByPID) { m.ClaudeSessionID = "native-2" })
 	fx.waitLog("native session id updated from the by-pid map", nil)
 	second := fx.send("second")
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+	await(t, "the watcher's line that the second message was queued", func() bool {
 		return fx.logCount("injection reported", map[string]any{"message_id": second, "outcome": "injected"}) == 1
 	})
 	if code := r.stopAndWait(); code != 0 {
@@ -193,7 +193,7 @@ func TestCodexQueueNothingWhenTheProcessIsGone(t *testing.T) {
 	if err := syscall.Kill(fx.hostPID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+	await(t, "the Codex process to be gone after its SIGKILL", func() bool {
 		info, err := procutil.Lookup(fx.hostPID)
 		return err == nil && (!info.Exists || info.Zombie)
 	})

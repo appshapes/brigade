@@ -3,9 +3,10 @@
 package watch_test
 
 import (
-	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,7 +17,6 @@ import (
 	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/protocol"
-	"github.com/appshapes/brigade/internal/testutil"
 )
 
 // How the tests of the state goroutine wait (work item 336). The goroutine
@@ -46,27 +46,33 @@ func (c *checkCount) checked() { c.n.Add(1) }
 func (c *checkCount) pass(t *testing.T) {
 	t.Helper()
 	from := c.n.Load()
-	testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.n.Load() >= from+2 })
+	await(t, "two more checks of the watcher's state goroutine", func() bool { return c.n.Load() >= from+2 })
 }
 
-// acts waits until the watcher has done what cond tells of, as
-// testutil.Eventually waits, and moves the watcher's clock on by one check
-// interval at each look. A watcher that could not do it at once, its
+// acts waits until the watcher has done what cond tells of, which what
+// names for the failure, and moves the watcher's clock on by step, one
+// check interval as a rule, at each look. A watcher that could not do it at once, its
 // backend busy or its roster unread, tries again after some check intervals
 // by its own clock: under a clock that stood still it would wait for ever,
 // where in real time it tries again. (The first proof of work item 336 met
 // it: an adapter's lock timed out under load, the watcher held the ask back
 // for three intervals of a clock that no longer moved, and the test timed
 // out.) Nothing may be held open across a call: the watcher's time runs.
-func acts(t *testing.T, clock *fakeClock, every time.Duration, cond func() bool) {
+func acts(t *testing.T, what string, clock *fakeClock, step time.Duration, cond func() bool) {
 	t.Helper()
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+	await(t, what+" (the watcher's clock running)", func() bool {
 		if cond() {
 			return true
 		}
-		clock.Advance(every)
+		clock.Advance(step)
 		return false
 	})
+}
+
+// awaitNotice waits until the session's notice file carries text.
+func awaitNotice(t *testing.T, fx *fixture, text string) {
+	t.Helper()
+	await(t, "the session's notice with "+strconv.Quote(text), func() bool { return strings.Contains(fx.notice(), text) })
 }
 
 // stateWaits gives the watcher a clock that stands at now until the test
@@ -115,9 +121,7 @@ func TestStatePrunesTheFolder(t *testing.T) {
 	deps.StatePruneDelay = 50 * time.Millisecond
 	deps.StatePruneInterval = time.Hour
 	fx.start(deps, fx.args()...)
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return fx.logHas("state: expired entries pruned from the folder", map[string]any{"removed": float64(2)})
-	})
+	fx.waitLog("state: expired entries pruned from the folder", map[string]any{"removed": float64(2)})
 	ids := map[string]bool{}
 	for _, e := range state.ReadFolder(folder) {
 		ids[e.SessionID] = true
@@ -138,23 +142,15 @@ func TestStateProducesTheDigest(t *testing.T) {
 	fx := newFixture(t, fixtureOptions{sink: true})
 	fx.useFS()
 	// The Slack gateway and the manager's own session, as the peer.
-	ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-	defer cancel()
-	gw, err := fx.peer.Register(ctx, &protocol.SessionRegistration{
+	gw := fx.register(fx.peer, &protocol.SessionRegistration{
 		Harness: "gateway-slack", HarnessVersion: "0.1.0", SessionName: "slack-gateway", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	// The watched session carries the repository's name, as the hook
 	// registers it (P11-5): the rank is read off the roster by it.
-	self, err := fx.owner.Register(ctx, &protocol.SessionRegistration{
+	self := fx.register(fx.owner, &protocol.SessionRegistration{
 		Harness: "claude-code", HarnessVersion: "test", SessionName: fx.name, Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
 		WorkspaceLabel: ptr(syncRepo),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	fx.sessionID = self.SessionID
 	root := t.TempDir()
 	folder := filepath.Join(root, ".brigade", "state")
@@ -187,18 +183,16 @@ func TestStateProducesTheDigest(t *testing.T) {
 	checks := &checkCount{}
 	deps.StateChecked = checks.checked
 	fx.start(deps, fx.args()...)
-	testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.logHas("state: digest produced", nil) })
+	fx.waitLog("state: digest produced", nil)
 	marker, err := digest.ReadMarker(folder, "peer@example.com")
 	if err != nil || marker.Label != "peer@example.com" || marker.SessionID != fx.sessionID || marker.DecisionsOpen != 1 || marker.Commits != 1 || marker.Active != 1 {
 		t.Fatalf("marker %+v %v", marker, err)
 	}
-	rctx, rcancel := context.WithTimeout(t.Context(), waitShort)
-	defer rcancel()
-	got, err := fx.peer.Receive(rctx, gw.SessionID, 10)
-	if err != nil || len(got.Messages) != 1 {
-		t.Fatalf("the gateway's inbox: %+v %v", got, err)
+	got := fx.received(fx.peer, gw.SessionID)
+	if len(got) != 1 {
+		t.Fatalf("the gateway's inbox: %+v", got)
 	}
-	msg := got.Messages[0]
+	msg := got[0]
 	if !strings.HasPrefix(msg.Body, "to: @peer\n\nBrigade digest: team ops, repository brigade, since the start, produced ") || !strings.Contains(msg.Body, "Decisions open (1):\n  Ship it?\n    asked by owner@example.com (session receiver), open for ") ||
 		!strings.Contains(msg.Body, "card 162 | aaaaaaa | 162: Add the digest | owner@example.com (session receiver)") || !strings.Contains(msg.Body, "Active now (1):") {
 		t.Fatalf("digest body:\n%s", msg.Body)
@@ -206,9 +200,7 @@ func TestStateProducesTheDigest(t *testing.T) {
 	if msg.Summary != "Brigade digest brigade: 1 decisions open, 1 commits, 1 sessions active" || msg.Sender.SessionID != fx.sessionID {
 		t.Fatalf("summary %q sender %+v", msg.Summary, msg.Sender)
 	}
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return strings.Contains(fx.notice(), "Brigade digest: sent to peer@example.com (slack)")
-	})
+	awaitNotice(t, fx, "Brigade digest: sent to peer@example.com (slack)")
 	// Nothing more while the period runs, whatever is written: a note newer
 	// than the marker, and the checks that read it.
 	later := time.Now().UTC()
@@ -244,22 +236,14 @@ func TestStateRankHandsOver(t *testing.T) {
 			t.Parallel()
 			fx := newFixture(t, fixtureOptions{sink: true})
 			fx.useFS()
-			ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-			defer cancel()
 			// The peer's session of the same repository is listed first: this
 			// one ranks second. The peer is also the manager, with no gateway.
-			first, err := fx.peer.Register(ctx, &protocol.SessionRegistration{
+			first := fx.register(fx.peer, &protocol.SessionRegistration{
 				Harness: "claude-code", HarnessVersion: "test", SessionName: "first", Activity: protocol.ActivityBusy, Inbound: protocol.InboundAccept, WorkspaceLabel: ptr(syncRepo),
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			self, err := fx.owner.Register(ctx, &protocol.SessionRegistration{
+			self := fx.register(fx.owner, &protocol.SessionRegistration{
 				Harness: "claude-code", HarnessVersion: "test", SessionName: fx.name, Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept, WorkspaceLabel: ptr(syncRepo),
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
 			fx.sessionID = self.SessionID
 			root := t.TempDir()
 			folder := filepath.Join(root, ".brigade", "state")
@@ -283,7 +267,7 @@ func TestStateRankHandsOver(t *testing.T) {
 			deps.StatePruneDelay = time.Hour
 			clock, checks := stateWaits(&deps, now, 50*time.Millisecond)
 			fx.start(deps, fx.args()...)
-			testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.logHas("state: a digest is due", map[string]any{"rank": float64(1)}) })
+			fx.waitLog("state: a digest is due", map[string]any{"rank": float64(1)})
 			// The delay has not passed, the clock standing where it stood when
 			// the digest came due: the checks that run produce nothing.
 			checks.pass(t)
@@ -302,10 +286,8 @@ func TestStateRankHandsOver(t *testing.T) {
 				if fx.logHas("state: digest produced", nil) {
 					t.Fatal("produced although another session had")
 				}
-				rctx, rcancel := context.WithTimeout(t.Context(), waitShort)
-				defer rcancel()
-				if got, err := fx.peer.Receive(rctx, first.SessionID, 10); err != nil || len(got.Messages) != 0 {
-					t.Fatalf("the manager's session got a digest: %+v %v", got, err)
+				if got := fx.received(fx.peer, first.SessionID); len(got) != 0 {
+					t.Fatalf("the manager's session got a digest: %+v", got)
 				}
 				if marker, err := digest.ReadMarker(folder, "peer@example.com"); err != nil || marker.SessionID != first.SessionID {
 					t.Fatalf("the first session's marker was replaced: %+v %v", marker, err)
@@ -315,16 +297,15 @@ func TestStateRankHandsOver(t *testing.T) {
 			// The delay passes, and the clock runs on: a send that failed is
 			// tried again.
 			clock.Advance(deps.StateCheckInterval)
-			acts(t, clock, deps.StateCheckInterval, func() bool { return fx.logHas("state: digest produced", map[string]any{"how": "session"}) })
+			acts(t, "the watcher's line of a digest produced to the manager's session", clock, deps.StateCheckInterval, func() bool {
+				return fx.logHas("state: digest produced", map[string]any{"how": "session"})
+			})
 			marker, err := digest.ReadMarker(folder, "peer@example.com")
 			if err != nil || marker.SessionID != fx.sessionID {
 				t.Fatalf("marker %+v %v", marker, err)
 			}
-			rctx, rcancel := context.WithTimeout(t.Context(), waitShort)
-			defer rcancel()
-			got, err := fx.peer.Receive(rctx, first.SessionID, 10)
-			if err != nil || len(got.Messages) != 1 || strings.HasPrefix(got.Messages[0].Body, "to:") {
-				t.Fatalf("the manager's session inbox: %+v %v", got, err)
+			if got := fx.received(fx.peer, first.SessionID); len(got) != 1 || strings.HasPrefix(got[0].Body, "to:") {
+				t.Fatalf("the manager's session inbox: %+v", got)
 			}
 		})
 	}
@@ -345,24 +326,131 @@ func TestStateRankHandsOver(t *testing.T) {
 // last look, an adapter child that reads the gateway's inbox among it, took
 // longer than that on a loaded machine: the watcher tried again, as it
 // should, and the test counted two.
+//
+// A backend that refuses the first send leaves both subscribers unreached
+// and held back, and is the second case: the test moves the clock past the
+// hold-back, the watcher tries again and reaches the first, and what the
+// test holds of the one still unreached it counts from there.
 func TestStateFansOut(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		// refuses is whether the backend refuses the first send it is asked
+		// for, which is the first subscriber's digest.
+		refuses bool
+	}{{"the backend takes every send", false}, {"the backend refuses the first send", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fx := newFixture(t, fixtureOptions{sink: true})
+			fx.useFS()
+			gw := fx.register(fx.peer, &protocol.SessionRegistration{
+				Harness: "gateway-slack", HarnessVersion: "0.1.0", SessionName: "slack-gateway", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
+			})
+			self := fx.register(fx.owner, &protocol.SessionRegistration{
+				Harness: "claude-code", HarnessVersion: "test", SessionName: fx.name, Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept, WorkspaceLabel: ptr(syncRepo),
+			})
+			fx.sessionID = self.SessionID
+			root := t.TempDir()
+			folder := filepath.Join(root, ".brigade", "state")
+			fx.writeMapWith(func(m *sessionmap.ByPID) {
+				m.WorkspaceLabel = syncRepo
+				m.SyncAdapter, m.SyncFolders, m.SyncRoot, m.SyncScope = "syncthing", []string{".brigade/state"}, root, syncScope
+				m.StateFolder = folder
+			})
+			now := time.Now().UTC()
+			mine := state.Store{StateDir: fx.dirs.BrigadeState, Folder: folder}
+			e := state.New(fx.sessionID, fx.name, now.Add(-time.Hour))
+			e.Member, e.Repository, e.UpdatedAt = "owner@example.com", syncRepo, now
+			if err := mine.Save(e); err != nil {
+				t.Fatal(err)
+			}
+			forPeer := &state.Decision{Version: state.Version, ID: "d-20261029-bbbbbb", Question: "Peer's?", To: "peer@example.com", SessionName: fx.name, SessionID: fx.sessionID, CreatedAt: now, UpdatedAt: now}
+			forNobody := &state.Decision{Version: state.Version, ID: "d-20261029-cccccc", Question: "Nobody's?", To: "Nobody", SessionName: fx.name, SessionID: fx.sessionID, CreatedAt: now, UpdatedAt: now}
+			for _, d := range []*state.Decision{forPeer, forNobody} {
+				if err := mine.SaveDecision(d); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(state.ReportsPath(folder), []byte(`{"version":2,"subscribers":[{"label":"peer@example.com","recipients":["@peer"],"every":"1h","only":"mine"},{"label":"Nobody","every":"1h"}]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			deps := fx.deps()
+			deps.SyncCommand = []string{filepath.Join(t.TempDir(), "no-such-sync-adapter")}
+			deps.StatePruneDelay = time.Hour
+			clock, checks := stateWaits(&deps, now, 100*time.Millisecond)
+			productions := 1
+			if tc.refuses {
+				deps.Spawn, productions = refusingOnce("message send"), 2
+			}
+			fx.start(deps, fx.args()...)
+			// The clock stands still while digests are produced, so the
+			// hold-back of whoever was not reached is counted from where it
+			// stands. After a production that did not reach the first
+			// subscriber the test moves it well past the hold-back, fifteen
+			// intervals, and it stands again while the next is produced.
+			produced := func() int { return fx.logCount("state: digests produced", nil) }
+			for n := 1; ; n++ {
+				await(t, fmt.Sprintf("the watcher's line of the digests it produced, number %d", n), func() bool { return produced() >= n })
+				if fx.logHas("state: digests produced", map[string]any{"sent": float64(1), "missed": float64(1)}) {
+					break
+				}
+				if n == productions {
+					t.Fatalf("the first subscriber was not reached in %d production(s): %v", n, fx.logLines())
+				}
+				clock.Advance(100 * deps.StateCheckInterval)
+			}
+			if n := produced(); n != productions {
+				t.Fatalf("produced %d times, want %d", n, productions)
+			}
+			if !fx.logHas("state: digest produced", map[string]any{"label": "peer@example.com", "how": "slack", "decisions_open": float64(1)}) {
+				t.Fatal("peer's digest was not produced through slack with the one decision for them")
+			}
+			if m, err := digest.ReadMarker(folder, "peer@example.com"); err != nil || m.Label != "peer@example.com" || m.DecisionsOpen != 1 {
+				t.Fatalf("peer's marker %+v %v", m, err)
+			}
+			if _, err := digest.ReadMarker(folder, "Nobody"); err == nil {
+				t.Fatal("Nobody's marker was written with nothing sent")
+			}
+			got := fx.received(fx.peer, gw.SessionID)
+			if len(got) != 1 || !strings.HasPrefix(got[0].Body, "to: @peer\n\nBrigade digest: team ops, repository brigade, since the start") ||
+				!strings.Contains(got[0].Body, "Decisions open for peer@example.com (1):\n  Peer's?\n    asked by session receiver, open for ") || strings.Contains(got[0].Body, "Nobody's?") {
+				t.Fatalf("the gateway's inbox: %+v", got)
+			}
+			awaitNotice(t, fx, "Brigade digest: sent to peer@example.com (slack); not sent to Nobody (no gateway of their recipients and no session of theirs on the roster, or the send failed)")
+			// Nobody is held back: six check intervals on, the checks that run
+			// make no further attempt.
+			clock.Advance(6 * deps.StateCheckInterval)
+			checks.pass(t)
+			if n := produced(); n != productions {
+				t.Fatalf("produced %d times, want %d; the unreached subscriber was tried again", n, productions)
+			}
+		})
+	}
+}
+
+// TestStateStandsDownAtTheLastLook (§5.4): between the look that finds a
+// subscriber's digest due and the producing lies the read of the roster,
+// an adapter call. A marker another session writes meanwhile is found by
+// the last look before producing, and this session stands down for that
+// subscriber: nothing is sent, and the other session's marker stays.
+//
+// No test failed with the last look taken out (work item 336, a reviewer's
+// finding): TestStateRankHandsOver's marker lands between two checks,
+// where the next check's first look finds it. Here the other session's
+// marker is written from inside the roster read itself, on the watcher's
+// way to its adapter, so it lands after the first look and before the last
+// whatever the machine does.
+func TestStateStandsDownAtTheLastLook(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{sink: true})
 	fx.useFS()
-	ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-	defer cancel()
-	gw, err := fx.peer.Register(ctx, &protocol.SessionRegistration{
+	gw := fx.register(fx.peer, &protocol.SessionRegistration{
 		Harness: "gateway-slack", HarnessVersion: "0.1.0", SessionName: "slack-gateway", Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	self, err := fx.owner.Register(ctx, &protocol.SessionRegistration{
+	// The one session of the repository: rank 0, no delay.
+	self := fx.register(fx.owner, &protocol.SessionRegistration{
 		Harness: "claude-code", HarnessVersion: "test", SessionName: fx.name, Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept, WorkspaceLabel: ptr(syncRepo),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	fx.sessionID = self.SessionID
 	root := t.TempDir()
 	folder := filepath.Join(root, ".brigade", "state")
@@ -378,48 +466,34 @@ func TestStateFansOut(t *testing.T) {
 	if err := mine.Save(e); err != nil {
 		t.Fatal(err)
 	}
-	forPeer := &state.Decision{Version: state.Version, ID: "d-20261029-bbbbbb", Question: "Peer's?", To: "peer@example.com", SessionName: fx.name, SessionID: fx.sessionID, CreatedAt: now, UpdatedAt: now}
-	forNobody := &state.Decision{Version: state.Version, ID: "d-20261029-cccccc", Question: "Nobody's?", To: "Nobody", SessionName: fx.name, SessionID: fx.sessionID, CreatedAt: now, UpdatedAt: now}
-	for _, d := range []*state.Decision{forPeer, forNobody} {
-		if err := mine.SaveDecision(d); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(state.ReportsPath(folder), []byte(`{"version":2,"subscribers":[{"label":"peer@example.com","recipients":["@peer"],"every":"1h","only":"mine"},{"label":"Nobody","every":"1h"}]}`), 0o600); err != nil {
+	if err := os.WriteFile(state.ReportsPath(folder), []byte(`{"version":2,"subscribers":[{"label":"peer@example.com","recipients":["@peer"],"every":"1h"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	deps := fx.deps()
 	deps.SyncCommand = []string{filepath.Join(t.TempDir(), "no-such-sync-adapter")}
 	deps.StatePruneDelay = time.Hour
-	clock, checks := stateWaits(&deps, now, 100*time.Millisecond)
+	_, checks := stateWaits(&deps, now, 50*time.Millisecond)
+	const other = "another-machines-session"
+	deps.Spawn = beforeFirst("session list", func() {
+		if err := digest.WriteMarker(folder, &digest.Marker{Label: "peer@example.com", ProducedAt: now, SessionID: other, SessionName: "first"}); err != nil {
+			t.Errorf("the other session's marker: %v", err)
+		}
+	})
 	fx.start(deps, fx.args()...)
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return fx.logHas("state: digests produced", map[string]any{"sent": float64(1), "missed": float64(1)})
+	await(t, "the watcher's line that another session produced the digest meanwhile", func() bool {
+		if fx.logHas("state: digest produced", nil) {
+			t.Fatal("this session produced the digest another session had produced while it read the roster")
+		}
+		return fx.logHas("state: another session produced the digest meanwhile", map[string]any{"producer": "first", "label": "peer@example.com"})
 	})
-	if !fx.logHas("state: digest produced", map[string]any{"label": "peer@example.com", "how": "slack", "decisions_open": float64(1)}) {
-		t.Fatal("peer's digest was not produced through slack with the one decision for them")
-	}
-	if m, err := digest.ReadMarker(folder, "peer@example.com"); err != nil || m.Label != "peer@example.com" || m.DecisionsOpen != 1 {
-		t.Fatalf("peer's marker %+v %v", m, err)
-	}
-	if _, err := digest.ReadMarker(folder, "Nobody"); err == nil {
-		t.Fatal("Nobody's marker was written with nothing sent")
-	}
-	rctx, rcancel := context.WithTimeout(t.Context(), waitShort)
-	defer rcancel()
-	got, err := fx.peer.Receive(rctx, gw.SessionID, 10)
-	if err != nil || len(got.Messages) != 1 || !strings.HasPrefix(got.Messages[0].Body, "to: @peer\n\nBrigade digest: team ops, repository brigade, since the start") ||
-		!strings.Contains(got.Messages[0].Body, "Decisions open for peer@example.com (1):\n  Peer's?\n    asked by session receiver, open for ") || strings.Contains(got.Messages[0].Body, "Nobody's?") {
-		t.Fatalf("the gateway's inbox: %+v %v", got, err)
-	}
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return strings.Contains(fx.notice(), "Brigade digest: sent to peer@example.com (slack); not sent to Nobody (no gateway of their recipients and no session of theirs on the roster, or the send failed)")
-	})
-	// Nobody is held back: six check intervals on, the checks that run make
-	// no second attempt.
-	clock.Advance(6 * deps.StateCheckInterval)
 	checks.pass(t)
-	if n := fx.logCount("state: digests produced", nil); n != 1 {
-		t.Fatalf("produced %d times; the unreached subscriber was tried again", n)
+	if fx.logHas("state: digest produced", nil) || fx.logHas("state: digests produced", nil) {
+		t.Fatal("a digest was produced after this session had stood down")
+	}
+	if got := fx.received(fx.peer, gw.SessionID); len(got) != 0 {
+		t.Fatalf("the gateway got a digest: %+v", got)
+	}
+	if m, err := digest.ReadMarker(folder, "peer@example.com"); err != nil || m.SessionID != other {
+		t.Fatalf("the other session's marker was replaced: %+v %v", m, err)
 	}
 }

@@ -19,9 +19,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/backoff"
@@ -467,7 +469,8 @@ func (fx *fixture) useHelper(mode string) {
 
 // useFS builds the fs store: the owner creates the team and registers the
 // watched session; the peer joins with the secret and registers a sender
-// session.
+// session. Each call is made again while the adapter is unavailable
+// (adapterCall).
 func (fx *fixture) useFS() {
 	t := fx.t
 	t.Helper()
@@ -476,38 +479,27 @@ func (fx *fixture) useFS() {
 	fx.closeWait = waitShort
 	fx.owner = fx.fsClient("default")
 	fx.peer = fx.fsClient("peer")
-	ctx, cancel := context.WithTimeout(t.Context(), waitShort)
-	defer cancel()
 
-	env, err := fx.owner.Call(ctx, "team", "create", nil, &protocol.TeamCreateRequest{TeamName: fx.teamName, HumanLabel: "owner@example.com"})
-	if err != nil {
-		t.Fatalf("team create: %v", err)
-	}
+	env := adapterCall(t, "team create", func(ctx context.Context) (*protocol.Envelope, error) {
+		return fx.owner.Call(ctx, "team", "create", nil, &protocol.TeamCreateRequest{TeamName: fx.teamName, HumanLabel: "owner@example.com"})
+	})
 	var created protocol.TeamCreateResult
 	if err := json.Unmarshal([]byte(env.Result), &created); err != nil {
 		t.Fatalf("team create result: %v", err)
 	}
 	fx.teamRef = created.TeamRef
-	reg, err := fx.owner.Register(ctx, &protocol.SessionRegistration{
+	fx.sessionID = fx.register(fx.owner, &protocol.SessionRegistration{
 		Harness: "claude-code", HarnessVersion: "test", SessionName: fx.name,
 		Activity: protocol.ActivityIdle, Inbound: fx.inbound,
-	})
-	if err != nil {
-		t.Fatalf("register receiver: %v", err)
-	}
-	fx.sessionID = reg.SessionID
+	}).SessionID
 
-	if _, err := fx.peer.Call(ctx, "team", "join", nil, &protocol.TeamJoinRequest{JoinSecret: created.JoinSecret, HumanLabel: "peer@example.com"}); err != nil {
-		t.Fatalf("team join: %v", err)
-	}
-	sender, err := fx.peer.Register(ctx, &protocol.SessionRegistration{
+	adapterCall(t, "team join", func(ctx context.Context) (*protocol.Envelope, error) {
+		return fx.peer.Call(ctx, "team", "join", nil, &protocol.TeamJoinRequest{JoinSecret: created.JoinSecret, HumanLabel: "peer@example.com"})
+	})
+	fx.senderSessionID = fx.register(fx.peer, &protocol.SessionRegistration{
 		Harness: "claude-code", HarnessVersion: "test", SessionName: "sender",
 		Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
-	})
-	if err != nil {
-		t.Fatalf("register sender: %v", err)
-	}
-	fx.senderSessionID = sender.SessionID
+	}).SessionID
 }
 
 // fsClient is a Client on the fs adapter for one profile.
@@ -528,19 +520,24 @@ func (fx *fixture) send(body string) string {
 	return fx.sendWith(body, "")
 }
 
-// sendWith is send with an idempotency key.
+// sendWith is send with an idempotency key. The send is made again while
+// the adapter is unavailable (adapterCall); a send with no key is given one
+// of its own for that, so that asking twice is one message.
 func (fx *fixture) sendWith(body, key string) string {
 	fx.t.Helper()
-	ctx, cancel := context.WithTimeout(fx.t.Context(), waitShort)
-	defer cancel()
-	res, err := fx.peer.Send(ctx, &protocol.SendRequest{
-		SenderSessionID: fx.senderSessionID, RecipientSessionID: fx.sessionID, Body: body, IdempotencyKey: key,
-	})
-	if err != nil {
-		fx.t.Fatalf("send: %v", err)
+	if key == "" {
+		key = "send-" + testutil.RunID() + "-" + strconv.FormatInt(sendKeys.Add(1), 10)
 	}
+	res := adapterCall(fx.t, "send to the watched session", func(ctx context.Context) (*protocol.SendResponse, error) {
+		return fx.peer.Send(ctx, &protocol.SendRequest{
+			SenderSessionID: fx.senderSessionID, RecipientSessionID: fx.sessionID, Body: body, IdempotencyKey: key,
+		})
+	})
 	return res.MessageID
 }
+
+// sendKeys numbers the keys sendWith gives.
+var sendKeys atomic.Int64
 
 // writeMap writes the by-pid map for the sleeper.
 func (fx *fixture) writeMap() {
@@ -930,7 +927,95 @@ func (fx *fixture) logHas(msg string, attrs map[string]any) bool {
 // waitLog polls until logHas is true.
 func (fx *fixture) waitLog(msg string, attrs map[string]any) {
 	fx.t.Helper()
-	testutil.Eventually(fx.t, waitShort, pollEvery, func() bool { return fx.logHas(msg, attrs) })
+	what := "the watcher's log line " + strconv.Quote(msg)
+	if len(attrs) > 0 {
+		what += fmt.Sprintf(" with %v", attrs)
+	}
+	await(fx.t, what, func() bool { return fx.logHas(msg, attrs) })
+}
+
+// await waits for cond as testutil.Eventually does, a hang catcher and no
+// performance bound, and when it gives up says what did not come (work
+// item 336: `condition not met within 30s` names nothing).
+func await(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(waitShort)
+	for !cond() {
+		if !time.Now().Before(deadline) {
+			t.Fatalf("waited %v for %s, which did not come", waitShort, what)
+		}
+		time.Sleep(pollEvery)
+	}
+}
+
+// adapterCall makes one of a test's own calls to the adapter, and makes it
+// again for as long as the adapter answers `unavailable`, the code the
+// protocol gives a caller to try again on (4.3). The fs store's lock is
+// waited for ten seconds, and beside other suites a test's own read of an
+// inbox ran into that: `receive: timed out waiting for the file lock`
+// (work item 336, 2026-11-15). What a test asserts is the answer, not how
+// soon the store was free. Any other error fails the test, and so does
+// `unavailable` for longer than a hang catcher.
+func adapterCall[T any](t *testing.T, what string, call func(ctx context.Context) (T, error)) T {
+	t.Helper()
+	deadline := time.Now().Add(waitLong)
+	for {
+		ctx, cancel := context.WithTimeout(t.Context(), waitShort)
+		got, err := call(ctx)
+		cancel()
+		if err == nil {
+			return got
+		}
+		var perr *protocol.Error
+		if !errors.As(err, &perr) || perr.Code != protocol.CodeUnavailable || !time.Now().Before(deadline) {
+			t.Fatalf("%s: %v", what, err)
+		}
+		t.Logf("%s: the adapter was unavailable, asked again: %v", what, err)
+	}
+}
+
+// refusingOnce is the watcher's way to its adapter (Deps.Spawn) with the
+// first call whose arguments carry verb refused, as a backend that is busy
+// refuses it; every other call goes to the adapter.
+func refusingOnce(verb string) adapterclient.SpawnFunc {
+	var refused atomic.Bool
+	return func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if strings.Contains(strings.Join(spec.Argv, " "), " "+verb) && refused.CompareAndSwap(false, true) {
+			return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend is busy"}
+		}
+		return adapterkit.Spawn(ctx, spec)
+	}
+}
+
+// beforeFirst is the watcher's way to its adapter with do run once, on the
+// watcher's own goroutine, before the first call whose arguments carry verb
+// goes to the adapter.
+func beforeFirst(verb string, do func()) adapterclient.SpawnFunc {
+	var once sync.Once
+	return func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if strings.Contains(strings.Join(spec.Argv, " "), " "+verb) {
+			once.Do(do)
+		}
+		return adapterkit.Spawn(ctx, spec)
+	}
+}
+
+// register registers a session through client (adapterCall).
+func (fx *fixture) register(client *adapterclient.Client, reg *protocol.SessionRegistration) *adapterclient.RegisterResult {
+	fx.t.Helper()
+	return adapterCall(fx.t, "register the session "+strconv.Quote(reg.SessionName), func(ctx context.Context) (*adapterclient.RegisterResult, error) {
+		return client.Register(ctx, reg)
+	})
+}
+
+// received is what client receives for the session, at most ten messages
+// (adapterCall).
+func (fx *fixture) received(client *adapterclient.Client, sessionID string) []protocol.MessageEnvelope {
+	fx.t.Helper()
+	got := adapterCall(fx.t, "receive the messages of session "+sessionID, func(ctx context.Context) (*adapterclient.ReceiveResult, error) {
+		return client.Receive(ctx, sessionID, 10)
+	})
+	return got.Messages
 }
 
 // sinkRecords parses the sink file.
