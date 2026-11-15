@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
@@ -385,6 +386,31 @@ func TestTheLinesOfAMoveCarryNoControlOrQuote(t *testing.T) {
 		}
 		if !strings.HasPrefix(line, "Brigade: ") {
 			t.Errorf("%s does not begin as a line of Brigade's: %q", what, line)
+		}
+	}
+	// However long a file makes its values, a line stays a line of a few
+	// hundred characters: each value is cut to an attribute's length, and a
+	// certificate that is no pin is no exception. The fixed lines of a move
+	// carry no value at all.
+	long := &teamfile.File{
+		Adapter: "rest", TeamRef: "team-1",
+		TeamName:    strings.Repeat("name ", 4000),
+		URL:         "https://" + strings.Repeat("host.", 4000) + "test/" + strings.Repeat("path/", 4000),
+		Certificate: "sha256:" + strings.Repeat("ab", 4000),
+	}
+	longOld := &teamstore.Pin{URL: "https://" + strings.Repeat("old.", 4000) + "test"}
+	const bound = 700
+	for what, line := range map[string]string{
+		"the line of the member's own join": rejoinedLine(long),
+		"the follow's line":                 followedLine(long, longOld, true, "brigade"),
+		"the line of a session that waits":  moveWaitsLine(1 << 30),
+		"the line of a file that changed":   movedLine,
+		"the retry's line":                  movedRetryLine,
+		"the line of a session that stays":  movedStaysLine,
+		"the line of an unreached backend":  moveUnreachedLine,
+	} {
+		if n := utf8.RuneCountInString(line); n > bound || strings.Contains(line, "\n") {
+			t.Errorf("%s is %d characters long, want one line of at most %d", what, n, bound)
 		}
 	}
 	// The control: the same values, well formed, are in the line whole.
