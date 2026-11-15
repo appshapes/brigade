@@ -252,15 +252,18 @@ start follows on.
   why before, though of a session it called not connected. Point 8 now has it say what holds. What that is was
   read from a run first: after such a start the map held the frame, the inbound policy and the adapter it had
   held, no watcher was started or stopped, a prompt beside an option that cannot be parsed polled for nothing,
-  and a session that started anew beside the same setting connected to nothing. The tests (`move_start_test.go`)
-  hold a frame level that is no level, a `frame_file` that is not there and an `adapter_command` that is no
-  command, in Claude Code and in Muse Code, and an adapter that a team file names and `adapters.json` does not
-  hold; of twelve one-line changes to the rule they catch eleven, the line dropped among them, and the one left
-  is the refusal of a resolved adapter's command, which no option and no registry entry reaches. The other two
-  it did not change. A session with no watcher, which takes its messages at its prompts (`poll_on_prompt`),
-  moves without a last poll of the backend it leaves, and what was sent to it there since its last prompt stays
-  there. And a quiet session whose move was cut short before its watcher started loses its request for quiet at
-  a `/clear` that comes before its next prompt, as any session with no watcher alive does.
+  and a session that started anew beside the same setting connected to nothing. Through the built binary, its
+  watcher and a server (`rest_kept_start_test.go`), a session under the `guarded` frame was cleared beside a
+  level that is no level, and the next message of a teammate reached it with the guarded sentence, from the
+  watcher it had; the test fails on a binary that does not say the line. The tests (`move_start_test.go`) hold a
+  frame level that is no level, a `frame_file` that is not there and an `adapter_command` that is no command, in
+  Claude Code and in Muse Code, and an adapter that a team file names and `adapters.json` does not hold; of
+  twelve one-line changes to the rule they catch eleven, the line dropped among them, and the one left is the
+  refusal of a resolved adapter's command, which no option and no registry entry reaches. The other two it did
+  not change. A session with no watcher, which takes its messages at its prompts (`poll_on_prompt`), moves
+  without a last poll of the backend it leaves, and what was sent to it there since its last prompt stays there.
+  And a quiet session whose move was cut short before its watcher started loses its request for quiet at a
+  `/clear` that comes before its next prompt, as any session with no watcher alive does.
 - The same day, 35 one-line changes to the rules above, in the hook, the follow and the join's last line, were
   each caught by a test. One of them, the map of another backend treated as a session that continues, was also
   run through the built binary: the test failed, and the hook's log showed the server answering `not_found` to
