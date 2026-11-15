@@ -51,11 +51,14 @@ you run nothing.
   key for the take-in, in a file of its own beside its credential, until it has the answer. Run again, the same
   command is answered as the owner the first one made, with a new credential, and the journal says `member
   <reference> made its take-in of team <name> (<team_ref>) again with the retry key of the first: it has a new
-  credential, and the one it had is not known any more`. The server keeps the key's hash, never the key, until
-  the team's join secret is rotated. Without that file, on another machine or after the profile was reset, the
-  command run again joins as a member, and you name the owner ([Name a team's owner](name-the-owner.md)). The
-  same holds on a machine that ran `brigade team join` after the answer was lost: the command run again then
-  acts for the member that join made, and its key file is removed with that answer.
+  credential, and the one it had is not known any more`. The server keeps the key's hash, never the key, and
+  only until the owner first asks for something with its own credential that the server records, such as
+  opening the team's move or registering a session: from then on the same command with that key is a
+  member's join, and takes nothing from the owner. A rotation of the team's join secret ends the key as well.
+  Without that file, on another machine or after the profile was reset, the command run again joins as a
+  member, and you name the owner ([Name a team's owner](name-the-owner.md)). On a machine that ran `brigade
+  team join` after the answer was lost, the command run again acts for the member that join made, keeps its
+  key file and says so: after `brigade team revoke-credentials` there, the same command owns the team.
 - The journal says who did it: `member <reference> took in team <name> (<team_ref>) with the join secret it has on
   another backend, and owns it`. No line holds the secret.
 - **Decide about the creation token first.** A team's reference is in its committed `.brigade.json`, so it is

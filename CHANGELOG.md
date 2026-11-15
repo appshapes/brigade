@@ -37,16 +37,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   team owned by a member nobody could be: the command run again joined
   as a stranger, and only the server's operator, on a stopped server,
   could name the owner. The `rest` adapter now mints a retry key before
-  it asks, keeps it in `take-in-key.json` beside `credential.json`
-  (mode 0600), and sends it; a server 0.7.0 keeps its hash. The same
-  command run again sends the same key and is answered as the owner,
-  with a new credential in the place of the lost one. The key file is
-  removed once the credential is written, is for one server and one
-  team, and is never printed or logged; a key that was kept for
-  another server or another team is replaced, and stderr says so,
-  because the take-in it was for can then not be made again. The
-  adapter protocol does not change: the key is in no request and no
-  result of BAP/1.
+  it asks, keeps it in `take-in-key.json` beside `credential.json` (mode
+  0600), and sends it; a server 0.7.0 keeps its hash until the owner
+  first asks for something with its own credential that the server
+  records, and no longer. The same command run again sends the same key
+  and is answered as the owner, with a new credential in the place of
+  the lost one. The key file is removed once the credential is written,
+  is for one server and one team, and is never printed or logged; a key
+  that was kept for another server or another team is replaced, and
+  stderr says so, because the take-in it was for can then not be made
+  again. A profile that ran `team join` between the two runs holds a
+  member's credential, which the server answers for whatever key the
+  request carries: the adapter then keeps the key file and says on
+  stderr that `profile revoke-credentials` and the same take-in make the
+  take-in again as the owner. The adapter protocol does not change: the
+  key is in no request and no result of BAP/1.
 
 ### Fixed
 

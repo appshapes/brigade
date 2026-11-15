@@ -44,7 +44,12 @@ import (
 // owner keeps the key's hash and that principal; the same request again,
 // with the team's join secret, that key and no credential the stub knows,
 // is answered for that principal with a new credential, and every
-// credential that named it is forgotten. A rotation ends the key.
+// credential that named it is forgotten. The key ends with the first
+// request that principal makes with its own credential and that is no
+// read (endRetryKeys): from then on it holds a credential, and the key
+// has nothing left to stand in for. The take-in made again carries none,
+// so an answer that is lost twice is made again. A rotation ends the key
+// as well.
 
 // capTeamTakeIn is the capability /v1/info lists for these endpoints.
 const capTeamTakeIn = "team.take_in"
@@ -192,6 +197,23 @@ func (s *Server) teamTakeIn(c *call) (any, *protocol.Error) {
 	s.teams[joined.TeamRef] = taken
 	s.mu.Unlock()
 	return s.takenIn(b, &joined, true, true, false)
+}
+
+// endRetryKeys forgets the retry key every team keeps for who: a request
+// with who's own credential was answered, and it was no read. The real
+// server ends the key with the first record such a request leaves; the
+// stub keeps no records, and ends it with the request. The contract asks
+// for no less and allows no more: no later than the first such request
+// that changes what the server holds, and no earlier than the first that
+// carries the credential at all (section 3b).
+func (s *Server) endRetryKeys(who *principal) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.teams {
+		if t.retry != nil && t.retry.who == who {
+			t.retry = nil
+		}
+	}
 }
 
 // repeated returns the principal a take-in made, when a request is that

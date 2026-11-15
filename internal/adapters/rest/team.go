@@ -767,7 +767,10 @@ func (c *command) requireTeamTakeIn() error {
 // it, and the server answers for the principal the first request made,
 // with a new credential. On an answer the credential is written first and
 // the key file removed only then; on anything else the key stays where it
-// is, for the next run.
+// is, for the next run. It stays as well when the answer was for a
+// credential this profile holds that does not own the team, and the key
+// was an earlier run's: the server never looked at it
+// (keptForAnEarlierTakeIn).
 func (c *command) teamTakeIn() (any, error) {
 	fs := newFlags()
 	flags := adapterkit.NewTeamTakeInFlags(fs)
@@ -810,7 +813,7 @@ func (c *command) teamTakeIn() (any, error) {
 	if humanLabel == "" {
 		humanLabel = c.profile.HumanLabel
 	}
-	key, err := c.takeInRetryKey(taken.Secret.TeamRef())
+	key, kept, err := c.takeInRetryKey(taken.Secret.TeamRef())
 	if err != nil {
 		return nil, err
 	}
@@ -828,8 +831,13 @@ func (c *command) teamTakeIn() (any, error) {
 	if err := c.keepCredential(answer.Credential, answer.PrincipalRef); err != nil {
 		return nil, err
 	}
-	// The credential is kept: the key has nothing left to repeat.
-	c.dropRetryKey()
+	// The credential is kept: the key has nothing left to repeat, unless it
+	// is an earlier take-in's that this answer never looked at.
+	if keptForAnEarlierTakeIn(kept, &answer) {
+		c.leaveRetryKey()
+	} else {
+		c.dropRetryKey()
+	}
 	if err := c.bind(answer.TeamRef, answer.TeamName, answer.PrincipalRef, humanLabel); err != nil {
 		return nil, err
 	}

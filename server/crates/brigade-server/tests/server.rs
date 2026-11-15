@@ -2532,7 +2532,8 @@ fn snapshots(scratch: &Scratch) -> Vec<String> {
 /// A take-in whose answer never reached its client is made again by the same client, with the key it
 /// minted for the first, and is answered as the owner the first one made: with a new credential, while
 /// the lost one admits nobody. The hash of the key is there after a kill right behind the first answer
-/// and after a stop and a start, and the key itself is in no line and no snapshot. A rotation ends it.
+/// and after a stop and a start, through a move the operator opens meanwhile, and the key itself is in
+/// no line and no snapshot. The owner's own request, the first that leaves a record, ends it.
 fn a_take_in_is_made_again_with_its_key(log: &str) {
     let scratch = Scratch::new(&format!("take-in-again-{log}"));
     let arguments = log_arguments(log, &scratch);
@@ -2600,11 +2601,10 @@ fn a_take_in_is_made_again_with_its_key(log: &str) {
     );
     let second = text(again, "credential");
     assert_ne!(second, lost);
-    // The lost credential admits nobody from then on, and the new one is the owner's: it opens the move.
+    // The lost credential admits nobody from then on, and the new one is the owner's. What is asked
+    // with it here leaves no record: the first request of the owner's that does ends the key.
     let (status, error) = refused(&server, Some(&lost), "/v1/team/members", &team);
     assert_eq!((status, text(&error, "code").as_str()), (401, "unauthenticated"));
-    let opened = server.ok(&second, "/v1/team/open-move", &team);
-    let ticket = text(&opened, "ticket");
     assert_eq!(
         server.ok(&second, "/v1/team/members", &team)["members"]
             .as_array()
@@ -2616,7 +2616,7 @@ fn a_take_in_is_made_again_with_its_key(log: &str) {
 
     // Another key and no key, with the right secret, are the join of a new principal, and their
     // answers differ in nothing but who that is. The key with another secret is the conflict another
-    // secret is, byte for byte, and with the ticket of the move it is the join the ticket is.
+    // secret is, byte for byte.
     let another = "YW5vdGhlci1rZXktdGhhdC1ub2JvZHktbWludGVkLTE";
     let (status, wrong) = server.post(None, "/v1/team/take-in", &keyed(&secret, another));
     assert_eq!(status, 200, "{wrong}");
@@ -2643,22 +2643,12 @@ fn a_take_in_is_made_again_with_its_key(log: &str) {
         refused(&server, None, "/v1/team/take-in", &unkeyed_other),
         conflict
     );
-    let (status, followed) = server.post(None, "/v1/team/take-in", &keyed(&ticket, RETRY_KEY));
-    assert_eq!(status, 200, "{followed}");
-    assert_eq!(followed["result"]["owner"], json!(false));
-    assert_ne!(followed["result"]["principal_ref"], json!(alice_ref));
-    // None of them touched the owner's credential.
-    assert_eq!(
-        server.ok(&second, "/v1/team/members", &team)["members"]
-            .as_array()
-            .unwrap()
-            .len(),
-        4
-    );
     said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
 
-    // A stop and a start, from the snapshot the stop wrote: the key is honoured still, and the
-    // credential before the new one is unknown in its turn.
+    // A stop, and the snapshot the stop wrote holds the hash of the key and never the key. While the
+    // server is stopped its operator opens the team's move from the command line, which is nobody's
+    // request. After the start the key is honoured still, the credential before the new one is unknown
+    // in its turn, and the ticket with the key is the join the ticket is.
     server.stop();
     let written = snapshots(&scratch);
     assert!(
@@ -2669,7 +2659,15 @@ fn a_take_in_is_made_again_with_its_key(log: &str) {
         written.iter().all(|snapshot| !snapshot.contains(RETRY_KEY)),
         "a snapshot holds the key in clear"
     );
+    let ticket_file = scratch.path("ops.ticket");
+    let (status, wrote) = open_move(&scratch, &arguments, ELSEWHERE, &ticket_file, None);
+    assert_eq!(status, Some(0), "{wrote}");
+    let ticket = std::fs::read_to_string(&ticket_file).unwrap().trim().to_owned();
     let server = Server::start(&scratch, &arguments);
+    let (status, followed) = server.post(None, "/v1/team/take-in", &keyed(&ticket, RETRY_KEY));
+    assert_eq!(status, 200, "{followed}");
+    assert_eq!(followed["result"]["owner"], json!(false));
+    assert_ne!(followed["result"]["principal_ref"], json!(alice_ref));
     let (status, third) = server.post(None, "/v1/team/take-in", &keyed(&secret, RETRY_KEY));
     assert_eq!(status, 200, "{third}");
     assert_eq!(
@@ -2680,21 +2678,39 @@ fn a_take_in_is_made_again_with_its_key(log: &str) {
     let (status, _) = refused(&server, Some(&second), "/v1/team/members", &team);
     assert_eq!(status, 401);
 
-    // A rotation ends the key: the team keeps none, the secret it was taken in with is another secret,
-    // and the new secret with the key is the join of a new principal. A kill does not bring it back.
-    let rotated = text(&server.ok(&third, "/v1/team/rotate-secret", &team), "join_secret");
-    let ended = refused(&server, None, "/v1/team/take-in", &keyed(&secret, RETRY_KEY));
-    assert_eq!(ended, conflict);
-    said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
-    server.kill();
-    let server = Server::start(&scratch, &arguments);
-    let (status, stranger) = server.post(None, "/v1/team/take-in", &keyed(&rotated, RETRY_KEY));
+    // The owner opens the move itself, with the credential it holds now: its own request, and the
+    // first that leaves a record. That ends the key. The same request with the secret and the key is
+    // the join of a new principal from then on, and nothing of the owner's is touched: a credential
+    // that is in the owner's hands is not taken out of them by a request that arrives a second time.
+    let opened = server.ok(&third, "/v1/team/open-move", &team);
+    assert_eq!(opened["replaced"], json!(true));
+    let (status, stranger) = server.post(None, "/v1/team/take-in", &keyed(&secret, RETRY_KEY));
     assert_eq!(status, 200, "{stranger}");
     assert_eq!(
         (&stranger["result"]["taken_in"], &stranger["result"]["owner"]),
         (&json!(false), &json!(false))
     );
     assert_ne!(stranger["result"]["principal_ref"], json!(alice_ref));
+    assert_eq!(stranger["result"].as_object().unwrap().len(), 6);
+    assert_eq!(
+        server.ok(&third, "/v1/team/members", &team)["members"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
+    said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
+    // A kill does not bring the key back: the log says whose request opened the move.
+    server.kill();
+    let server = Server::start(&scratch, &arguments);
+    let (status, later) = server.post(None, "/v1/team/take-in", &keyed(&secret, RETRY_KEY));
+    assert_eq!(status, 200, "{later}");
+    assert_eq!(later["result"]["owner"], json!(false));
+    assert_ne!(later["result"]["principal_ref"], json!(alice_ref));
+    assert_ne!(
+        later["result"]["principal_ref"],
+        stranger["result"]["principal_ref"]
+    );
     // The owner's credential is the one it held: a key that ended replaces nothing.
     server.ok(&third, "/v1/team/close-move", &team);
     said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
@@ -2702,8 +2718,8 @@ fn a_take_in_is_made_again_with_its_key(log: &str) {
     let written = snapshots(&scratch);
     let newest = written.last().unwrap();
     assert!(
-        !newest.contains("take_in_retry") && !newest.contains(&key_hash),
-        "the newest snapshot keeps a key that a rotation ended"
+        !newest.contains("take_in_retry") && !newest.contains("retry_key_in") && !newest.contains(&key_hash),
+        "the newest snapshot keeps a key that its owner's own request ended"
     );
     assert!(
         written.iter().all(|snapshot| !snapshot.contains(RETRY_KEY)),
@@ -2741,59 +2757,56 @@ fn a_take_in_is_made_again_with_its_key_across_a_kill_on_the_cavalry_feed() {
     a_take_in_is_made_again_with_its_key("cavalry");
 }
 
-/// The owner a take-in made gives its own credential up, and the take-in is made again with its key. The
-/// server has no credential of that principal left to make unknown, so what it records is a credential
-/// issued and a join: the two records of a stranger's join. It says all the same that the take-in was
-/// made again, and by whom, because that is what an operator who reads its lines looks for; a stranger
-/// that joins the same team is said to have joined. A kill does not undo it.
-#[test]
-fn a_take_in_made_again_by_an_owner_with_no_credential_left_is_said_as_one() {
-    let scratch = Scratch::new("take-in-again-no-credential");
+/// One request of the owner a take-in made, asked with its own credential after a stop and a start from
+/// the snapshot, ends the key: the same take-in with the key is a stranger's join from then on, and the
+/// server says that a member joined. A kill does not bring the key back, and the next snapshot holds
+/// nothing of it. `ask` makes the request with the owner's credential and returns the join secret the team
+/// has after it.
+fn an_owners_own_request_ends_its_retry_key(name: &str, ask: impl Fn(&Server, &str) -> String) {
+    let scratch = Scratch::new(name);
     let arguments = log_arguments("file", &scratch);
     let secret = format!("brg1.{ELSEWHERE}.kept-from-the-other-backend");
     let team = json!({"team_ref": ELSEWHERE});
-    let keyed =
-        json!({"join_secret": secret, "team_name": "ops", "human_label": "alice", "retry_key": RETRY_KEY});
+    let keyed = |secret: &str| json!({"join_secret": secret, "team_name": "ops", "human_label": "alice", "retry_key": RETRY_KEY});
+    let key_hash = brigade_core::hash::sha256_hex(RETRY_KEY);
     let server = Server::start(&scratch, &arguments);
-    let (status, taken) = server.post(None, "/v1/team/take-in", &keyed);
+    let (status, taken) = server.post(None, "/v1/team/take-in", &keyed(&secret));
     assert_eq!(status, 200, "{taken}");
-    let (held, alice_ref) = (
-        text(&taken["result"], "credential"),
-        text(&taken["result"], "principal_ref"),
+    let alice_ref = text(&taken["result"], "principal_ref");
+    // The state the server starts from holds the key: its hash with the team, and the team with the
+    // owner, which is the way from the owner's own record back to the key.
+    server.stop();
+    let written = snapshots(&scratch);
+    let newest = written.last().unwrap();
+    assert!(
+        newest.contains(&key_hash) && newest.contains("retry_key_in"),
+        "the newest snapshot does not hold the key's hash and the way back to it"
     );
-    assert_eq!(
-        server.ok(&held, "/v1/credential/revoke", &json!({})),
-        json!({"revoked": true})
-    );
-    let (status, _) = refused(&server, Some(&held), "/v1/team/members", &team);
-    assert_eq!(status, 401);
-
-    // The request made again carries the credential that is unknown now, as a client that still has
-    // it in its file does: it is no credential, and the key is heard.
-    let (status, again) = server.post(Some(&held), "/v1/team/take-in", &keyed);
+    let server = Server::start(&scratch, &arguments);
+    // The positive control: before the owner asks anything, the take-in is made again.
+    let (status, again) = server.post(None, "/v1/team/take-in", &keyed(&secret));
     assert_eq!(status, 200, "{again}");
-    let again = &again["result"];
     assert_eq!(
-        (&again["principal_ref"], &again["taken_in"], &again["owner"]),
-        (&json!(alice_ref), &json!(false), &json!(true))
+        (&again["result"]["principal_ref"], &again["result"]["owner"]),
+        (&json!(alice_ref), &json!(true))
     );
-    let issued = text(again, "credential");
-    assert_ne!(issued, held);
-    let (_, stranger_ref) = join(&server, &secret, "bob");
+    let held = text(&again["result"], "credential");
+
+    let secret_now = ask(&server, &held);
+    let (status, stranger) = server.post(None, "/v1/team/take-in", &keyed(&secret_now));
+    assert_eq!(status, 200, "{stranger}");
+    let stranger = &stranger["result"];
+    assert_eq!(
+        (&stranger["taken_in"], &stranger["owner"]),
+        (&json!(false), &json!(false))
+    );
+    let stranger_ref = text(stranger, "principal_ref");
+    assert_ne!(stranger_ref, alice_ref);
+    let issued = text(stranger, "credential");
 
     let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
-    let repeated = format!(
-        "member {alice_ref} made its take-in of team ops ({ELSEWHERE}) again with the retry key of the \
-         first: it has a new credential, and the one it had is not known any more"
-    );
+    let repeated = format!("member {alice_ref} made its take-in of team ops ({ELSEWHERE}) again");
     assert_eq!(said.matches(&repeated).count(), 1, "{said}");
-    // The owner joined once, in the entry that took the team in, and the stranger once.
-    assert_eq!(
-        said.matches(&format!("member {alice_ref} joined team ops"))
-            .count(),
-        1,
-        "{said}"
-    );
     assert_eq!(
         said.matches(&format!("member {stranger_ref} joined team ops"))
             .count(),
@@ -2807,17 +2820,61 @@ fn a_take_in_made_again_by_an_owner_with_no_credential_left_is_said_as_one() {
 
     server.kill();
     let server = Server::start(&scratch, &arguments);
-    let (status, _) = refused(&server, Some(&held), "/v1/team/members", &team);
-    assert_eq!(status, 401);
-    server.ok(&issued, "/v1/team/open-move", &team);
+    let (status, later) = server.post(None, "/v1/team/take-in", &keyed(&secret_now));
+    assert_eq!(status, 200, "{later}");
+    assert_eq!(later["result"]["owner"], json!(false));
+    assert_ne!(later["result"]["principal_ref"], json!(alice_ref));
     assert_eq!(
         server.ok(&issued, "/v1/team/members", &team)["members"]
             .as_array()
             .unwrap()
             .len(),
-        2
+        3
     );
     server.stop();
+    let written = snapshots(&scratch);
+    let newest = written.last().unwrap();
+    assert!(
+        !newest.contains("take_in_retry") && !newest.contains("retry_key_in") && !newest.contains(&key_hash),
+        "the newest snapshot keeps a key that its owner ended"
+    );
+}
+
+/// The owner gives its own credential up: the record that makes a credential unknown names the principal
+/// that held it. The request made again carries that credential, as a client that still has it in its
+/// file does, and is a stranger's all the same.
+#[test]
+fn an_owner_that_gives_its_credential_up_ends_its_retry_key() {
+    an_owners_own_request_ends_its_retry_key("take-in-again-no-credential", |server, held| {
+        assert_eq!(
+            server.ok(held, "/v1/credential/revoke", &json!({})),
+            json!({"revoked": true})
+        );
+        let team = json!({"team_ref": ELSEWHERE});
+        let (status, _) = refused(server, Some(held), "/v1/team/members", &team);
+        assert_eq!(status, 401);
+        format!("brg1.{ELSEWHERE}.kept-from-the-other-backend")
+    });
+}
+
+/// The owner rotates the team's join secret: a rotation ends the key, whoever asks for it. The secret the
+/// team was taken in with is another secret then, and the new one with the key is a stranger's join.
+#[test]
+fn an_owner_that_rotates_the_secret_ends_its_retry_key() {
+    an_owners_own_request_ends_its_retry_key("take-in-again-rotated", |server, held| {
+        let team = json!({"team_ref": ELSEWHERE});
+        let rotated = text(&server.ok(held, "/v1/team/rotate-secret", &team), "join_secret");
+        let old = json!({
+            "join_secret": format!("brg1.{ELSEWHERE}.kept-from-the-other-backend"),
+            "team_name": "ops", "retry_key": RETRY_KEY,
+        });
+        let (status, error) = refused(server, None, "/v1/team/take-in", &old);
+        assert_eq!(
+            (status, text(&error["details"], "reason").as_str()),
+            (409, "other_join_secret")
+        );
+        rotated
+    });
 }
 
 /// The conformance suite through the bundled `rest` adapter: the contract's section 6.
@@ -3073,19 +3130,31 @@ fn a_take_in_whose_answer_is_lost_is_run_again_by_the_built_adapter_and_owns_the
         "the team has its owner and the member the ticket let in, and nobody the lost answer left behind"
     );
 
-    // The key is on no stream of the adapter's three runs, at debug level (the positive control is a
-    // debug line), in no line of the server's and in no snapshot; the snapshot holds its hash.
+    // The owner opened the move with the credential it kept: its own request, which ended the key. The
+    // request the first run made, if it arrived a second time now, would be the join of a stranger,
+    // and the owner's credential stays the one its machine holds.
+    let late = json!({"join_secret": secret, "team_name": "ops", "human_label": "alice", "retry_key": key});
+    let (status, late) = server.post(None, "/v1/team/take-in", &late);
+    assert_eq!(status, 200, "{late}");
+    assert_eq!(late["result"]["owner"], json!(false));
+    assert_ne!(late["result"]["principal_ref"], again["result"]["principal_ref"]);
+    let (status, stdout, stderr) = adapter(&bin, &config, &front, "", &["team", "close-move"]);
+    written.push_str(&format!("{stdout}{stderr}"));
+    assert_eq!(status, Some(0), "{stdout}{stderr}");
+
+    // The key is on no stream of the adapter's runs, at debug level (the positive control is a debug
+    // line), in no line of the server's and in no snapshot; and the snapshot of a team whose owner has
+    // asked for something holds nothing of the key, its hash included.
     assert!(written.contains("\"level\":\"DEBUG\""), "{written}");
     assert!(!written.contains(&key), "{written}");
     let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
     assert!(!said.contains(&key), "{said}");
     server.stop();
     let stored = snapshots(&scratch);
+    let newest = stored.last().unwrap();
     assert!(
-        stored
-            .last()
-            .unwrap()
-            .contains(&brigade_core::hash::sha256_hex(&key))
+        !newest.contains("take_in_retry") && !newest.contains(&brigade_core::hash::sha256_hex(&key)),
+        "the newest snapshot keeps a key that its owner's own request ended"
     );
     assert!(stored.iter().all(|snapshot| !snapshot.contains(&key)));
 }

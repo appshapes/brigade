@@ -400,6 +400,158 @@ func TestARetryKeyIsForOneServerAndOneTeam(t *testing.T) {
 	}
 }
 
+// warnedToMakeTheTakeInAgain reports whether stderr holds the one line that
+// says an earlier take-in's key stays, and what makes that take-in again:
+// a WARN that names the file, `profile revoke-credentials` and the take-in.
+func warnedToMakeTheTakeInAgain(stderr string) bool {
+	said := 0
+	for line := range strings.Lines(stderr) {
+		if strings.Contains(line, `"level":"WARN"`) && strings.Contains(line, retryKeyFileName+" stays") &&
+			strings.Contains(line, "`profile revoke-credentials`") && strings.Contains(line, "`team take-in` again") {
+			said++
+		}
+	}
+	return said == 1
+}
+
+// TestAJoinBetweenTwoTakeInsKeepsTheKeyOfTheFirst: a take-in whose answer
+// was lost, `team join` on the same profile, and the take-in run again.
+// The profile holds a member's credential by then, and the server answers a
+// credential it knows whatever key the request carries: the take-in is the
+// member's, `owner: false`, with no credential in its answer. The key of
+// the first take-in was never looked at, and is the one way to the owner
+// that take-in made, so the file stays, the same key in it, and stderr
+// says in one line what makes the take-in again. `profile
+// revoke-credentials` and the same command then own the team, and the file
+// is gone. A key that this run minted, one whose profile owns the team and
+// one that was answered with a credential are each removed as before.
+func TestAJoinBetweenTwoTakeInsKeepsTheKeyOfTheFirst(t *testing.T) {
+	t.Parallel()
+	b := newBackend(t)
+	alice := newRig(t, b.url())
+	secret := secretOf(elsewhereRef, "kept-from-the-other-backend")
+	document := takeInDocument(secret, "ops", "alice@example.com")
+
+	// The first run: the stub takes the team in, and what it answered is lost.
+	b.loseAnswers(func(r *seenRequest) loss {
+		if r.Path != pathTeamTakeIn {
+			return answered
+		}
+		return cutOff
+	})
+	alice.fails(protocol.CodeUnavailable, document, "team", "take-in")
+	b.loseAnswers(nil)
+	kept := alice.keptRetryKey()
+
+	// `team join` with the same secret: a member, and a credential in the profile.
+	joined := alice.join(secret, "alice@example.com")
+	members := alice.storedCredential()
+	if members == "" || alice.keptRetryKey().Key != kept.Key {
+		t.Fatalf("the join left no credential, or touched the key file")
+	}
+
+	// The take-in run again carries that credential and the kept key, and is
+	// answered for the member.
+	again := alice.exec(document, "team", "take-in")
+	if again.code != 0 {
+		t.Fatalf("the take-in after the join: exit %d, %s", again.code, again.stdout)
+	}
+	result, _ := decode(t, again.stdout)["result"].(map[string]any)
+	if result["owner"] != false || result["taken_in"] != false || result["principal_ref"] != joined["principal_ref"] {
+		t.Fatalf("the take-in after the join: %v, want the member the join made, which does not own", result)
+	}
+	sent := b.seen(pathTeamTakeIn)
+	if last := sent[len(sent)-1]; last.Authorization != "Bearer "+members || last.Body["retry_key"] != kept.Key {
+		t.Fatalf("the take-in after the join did not carry the member's credential and the key the first run kept")
+	}
+	// The key file stays, the same key in it, and the profile holds what it held.
+	if still := alice.keptRetryKey(); still.Key != kept.Key || alice.storedCredential() != members {
+		t.Errorf("the key of the first take-in was replaced, or the member's credential was")
+	}
+	if !warnedToMakeTheTakeInAgain(again.stderr) {
+		t.Errorf("stderr does not say, in one line, that %s stays and what makes the take-in again:\n%s", retryKeyFileName, again.stderr)
+	}
+	if strings.Contains(again.stdout+again.stderr, kept.Key) {
+		t.Errorf("the key is on stdout or stderr")
+	}
+	// Asked again as it stands, it says the same and keeps the same.
+	if once := alice.exec(document, "team", "take-in"); once.code != 0 || !warnedToMakeTheTakeInAgain(once.stderr) || alice.keptRetryKey().Key != kept.Key {
+		t.Errorf("the same take-in once more: exit %d, and the key or the line is not what it was", once.code)
+	}
+
+	// The way out the line names: without the member's credential the server
+	// looks at the key, and answers for the owner the first take-in made.
+	alice.ok("", "profile", "revoke-credentials")
+	if alice.keptRetryKey().Key != kept.Key {
+		t.Fatalf("revoking the credential touched the key file")
+	}
+	owned := alice.exec(document, "team", "take-in")
+	result, _ = decode(t, owned.stdout)["result"].(map[string]any)
+	if owned.code != 0 || result["owner"] != true || result["taken_in"] != false || result["principal_ref"] == joined["principal_ref"] {
+		t.Fatalf("the take-in after the credential was revoked: exit %d, %v, want the owner the first take-in made", owned.code, result)
+	}
+	if warnedToMakeTheTakeInAgain(owned.stderr) {
+		t.Errorf("the take-in that owns the team says that the key stays")
+	}
+	alice.noRetryKey("after the take-in that owns the team")
+	if issued := alice.storedCredential(); issued == "" || issued == members {
+		t.Errorf("the profile does not hold the owner's credential")
+	}
+	alice.ok("", "team", "open-move", "--ticket-file", filepath.Join(t.TempDir(), "ops.ticket"))
+
+	// The three answers that settle what a key was for, and remove it.
+	const planted = "cGxhbnRlZC1ieS10aGUtdGVzdC1uZXZlci1taW50ZWQ"
+	plant := func(r *rig) {
+		t.Helper()
+		content := `{"key":"` + planted + `","url":"` + b.url() + `","team_ref":"` + elsewhereRef + `"}`
+		if err := os.MkdirAll(filepath.Dir(r.retryKeyPath()), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(r.retryKeyPath(), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, tc := range map[string]struct {
+		prepare func(r *rig)
+		owner   bool
+	}{
+		// A member's profile with no key of an earlier run: the key is this
+		// run's own, which no server kept for anybody.
+		"a key this run minted, answered for a member": {func(r *rig) { r.join(secret, "") }, false},
+		// A kept key on a profile with no credential, which the server does
+		// not keep: the answer is a stranger's join and carries a credential.
+		"a kept key that is answered with a credential": {func(r *rig) {
+			r.ok("", "profile", "init", "--url", b.url())
+			plant(r)
+		}, false},
+	} {
+		r := newRig(t, b.url())
+		tc.prepare(r)
+		got := r.exec(document, "team", "take-in")
+		result, _ := decode(t, got.stdout)["result"].(map[string]any)
+		if got.code != 0 || result["owner"] != tc.owner {
+			t.Errorf("%s: exit %d, %v", name, got.code, result)
+			continue
+		}
+		r.noRetryKey(name)
+		if warnedToMakeTheTakeInAgain(got.stderr) || r.storedCredential() == "" {
+			t.Errorf("%s: stderr says that the key stays, or the profile holds no credential", name)
+		}
+	}
+	// A kept key on the profile whose credential owns the team: the answer
+	// is the owner's, and needs no key.
+	plant(alice)
+	owner := alice.exec(document, "team", "take-in")
+	result, _ = decode(t, owner.stdout)["result"].(map[string]any)
+	if owner.code != 0 || result["owner"] != true || warnedToMakeTheTakeInAgain(owner.stderr) {
+		t.Errorf("a kept key on the owner's profile: exit %d, %v", owner.code, result)
+	}
+	alice.noRetryKey("a kept key on the owner's profile")
+	if last := b.seen(pathTeamTakeIn); last[len(last)-1].Body["retry_key"] != planted {
+		t.Errorf("the owner's take-in did not carry the key its profile kept")
+	}
+}
+
 // TestARetryKeyFileThatIsNoPrivateFileIsRefused: where the key file is to
 // be there is a symbolic link, to a private file that holds a key for this
 // server and this team or to nothing, or a directory. The strict reader

@@ -176,24 +176,36 @@ server may leave these three endpoints out (§5).
     is there. A server keeps a hash of the key, never the key, with the record of the take-in, when the request
     made a principal and made it the team's owner: by taking the team in, or, on a team that had no owner, by
     the join. Any other request keeps none, so no later take-in can put another key in the place of the owner's.
+    A team keeps a key for its owner alone, and for no longer than that owner is without a credential of its own
+    (below).
   - **A take-in made again.** A request for a team the server holds that carries the team's current join secret,
-    the `retry_key` whose hash the server kept, and no credential the server knows, is not the join of a new
+    the `retry_key` whose hash the server keeps, and no credential the server knows, is not the join of a new
     principal. It is answered for the principal the first request made, by the rules of a join for that
     principal, and the result carries a new `credential` for it; every credential that named the principal
-    before is unknown from then on, so the one the lost answer carried admits nobody. `taken_in` is `false`, and
-    `owner` says whether that principal owns the team when the request is answered: `true` unless the team got
-    another owner since, by a transfer or by the server's operator. Nothing else changes. Another key, and no
+    before is unknown from then on, so the one the lost answer carried admits nobody. `taken_in` is `false` and
+    `owner` is `true`. Nothing else changes, and the server keeps the key: the answer of a take-in made again
+    can be lost as the first was, and the request is made again as often as that happens. Another key, and no
     key, with the right secret is the plain join above, and no answer says whether a team keeps a key; the key
     with another secret is the `conflict` above; the key with the ticket of the team's move is the join the
-    ticket is; a request with a known credential acts for that credential's principal whatever key it carries;
-    and a principal the team banned is refused as above, with no credential made. The key is honoured for as
-    long as the team's join secret is the one the take-in presented: `/v1/team/rotate-secret` ends it, and it
-    has no other end, the principal making its own credential unknown (§3) included. The bundled adapter mints
-    the key before the request, keeps it in a file of mode 0600 beside its credential, and removes that file
-    once a take-in is answered and the credential its answer carried is written, or the answer carried none
-    because the request acted for the credential the profile holds. So the file outlives a take-in whose answer
-    was lost and one that was refused, for the next run of the command. A server honours a key it keeps whether
-    or not that file is still there.
+    ticket is; and a request with a known credential acts for that credential's principal whatever key it
+    carries. **The key ends** no later than the first request, made with that principal's own credential, that
+    changes what the server holds, and no earlier than the first request made with that credential at all. From
+    then on the principal holds a credential, the key has nothing left to stand in for, and the same take-in is
+    the plain join above, in the bytes it has on a team that never kept a key: a request that arrives a second
+    time takes nothing from a principal that has acted. `brigade-server` ends the key with the first record such
+    a request leaves: a session registered, the credential made unknown (§3), the team's move opened or closed,
+    a member revoked, the team transferred or left, a team joined or created; what that principal reads, and
+    what it is refused, leaves none. A request of anybody else's ends the key on no server. A team that gets
+    another owner keeps no key, and `/v1/team/rotate-secret` ends the key as it ends everything that let anyone
+    in before it. The bundled adapter mints the key before the request, keeps it in a file of mode 0600 beside
+    its credential, and removes that file once a take-in is answered: after the credential its answer carried is
+    written, or at once when the answer carried none because the request acted for the credential the profile
+    holds. So the file outlives a take-in whose answer was lost and one that was refused, for the next run of
+    the command. It outlives one answer more: a take-in that carried a key an earlier run kept and was answered
+    `owner: false` for the credential the profile holds. The server did not look at that key, and it may be the
+    key of the owner the earlier run made; the adapter says on stderr what makes that take-in again: `profile
+    revoke-credentials`, and the same take-in. A server honours a key it keeps whether or not that file is still
+    there.
   - A `join_secret` that is malformed is `invalid_input` as on a join, and a `team_name` that breaks
     `/v1/team/create`'s rule is `invalid_input` naming `team_name`, checked before the secret's format.
   - The `team_ref` inside the secret is the caller's choice, and a server keeps it. So a server may hold it to

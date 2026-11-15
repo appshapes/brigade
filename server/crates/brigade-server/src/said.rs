@@ -45,27 +45,18 @@ fn owner(state: &State, team_ref: &str) -> String {
 /// secret closed. Every other record has none.
 #[must_use]
 pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
-    // One request alone issues a credential for a principal that was there before it: a take-in made
-    // again with its retry key, whose first answer was lost (the contract's section 3b). An entry tells
-    // it in one of two ways. It makes the credential that principal had unknown before it issues the
-    // other. Or the principal had none left, having given its own up, and the entry holds no such
-    // record: then the team tells it, because the principal that is issued a credential is the one
-    // whose key the team keeps, in an entry whose join writes no key, as the first take-in's does.
+    // One request alone makes a credential unknown and issues another in the same entry: a take-in made
+    // again with its retry key, whose first answer was lost (the contract's section 3b). The principal
+    // of the new credential is the one that take-in made. It always has a credential to make unknown: a
+    // principal that gave its own up ended its key by that, and the same request is a stranger's join.
     let replaced = entry
         .records
         .iter()
         .any(|record| matches!(record.event, Event::CredentialRevoked { .. }));
-    let issued = entry.records.iter().find_map(|record| match &record.event {
-        Event::CredentialIssued { principal_ref, .. } => Some(principal_ref.as_str()),
+    let repeated = entry.records.iter().find_map(|record| match &record.event {
+        Event::CredentialIssued { principal_ref, .. } if replaced => Some(principal_ref.as_str()),
         _ => None,
     });
-    let keeps_the_key_of = |team_ref: &str, principal_ref: &str| {
-        state
-            .teams
-            .get(team_ref)
-            .and_then(|team| team.take_in_retry.as_ref())
-            .is_some_and(|kept| kept.principal_ref == principal_ref)
-    };
     // A move is closed by a rotation in the rotation's own entry, and by its owner in an entry of its own.
     let rotated = entry
         .records
@@ -95,18 +86,13 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
             Event::MemberJoined {
                 team_ref,
                 principal_ref,
-                retry_key_hash,
                 ..
-            } if issued == Some(principal_ref.as_str())
-                && (replaced || (retry_key_hash.is_empty() && keeps_the_key_of(team_ref, principal_ref))) =>
-            {
-                Some(format!(
-                    "member {} made its take-in of {} again with the retry key of the first: it has a new \
-                     credential, and the one it had is not known any more",
-                    plain(principal_ref),
-                    team(state, team_ref)
-                ))
-            }
+            } if repeated == Some(principal_ref.as_str()) => Some(format!(
+                "member {} made its take-in of {} again with the retry key of the first: it has a new \
+                 credential, and the one it had is not known any more",
+                plain(principal_ref),
+                team(state, team_ref)
+            )),
             Event::MemberJoined {
                 team_ref,
                 principal_ref,
@@ -157,11 +143,11 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
             )),
             // In a member's own request a rotation closes a move, or the team's owner does: the
             // operator's command that closes one prints its own line.
-            Event::TeamMoveClosed { team_ref } if rotated => Some(format!(
+            Event::TeamMoveClosed { team_ref, .. } if rotated => Some(format!(
                 "the move of {} is closed by the rotation of its join secret: its ticket admits nobody from now on",
                 team(state, team_ref)
             )),
-            Event::TeamMoveClosed { team_ref } => Some(format!(
+            Event::TeamMoveClosed { team_ref, .. } => Some(format!(
                 "{} closed the move of {}: its ticket admits nobody from now on",
                 owner(state, team_ref),
                 team(state, team_ref)
@@ -332,6 +318,7 @@ mod tests {
                 },
                 Event::TeamMoveClosed {
                     team_ref: "t-1".to_owned(),
+                    by_owner: false,
                 },
             ]),
         );
@@ -376,6 +363,7 @@ mod tests {
                 team_ref: "t-1".to_owned(),
                 ticket_hash: "hash-of-the-ticket".to_owned(),
                 ends_at: Timestamp(1_800_000_000_000_000_000),
+                by_owner: true,
             }]),
         );
         assert_eq!(
@@ -390,6 +378,7 @@ mod tests {
             &state(),
             &entry(vec![Event::TeamMoveClosed {
                 team_ref: "t-1".to_owned(),
+                by_owner: true,
             }]),
         );
         assert_eq!(
@@ -401,7 +390,7 @@ mod tests {
     #[test]
     fn a_take_in_made_again_with_its_key_has_a_line_and_no_hash() {
         // The entry of a take-in made again: the credential the lost answer carried is unknown, a new one
-        // is issued, and the member is the member it was.
+        // is issued, and the member is the member it was, with the key's hash kept once more.
         let again = entry(vec![
             Event::CredentialRevoked {
                 credential_hash: "hash-of-the-lost-credential".to_owned(),
@@ -410,7 +399,13 @@ mod tests {
                 principal_ref: "p-alice".to_owned(),
                 credential_hash: "hash-of-the-new-credential".to_owned(),
             },
-            joined("p-alice", ""),
+            Event::MemberJoined {
+                team_ref: "t-1".to_owned(),
+                principal_ref: "p-alice".to_owned(),
+                human_label: String::new(),
+                by_move_ticket: false,
+                retry_key_hash: "hash-of-the-retry-key".to_owned(),
+            },
         ]);
         let lines = of_entry(&state(), &again);
         assert_eq!(
@@ -450,66 +445,46 @@ mod tests {
     }
 
     #[test]
-    fn a_take_in_made_again_by_a_principal_that_had_no_credential_left_has_the_line_of_one() {
-        // The principal the take-in made gave its own credential up, and the team keeps its key still.
-        // The take-in made again then makes nothing unknown: its entry is a credential issued and a
-        // join, the two records of a stranger's join. The team tells the two apart.
+    fn only_an_entry_that_makes_a_credential_unknown_is_a_take_in_made_again() {
+        // A team that keeps a key for its owner. A principal that gave its credential up ended its key by
+        // that, so a take-in made again always has a credential to make unknown, and an entry that makes
+        // none unknown is a join, whoever it names and whatever the team keeps.
         let mut keeps = state();
         keeps.teams.get_mut("t-1").unwrap().take_in_retry = Some(TakeInRetry {
             key_hash: "hash-of-the-retry-key".to_owned(),
             principal_ref: "p-alice".to_owned(),
         });
-        let issued_and_joined = |principal: &str| {
+        let issued_and_joined = |principal: &str, retry_key_hash: &str| {
             entry(vec![
                 Event::CredentialIssued {
                     principal_ref: principal.to_owned(),
                     credential_hash: "hash-of-the-new-credential".to_owned(),
                 },
-                joined(principal, ""),
+                Event::MemberJoined {
+                    team_ref: "t-1".to_owned(),
+                    principal_ref: principal.to_owned(),
+                    human_label: String::new(),
+                    by_move_ticket: false,
+                    retry_key_hash: retry_key_hash.to_owned(),
+                },
             ])
         };
-        let lines = of_entry(&keeps, &issued_and_joined("p-alice"));
+        // A stranger's join, the first take-in with a key, and the two records of a principal that is
+        // issued a credential with none made unknown: each joined.
         assert_eq!(
-            lines,
-            [
-                "member p-alice made its take-in of team ops (t-1) again with the retry key of the first: \
-              it has a new credential, and the one it had is not known any more"
-            ]
-        );
-        assert!(lines.iter().all(|line| !line.contains("hash-of")), "{lines:?}");
-        // A stranger that joins the same team is issued a credential in the same two records, and is
-        // not the principal whose key the team keeps: it joined.
-        assert_eq!(
-            of_entry(&keeps, &issued_and_joined("p-bob")),
+            of_entry(&keeps, &issued_and_joined("p-bob", "")),
             ["member p-bob joined team ops (t-1), with no label"]
         );
-        // The first take-in with a key is not one made again: its join is the record that writes the
-        // key, and the team keeps it from that entry on.
-        let first = entry(vec![
-            Event::CredentialIssued {
-                principal_ref: "p-alice".to_owned(),
-                credential_hash: "hash-of-the-credential".to_owned(),
-            },
-            Event::MemberJoined {
-                team_ref: "t-1".to_owned(),
-                principal_ref: "p-alice".to_owned(),
-                human_label: String::new(),
-                by_move_ticket: false,
-                retry_key_hash: "hash-of-the-retry-key".to_owned(),
-            },
-        ]);
-        assert_eq!(
-            of_entry(&keeps, &first),
-            ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
-        );
+        for retry_key_hash in ["hash-of-the-retry-key", ""] {
+            let lines = of_entry(&keeps, &issued_and_joined("p-alice", retry_key_hash));
+            assert_eq!(
+                lines,
+                ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
+            );
+        }
         // A member that joins again with the credential it holds is issued none, and joined.
         assert_eq!(
             of_entry(&keeps, &entry(vec![joined("p-alice", "")])),
-            ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
-        );
-        // On a team that keeps no key the two records are a stranger's join, whoever they name.
-        assert_eq!(
-            of_entry(&state(), &issued_and_joined("p-alice")),
             ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
         );
     }

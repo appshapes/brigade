@@ -486,13 +486,15 @@ func (h *harness) knows(credential string) bool {
 
 // TestATakeInMadeAgainWithItsKey: the stand-in keeps the contract's rule
 // of a take-in whose answer was lost. The request made again with the
-// team's join secret, the key of the first and no credential is answered
-// for the principal the first one made, which owns the team, with a new
-// credential, and the credential before it is unknown. Another key and no
-// key are the join of a new principal; the key with another secret is the
+// team's join secret, the key of the first and no credential the server
+// knows is answered for the principal the first one made, which owns the
+// team, with a new credential, and the credential before it is unknown;
+// it is made again as often as its answer is lost. Another key and no key
+// are the join of a new principal; the key with another secret is the
 // conflict another secret is; a caller the server knows is the principal
-// its credential names; a banned principal reads the conflict; and a
-// rotation ends the key.
+// its credential names. Nobody else's request ends the key, and neither
+// does what its owner reads. The owner's own request that is no read does:
+// from then on the same request is a stranger's join.
 func TestATakeInMadeAgainWithItsKey(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, Options{})
@@ -501,7 +503,8 @@ func TestATakeInMadeAgainWithItsKey(t *testing.T) {
 	if !first.ok || first.result["taken_in"] != true || first.result["owner"] != true {
 		t.Fatalf("the first take-in: %s", first.raw)
 	}
-	alice := member{credential: text2(t, first.result, "credential"), principal: text2(t, first.result, "principal_ref"), team: elsewhere, secret: secret}
+	lost := text2(t, first.result, "credential")
+	alice := member{credential: lost, principal: text2(t, first.result, "principal_ref"), team: elsewhere, secret: secret}
 	// Positive control: the credential of the first answer is one the server knows.
 	if !h.knows(alice.credential) {
 		t.Fatalf("the credential the first answer carried is unknown before anything was asked again")
@@ -521,16 +524,31 @@ func TestATakeInMadeAgainWithItsKey(t *testing.T) {
 	if n := principalDirs(t, h.dir); n != dirs {
 		t.Errorf("%d principal directories after the take-in was made again, want the %d there were: nobody new is made", n, dirs)
 	}
-	alice.credential = second
-	// The new credential is the owner's: it opens the move, which a member's does not.
-	ticket := text2(t, h.openMove(alice, ""), "ticket")
-	h.refused(h.post(bob.credential, "/v1/team/open-move", `{"team_ref":"`+elsewhere+`"}`), "unauthorized", http.StatusForbidden)
-	if members, _ := h.must(alice.credential, "/v1/team/members", `{"team_ref":"`+elsewhere+`"}`)["members"].([]any); len(members) != 2 {
-		t.Errorf("the roster after the take-in was made again: %d members, want the two there were", len(members))
+	// The second answer may be lost as well. The request carries the
+	// credential of the first, as a client that still had it in its file
+	// would: a credential the server does not know is no credential.
+	twice := h.takeInKeyed(lost, secret, retryKeyOfTheTest)
+	if !twice.ok || twice.result["principal_ref"] != alice.principal || twice.result["owner"] != true {
+		t.Fatalf("the take-in made again a second time: %s, want the first principal once more", twice.raw)
+	}
+	alice.credential = text2(t, twice.result, "credential")
+	if h.knows(second) || !h.knows(alice.credential) {
+		t.Errorf("the credential of the second lost answer is still known, or the new one is not")
 	}
 
-	// Another key and no key: the join of a new principal, and answers that
-	// differ in nothing but who that is.
+	// Nobody else's request ends the key, whatever it is: a member that
+	// registers a session, leaves and joins again, and takes the team in
+	// with the owner's key as the member it is; strangers with another key
+	// and with none; the key with another secret.
+	h.register(bob, "beta")
+	h.must(bob.credential, "/v1/team/leave", `{"team_ref":"`+elsewhere+`"}`)
+	if back := h.rejoin(bob, secret); !back.ok {
+		t.Fatalf("the member joins again: %s", back.raw)
+	}
+	if member := h.takeInKeyed(bob.credential, secret, retryKeyOfTheTest); !member.ok || len(member.result) != 5 ||
+		member.result["principal_ref"] != bob.principal || member.result["owner"] != false {
+		t.Errorf("a member's take-in with the owner's key: %s, want the member it is and no credential", member.raw)
+	}
 	wrong := h.takeInKeyed("", secret, anotherRetryKey)
 	none := h.takeIn("", secret, "ops")
 	for name, got := range map[string]answer{"another key": wrong, "no key": none} {
@@ -538,27 +556,22 @@ func TestATakeInMadeAgainWithItsKey(t *testing.T) {
 			t.Errorf("a take-in with %s: %s, want a new principal that does not own", name, got.raw)
 		}
 	}
-	if !h.knows(alice.credential) {
-		t.Errorf("a take-in with another key replaced the owner's credential")
-	}
-	// The key with another secret, and with the ticket of the move.
 	other := secretOf(elsewhere, "another-secret-for-the-reference")
 	conflict := h.takeInKeyed("", other, retryKeyOfTheTest)
 	h.refused(conflict, "conflict", http.StatusConflict)
 	if unkeyed := h.takeIn("", other, "ops"); unkeyed.raw != conflict.raw {
 		t.Errorf("another secret with the key and without it differ:\n%s%s", conflict.raw, unkeyed.raw)
 	}
-	if followed := h.takeInKeyed("", ticket, retryKeyOfTheTest); !followed.ok || followed.result["owner"] != false || followed.result["principal_ref"] == alice.principal {
-		t.Errorf("the ticket of the move with the key: %s, want the join of a new principal", followed.raw)
+	// Nor does what the owner reads with its credential, or is refused.
+	if members, _ := h.must(alice.credential, "/v1/team/members", `{"team_ref":"`+elsewhere+`"}`)["members"].([]any); len(members) != 4 {
+		t.Errorf("the roster the owner reads: %d members, want the four there are", len(members))
 	}
-	// A caller the server knows is the principal its credential names.
-	if member := h.takeInKeyed(bob.credential, secret, retryKeyOfTheTest); !member.ok || len(member.result) != 5 ||
-		member.result["principal_ref"] != bob.principal || member.result["owner"] != false {
-		t.Errorf("a member's take-in with the owner's key: %s, want the member it is and no credential", member.raw)
+	h.refused(h.post(alice.credential, "/v1/team/open-move", `{"team_ref":"`+elsewhere+`","ticket_days":0}`), "invalid_input", http.StatusBadRequest)
+	still := h.takeInKeyed("", secret, retryKeyOfTheTest)
+	if !still.ok || still.result["principal_ref"] != alice.principal || still.result["owner"] != true {
+		t.Fatalf("the take-in made again after all of it: %s, want the first principal, which owns the team", still.raw)
 	}
-	if !h.knows(alice.credential) {
-		t.Errorf("a member's take-in with the owner's key replaced the owner's credential")
-	}
+	alice.credential = text2(t, still.result, "credential")
 
 	// A key that is no key is refused by the name of its member, whatever
 	// the server holds, and its text is in no answer.
@@ -588,42 +601,23 @@ func TestATakeInMadeAgainWithItsKey(t *testing.T) {
 		}
 	}
 
-	// The owner bans nobody but another: the team is transferred, the new
-	// owner bans the principal the take-in made, and its request made again
-	// reads the conflict another secret reads, with nothing replaced.
-	h.must(alice.credential, "/v1/team/transfer", `{"team_ref":"`+elsewhere+`","principal_ref":"`+bob.principal+`"}`)
-	transferred := h.takeInKeyed("", secret, retryKeyOfTheTest)
-	if !transferred.ok || transferred.result["principal_ref"] != alice.principal || transferred.result["owner"] != false {
-		t.Fatalf("the take-in made again after a transfer: %s, want the first principal, which does not own any more", transferred.raw)
-	}
-	alice.credential = text2(t, transferred.result, "credential")
-	h.must(bob.credential, "/v1/team/revoke-member", `{"team_ref":"`+elsewhere+`","principal_ref":"`+alice.principal+`","ban":true}`)
-	if banned := h.takeInKeyed("", secret, retryKeyOfTheTest); banned.raw != conflict.raw {
-		t.Errorf("the take-in made again by a banned principal: %s, want the conflict of another secret", banned.raw)
+	// The owner opens the team's move: its own request, with the credential
+	// it holds, and no read. That ends the key. The same request is a
+	// stranger's join from then on, and the owner's credential is the one it
+	// was; the ticket with the key is the join the ticket is.
+	ticket := text2(t, h.openMove(alice, ""), "ticket")
+	h.refused(h.post(bob.credential, "/v1/team/open-move", `{"team_ref":"`+elsewhere+`"}`), "unauthorized", http.StatusForbidden)
+	ended := h.takeInKeyed("", secret, retryKeyOfTheTest)
+	if !ended.ok || len(ended.result) != 6 || ended.result["owner"] != false || ended.result["principal_ref"] == alice.principal {
+		t.Errorf("the key after its owner's own request: %s, want the join of a new principal", ended.raw)
 	}
 	if !h.knows(alice.credential) {
-		t.Errorf("a refused take-in replaced the banned principal's credential")
+		t.Errorf("a key that ended replaced the owner's credential")
 	}
-
-	// A rotation ends the key: before it the key is honoured (the positive
-	// control), after it the new secret with the key is a stranger's join.
-	fresh := newHarness(t, Options{})
-	owner := member{team: elsewhere, secret: secret}
-	owner.credential = text2(t, fresh.takeInKeyed("", secret, retryKeyOfTheTest).result, "credential")
-	honoured := fresh.takeInKeyed("", secret, retryKeyOfTheTest)
-	if !honoured.ok || honoured.result["owner"] != true {
-		t.Fatalf("the take-in made again before the rotation: %s", honoured.raw)
+	if followed := h.takeInKeyed("", ticket, retryKeyOfTheTest); !followed.ok || followed.result["owner"] != false || followed.result["principal_ref"] == alice.principal {
+		t.Errorf("the ticket of the move with the key: %s, want the join of a new principal", followed.raw)
 	}
-	owner.credential, owner.principal = text2(t, honoured.result, "credential"), text2(t, honoured.result, "principal_ref")
-	rotated, _ := fresh.rotate(owner)
-	fresh.refused(fresh.takeInKeyed("", secret, retryKeyOfTheTest), "conflict", http.StatusConflict)
-	if ended := fresh.takeInKeyed("", rotated, retryKeyOfTheTest); !ended.ok || ended.result["owner"] != false || ended.result["principal_ref"] == owner.principal {
-		t.Errorf("the key after a rotation: %s, want the join of a new principal", ended.raw)
-	}
-	if !fresh.knows(owner.credential) {
-		t.Errorf("a key that a rotation ended replaced the owner's credential")
-	}
-	for _, a := range []answer{first, again, wrong, conflict} {
+	for _, a := range []answer{first, again, twice, wrong, conflict, still, ended} {
 		if strings.Contains(a.raw, retryKeyOfTheTest) || strings.Contains(a.raw, anotherRetryKey) {
 			t.Errorf("an answer holds a retry key: %s", a.raw)
 		}
@@ -644,5 +638,74 @@ func TestATakeInMadeAgainWithItsKey(t *testing.T) {
 	}
 	if !third.knows(carol.credential) {
 		t.Errorf("the key of a take-in that made no principal replaced its caller's credential")
+	}
+}
+
+// TestARetryKeyEndsWithItsOwnersOwnRequest: each request the owner a
+// take-in made asks with its own credential, and that is no read, ends the
+// key: the owner holds a credential from then on, and the key has nothing
+// left to stand in for. Before it the take-in is made again (the positive
+// control); after it the same request, with the secret the team has and the
+// key, is the join of a new principal, and nothing of the owner's is
+// touched.
+func TestARetryKeyEndsWithItsOwnersOwnRequest(t *testing.T) {
+	t.Parallel()
+	secret := secretOf(elsewhere, "kept-from-the-other-backend")
+	team := `{"team_ref":"` + elsewhere + `"}`
+	for name, ask := range map[string]func(h *harness, owner, other member) string{
+		"registers a session": func(h *harness, owner, _ member) string {
+			h.register(owner, "alpha")
+			return secret
+		},
+		"makes its credential unknown": func(h *harness, owner, _ member) string {
+			h.must(owner.credential, "/v1/credential/revoke", `{}`)
+			return secret
+		},
+		"opens the team's move": func(h *harness, owner, _ member) string {
+			h.openMove(owner, "")
+			return secret
+		},
+		"revokes a member": func(h *harness, owner, other member) string {
+			h.must(owner.credential, "/v1/team/revoke-member", `{"team_ref":"`+elsewhere+`","principal_ref":"`+other.principal+`"}`)
+			return secret
+		},
+		"transfers the team": func(h *harness, owner, other member) string {
+			h.must(owner.credential, "/v1/team/transfer", `{"team_ref":"`+elsewhere+`","principal_ref":"`+other.principal+`"}`)
+			return secret
+		},
+		"leaves the team": func(h *harness, owner, _ member) string {
+			h.must(owner.credential, "/v1/team/leave", team)
+			return secret
+		},
+		"rotates the team's secret": func(h *harness, owner, _ member) string {
+			rotated, _ := h.rotate(owner)
+			return rotated
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, Options{})
+			first := h.takeInKeyed("", secret, retryKeyOfTheTest)
+			if !first.ok {
+				t.Fatalf("the first take-in: %s", first.raw)
+			}
+			owner := member{principal: text2(t, first.result, "principal_ref"), team: elsewhere, secret: secret}
+			other := h.join(secret)
+			again := h.takeInKeyed("", secret, retryKeyOfTheTest)
+			if !again.ok || again.result["principal_ref"] != owner.principal || again.result["owner"] != true {
+				t.Fatalf("the take-in made again before the owner asked anything: %s", again.raw)
+			}
+			owner.credential = text2(t, again.result, "credential")
+
+			now := ask(h, owner, other)
+			ended := h.takeInKeyed("", now, retryKeyOfTheTest)
+			if !ended.ok || len(ended.result) != 6 || ended.result["taken_in"] != false || ended.result["owner"] != false ||
+				ended.result["principal_ref"] == owner.principal || ended.result["principal_ref"] == other.principal {
+				t.Errorf("the same take-in after the owner's own request: %s, want the join of a new principal", ended.raw)
+			}
+			if known := h.knows(owner.credential); known != (name != "makes its credential unknown") {
+				t.Errorf("the owner's credential is known: %v", known)
+			}
+		})
 	}
 }
