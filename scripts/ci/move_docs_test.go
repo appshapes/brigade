@@ -206,8 +206,17 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 		},
 		{
 			why:   "a backend that says to wait has said nothing about the member: it is told as one that did not answer, where the question to the backend the member joined took back what an earlier follow left and the member was told to join",
-			files: []string{"docs/team-member/join/follow-a-move.md", "CHANGELOG.md"},
-			need:  []string{"to wait"},
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			need:  []string{"did not answer**, or said to wait", "did not answer in time, or said to wait"},
+		},
+		{
+			// The changelog spoke of waiting before this sentence (a
+			// stop that is not one to wait for, a session that used to
+			// wait for a new start), so the words held are the
+			// sentence's own.
+			why:   "the changelog says the same of a backend that says to wait",
+			files: []string{"CHANGELOG.md"},
+			need:  []string{"or that says to wait (`rate_limited`"},
 		},
 		{
 			why:   "a join that was not answered has left a directory for the backend in the member's store, and the backend may have carried it out: the page does not say that nothing was changed",
