@@ -746,11 +746,14 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 			return []string{"--to", "https://brg1." + setupTeamRef + ".abcdefgh12345678.example.test", "--secret-file", r.secretFile}
 		}, protocol.CodeConfig, "team_file_unwritable"},
 		// The file names the server under another certificate: that is no move that was stopped, and it is
-		// not finished as one. The record would name one certificate and the file another.
+		// not finished as one. The record would name one certificate and the file another. The server is the
+		// one the team file names, whatever the certificate, and a team does not move onto it: the refusal
+		// says so before the store is looked at (work item 341; it used to say that the machine had not
+		// joined the backend the file names, which was true here and no help).
 		{"a file that names the server under another certificate", func(r *moveToRig) []string {
 			r.writeFile(strings.Replace(r.moved(), moveNewPin, otherPin, 1))
 			return r.args()
-		}, protocol.CodeConfig, reasonNotJoinedAtSource},
+		}, protocol.CodeConfig, "no_move"},
 		{"another scheme", func(r *moveToRig) []string {
 			return []string{"--to", "ftp://" + r.newHost, "--secret-file", r.secretFile}
 		}, protocol.CodeUsage, ""},

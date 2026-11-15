@@ -332,10 +332,11 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 	if err := inv.consentToMove(line, consequence, "not recorded; nothing was changed"); err != nil {
 		return err
 	}
-	cleared, err := inv.clearDestinationRecord(dest, held, f, source)
+	outcome, err := inv.clearDestinationRecord(dest, held, f, source)
 	if err != nil {
 		return err
 	}
+	cleared := held != nil && outcome == teammove.Cleared
 	req := &protocol.TeamMoveRequest{Adapter: f.Adapter, URL: f.URL, Certificate: f.Certificate}
 	res, err := inv.callMove(t, "move", []string{"--ticket-file", ticketFile}, req)
 	if err != nil {
@@ -357,10 +358,16 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 		return writeJSON(inv.Out, res)
 	}
 	var lines []string
-	if cleared {
+	switch {
+	case cleared:
 		lines = append(lines, "cleared the record on "+destHost+" that the team had left it for "+
 			moveDestination(held.Adapter, held.URL, held.Certificate)+": the team is on "+destHost+" again")
-	} else if held != nil {
+	case held != nil && outcome == teammove.ClearUnanswered:
+		// The clear got no answer and may have been carried out: the record
+		// may stand, and that is what is said.
+		lines = append(lines, destHost+" may still record that the team left it for "+moveDestination(held.Adapter, held.URL, held.Certificate)+
+			": the answer to the clear of that record did not arrive (`brigade team move --show --from "+destHost+"` says; `brigade team move --clear --from "+destHost+"` clears it)")
+	case held != nil:
 		lines = append(lines, destHost+" still records that the team left it for "+moveDestination(held.Adapter, held.URL, held.Certificate)+
 			": that record is its owner's to clear there, with `brigade team move --clear --from "+destHost+"`")
 	}
@@ -378,9 +385,9 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 const reasonBackendsNameEachOther = "backends_name_each_other"
 
 // destinationRecord asks the backend the team goes to, which this machine
-// has joined, what it records of the team itself. It answers the record
-// when that backend records that the team left it, and nil when it records
-// none or its adapter keeps none (it is then asked nothing). A question
+// has joined, what it records of the team itself (recordOn). It answers
+// the record when that backend records that the team left it, and nil when
+// it records none or keeps none (it is then asked nothing). A question
 // that fails stops the command with nothing recorded: whether the two
 // backends would name each other is then not known.
 func (inv Invocation) destinationRecord(f *teamfile.File, source *adapterkit.Profile) (*target, *protocol.TeamMoveResult, error) {
@@ -388,14 +395,7 @@ func (inv Invocation) destinationRecord(f *teamfile.File, source *adapterkit.Pro
 	if err != nil {
 		return nil, nil, err
 	}
-	desc, err := call(func(ctx context.Context) (*protocol.DescribeResult, error) { return dest.client.Describe(ctx) })
-	if err != nil {
-		return nil, nil, err
-	}
-	if !slices.Contains(desc.Capabilities, teammove.Capability) {
-		return dest, nil, nil
-	}
-	held, err := inv.callMove(dest, "moved", nil, nil)
+	held, keeps, err := inv.recordOn(dest)
 	if err != nil {
 		var perr *protocol.Error
 		if !errors.As(err, &perr) {
@@ -406,42 +406,53 @@ func (inv Invocation) destinationRecord(f *teamfile.File, source *adapterkit.Pro
 			". Nothing was recorded on " + attrLine(hostOf(source.URL)) + "; run this again"
 		return nil, nil, &out
 	}
-	if !held.Moved {
+	if !keeps || !held.Moved {
 		return dest, nil, nil
 	}
 	return dest, held, nil
 }
 
 // clearDestinationRecord clears the record the backend the team goes to
-// holds of the team having left it, and reports whether it did. A clear
-// that is refused or fails is the end of the command when that record
-// names the backend the team is leaving: recording the move would then
-// leave the two naming each other, and a team file flipped between them
-// would send a session back and forth. A record there that names a third
-// place and cannot be cleared is left, and said.
-func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMoveResult, f *teamfile.File, source *adapterkit.Profile) (bool, error) {
+// holds of the team having left it (clearOn), and says what became of it.
+// A clear that is refused, or that got no answer, is the end of the
+// command when that record names the backend the team is leaving:
+// recording the move would then leave the two naming each other, or might,
+// and a team file flipped between them would send a session back and
+// forth. The refusal says which of the two it was: a record that stands,
+// with the command that clears it, or a clear whose answer did not arrive,
+// after which the record may be cleared and `--show` says. A record there
+// that names a third place is left, and the caller says whether it stands
+// or may.
+func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMoveResult, f *teamfile.File, source *adapterkit.Profile) (teammove.ClearOutcome, error) {
 	if held == nil {
-		return false, nil
+		return teammove.Cleared, nil
 	}
-	cleared, err := inv.callMove(dest, "move", []string{"--clear"}, nil)
-	if err == nil && cleared.Moved {
-		err = protocolMismatch("team move --clear answered a record")
-	}
-	if err == nil {
-		return true, nil
-	}
-	if held.Adapter != source.Adapter || !teammove.SameAddress(held.URL, source.URL) {
-		return false, nil
+	outcome, cause := inv.clearOn(dest)
+	if outcome == teammove.Cleared || held.Adapter != source.Adapter || !teammove.SameAddress(held.URL, source.URL) {
+		return outcome, nil
 	}
 	destHost, sourceHost := attrLine(hostOf(f.URL)), attrLine(hostOf(source.URL))
-	cause := "the step failed on this machine"
+	why := "the step failed on this machine"
 	var perr *protocol.Error
-	if errors.As(err, &perr) {
-		cause = perr.Message
+	if errors.As(cause, &perr) {
+		why = perr.Message
 	}
-	return false, &protocol.Error{
+	if outcome == teammove.ClearUnanswered {
+		code := protocol.CodeUnavailable
+		if perr != nil {
+			code = perr.Code
+		}
+		return outcome, &protocol.Error{
+			Code: code,
+			Message: destHost + " recorded that this team left it for " + sourceHost +
+				": the answer to the clear of that record did not arrive, so the record may be cleared all the same (`brigade team move --show --from " + destHost +
+				"` says). The cause: " + why + ". Nothing was recorded on " + sourceHost + ": while that record may stand, the two would each say that the team is on the other; run this again",
+			Details: map[string]string{"reason": reasonBackendsNameEachOther},
+		}
+	}
+	return outcome, &protocol.Error{
 		Code: protocol.CodeConflict,
-		Message: destHost + " records that this team left it for " + sourceHost + ", and that record could not be cleared (" + cause + "). " +
+		Message: destHost + " records that this team left it for " + sourceHost + ", and that record could not be cleared (" + why + "). " +
 			"Recording the move on " + sourceHost + " would leave the two each saying that the team is on the other, and a session could be sent back and forth. " +
 			"The team's owner on " + destHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + destHost + "`; then run this again. Nothing was recorded",
 		Details: map[string]string{"reason": reasonBackendsNameEachOther},

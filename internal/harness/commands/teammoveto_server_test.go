@@ -474,3 +474,47 @@ func TestALinePrintedToBeRunNamesTheServerWithItsCertificate(t *testing.T) {
 		t.Errorf("a server with no pin: %q", got)
 	}
 }
+
+// TestTeamMoveToRefusesTheServerTheTeamIsOnWhateverTheCertificate (work
+// item 341): the team file names a server with a certificate's pin, and
+// the one command names the same address with no pin or with another.
+// Until this the file did not count as naming the server already, the
+// backend the team "leaves" was the very membership on that server, the
+// profile was repointed to the pin that was typed, a move was opened, and
+// the server recorded that the team had moved to itself. It is refused
+// before anything is asked or changed: a server's new certificate is a
+// change of the team file and a join, not a move.
+func TestTeamMoveToRefusesTheServerTheTeamIsOnWhateverTheCertificate(t *testing.T) {
+	t.Parallel()
+	const another = "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+	for name, extra := range map[string][]string{
+		"no certificate":      nil,
+		"another certificate": {"--certificate", another},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newMoveToRig(t)
+			r.fromAServer()
+			before, err := teamstore.LoadBinding(r.f.dirs.BrigadeConfig, r.oldKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string{"--to", r.oldURL, "--secret-file", r.secretFile}, extra...)
+			perr := wantCodeErr(t, Team(r.inv(true, args...)), protocol.CodeConfig, "no_move")
+			for _, need := range []string{"is the server this team is on", "`certificate`", "brigade team join", "not a move", "Nothing was changed"} {
+				if !strings.Contains(perr.Message, need) {
+					t.Errorf("the refusal lacks %q: %s", need, perr.Message)
+				}
+			}
+			if len(r.order) != 0 || len(r.prompts) != 0 {
+				t.Errorf("a move onto the server the team is on asked %v and confirmed %d times", r.order, len(r.prompts))
+			}
+			if now, err := teamstore.LoadBinding(r.f.dirs.BrigadeConfig, r.oldKey); err != nil || now.Certificate != before.Certificate || now.URL != before.URL {
+				t.Errorf("the membership on the server was repointed: %+v, %v", now, err)
+			}
+			if got := r.fileNow(); got != r.original {
+				t.Errorf("the team file was rewritten:\n%s", got)
+			}
+		})
+	}
+}

@@ -69,6 +69,9 @@ type backends struct {
 	newRecords   bool
 	newMoved     *protocol.TeamMoveResult
 	newMovedErrs []error
+	// newMovedHangs has the new backend's `team moved` wait for as long as
+	// its caller does: a server that accepts the connection and says nothing.
+	newMovedHangs bool
 }
 
 type fakeCaller struct {
@@ -88,8 +91,13 @@ func (c fakeCaller) Describe(context.Context) (*protocol.DescribeResult, error) 
 	return &protocol.DescribeResult{Capabilities: capabilities}, nil
 }
 
-func (c fakeCaller) Call(_ context.Context, group, verb string, flags []string, stdin any) (*protocol.Envelope, error) {
+func (c fakeCaller) Call(ctx context.Context, group, verb string, flags []string, stdin any) (*protocol.Envelope, error) {
 	b := c.b
+	if b.newMovedHangs && c.adapter == "rest" && group+" "+verb == "team moved" {
+		b.calls = append(b.calls, call{adapter: c.adapter, profile: c.profile, verb: group + " " + verb})
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	b.calls = append(b.calls, call{adapter: c.adapter, profile: c.profile, verb: group + " " + verb, flags: slices.Clone(flags), stdin: stdin})
 	var result any
 	switch group + " " + verb {
@@ -1315,5 +1323,33 @@ func TestSameAddress(t *testing.T) {
 		if got := teammove.SameAddress(tc.a, tc.b); got != tc.same || teammove.SameAddress(tc.b, tc.a) != tc.same {
 			t.Errorf("SameAddress(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.same)
 		}
+	}
+}
+
+// TestFollowGivesTheNewBackendsAnswerABoundOfItsOwn (work item 341): the
+// follow asks the backend the team moved to one question under the lock
+// that every follow and every join of the machine takes. A server that
+// accepts the connection and says nothing held that lock until the hook's
+// own deadline, as the old backend's question can. The question has a
+// bound of its own: the follow gives up on it long before its caller would,
+// changes nothing, and the next follow asks again. It is not run beside the
+// other tests: it measures time.
+func TestFollowGivesTheNewBackendsAnswerABoundOfItsOwn(t *testing.T) {
+	defer teammove.SetNewBackendWait(200 * time.Millisecond)()
+	r := newRig(t)
+	r.memberAtTheNewBackend()
+	r.b.newRecords, r.b.newMovedHangs = true, true
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
+	defer cancel()
+	began := time.Now()
+	out, _ := teammove.Follow(ctx, teammove.Inputs{
+		ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin, Client: r.b.client,
+		Now: func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) },
+	})
+	if took := time.Since(began); out.Followed || out.Reason != teammove.ReasonNewBackendFailed || took > 2*time.Second {
+		t.Fatalf("a follow whose new backend says nothing: %+v after %s, want %s well inside the caller's 4s", out, took, teammove.ReasonNewBackendFailed)
+	}
+	if pin := r.currentPin(); pin != r.pin || len(r.b.called("team join")) != 0 {
+		t.Fatalf("the pin moved (%+v) or the machine joined: %v", pin, r.b.verbs())
 	}
 }

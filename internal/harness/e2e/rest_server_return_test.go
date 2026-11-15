@@ -435,6 +435,14 @@ func TestTwoServersThatNameEachOtherSendNoSessionAnywhereThroughTheRealBinary(t 
 		t.Fatalf("the member's session with the file of the server he is on: attached to %q, stdout %q", key, res.stdout)
 	}
 
+	// A start in a checkout that is where its file says takes back what an
+	// earlier follow left for it: the start above found the two naming each
+	// other, and that is nothing to say of a checkout with nothing to follow.
+	// Left there, it would be said at the team's next move between the two.
+	if left, gerr := filepath.Glob(filepath.Join(r.stateDir, "state", "move-*.not-followed")); gerr != nil || len(left) != 0 {
+		t.Fatalf("a start in a checkout that is where its file says left %v (%v)", left, gerr)
+	}
+
 	// A session that is running when the file comes to name A stays on B,
 	// and says why once: the follow its first prompt started found the two
 	// naming each other, and the prompt after that says so.
@@ -472,7 +480,7 @@ func TestTwoServersThatNameEachOtherSendNoSessionAnywhereThroughTheRealBinary(t 
 	// with it: left there, it would have a running session say "follows
 	// neither" at the team's next move between the two, and then follow.
 	marks := func() []string {
-		left, gerr := filepath.Glob(filepath.Join(r.stateDir, "state", "move-*.each-other"))
+		left, gerr := filepath.Glob(filepath.Join(r.stateDir, "state", "move-*.not-followed"))
 		if gerr != nil {
 			t.Fatal(gerr)
 		}
@@ -496,13 +504,19 @@ func TestTwoServersThatNameEachOtherSendNoSessionAnywhereThroughTheRealBinary(t 
 // a team that moved from A to B and then to C leaves its administrator's
 // machine joined on two earlier backends. Until this the same command run
 // again, which every page and every stop of the command names, was refused
-// for not knowing which of them the team is leaving.
+// for not knowing which of them the team is leaving. What says which is
+// the checkout: the backend its pin still names, which a run that was
+// stopped before it wrote the pin leaves.
 //
-//  1. Run again while B records the move to C, it finds B by that record.
-//  2. With B's record cleared no backend says, and the checkout's pin
-//     names C: it refuses, names the two and the flag.
-//  3. With the pin still on B, as a run stopped before it wrote the pin
-//     leaves it, it finds B by the pin.
+//  1. In the checkout the command pinned to C nothing says which backend
+//     it was joined to before, and B's record of the move to C does not
+//     choose by itself: the command changes nothing, names the two and
+//     prints itself for each with its --from.
+//  2. With the pin still on B, as a run stopped before it wrote the pin
+//     leaves it, and B recording the move, it finds B.
+//  3. With the pin on B and B's record cleared, it finds B by the pin: no
+//     record says otherwise.
+//  4. With no record and a pin that names C, it refuses as in 1.
 func TestTheSameCommandRunAgainAfterAnEarlierMoveFindsTheBackendItLeavesThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	a, b, c := startRestBackend(t), startRestBackend(t), startRestBackend(t)
@@ -518,31 +532,49 @@ func TestTheSameCommandRunAgainAfterAnEarlierMoveFindsTheBackendItLeavesThroughT
 		t.Fatalf("the administrator's pin after the first move: %+v %v", pinOnB, err)
 	}
 	r.movedTo(c, r.secretFile)
-
-	// --- 1. the record names the destination ---------------------------------------------------------------
-	res := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
-	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") || !strings.Contains(res.stderr, "from "+hostOf(b)+" to "+hostOf(c)) {
-		t.Fatalf("the same command run again after two moves: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	refused := func(what string) {
+		t.Helper()
+		res := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
+		if res.exit == 0 || !strings.Contains(res.stderr, "--from "+hostOf(a)) || !strings.Contains(res.stderr, "--from "+hostOf(b)) ||
+			!strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stderr, "[y/N]") {
+			t.Fatalf("%s: exit %d\nstdout: %s\nstderr: %s", what, res.exit, res.stdout, res.stderr)
+		}
+	}
+	found := func(what string) {
+		t.Helper()
+		res := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
+		if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") || !strings.Contains(res.stderr, "from "+hostOf(b)+" to "+hostOf(c)) {
+			t.Fatalf("%s: exit %d\nstdout: %s\nstderr: %s", what, res.exit, res.stdout, res.stderr)
+		}
+	}
+	clearB := func() {
+		t.Helper()
+		if res := r.runIn(r.checkout, term, "", "team", "move", "--clear", "--from", hostOf(b)); res.exit != 0 {
+			t.Fatalf("the clear on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+		}
+	}
+	pinB := func() {
+		t.Helper()
+		if err := write.Pin(r.configDir, canon, *pinOnB); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	// --- 2. no record, and a pin that names the destination -------------------------------------------------
-	if res := r.runIn(r.checkout, term, "", "team", "move", "--clear", "--from", hostOf(b)); res.exit != 0 {
-		t.Fatalf("the clear on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
-	}
-	res = r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
-	if res.exit == 0 || !strings.Contains(res.stderr, hostOf(a)) || !strings.Contains(res.stderr, hostOf(b)) || !strings.Contains(res.stderr, "--from <host>") ||
-		strings.Contains(res.stderr, "[y/N]") {
-		t.Fatalf("the same command with no record to go by: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
-	}
+	// --- 1. a record, and a checkout that says nothing ----------------------------------------------------
+	refused("the same command in the checkout the command pinned, where B records the move")
 
-	// --- 3. the pin of a run that was stopped before it wrote it -------------------------------------------
-	if err := write.Pin(r.configDir, canon, *pinOnB); err != nil {
-		t.Fatal(err)
-	}
-	res = r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
-	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") {
-		t.Fatalf("the same command after a run that stopped before its pin: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
-	}
+	// --- 2. the pin of a run that was stopped before it wrote it, and the record ---------------------------
+	pinB()
+	found("the same command after a run that stopped before its pin")
+
+	// --- 3. the pin, and no record ----------------------------------------------------------------------
+	clearB()
+	pinB()
+	found("the same command after a run that stopped before its pin, the record cleared")
+
+	// --- 4. no record, and a pin that names the destination -------------------------------------------------
+	clearB()
+	refused("the same command with no record and nothing in the checkout to go by")
 	if record := r.recordOn(r.configDir, a); !record.Moved || record.URL != b.url {
 		t.Fatalf("A's record was touched: %+v", record)
 	}
@@ -782,17 +814,30 @@ func TestARerunDoesNotGuessWhileABackendTheTeamWasOnDoesNotAnswerThroughTheRealB
 	down.on.Store(true)
 	res := r.runIn(r.checkout, term, "y\n", moveArgs(b, r.secretFile)...)
 	down.on.Store(false)
-	if res.exit == 0 || !strings.Contains(res.stderr, hostOf(c)+" did not answer") || !strings.Contains(res.stderr, "--from <host>") ||
+	if res.exit == 0 || !strings.Contains(res.stderr, hostOf(c)+" did not answer") || !strings.Contains(res.stderr, "--from "+hostOf(c)) || !strings.Contains(res.stderr, "--from "+hostOf(a)) ||
 		!strings.Contains(res.stderr, "when it answers") || !strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stderr, "[y/N]") {
 		t.Fatalf("the same command while a backend the team was on does not answer: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
 	if now := r.recordOn(r.configDir, a); !now.RecordedAt.Equal(onA.RecordedAt) || read() != held {
 		t.Fatalf("A's record was written while C did not answer: %+v, was %+v", now, onA)
 	}
-	// The line it prints, run as it is printed with the backend named and the
-	// secret's file, runs: it carries the certificate's pin where the server
-	// has one.
-	line := strings.NewReplacer("<path>", r.secretFile, "<host>", hostOf(c)).Replace(printed(t, res.stderr, "brigade team move --to "))
+	// It prints the command once for each backend the team may be leaving,
+	// each with its --from. The one that names C, run as it is printed with
+	// the secret's file, runs: it carries the certificate's pin where the
+	// server has one.
+	line := ""
+	for said := res.stderr; ; {
+		_, rest, found := strings.Cut(said, "`brigade team move --to ")
+		if !found {
+			t.Fatalf("the refusal prints no command that names %s:\n%s", hostOf(c), res.stderr)
+		}
+		tail, after, _ := strings.Cut(rest, "`")
+		if strings.HasSuffix(tail, " --from "+hostOf(c)) {
+			line = strings.Replace("brigade team move --to "+tail, "<path>", r.secretFile, 1)
+			break
+		}
+		said = after
+	}
 	if res := r.runIn(r.checkout, term, "y\n", strings.Fields(line)[1:]...); res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(c)+":") {
 		t.Fatalf("the line the refusal printed, %q: exit %d\nstdout: %s\nstderr: %s", line, res.exit, res.stdout, res.stderr)
 	}
@@ -1138,4 +1183,141 @@ func TestALiftedBanBringsTheMemberBackWhenTheRefusalIsFifteenMinutesOldThroughTh
 	if _, err := os.Stat(record); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the record of the refusal after he was let in: %v", err)
 	}
+}
+
+// TestARecordAloneDoesNotChooseTheBackendARerunLeavesThroughTheRealBinary:
+// a team went from A to C, from C to B and from B back to C. A still
+// records the first move, to C, which nothing ever cleared; B's record of
+// the last move was cleared. Until this the same command run again took
+// the one backend whose record names C for the one the team is leaving,
+// which is A: it recorded there, and the members' sessions on B were told
+// nothing. A record alone does not say which backend a team is leaving
+// now, only that it once left that one for this server: the candidate
+// must also be the one this checkout was joined to.
+//
+//  1. With the administrator's checkout pinned to C by the command, no
+//     candidate is the checkout's: it refuses, names both, and prints the
+//     command for each with its --from.
+//  2. In a checkout of hers that followed from B at a session's start, the
+//     pin says where it came from, B records the move, and B it is.
+func TestARecordAloneDoesNotChooseTheBackendARerunLeavesThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b, c := startRestBackend(t), startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	r.movedTo(c, r.secretFile)
+	r.movedTo(b, r.secretFile)
+	// A second checkout of the administrator's, joined on B as the first is now.
+	second, _ := r.anotherCheckout(r.configDir, "admin-checkout-2")
+	r.movedTo(c, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	if res := r.runIn(r.checkout, term, "", "team", "move", "--clear", "--from", hostOf(b)); res.exit != 0 {
+		t.Fatalf("the clear on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	onA := r.recordOn(r.configDir, a)
+	if !onA.Moved || onA.URL != c.url || r.recordOn(r.configDir, b).Moved {
+		t.Fatalf("the records before the rerun: A %+v, B %+v", onA, r.recordOn(r.configDir, b))
+	}
+
+	// --- 1. a record alone ------------------------------------------------------------------------------
+	res := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
+	if res.exit == 0 || !strings.Contains(res.stderr, "--from "+hostOf(a)) || !strings.Contains(res.stderr, "--from "+hostOf(b)) ||
+		!strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stderr, "[y/N]") {
+		t.Fatalf("the same command where only an earlier backend's record names the server: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if now := r.recordOn(r.configDir, a); !now.RecordedAt.Equal(onA.RecordedAt) {
+		t.Fatalf("A's record was written again: %+v, was %+v", now, onA)
+	}
+
+	// --- 2. the record, and a pin that says where the checkout came from ---------------------------------
+	if res := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile, "--from", hostOf(b))...); res.exit != 0 {
+		t.Fatalf("the same command with --from B: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if res, key := r.startsIn("alice", aliceName, second); key != r.keyAt(c) || !strings.Contains(res.stdout, "followed team") {
+		t.Fatalf("the administrator's second checkout: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	res = r.runIn(second, term, "y\n", moveArgs(c, r.secretFile)...)
+	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") {
+		t.Fatalf("the same command in a checkout that followed from B: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if now := r.recordOn(r.configDir, a); !now.RecordedAt.Equal(onA.RecordedAt) {
+		t.Fatalf("A's record was written again: %+v, was %+v", now, onA)
+	}
+}
+
+// TestWhatASessionWasToldOfTwoServersThatNameEachOtherIsKeptAndTakenBackThroughTheRealBinary:
+// the two servers each record that the team moved to the other. A
+// session's start says so. Until this the start left nothing for its
+// prompts, so the next prompt said that the team file does not match; and
+// what a prompt's follow left was a file of its own, which the member's
+// own join did not remove, so that it spoke again, falsely, at the team's
+// next move between the two.
+//
+//  1. The prompt after the start says what the start said.
+//  2. The member joins the server the file names himself: nothing of what
+//     was said of the two is left for a later hook.
+func TestWhatASessionWasToldOfTwoServersThatNameEachOtherIsKeptAndTakenBackThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b := startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	fileOfA := r.teamFile()
+	r.movedTo(b, r.secretFile)
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	ticket := filepath.Join(r.dirs.Root, "back.ticket")
+	if res := r.adapterAs(r.configDir, r.keyAt(a), "team", "open-move", "--ticket-file", ticket); res.exit != 0 {
+		t.Fatalf("the move opened on A: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	record := []string{"team", "move", "--ticket-file", ticket, "--adapter", "rest", "--url", a.url}
+	if a.certificate != "" {
+		record = append(record, "--certificate", a.certificate)
+	}
+	if res := r.adapterAs(r.configDir, r.keyAt(b), record...); res.exit != 0 {
+		t.Fatalf("the record made on B by its adapter: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marks := func() []string {
+		var left []string
+		for _, pattern := range []string{"move-*.each-other", "move-*.not-followed"} {
+			found, gerr := filepath.Glob(filepath.Join(r.stateDir, "state", pattern))
+			if gerr != nil {
+				t.Fatal(gerr)
+			}
+			left = append(left, found...)
+		}
+		return left
+	}
+
+	// --- 1. the start says it, and the prompt after it says it too ----------------------------------------
+	r.putTeamFile(fileOfA)
+	s := r.newSession("bob", bobName, "", "", "")
+	res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if r.mapExists(s) || !strings.Contains(res.stdout, "each record that the team moved to the other") {
+		t.Fatalf("the start between two servers that name each other: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	said := r.promptedUntilAFollowStarts(s, r.configDirB, canon)
+	if !strings.Contains(said.stdout, "each record that the team moved to the other") || strings.Contains(said.stdout, "does not match") {
+		t.Fatalf("the prompt after a start that found the two naming each other: stdout %q\nstderr %s", said.stdout, said.stderr)
+	}
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		logged, rerr := os.ReadFile(moveLog) //nolint:gosec // G304: a log under the test's own state directory
+		return rerr == nil && strings.Contains(string(logged), `"reason":"backends_name_each_other"`)
+	})
+	if left := marks(); len(left) != 1 {
+		t.Fatalf("what the follows left for the checkout's next hook: %v, want one mark", left)
+	}
+
+	// --- 2. the member's own join takes it back -----------------------------------------------------------
+	if res := r.restJoin(s, bobLabel); res.exit != 0 {
+		t.Fatalf("the member's own join: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if left := marks(); len(left) != 0 {
+		t.Fatalf("the member's own join left %v", left)
+	}
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 }

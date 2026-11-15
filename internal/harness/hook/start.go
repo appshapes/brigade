@@ -1182,6 +1182,11 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		return nil, "", "", false
 	}
 	if pin.Matches(tf) {
+		// The checkout is where its team file says: what an earlier follow
+		// left for its prompts, of a backend the file named then, is nothing
+		// to say of it now, and would be said falsely the next time the file
+		// names that backend (work item 341).
+		r.dropNotFollowedMark(f, opts, canon)
 		// A follow that ran outside a session's start had nobody to tell:
 		// the first hook of the checkout after it says its line.
 		r.tellFollowed(f, opts, tf, canon, pin)
@@ -1253,22 +1258,23 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		// new backend before its next prompt: it is told that the old one
 		// is being asked, once in a conversation, as a session that is
 		// attached is (moveSession).
-		if r.namedEachOther(f, opts, canon, tf) {
-			// The child found the two backends naming each other: the
-			// prompt says that in place of the drift line, as a start does.
-			r.notFollowed = teammove.ReasonEachOther
+		if last := r.lastNotFollowed(f, opts, canon, tf); last == teammove.ReasonEachOther {
+			// The last follow of the checkout, this session's start or a
+			// child, found the two backends naming each other: the prompt
+			// says that in place of the drift line, as a start does.
+			r.notFollowed = last
 		} else if r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
 			// A follow found that the backend the file names refuses this
 			// machine's membership and the join made under it, and the
 			// member has not been told: this prompt says so, once.
 			r.notFollowed = teammove.ReasonRejoinRefused
-		} else if reason := r.lastNotFollowed(f, opts, canon, tf); reason != "" {
+		} else if last != "" {
 			// The last follow of the checkout, this session's start or a
 			// child, found the backend the team moved to silent, or
 			// refusing the membership this machine holds there: the prompt
 			// says the line a start says of it, not that the file does not
 			// match. The follow started below finds what is so now.
-			r.notFollowed = reason
+			r.notFollowed = last
 		}
 		if r.startFollow(ctx, f, opts, canon) {
 			r.tell(f, in, toldAsked, movedRetryLine)
@@ -1281,7 +1287,9 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		Now:    r.deps.Now, Log: r.log,
 	})
 	// Why it did not follow is left for the session's next prompt where the
-	// prompt has the same line to say, and taken back by any other outcome.
+	// prompt has the same line to say, the two backends naming each other
+	// included, and taken back by any other outcome that learned something:
+	// a start that follows leaves nothing of what an earlier follow said.
 	r.markNotFollowed(f.stateDir, opts.ConfigDir, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), out.Reason)
 	if !out.Followed {
 		attrs := []any{slog.String("reason", out.Reason)}
@@ -1296,16 +1304,9 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 			// followed is told.
 			r.notFollowed = ""
 		}
-		if out.Reason != teammove.ReasonEachOther {
-			r.dropEachOtherMark(f, opts, canon)
-		}
 		return false
 	}
 	r.log.Info("followed the team's recorded move", slog.Bool("joined", out.Joined))
-	// What a follow of a prompt left for the checkout, that the two backends
-	// named each other, is no longer so: left there, a running session would
-	// say that it follows neither at the team's next move between the two.
-	r.dropEachOtherMark(f, opts, canon)
 	// This start's line is the member's only word of how the machine got in.
 	// When a child that a prompt started made the join, and this follow found
 	// the membership there (it completed a child that was stopped before its

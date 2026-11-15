@@ -7,6 +7,7 @@ import (
 	json "encoding/json/v2"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -72,9 +73,18 @@ func namesBackend(b *adapterkit.Profile, where string) bool {
 }
 
 // resolveOn finds the membership `--on` names: one of the team --team
-// names, else of the team this checkout is joined to (its pin's, else its
-// team file's), else, outside any project, any team's. The value is never
-// echoed.
+// names, matched as every team command matches it (matchesTeam), else of
+// the team this checkout is joined to (its pin's, else its team file's),
+// else, outside any project, any team's. A profile this machine left names
+// a principal and no team, is no membership, and is never one of them
+// (listBindings). The value is never echoed.
+//
+// More than one is refused by what tells them apart. Two backends of one
+// team that a host names both, two servers behind one host and port under
+// two paths, are told apart by the whole url, and the refusal names each:
+// to say "add --team" there, as this did, names the one thing that is
+// already given. Memberships of more than one team are told apart by
+// --team.
 func (inv Invocation) resolveOn(on, teamFlag string) (string, error) {
 	configDir, err := inv.storeDir()
 	if err != nil {
@@ -88,18 +98,18 @@ func (inv Invocation) resolveOn(on, teamFlag string) (string, error) {
 	if teamFlag == "" {
 		teamRef = checkoutTeam(configDir, inv.mustGetwd())
 	}
-	var found []string
+	var found []int
 	for i, b := range bindings {
 		switch {
-		case teamFlag != "" && b.TeamRef != teamFlag && b.TeamName != teamFlag:
+		case teamFlag != "" && !matchesTeam(b, teamFlag):
 		case teamRef != "" && b.TeamRef != teamRef:
 		case namesBackend(b, on):
-			found = append(found, keys[i])
+			found = append(found, i)
 		}
 	}
 	switch len(found) {
 	case 1:
-		return found[0], nil
+		return keys[found[0]], nil
 	case 0:
 		return "", &protocol.Error{
 			Code:    protocol.CodeConfig,
@@ -107,11 +117,31 @@ func (inv Invocation) resolveOn(on, teamFlag string) (string, error) {
 			Details: map[string]string{"reason": "team_unknown"},
 		}
 	}
+	teams, urls := map[string]bool{}, make([]string, 0, len(found))
+	for _, i := range found {
+		teams[bindings[i].TeamRef] = true
+		urls = append(urls, attrLine(bindings[i].URL))
+	}
+	slices.Sort(urls)
+	if len(teams) > 1 {
+		return "", &protocol.Error{
+			Code:    protocol.CodeConfig,
+			Message: "--on names a backend this machine has joined more than one team on; add --team <team_ref>",
+			Details: map[string]string{"reason": "team_ambiguous"},
+		}
+	}
 	return "", &protocol.Error{
-		Code:    protocol.CodeConfig,
-		Message: "--on names a backend this machine has joined more than one team on; add --team <team_ref>",
+		Code: protocol.CodeConfig,
+		Message: "--on names more than one backend this machine has joined this team on: " + strings.Join(urls, ", ") +
+			". Name one by its whole url",
 		Details: map[string]string{"reason": "team_ambiguous"},
 	}
+}
+
+// matchesTeam reports whether --team names a membership's team: by its
+// reference or by its name, the one rule of every team command.
+func matchesTeam(b *adapterkit.Profile, teamFlag string) bool {
+	return b.TeamRef == teamFlag || b.TeamName == teamFlag
 }
 
 // checkoutTeam is the reference of the team the directory's checkout is

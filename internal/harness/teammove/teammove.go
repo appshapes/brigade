@@ -60,6 +60,17 @@ const lockTimeout = 10 * time.Second
 // lockName is the lock file's name under the config directory.
 const lockName = "team-move.lock"
 
+// newBackendWait bounds the one question a follow asks of the backend the
+// team moved to (Recorded), each time it asks it. The question is asked
+// under the lock above, which every follow and every join of the machine
+// takes, and a server that accepts the connection and says nothing would
+// otherwise hold that lock for as long as the follow's caller gives the
+// whole follow. It is the lock's own bound: no longer than a follow or a
+// member's join waits for the lock, and never longer than what the
+// caller's deadline leaves, which is all the old backend's question has.
+// A variable only so that a test can shorten it.
+var newBackendWait = lockTimeout
+
 // RejoinPause is how long a follow presents no ticket to a backend that
 // refused the join it made under the membership this machine holds there
 // (work item 341). A backend counts the joins a principal fails and stops
@@ -473,11 +484,14 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		return Outcome{Reason: ReasonRecordElsewhere}, nil
 	}
 
-	// The question above is the one call of a follow that can hang, and it
-	// is asked under the lock. A member's own `brigade team join` waits ten
-	// seconds for that lock and then goes on without it (Lock), so the store
-	// can have changed since it was read above: what this follow is about to
-	// act on is read again here, just before it would join. A pin that
+	// The question above is asked under the lock and has no bound of its
+	// own: it can take as long as the caller gives the whole follow. The
+	// questions to the backend the team moved to, below, are under the lock
+	// too, and each has a bound (newBackendWait). A member's own `brigade
+	// team join` waits ten seconds for that lock and then goes on without
+	// it (Lock), so the store can have changed since it was read above: what
+	// this follow is about to act on is read again here, just before it
+	// would join. A pin that
 	// matches the file is the member's own join in this checkout, and is
 	// theirs: nothing is written over it and no word is left. A membership
 	// is the one that join made, in this checkout or in another, and this
@@ -575,7 +589,12 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		joined = true
 		// Now that this machine may ask: what the new backend itself records
 		// of the team. A question that fails here is left at that, the join
-		// having been made on the old backend's record.
+		// having been made on the old backend's record. It is asked before
+		// the pin is written and cannot move behind it: the pin is what moves
+		// the checkout, and the rule is that a checkout between two backends
+		// that name each other does not move. A pin written first would have
+		// to be taken back, and every session that started in between would
+		// have followed. So it stays under the lock, with its own bound.
 		if theirs, aerr := askNew(ctx, newClient); aerr == nil && namesBack(theirs, in.Pin, in.File.TeamRef) {
 			return Outcome{Reason: ReasonEachOther}, nil
 		}
@@ -635,24 +654,94 @@ func readTicket(record protocol.TeamMoveResult, ticketFile, teamRef string) (str
 // backend whose adapter keeps no such record, which is asked nothing. The
 // question is asked for two answers: whether the backend still honours the
 // membership (an `unauthorized` says that it does not), and whether it
-// records that the team moved on (namesBack).
+// records that the team moved on (namesBack). It waits newBackendWait for
+// the answer and no longer: it is asked under the follow's lock.
 func askNew(ctx context.Context, client Caller) (*protocol.TeamMoveResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, newBackendWait)
+	defer cancel()
+	record, _, err := Recorded(ctx, client)
+	return record, err
+}
+
+// Recorded asks a backend what it records of where its team went: the one
+// way every part of Brigade asks it (a follow, the one command's check of
+// the server a team returns to, the record's own form, a command that is
+// run again). keeps is false for a backend whose adapter does not carry
+// capability team.move: it keeps no such record and is asked nothing, its
+// describe being answered from local files. Otherwise the record is what
+// `team moved` answered, with no ticket asked for, and an error is the
+// adapter's own, or says that the answer is of a shape this build does not
+// read. A backend that could not be asked is not one that records nothing:
+// a caller tells the two apart by err.
+func Recorded(ctx context.Context, client Caller) (record *protocol.TeamMoveResult, keeps bool, err error) {
 	desc, err := client.Describe(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !slices.Contains(desc.Capabilities, Capability) {
-		return nil, nil
+		return nil, false, nil
 	}
 	env, err := client.Call(ctx, "team", "moved", nil, nil)
 	if err != nil {
-		return nil, err
+		return nil, true, err
 	}
 	var theirs protocol.TeamMoveResult
 	if uerr := json.Unmarshal(env.Result, &theirs); uerr != nil || theirs.Validate() != nil {
-		return nil, errors.New("teammove: team moved answered a shape this build does not read")
+		return nil, true, &protocol.Error{
+			Code:    protocol.CodeProtocolMismatch,
+			Message: "team moved answered a shape this build does not read",
+			Details: map[string]string{"reason": "bad_result"},
+		}
 	}
-	return &theirs, nil
+	return &theirs, true, nil
+}
+
+// A ClearOutcome is what became of a clear of a backend's record.
+type ClearOutcome int
+
+const (
+	// Cleared: the backend answered that it holds no record now.
+	Cleared ClearOutcome = iota
+	// ClearRefused: the record is known to stand. The backend refused the
+	// clear before it acted, or answered a record.
+	ClearRefused
+	// ClearUnanswered: the request may have reached the backend and been
+	// carried out, with its answer lost on the way back, or may never have
+	// arrived. Whether the record stands is not known, and `team move
+	// --show` reads it.
+	ClearUnanswered
+)
+
+// ClearRecord asks a backend to clear its record of where the team went,
+// and says which of three things is true afterwards: the one way every
+// part of Brigade clears one, so that each says the same of a clear that
+// was refused and of one that was not answered. The error is the cause of
+// an outcome that is not Cleared.
+func ClearRecord(ctx context.Context, client Caller) (ClearOutcome, error) {
+	env, err := client.Call(ctx, "team", "move", []string{"--clear"}, nil)
+	if err != nil {
+		var perr *protocol.Error
+		if errors.As(err, &perr) && perr.Code != protocol.CodeUnavailable && perr.Code != protocol.CodeInternal && perr.Code != protocol.CodeProtocolMismatch {
+			return ClearRefused, err
+		}
+		return ClearUnanswered, err
+	}
+	var after protocol.TeamMoveResult
+	if uerr := json.Unmarshal(env.Result, &after); uerr != nil || after.Validate() != nil {
+		return ClearUnanswered, &protocol.Error{
+			Code:    protocol.CodeProtocolMismatch,
+			Message: "team move --clear answered a shape this build does not read",
+			Details: map[string]string{"reason": "bad_result"},
+		}
+	}
+	if after.Moved {
+		return ClearRefused, &protocol.Error{
+			Code:    protocol.CodeProtocolMismatch,
+			Message: "team move --clear answered a record",
+			Details: map[string]string{"reason": "bad_result"},
+		}
+	}
+	return Cleared, nil
 }
 
 // unauthorized reports whether a backend's answer is its `unauthorized`:

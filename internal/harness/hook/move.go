@@ -419,15 +419,9 @@ func (r *run) follow() int {
 			r.leaveFollowedMark(a, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), joined)
 		},
 	})
-	// Whether the two backends name each other is this follow's to say or to
-	// take back: the next prompt of the checkout reads the mark.
-	eachOther := config.MoveEachOtherMark(a.stateDir, a.configDir, canon)
-	if out.Reason == teammove.ReasonEachOther {
-		r.leaveEachOtherMark(eachOther, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
-	} else if rerr := os.Remove(eachOther); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-		r.log.Debug("follow: the mark of two backends that named each other was not removed", log.Err(rerr))
-	}
-	// And so is why it did not follow, where a session has a line for it.
+	// Why it did not follow is this follow's to say or to take back, where a
+	// session has a line for it: the next prompt of the checkout reads the
+	// mark.
 	r.markNotFollowed(a.stateDir, a.configDir, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), out.Reason)
 	if !out.Followed {
 		attrs := []any{slog.String("reason", out.Reason)}
@@ -444,32 +438,26 @@ func (r *run) follow() int {
 	return 0
 }
 
-// leaveEachOtherMark writes the mark of a follow that found the two
-// backends naming each other, for the backend the team file names. Best
-// effort: without it the session stays where it is all the same, having
-// been told that it would unless the move was recorded.
-func (r *run) leaveEachOtherMark(path, teamKey string) {
-	data, err := json.Marshal(followedMark{Version: followedMarkVersion, TeamKey: teamKey, FollowedAt: r.deps.Now().UTC()})
-	if err == nil {
-		if err = adapterkit.MkdirPrivate(filepath.Dir(path)); err == nil {
-			err = adapterkit.WriteAtomic(path, append(data, '\n'))
-		}
-	}
-	if err != nil {
-		r.log.Warn("follow: the mark of two backends that name each other was not written", log.Err(err))
-	}
-}
-
 // markNotFollowed keeps the checkout's mark of why its last follow did not
-// follow (config.MoveNotFollowedMark) true to the follow that just ended:
-// it is written for a reason the next prompt has a line of its own for, the
-// backend the team moved to not answering or refusing the membership this
-// machine holds there, and removed for every other outcome, a follow that
-// followed included. Best effort: without it a prompt says what it always
-// said, that the team file does not match.
+// follow (config.MoveNotFollowedMark) true to the follow that just ended.
+// It is written for a reason the next prompt has a line of its own for:
+// the backend the team moved to not answering, refusing the membership
+// this machine holds there, or naming the backend the checkout joined as
+// that one names it. It is left as it is by a follow that learned nothing
+// about that backend, because it could not ask: one that did not get the
+// lock, one whose store failed, one whose own backend did not answer.
+// Until that a follow that never reached the server removed what the last
+// one to reach it had left, and the next prompt said that the team file
+// does not match, of a server that was only down. Every other outcome
+// removes it, a follow that followed included. Best effort: without it a
+// prompt says what it always said, that the team file does not match.
 func (r *run) markNotFollowed(stateDir, configDir, canon, teamKey, reason string) {
 	path := config.MoveNotFollowedMark(stateDir, configDir, canon)
-	if reason != teammove.ReasonNewBackendFailed && reason != teammove.ReasonNewBackendRefused {
+	switch reason {
+	case teammove.ReasonBusy, teammove.ReasonStore, teammove.ReasonOldBackendFailed:
+		return
+	case teammove.ReasonNewBackendFailed, teammove.ReasonNewBackendRefused, teammove.ReasonEachOther:
+	default:
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			r.log.Debug("the mark of a follow that did not follow was not removed", log.Err(err))
 		}
@@ -483,6 +471,15 @@ func (r *run) markNotFollowed(stateDir, configDir, canon, teamKey, reason string
 	}
 	if err != nil {
 		r.log.Debug("the mark of a follow that did not follow was not written", log.Err(err))
+	}
+}
+
+// dropNotFollowedMark removes the checkout's mark of why its last follow
+// did not follow: the checkout has nothing to follow now.
+func (r *run) dropNotFollowedMark(f facts, opts config.Options, canon string) {
+	path := config.MoveNotFollowedMark(f.stateDir, opts.ConfigDir, canon)
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.log.Debug("the mark of a follow that did not follow was not removed", log.Err(err))
 	}
 }
 
@@ -526,23 +523,6 @@ func (r *run) refusalUntold(f facts, opts config.Options, teamKey string) bool {
 		return false
 	}
 	return true
-}
-
-// dropEachOtherMark removes the checkout's mark of two backends that named
-// each other: a follow of the checkout has since ended another way.
-func (r *run) dropEachOtherMark(f facts, opts config.Options, canon string) {
-	path := config.MoveEachOtherMark(f.stateDir, opts.ConfigDir, canon)
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		r.log.Debug("the mark of two backends that named each other was not removed", log.Err(err))
-	}
-}
-
-// namedEachOther reports whether the last follow of the checkout found
-// that the backend its team file names now and the one it is pinned to
-// each record that the team moved to the other (leaveEachOtherMark).
-func (r *run) namedEachOther(f facts, opts config.Options, canon string, tf *teamfile.File) bool {
-	_, marked := readFollowedMark(config.MoveEachOtherMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
-	return marked
 }
 
 // leaveFollowedMark writes the mark of a follow that is about to write
@@ -654,9 +634,9 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		r.tell(f, in, toldStays, movedStaysLine)
 		return nil
 	}
-	if r.namedEachOther(f, opts, checkout, tf) {
-		// The follow a prompt before this one started found the two
-		// backends naming each other: the session stays, and says why once.
+	if r.lastNotFollowed(f, opts, checkout, tf) == teammove.ReasonEachOther {
+		// The last follow of the checkout found the two backends naming
+		// each other: the session stays, and says why once.
 		r.tell(f, in, toldEachOther, movedEachOtherLine)
 	}
 	if r.fits(movedRefusedLine) && r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {

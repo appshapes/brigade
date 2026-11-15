@@ -107,3 +107,53 @@ func TestWithBackend(t *testing.T) {
 		}
 	}
 }
+
+// TestOnTellsTwoBackendsOfOneTeamOnOneHostApart (work item 341): two
+// servers behind one host and port, under two paths, both joined for one
+// team. `--on <host>` names both. Until this the refusal said to add
+// --team, which names the team and was already given: what tells the two
+// apart is the whole url, and the refusal names both. A membership this
+// machine left is no backend to act on, and --team is matched as every
+// other team command matches it.
+func TestOnTellsTwoBackendsOfOneTeamOnOneHostApart(t *testing.T) {
+	t.Parallel()
+	const one, two = "https://shared.example.test:8743/one", "https://shared.example.test:8743/two"
+	f, dump := passThroughFixture(t, fakeadapter.Script{
+		Responses: map[string][]fakeadapter.Response{
+			"team revoke-member": {{Result: []byte(`{"team_ref":"t_bob","revoked":1}`)}},
+		},
+	})
+	for name, url := range map[string]string{"bob-one": one, "bob-two": two} {
+		if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, name, &adapterkit.Profile{
+			Version: adapterkit.ProfileVersion, Adapter: "fake", URL: url, TeamRef: "t_bob", TeamName: "bobteam",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A membership the machine left: a principal, and no team.
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "bob-left", &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "fake", URL: "https://left.example.test", PrincipalRef: "p-left",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) error {
+		iv := f.inv(f.terminalEnv(), "", append([]string{"revoke-member"}, args...)...)
+		iv.Deps.Getwd = func() (string, error) { return f.dirs.Root, nil }
+		return Team(iv)
+	}
+	perr := wantCodeErr(t, run("--team", "bobteam", "--on", "shared.example.test:8743", "--max-version", "1"), protocol.CodeConfig, "team_ambiguous")
+	if !strings.Contains(perr.Message, one) || !strings.Contains(perr.Message, two) || strings.Contains(perr.Message, "add --team") {
+		t.Fatalf("the refusal of an --on that names two backends of one team: %s", perr.Message)
+	}
+	wantCode(t, run("--on", "left.example.test", "--max-version", "1"), protocol.CodeConfig, "team_unknown")
+	if _, err := osLstat(dump); err == nil {
+		t.Fatalf("a refused --on reached the adapter")
+	}
+	// The whole url names one of the two.
+	if err := run("--team", "bobteam", "--on", two, "--max-version", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if invs := readDump(t, dump); len(invs) != 1 || invs[0].Env["BRIGADE_PROFILE"] != "bob-two" {
+		t.Fatalf("the adapter was asked %+v, want one call under bob-two", invs)
+	}
+}

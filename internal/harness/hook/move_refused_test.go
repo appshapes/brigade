@@ -253,3 +253,56 @@ func TestARunningSessionIsToldOnceThatTheServerRefusesTheMembership(t *testing.T
 		t.Fatalf("the line: %q", movedRefusedLine)
 	}
 }
+
+// TestAFollowThatLearnedNothingLeavesWhatTheLastOneLeft (work item 341):
+// the last follow of the checkout found the server the team moved to
+// silent, and left that for the checkout's prompts to say. The next follow
+// does not get as far as that server: the backend the member joined does
+// not answer either. It learned nothing about the server, and until this it
+// removed what the last one had left, so the prompt after it said that the
+// team file does not match and to run `brigade team join`, of a server that
+// is only down. A follow that could not ask leaves every mark as it is.
+func TestAFollowThatLearnedNothingLeavesWhatTheLastOneLeft(t *testing.T) {
+	t.Parallel()
+	f := memberOfTheServer(t)
+	silent := func(string) *protocol.ErrorObject {
+		return &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true}
+	}
+	serverSays(f, func(verb string) *protocol.ErrorObject {
+		if verb != "team moved" {
+			return nil
+		}
+		return silent(verb)
+	})
+	before := f.checkoutPin()
+	if exit, out, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 || !slices.Equal(lines(out), []string{newBackendSilentLine}) {
+		t.Fatalf("the start: exit %d, lines %q", exit, lines(out))
+	}
+	// From here the backend the member joined does not answer either.
+	inner := f.deps.Spawn
+	var asked atomic.Int32
+	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if i := slices.Index(spec.Argv, "--profile"); i >= 0 && i+1 < len(spec.Argv) && spec.Argv[i+1] == f.teamKey && verbOf(spec.Argv) == "team moved" {
+			asked.Add(1)
+			refusal := silent("")
+			return &adapterkit.SpawnResult{
+				Envelope: &protocol.Envelope{OK: false, ProtocolVersion: protocol.ProtocolVersion, Error: refusal},
+				ExitCode: refusal.Code.Exit(),
+			}, nil
+		}
+		return inner(ctx, spec)
+	}
+	if got := f.prompted(); !slices.Equal(got, []string{movedRetryLine, newBackendSilentLine}) {
+		t.Fatalf("the prompt after the start: %q", got)
+	}
+	if asked.Load() == 0 {
+		t.Fatalf("the follow of that prompt did not ask the backend the member joined: the test holds nothing")
+	}
+	f.now = f.now.Add(registerRetryInterval)
+	if got := f.prompted(); !slices.Equal(got, []string{newBackendSilentLine}) {
+		t.Fatalf("the prompt after a follow that learned nothing: %q, want what the last follow that reached the server left", got)
+	}
+	if pin := f.checkoutPin(); pin != before {
+		t.Fatalf("the pin moved: %+v", pin)
+	}
+}

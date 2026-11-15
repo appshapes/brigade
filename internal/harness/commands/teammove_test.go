@@ -555,3 +555,49 @@ func TestTeamMoveClearsTheServersOwnRecordBeforeItRecords(t *testing.T) {
 		t.Fatalf("a server whose record cannot be read: %s; %d confirmations, %d records", perr.Message, len(r.prompts), recordedOnOld(r))
 	}
 }
+
+// TestTeamMoveSaysWhatIsKnownOfAClearThatWasNotAnswered (work item 341):
+// the record's own form clears the record the server holds of the team's
+// leaving, and a clear that got no answer may have been carried out all
+// the same. Until this every failure of it was "could not be cleared", and
+// a record that names a third place was said to stand ("still records")
+// when the clear that might have removed it had only gone unanswered. The
+// refusal and the line say that it is not known, and where it is read.
+func TestTeamMoveSaysWhatIsKnownOfAClearThatWasNotAnswered(t *testing.T) {
+	t.Parallel()
+	left := func(adapter, url string) string {
+		return `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"` + adapter + `","url":"` + url + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	}
+	lost := failAnswer(protocol.CodeUnavailable, "the backend could not be reached")
+
+	// The record names the backend the team is leaving: nothing is recorded,
+	// and the refusal says that the record may be cleared.
+	r := newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", lost)
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeUnavailable, reasonBackendsNameEachOther)
+	for _, need := range []string{
+		"the answer to the clear of that record did not arrive, so the record may be cleared all the same",
+		"`brigade team move --show --from " + r.newHost + "` says", "Nothing was recorded on " + r.oldHost, "run this again",
+	} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the refusal lacks %q: %s", need, perr.Message)
+		}
+	}
+	if strings.Contains(perr.Message, "could not be cleared") {
+		t.Errorf("a clear that was not answered is said to have failed: %s", perr.Message)
+	}
+
+	// The record names a third place: the move is recorded, and the line
+	// says that the record may stand, not that it does.
+	r = newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("rest", "https://third.example.test"))).on("team move", lost)
+	r.f.rec.on("team move", okAnswer(r.recorded()))
+	if err := Team(r.inv(true, "--ticket-file", r.ticket)); err != nil {
+		t.Fatal(err)
+	}
+	out := r.f.out.String()
+	if !strings.Contains(out, r.newHost+" may still record that the team left it for third.example.test") ||
+		!strings.Contains(out, "`brigade team move --show --from "+r.newHost+"` says") || strings.Contains(out, " still records ") {
+		t.Fatalf("the line of a clear that was not answered:\n%s", out)
+	}
+}

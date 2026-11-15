@@ -938,11 +938,13 @@ func teamMovesByOneCommand(t *testing.T, m *movingTeam, fsBackend bool) {
 
 	// --- 7. the same command again changes nothing but the ticket ----------------------------------------
 	// The team file names the server by now, so the backend the team left is the other membership of the team
-	// this machine holds. Step 4 left it one more, on the server where a stranger owns the team. Until work
-	// item 341 the command then asked which of the two was meant; now it finds the one whose record names the
-	// server, which is the backend the team left, and --from still says so where a person wants to.
+	// this machine holds. Step 4 left it one more, on the server where a stranger owns the team. The backend
+	// the team left records the move, and a record alone does not say which backend a team is leaving now
+	// (work item 341): the checkout the command pinned to the server says nothing of where it was joined
+	// before, so the command changes nothing, prints itself for each of the two with its --from, and --from
+	// says.
 	res = m.move(m.terminal, "y\n", moveArgs(backend, r.secretFile)...)
-	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+m.oldHost+":") || !strings.Contains(res.stderr, "from "+m.oldHost+" to ") {
+	if res.exit == 0 || !strings.Contains(res.stderr, "--from "+m.oldHost+"`") || !strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stderr, "[y/N]") {
 		t.Fatalf("the move run again with two other memberships: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
 	res = m.move(m.terminal, "y\n", moveArgs(backend, r.secretFile, "--from", m.oldHost)...)

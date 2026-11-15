@@ -939,8 +939,10 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 		return err
 	}
 	// What a follow of this checkout left for its sessions' prompts to say,
-	// that the backend the file names did not answer or refused this
-	// machine's membership, is over: the checkout is joined there now.
+	// that the backend the file names did not answer, refused this machine's
+	// membership, or names the backend the checkout joined as that one
+	// names it, is over: the checkout is joined there now, on its member's
+	// own word. It is one mark (config.MoveNotFollowedMark).
 	_ = os.Remove(config.MoveNotFollowedMark(t.stateDir, t.configDir, canon))
 	name := nameLine(f.TeamName)
 	if inv.inSession() {
@@ -1375,7 +1377,7 @@ func resolveTeamKeyIn(configDir, teamFlag, cwd string) (string, error) {
 	if teamFlag != "" {
 		var matches []string
 		for i, b := range bindings {
-			if b.TeamRef == teamFlag || b.TeamName == teamFlag {
+			if matchesTeam(b, teamFlag) {
 				matches = append(matches, keys[i])
 			}
 		}

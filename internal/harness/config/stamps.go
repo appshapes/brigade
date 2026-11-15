@@ -78,25 +78,20 @@ func MoveFollowedMark(stateDir, configDir, checkout string) string {
 	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".followed")
 }
 
-// MoveEachOtherMark is what a follow that ran outside a session's start
-// leaves when it found the two backends naming each other, each recording
-// that the team moved to the other (work item 341): ${stateDir}/state/
-// move-<digest>.each-other. The follow has nobody to tell, so the next
-// prompt of a session in that checkout says it, once in a conversation.
-// The next follow of the checkout that ends any other way removes it.
-func MoveEachOtherMark(stateDir, configDir, checkout string) string {
-	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".each-other")
-}
-
 // MoveNotFollowedMark is what a follow of a checkout leaves when it did
 // not follow for a reason a session has a line of its own for, and that
-// the next follow may find changed: the backend the team moved to did not
-// answer, or refused the membership this machine holds there (work item
-// 341): ${stateDir}/state/move-<digest>.not-followed. A session's start
-// says that line itself; its next prompt, whose own follow runs beside it
-// and has nobody to tell, reads the mark and says the same line, where it
-// used to say that the team file does not match. The next follow of the
-// checkout that ends any other way removes it.
+// the next follow may find changed (work item 341): the backend the team
+// moved to did not answer, it refused the membership this machine holds
+// there, or it and the backend the checkout joined each record that the
+// team moved to the other: ${stateDir}/state/move-<digest>.not-followed.
+// It is the one mark of a follow that did not follow, and it carries the
+// reason. A session's start says the line itself and leaves the mark all
+// the same; its next prompt, whose own follow runs beside it and has
+// nobody to tell, reads the mark and says the same line, where it used to
+// say that the team file does not match. The next follow of the checkout
+// that learns anything takes it back or writes it anew; one that could not
+// ask (the lock, the store, a backend the member joined that does not
+// answer) leaves it as it is; and the member's own join there removes it.
 func MoveNotFollowedMark(stateDir, configDir, checkout string) string {
 	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".not-followed")
 }
