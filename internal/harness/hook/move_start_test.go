@@ -478,14 +478,9 @@ func TestAStartWhoseNewAdapterCannotDescribeKeepsTheSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	tf := f.movedFile()
-	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
-		t.Fatalf("lines = %q", got)
-	}
-	// The follow asked the old backend alone: the new one's adapter has not
-	// been described.
-	if on := newBackendCalls(seam, newKey); slices.Contains(on, "describe") {
-		t.Fatalf("the follow described the new backend's adapter: %v", on)
-	}
+	// The new backend's adapter cannot describe from the first: a follow
+	// asks it what it offers once the machine has joined (work item 341),
+	// and a describe that was answered would be kept for the start.
 	var described atomic.Int32
 	inner := f.deps.Spawn
 	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
@@ -495,14 +490,24 @@ func TestAStartWhoseNewAdapterCannotDescribeKeepsTheSession(t *testing.T) {
 		}
 		return inner(ctx, spec)
 	}
+	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+		t.Fatalf("lines = %q", got)
+	}
+	// The follow joined on the old backend's record, and its question to the
+	// new backend's adapter, which could not describe, was left at that: the
+	// checkout followed.
+	if on, pin := newBackendCalls(seam, newKey), f.checkoutPin(); !slices.Equal(on, []string{"team join"}) || !pin.Matches(tf) {
+		t.Fatalf("the follow beside an adapter that cannot describe: calls %v, pin %+v", on, pin)
+	}
+	followDescribed := described.Load()
 	registers, spawns := len(seam.callsFor("session register")), f.spawner.count()
 	f.nativeID = otherConversation
 	exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
 	if exit != 0 || strings.Contains(out, "not connected") {
 		t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
 	}
-	if described.Load() == 0 {
-		t.Fatalf("the new backend's adapter was not asked to describe: the test holds nothing")
+	if described.Load() == followDescribed {
+		t.Fatalf("the start did not ask the new backend's adapter to describe: the test holds nothing")
 	}
 	want := []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine, startLine("payments-api", "brigade-sess-1", teamName, "accept")}
 	if got := lines(out); !slices.Equal(got, want) {

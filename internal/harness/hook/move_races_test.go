@@ -83,8 +83,10 @@ func TestTwoSessionsOfOneCheckoutFollowOnOneChild(t *testing.T) {
 		t.Fatalf("%d follow children started for one checkout within the minute, want 1", len(follows))
 	}
 	f.runFollow(follows[0])
-	if asks := seam.callsFor("team moved"); len(asks) != 1 {
-		t.Fatalf("the old backend was asked %d times, want once", len(asks))
+	// One question of the old backend, and one of the new once the machine
+	// had joined it (work item 341).
+	if asks := seam.callsFor("team moved"); len(asks) != 2 || profileOf(asks[0]) == newKey || profileOf(asks[1]) != newKey {
+		t.Fatalf("team moved was asked %d times, want once of the old backend and then once of the new", len(asks))
 	}
 	if joins := seam.callsFor("team join"); len(joins) != 1 {
 		t.Fatalf("%d joins, want 1", len(joins))
@@ -114,7 +116,8 @@ func TestTwoSessionsOfOneCheckoutFollowOnOneChild(t *testing.T) {
 			t.Fatalf("a later prompt of %q: %q", w.name, got)
 		}
 	}
-	if len(f.spawner.followed()) != 1 || len(seam.callsFor("team moved")) != 1 || len(seam.callsFor("team join")) != 1 {
+	// The one follow's two questions, one of each backend, and its one join.
+	if len(f.spawner.followed()) != 1 || len(seam.callsFor("team moved")) != 2 || len(seam.callsFor("team join")) != 1 {
 		t.Fatalf("after both moved: %d follows, %d questions, %d joins", len(f.spawner.followed()), len(seam.callsFor("team moved")), len(seam.callsFor("team join")))
 	}
 }

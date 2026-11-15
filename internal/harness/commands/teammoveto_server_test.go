@@ -326,9 +326,12 @@ func TestTeamMoveToStopsWhenTheServersOwnRecordIsNotCleared(t *testing.T) {
 			clear: failAnswer(protocol.CodeUnauthorized, "not a member of that team"), code: protocol.CodeUnauthorized,
 			says: " still records that the team left it for ", cleared: 1,
 		},
+		// A clear that failed in a way that may have reached the server: the
+		// record may be cleared all the same, and the refusal says so and
+		// where it is read (work item 341).
 		"the clear fails": {
 			clear: failAnswer(protocol.CodeUnavailable, "the backend could not be reached"), code: protocol.CodeUnavailable,
-			says: " still records that the team left it for ", cleared: 1,
+			says: "the answer to the clear of that record did not arrive, so the record may be cleared all the same (`brigade team move --show --from ", cleared: 1,
 		},
 		"the clear is answered a record": {
 			clear: okAnswer(`{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"rest","url":"https://x.example","recorded_at":"2026-11-10T12:00:00Z"}`),
@@ -388,5 +391,69 @@ func TestTeamMoveToStopsWhenTheServersOwnRecordIsNotCleared(t *testing.T) {
 			}
 			r.noSecrets()
 		})
+	}
+}
+
+// TestTeamMoveToSaysThatTheServersRecordIsGoneWhenALaterStepFails (work
+// item 341): the server's own record of the team's earlier move is cleared
+// before the backend the team leaves records anything, and a step that
+// fails after that does not put it back. The stop says so: a member who
+// had not followed that earlier move follows nothing until this one is
+// finished, and the administrator is the one who can know why.
+func TestTeamMoveToSaysThatTheServersRecordIsGoneWhenALaterStepFails(t *testing.T) {
+	t.Parallel()
+	r := newMoveToRig(t)
+	r.fromAServer()
+	if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", r.newURL, "", moveNewPin, setupTeamRef, "devs", "p_new"); err != nil {
+		t.Fatal(err)
+	}
+	r.f.rec.on("team take-in", okAnswer(r.takenIn(false, true)))
+	left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"rest","url":"` + r.oldURL + `","certificate":"` + moveOldPin + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	r.there.on("team moved", okAnswer(left))
+	r.f.rec.on("team open-move", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
+	perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, "")
+	for _, need := range []string{
+		"the team is taken in on " + r.newHost + ", and its move was not opened",
+		"the record " + r.newHost + " held that the team had left it for " + r.oldHost,
+		"is cleared, so a member who had not followed that earlier move does not follow it now",
+		"Run the same command again to finish the move",
+	} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the stop lacks %q: %s", need, perr.Message)
+		}
+	}
+	// A stop that cleared nothing says nothing of a record.
+	r = newMoveToRig(t)
+	r.f.rec.on("team open-move", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
+	if perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, ""); strings.Contains(perr.Message, "is cleared") {
+		t.Errorf("a stop that cleared no record speaks of one: %s", perr.Message)
+	}
+}
+
+// TestTeamMoveToKnowsTheServerTheTeamIsOnByAnotherSpelling (work item
+// 341): an address that is trivially the one the team file carries (the
+// host in another case, the scheme's own port, a slash at the end) is that
+// server. Until this it was taken for another: the server was asked to
+// take the team in under a second profile, which made the administrator a
+// second member of the team on it.
+func TestTeamMoveToKnowsTheServerTheTeamIsOnByAnotherSpelling(t *testing.T) {
+	t.Parallel()
+	for _, spell := range []func(r *moveToRig) string{
+		func(r *moveToRig) string { return strings.ToUpper(r.oldURL[:8]) + strings.ToUpper(r.oldHost) + "/" },
+		func(r *moveToRig) string { return r.oldURL + "//" },
+	} {
+		r := newMoveToRig(t)
+		r.fromAServer()
+		to := spell(r)
+		args := []string{"--to", to, "--secret-file", r.secretFile, "--certificate", moveOldPin}
+		perr := wantCodeErr(t, Team(r.inv(true, args...)), protocol.CodeConfig, "no_move")
+		if !strings.Contains(perr.Message, "names that server already") || len(r.order) != 0 {
+			t.Errorf("--to %s: %s; asked %v", to, perr.Message, r.order)
+		}
+		if typed := strings.TrimRight(to, "/"); typed != r.oldURL {
+			if _, err := os.Lstat(filepath.Join(r.f.dirs.BrigadeConfig, "teams", teamstore.Key("rest", typed, setupTeamRef))); err == nil {
+				t.Errorf("--to %s left a profile under that spelling", to)
+			}
+		}
 	}
 }

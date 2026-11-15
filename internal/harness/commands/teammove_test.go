@@ -49,6 +49,10 @@ type moveRig struct {
 	newKey  string
 	ticket  string
 	prompts []string
+	// there answers what the server the team goes to is asked of its own
+	// record of the team (work item 341): `team moved`, a team that did not
+	// move unless a test says otherwise, and the clear of such a record.
+	there *spawnRecorder
 }
 
 // newMoveRig joins the team on both backends and writes the team file and
@@ -81,9 +85,26 @@ func newMoveRig(t *testing.T, joinedNew bool) *moveRig {
 	if err := os.WriteFile(r.ticket, []byte(moveTicket+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// The backend the team is leaving keeps a record of moves.
+	// The backend the team is leaving keeps a record of moves, and so does
+	// the server it goes to, which records none of this team.
 	f.rec.on("describe", okAnswer(string(fakeadapter.DescribeJSON(protocol.ProtocolVersion, "team.roster", "team.move"))))
+	r.there = newRecorder().on("team moved", okAnswer(`{"team_ref":"`+setupTeamRef+`","moved":false}`))
+	f.rec.delegate(r.newKey, r.there, "team moved", "team move")
 	return r
+}
+
+// delegate hands the verbs named, when they are asked under profile, to
+// another recorder, which records and answers them: a test of a command
+// that asks two backends the same verb scripts each backend apart.
+func (r *spawnRecorder) delegate(profile string, to *spawnRecorder, keys ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.subs == nil {
+		r.subs = map[string]*spawnRecorder{}
+	}
+	for _, key := range keys {
+		r.subs[profile+" "+key] = to
+	}
 }
 
 // asked lists the adapter commands the rig's recorder saw, in order, but
@@ -159,8 +180,14 @@ func TestTeamMoveRecordsWhatTheTeamFileNames(t *testing.T) {
 		}
 	}
 	specs := r.f.rec.specsOf("team move")
-	if got := r.f.rec.verbs(); !slices.Equal(got, []string{"describe", "team move"}) {
-		t.Fatalf("adapter calls: %v, want its describe and the one record", got)
+	// Each adapter's describe, the old backend's and the server's, then the
+	// one record; the server is asked what it records of the team itself
+	// (work item 341), and holds no record to clear.
+	if got := r.f.rec.verbs(); !slices.Equal(got, []string{"describe", "describe", "team move"}) {
+		t.Fatalf("adapter calls: %v, want the two describes and the one record", got)
+	}
+	if asked := r.there.verbs(); !slices.Equal(asked, []string{"team moved"}) {
+		t.Fatalf("the server was asked %v of its own record, want the one question", asked)
 	}
 	argv := specs[0].Argv
 	if i := slices.Index(argv, "--profile"); i < 0 || argv[i+1] != r.oldKey {
@@ -444,5 +471,87 @@ func TestTeamMoveRefusesAnAnswerThatIsNotItsRecord(t *testing.T) {
 				t.Fatalf("a success line was printed: %s", r.f.out.String())
 			}
 		})
+	}
+}
+
+// TestTeamMoveClearsTheServersOwnRecordBeforeItRecords (work item 341): a
+// team that comes back to a server by the record's own form. The server it
+// returns to still records that the team left it, and until this the form
+// recorded on the backend the team leaves and left that record standing,
+// so the two each said that the team was on the other. It is cleared
+// first, the question says so, and the lines say that it was. A clear that
+// cannot be made stops the command, with nothing recorded, when the record
+// names the backend the team is leaving, and is said and left when it
+// names a third place. A record that cannot be read stops it too.
+func TestTeamMoveClearsTheServersOwnRecordBeforeItRecords(t *testing.T) {
+	t.Parallel()
+	left := func(adapter, url string) string {
+		return `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"` + adapter + `","url":"` + url + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	}
+	notMoved := `{"team_ref":"` + setupTeamRef + `","moved":false}`
+	recordedOnOld := func(r *moveRig) int {
+		n := 0
+		for _, spec := range r.f.rec.specsOf("team move") {
+			if slices.Contains(spec.Argv, "--ticket-file") {
+				n++
+			}
+		}
+		return n
+	}
+
+	// The record names the backend the team is leaving, and is cleared.
+	r := newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", okAnswer(notMoved))
+	r.f.rec.on("team move", okAnswer(r.recorded()))
+	if err := Team(r.inv(true, "--ticket-file", r.ticket)); err != nil {
+		t.Fatal(err)
+	}
+	if need := r.newHost + " records that the team left it for " + r.oldHost; len(r.prompts) != 1 || !strings.Contains(r.prompts[0], need) || !strings.Contains(r.prompts[0], "that record is cleared first") {
+		t.Fatalf("the confirmation does not say that the server's record is cleared first: %v", r.prompts)
+	}
+	if cleared := r.there.specsOf("team move"); len(cleared) != 1 || !slices.Contains(cleared[0].Argv, "--clear") || recordedOnOld(r) != 1 {
+		t.Fatalf("the server was asked to clear %d times and the old backend to record %d", len(cleared), recordedOnOld(r))
+	}
+	out := r.f.out.String()
+	if cleared, recorded := strings.Index(out, "cleared the record on "+r.newHost+" that the team had left it for "+r.oldHost), strings.Index(out, "recorded on "+r.oldHost); cleared < 0 || recorded < cleared {
+		t.Fatalf("the lines do not say the cleared record before the new one:\n%s", out)
+	}
+
+	// The clear is refused, and the record names the backend the team is
+	// leaving: nothing is recorded.
+	r = newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL+"/"))).on("team move", failAnswer(protocol.CodeUnauthorized, "not an active member of this team"))
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeConflict, reasonBackendsNameEachOther)
+	for _, need := range []string{
+		r.newHost + " records that this team left it for " + r.oldHost, "each saying that the team is on the other",
+		"`brigade team move --clear --from " + r.newHost + "`", "Nothing was recorded",
+	} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the refusal lacks %q: %s", need, perr.Message)
+		}
+	}
+	if recordedOnOld(r) != 0 {
+		t.Fatalf("a move was recorded beside a record that names the backend it leaves")
+	}
+
+	// The clear is refused, and the record names a third place: the move is
+	// recorded, and the record that stands is said.
+	r = newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("rest", "https://third.example.test"))).on("team move", failAnswer(protocol.CodeUnauthorized, "not an active member of this team"))
+	r.f.rec.on("team move", okAnswer(r.recorded()))
+	if err := Team(r.inv(true, "--ticket-file", r.ticket)); err != nil {
+		t.Fatal(err)
+	}
+	if out := r.f.out.String(); recordedOnOld(r) != 1 || !strings.Contains(out, r.newHost+" still records that the team left it for third.example.test") {
+		t.Fatalf("a record that names a third place: recorded %d times\n%s", recordedOnOld(r), out)
+	}
+
+	// The server's record cannot be read: nothing is asked for and nothing
+	// is recorded.
+	r = newMoveRig(t, true)
+	r.there.on("team moved", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
+	perr = wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeUnavailable, "")
+	if !strings.Contains(perr.Message, "whether "+r.newHost+" itself records that the team left it could not be read") || len(r.prompts) != 0 || recordedOnOld(r) != 0 {
+		t.Fatalf("a server whose record cannot be read: %s; %d confirmations, %d records", perr.Message, len(r.prompts), recordedOnOld(r))
 	}
 }

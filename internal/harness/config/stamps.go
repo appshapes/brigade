@@ -78,6 +78,16 @@ func MoveFollowedMark(stateDir, configDir, checkout string) string {
 	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".followed")
 }
 
+// MoveEachOtherMark is what a follow that ran outside a session's start
+// leaves when it found the two backends naming each other, each recording
+// that the team moved to the other (work item 341): ${stateDir}/state/
+// move-<digest>.each-other. The follow has nobody to tell, so the next
+// prompt of a session in that checkout says it, once in a conversation.
+// The next follow of the checkout that ends any other way removes it.
+func MoveEachOtherMark(stateDir, configDir, checkout string) string {
+	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".each-other")
+}
+
 // moveDigest names a checkout of one member's store in a file name: 16
 // bytes of the SHA-256 of the two paths, a zero byte between them.
 func moveDigest(configDir, checkout string) string {

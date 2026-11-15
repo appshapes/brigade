@@ -545,6 +545,10 @@ type run struct {
 	// (keepUnresolved): a team file that holds a secret, or that was pointed
 	// elsewhere, is the member's to hear of in any case.
 	fileRefused string
+	// eachOther says that this run's follow found the two backends naming
+	// each other (teammove.ReasonEachOther): the resolution then says
+	// eachOtherLine where it would say the drift line.
+	eachOther bool
 	// settingRefused is the line a start that keeps a running session says
 	// when what its resolution refused was the member's own settings and not
 	// the team: an option that cannot be read, a frame text that fails a
@@ -1007,6 +1011,14 @@ func notJoinedLine(teamName, command string) string {
 // change needs the secret file (owner ruling 3): the join backstop, not
 // the refusal, is what a re-pointed file runs into.
 const driftLine = "Brigade: not connected: .brigade.json does not match the team you joined here — run `brigade team join` to review the change (a cross-team change needs --secret-file)."
+
+// eachOtherLine is said in place of the drift line when the backend the
+// member joined records that the team moved to the backend the file names,
+// and that backend itself records that the team moved back (work item 341;
+// teammove.ReasonEachOther). One of the two records is out of date and
+// nothing on this machine says which, so the session follows neither. Like
+// the drift line it echoes nothing from the file, and names no host.
+const eachOtherLine = "Brigade: not connected: .brigade.json names another backend for the team you joined here, and that backend and the one you joined each record that the team moved to the other, so this session follows neither. The team's administrator clears the record that is out of date: `brigade team move --show --from <host>` reads one, and `brigade team move --clear --from <host>` clears it."
 
 // followedLine is the one line of a session that followed its team to
 // another backend (work item 273, ADR 0003), said in place of the member's

@@ -37,7 +37,10 @@ type membersResult struct {
 // revoke-member|transfer|move …` (6.4; P5-2; P7-11; work item 273). `members` is a harness
 // command with the documented layout; every other verb is the terminal
 // pass-through with inherited stdio, so the user sees the adapter's own
-// envelope (`--json` is parsed here and has no effect on them). Two verbs
+// envelope (`--json` is parsed here and has no effect on them). The two
+// that change a team for everyone, `rotate-secret` and `revoke-member`,
+// say beside it which backend they act on, and take `--on` to name one
+// (work item 341; teamon.go). Two verbs
 // refuse to run inside a Claude Code session, in the one refusal shape of
 // 6.4 (`usage`, exit 2, reason in_session): `revoke-member` and `transfer`,
 // destructive administrative acts that a session reading untrusted
@@ -99,6 +102,10 @@ func Team(inv Invocation) error {
 		// The adapter's frozen profile verbs, driven under the resolved
 		// team key (pin → sole team → --team; --profile bridge wins).
 		return inv.passThroughProfileVerb(verb, raw)
+	case "rotate-secret", "revoke-member":
+		// The two verbs that change a team say which backend they act on,
+		// and take --on to name one (work item 341; teamon.go).
+		return inv.teamAdminOn(verb, raw)
 	}
 	return inv.passThrough("team", verb, raw, nil)
 }

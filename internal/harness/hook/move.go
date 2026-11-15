@@ -102,6 +102,10 @@ const (
 	// movedStaysLine is said instead when the member's options keep a
 	// session from following.
 	movedStaysLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. This session does not follow a move by itself (the option follow_team_move is off, or the session names its adapter itself): it stays where it is until you join the team there with `brigade team join`, and moves at its next prompt after that."
+	// movedEachOtherLine is said when the follow found that the backend the
+	// file names itself records that the team moved back to the backend the
+	// session is on (work item 341): the session follows neither.
+	movedEachOtherLine = "Brigade: the .brigade.json of the checkout this session was started in names another backend for this session's team, and that backend and the one this session is on each record that the team moved to the other. This session follows neither and stays where it is. The team's administrator clears the record that is out of date: `brigade team move --show --from <host>` reads one, and `brigade team move --clear --from <host>` clears it."
 	// moveUnreachedLine is said when the checkout is joined to the backend
 	// the team went to and the session could not be registered there.
 	moveUnreachedLine = "Brigade: this session could not be registered on the backend its team moved to. It stays where it is and tries again at a later prompt."
@@ -115,6 +119,7 @@ const (
 	toldFollowed  = "followed"
 	toldWaits     = "waits"
 	toldUnreached = "unreached"
+	toldEachOther = "each-other"
 )
 
 // moveWaitsLine is said when the checkout followed and the session cannot
@@ -405,6 +410,14 @@ func (r *run) follow() int {
 			r.leaveFollowedMark(a, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), joined)
 		},
 	})
+	// Whether the two backends name each other is this follow's to say or to
+	// take back: the next prompt of the checkout reads the mark.
+	eachOther := config.MoveEachOtherMark(a.stateDir, a.configDir, canon)
+	if out.Reason == teammove.ReasonEachOther {
+		r.leaveEachOtherMark(eachOther, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
+	} else if rerr := os.Remove(eachOther); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+		r.log.Debug("follow: the mark of two backends that named each other was not removed", log.Err(rerr))
+	}
 	if !out.Followed {
 		attrs := []any{slog.String("reason", out.Reason)}
 		if err != nil {
@@ -418,6 +431,30 @@ func (r *run) follow() int {
 		_ = os.Remove(config.RegisterRetryStamp(a.stateDir, a.key))
 	}
 	return 0
+}
+
+// leaveEachOtherMark writes the mark of a follow that found the two
+// backends naming each other, for the backend the team file names. Best
+// effort: without it the session stays where it is all the same, having
+// been told that it would unless the move was recorded.
+func (r *run) leaveEachOtherMark(path, teamKey string) {
+	data, err := json.Marshal(followedMark{Version: followedMarkVersion, TeamKey: teamKey, FollowedAt: r.deps.Now().UTC()})
+	if err == nil {
+		if err = adapterkit.MkdirPrivate(filepath.Dir(path)); err == nil {
+			err = adapterkit.WriteAtomic(path, append(data, '\n'))
+		}
+	}
+	if err != nil {
+		r.log.Warn("follow: the mark of two backends that name each other was not written", log.Err(err))
+	}
+}
+
+// namedEachOther reports whether the last follow of the checkout found
+// that the backend its team file names now and the one it is pinned to
+// each record that the team moved to the other (leaveEachOtherMark).
+func (r *run) namedEachOther(f facts, opts config.Options, canon string, tf *teamfile.File) bool {
+	_, marked := readFollowedMark(config.MoveEachOtherMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
+	return marked
 }
 
 // leaveFollowedMark writes the mark of a follow that is about to write
@@ -528,6 +565,11 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		}
 		r.tell(f, in, toldStays, movedStaysLine)
 		return nil
+	}
+	if r.namedEachOther(f, opts, checkout, tf) {
+		// The follow a prompt before this one started found the two
+		// backends naming each other: the session stays, and says why once.
+		r.tell(f, in, toldEachOther, movedEachOtherLine)
 	}
 	if r.startFollow(ctx, f, opts, checkout) {
 		r.tell(f, in, toldAsked, movedLine)

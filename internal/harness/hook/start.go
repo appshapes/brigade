@@ -1190,8 +1190,14 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		// file in front of us is unconsented input until a human reviews
 		// the change in a terminal, or until the backend the member joined
 		// says the team went where the file says (followMove).
-		r.fileRefused = driftLine
-		r.say(driftLine)
+		// One answer of the follow has a line of its own: the two backends
+		// each record that the team moved to the other.
+		line := driftLine
+		if r.eachOther {
+			line = eachOtherLine
+		}
+		r.fileRefused = line
+		r.say(line)
 		return nil, "", "", false
 	}
 	key = teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)
@@ -1249,6 +1255,11 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		// new backend before its next prompt: it is told that the old one
 		// is being asked, once in a conversation, as a session that is
 		// attached is (moveSession).
+		if r.namedEachOther(f, opts, canon, tf) {
+			// The child found the two backends naming each other: the
+			// prompt says that in place of the drift line, as a start does.
+			r.eachOther = true
+		}
 		if r.startFollow(ctx, f, opts, canon) {
 			r.tell(f, in, toldAsked, movedRetryLine)
 		}
@@ -1265,6 +1276,7 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 			attrs = append(attrs, log.Err(err))
 		}
 		r.log.Info("the team file names another backend for this team, and the move was not followed", attrs...)
+		r.eachOther = out.Reason == teammove.ReasonEachOther
 		return false
 	}
 	r.log.Info("followed the team's recorded move", slog.Bool("joined", out.Joined))

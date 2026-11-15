@@ -34,7 +34,9 @@ import (
 	"encoding/hex"
 	json "encoding/json/v2"
 	"errors"
+	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -111,6 +113,15 @@ const (
 	ReasonJoinedOther       = "joined_another_team"
 	ReasonBusy              = "busy"
 	ReasonStore             = "store"
+	// ReasonNewBackendFailed: the backend the team file names did not answer
+	// the question a follow asks of it with the membership this machine
+	// holds there, for a reason other than that it does not honour the
+	// membership. Nothing is changed, and the next follow asks again.
+	ReasonNewBackendFailed = "new_backend_failed"
+	// ReasonEachOther: the backend the team file names itself records that
+	// the team moved to the backend the checkout is pinned to. The two name
+	// each other, and a session follows neither (work item 341).
+	ReasonEachOther = "backends_name_each_other"
 )
 
 // A Caller is what the follow uses of an adapter client
@@ -211,6 +222,42 @@ func Host(raw string) string {
 		return host
 	}
 	return raw
+}
+
+// SameAddress reports whether two addresses are trivially one server's:
+// they are equal once the scheme and the host are in lower case, a port
+// that is the scheme's own is left out and the slashes at the end are
+// dropped. `https://Brigade.example.com:443/` and
+// `https://brigade.example.com` are one server; `localhost` and
+// `127.0.0.1` are not known to be, and neither are two names of one
+// machine. An address that carries credentials or a query is the same as
+// nothing but itself.
+func SameAddress(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ka := addressKey(a)
+	return ka != "" && ka == addressKey(b)
+}
+
+// addressKey is an address in the one spelling SameAddress compares, ""
+// for text that is no such address.
+func addressKey(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return ""
+	}
+	scheme, host, port := strings.ToLower(u.Scheme), strings.ToLower(u.Hostname()), u.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
 }
 
 // FollowsFromVersion is the first Brigade version whose sessions follow a
@@ -416,16 +463,43 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		return Outcome{Reason: ReasonLeft}, nil
 	}
 
+	// A membership this machine holds there is one the backend may no longer
+	// honour: the team was on that backend before, its administrator ended
+	// the memberships there once everyone had followed away, and the team
+	// has come back (work item 341). So the backend is asked with it before
+	// the pin is written on its strength. `unauthorized` is that backend's
+	// word that the membership is none: it is set aside, and the machine
+	// joins with the ticket as one that had never joined. Any other failure
+	// is no word about the membership: nothing is changed, and the next
+	// follow asks again.
+	needsJoin := berr != nil || teamstore.VerifyBinding(existing, in.File) != nil
+	if !needsJoin {
+		theirs, aerr := askNew(ctx, newClient)
+		switch {
+		case unauthorized(aerr):
+			if _, reason, terr := readTicket(record, ticketFile, in.File.TeamRef); reason != "" {
+				return Outcome{Reason: reason}, terr
+			}
+			if serr := write.SetAside(in.ConfigDir, newKey); serr != nil {
+				return Outcome{Reason: ReasonStore}, serr
+			}
+			if in.Log != nil {
+				in.Log.Info("the backend the team moved to no longer honours the membership this machine held there; it was set aside, and the machine joins with the move's ticket")
+			}
+			needsJoin, berr = true, fs.ErrNotExist
+		case aerr != nil:
+			return Outcome{Reason: ReasonNewBackendFailed}, aerr
+		case namesBack(theirs, in.Pin, in.File.TeamRef):
+			return Outcome{Reason: ReasonEachOther}, nil
+		}
+	}
 	joined := false
-	if berr != nil || teamstore.VerifyBinding(existing, in.File) != nil {
+	if needsJoin {
 		// This machine holds no membership at the new backend that the file
 		// describes: it joins with the ticket, under the label the member had.
-		if record.TicketFile == "" {
-			return Outcome{Reason: ReasonNoTicket}, nil
-		}
-		ticket, terr := adapterkit.ReadTicketFile(ticketFile)
-		if terr != nil || adapterkit.CheckMoveTicket(ticket, in.File.TeamRef) != nil {
-			return Outcome{Reason: ReasonNoTicket}, terr
+		ticket, reason, terr := readTicket(record, ticketFile, in.File.TeamRef)
+		if reason != "" {
+			return Outcome{Reason: reason}, terr
 		}
 		if berr == nil {
 			// A profile is there that does not describe the file's backend:
@@ -442,6 +516,12 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		}
 		CarryLabelOrigin(in.ConfigDir, oldKey, newKey, old.HumanLabel, in.Now().UTC(), in.Log)
 		joined = true
+		// Now that this machine may ask: what the new backend itself records
+		// of the team. A question that fails here is left at that, the join
+		// having been made on the old backend's record.
+		if theirs, aerr := askNew(ctx, newClient); aerr == nil && namesBack(theirs, in.Pin, in.File.TeamRef) {
+			return Outcome{Reason: ReasonEachOther}, nil
+		}
 	}
 	if in.BeforePin != nil {
 		in.BeforePin(joined)
@@ -453,6 +533,66 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		return Outcome{Reason: ReasonStore}, err
 	}
 	return Outcome{Followed: true, Joined: joined}, nil
+}
+
+// readTicket reads the move's ticket from the file the old backend's
+// adapter wrote it to, and holds it to the team. It answers a Reason when
+// there is no ticket to join with.
+func readTicket(record protocol.TeamMoveResult, ticketFile, teamRef string) (string, string, error) {
+	if record.TicketFile == "" {
+		return "", ReasonNoTicket, nil
+	}
+	ticket, err := adapterkit.ReadTicketFile(ticketFile)
+	if err != nil || adapterkit.CheckMoveTicket(ticket, teamRef) != nil {
+		return "", ReasonNoTicket, err
+	}
+	return ticket, "", nil
+}
+
+// askNew asks the backend the team file names what it records of the team
+// itself, with the membership this machine holds there: the one command of
+// a follow that goes to that backend beside the join. It answers nil for a
+// backend whose adapter keeps no such record, which is asked nothing. The
+// question is asked for two answers: whether the backend still honours the
+// membership (an `unauthorized` says that it does not), and whether it
+// records that the team moved on (namesBack).
+func askNew(ctx context.Context, client Caller) (*protocol.TeamMoveResult, error) {
+	desc, err := client.Describe(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(desc.Capabilities, Capability) {
+		return nil, nil
+	}
+	env, err := client.Call(ctx, "team", "moved", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var theirs protocol.TeamMoveResult
+	if uerr := json.Unmarshal(env.Result, &theirs); uerr != nil || theirs.Validate() != nil {
+		return nil, errors.New("teammove: team moved answered a shape this build does not read")
+	}
+	return &theirs, nil
+}
+
+// unauthorized reports whether a backend's answer is its `unauthorized`:
+// the caller is no active member of the team there.
+func unauthorized(err error) bool {
+	var perr *protocol.Error
+	return errors.As(err, &perr) && perr.Code == protocol.CodeUnauthorized
+}
+
+// namesBack reports whether what the new backend records of the team is a
+// move to the backend the checkout is pinned to. Then the two backends
+// name each other: the one the member joined says that the team went to
+// the one the file names, and that one says that the team went back. One
+// of the two records is out of date, and nothing on this machine says
+// which, so a session follows neither: a team file flipped between the
+// two, by a commit or a branch, would otherwise send it back and forth.
+// No command of Brigade's leaves two backends so (ADR 0010); this holds
+// for records made any other way.
+func namesBack(theirs *protocol.TeamMoveResult, pin *teamstore.Pin, teamRef string) bool {
+	return theirs != nil && theirs.Moved && theirs.TeamRef == teamRef && theirs.Adapter == pin.Adapter && SameAddress(theirs.URL, pin.URL)
 }
 
 // lockWait is how long a follow waits for another of this machine: the

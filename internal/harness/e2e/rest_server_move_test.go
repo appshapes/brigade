@@ -15,6 +15,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/harness/teamstore/write"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakesock"
@@ -463,9 +464,12 @@ func TestATeamThatComesBackToAServerClearsTheRecordOfItsLeavingThroughTheRealBin
 	if need := "This machine has joined the team on " + hostOf(a) + " before: if " + hostOf(a) + " records that the team left it, that record is cleared first"; !strings.Contains(res.stderr+res.stdout, need) {
 		t.Errorf("the question of the move back lacks %q:\nstdout: %s\nstderr: %s", need, res.stdout, res.stderr)
 	}
+	// The clear got no answer, which is not the same as a record that
+	// stands: the refusal says that it may be cleared, and where to read it.
 	for _, need := range []string{
-		"the team is taken in on " + hostOf(a) + ", and " + hostOf(a) + " still records that the team left it for " + hostOf(b),
-		"that record could not be cleared", "Its move was not opened",
+		"the team is taken in on " + hostOf(a) + ", which recorded that the team left it for " + hostOf(b),
+		"the answer to the clear of that record did not arrive, so the record may be cleared all the same",
+		"`brigade team move --show --from " + hostOf(a) + "` says", "Its move was not opened",
 		hostOf(b) + " was asked to record nothing: it holds what it held, and no session follows this move",
 		"Run the same command again to finish the move",
 	} {
@@ -646,10 +650,14 @@ func copyDir(t *testing.T, from, to string) {
 // old server's data directory at a new address. Such a server holds the
 // team already, with its members and with the owner the old one has, and a
 // member's machine knows it by its address as a server it never joined. So
-// the one command's take-in is the join of a new member, the command stops
-// because the team is owned by someone else there, and the administrator is
-// then on that server twice. Nothing is recorded on the server the team is
-// on. It needs the built server, whose data directory is what is copied.
+// the one command's take-in is the join of a new member. The command finds
+// the membership it has on the old server on the copy's roster, says that
+// the server is the same one under another address or a copy of its data,
+// and leaves with the membership the take-in made: the copy's roster is
+// what it was copied with, and nothing is recorded on the server the team
+// is on. It never names the operator's `--set-owner`: followed on a copy,
+// that would move the team there and put every member on it twice. It
+// needs the built server, whose data directory is what is copied.
 func TestAServerStartedFromACopyOfTheDataIsNoPlaceToMoveATeamToThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	bin := os.Getenv(serverBinVar)
@@ -669,15 +677,46 @@ func TestAServerStartedFromACopyOfTheDataIsNoPlaceToMoveATeamToThroughTheRealBin
 	}
 
 	res := m.move(m.terminal, "y\n", moveArgs(to, r.secretFile)...)
-	if res.exit == 0 || !strings.Contains(res.stderr, "is held on "+hostOf(to)+" and owned by someone else") ||
-		!strings.Contains(res.stderr, "brigade-server --set-owner "+r.teamRef) || !strings.Contains(res.stderr, "Nothing was recorded, and "+teamfile.FileName+" is unchanged") {
+	if res.exit == 0 || !strings.Contains(res.stderr, hostOf(to)+" holds team \""+teamName+"\" ("+r.teamRef+") with the membership this machine has on "+hostOf(from)) ||
+		!strings.Contains(res.stderr, "the same server under another address, or a copy of its data") ||
+		!strings.Contains(res.stderr, "The membership this command made on "+hostOf(to)+" to find that out is ended") ||
+		strings.Contains(res.stderr, "--set-owner") || !strings.Contains(res.stderr, "Nothing was recorded, and "+teamfile.FileName+" is unchanged") {
 		t.Fatalf("the one command to a copy of the server's data: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
 	m.unmoved("a move to a copy of the server's data")
-	// The copy holds the two members it was copied with, and the
-	// administrator a second time: the member her take-in made.
-	key := teamstore.Key("rest", to.url, r.teamRef)
-	listed := r.run(m.terminal, "", "adapter", "rest", "--profile", key, "team", "members")
+	// The administrator's machine holds no profile for the copy: the
+	// membership the take-in made was ended, and its profile removed.
+	m.notJoined("a move to a copy of the server's data", to)
+	// The copy holds the two members it was copied with, each once. It is
+	// read with the membership the copy holds for the member, under a
+	// profile made for the copy's address from the one of the old server:
+	// the credential is the same, because the data are.
+	fromDir, copyDir2 := filepath.Join(r.configDirB, "teams", teamstore.Key("rest", from.url, r.teamRef)), filepath.Join(r.configDirB, "teams", teamstore.Key("rest", to.url, r.teamRef))
+	// A member's store is the member's alone: each file is written 0600.
+	if err := os.Mkdir(copyDir2, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.ReadDir(fromDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range held {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		data, rerr := os.ReadFile(filepath.Join(fromDir, entry.Name())) //nolint:gosec // G304: a file of the test's own store
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		//nolint:gosec // G703: a file name read from the test's own store, written into the same store
+		if werr := os.WriteFile(filepath.Join(copyDir2, entry.Name()), data, 0o600); werr != nil {
+			t.Fatal(werr)
+		}
+	}
+	if err := write.PatchBindingBackend(r.configDirB, teamstore.Key("rest", to.url, r.teamRef), "rest", to.url, "", to.certificate); err != nil {
+		t.Fatal(err)
+	}
+	listed := r.run(r.terminalEnv(r.configDirB), "", "adapter", "rest", "--profile", teamstore.Key("rest", to.url, r.teamRef), "team", "members")
 	if listed.exit != 0 {
 		t.Fatalf("the copy's roster: exit %d\nstdout: %s\nstderr: %s", listed.exit, listed.stdout, listed.stderr)
 	}
@@ -685,7 +724,7 @@ func TestAServerStartedFromACopyOfTheDataIsNoPlaceToMoveATeamToThroughTheRealBin
 	for _, member := range jsonResult[roster](t, listed.stdout).Members {
 		labels[member.HumanLabel]++
 	}
-	if labels[aliceLabel] != 2 || labels[bobLabel] != 1 || len(labels) != 2 {
-		t.Fatalf("the copy's roster after the refused move: %v, want the administrator twice and the member once", labels)
+	if labels[aliceLabel] != 1 || labels[bobLabel] != 1 || len(labels) != 2 {
+		t.Fatalf("the copy's roster after the refused move: %v, want each member once", labels)
 	}
 }
