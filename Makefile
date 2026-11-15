@@ -344,16 +344,18 @@ server-check: ## rustfmt and clippy on server/ with warnings denied, with and wi
 # tests of a team that moves to the server, which need the server's own import and its move ticket and so run here
 # only: the operator takes the team in and each member's machine joins once with the secret it has; (work item
 # 273) the administrator records the move on the backend the team leaves, and a member's next session follows;
-# (work item 327) the sessions that are running at the time follow at their next prompts; and the last five
+# (work item 327) the sessions that are running at the time follow at their next prompts; and the last ten
 # (work item 328) are the move by one command, `brigade team move --to`, which `make test` runs against the
 # stand-in server too: the move and its refusals, the command stopped at each step and run again, the move
-# made from inside a session, a take-in whose answer is lost and the same command run again, and the sessions
-# that are running when the command is run from one of them.
+# made from inside a session, a take-in whose answer is lost and the same command run again, the sessions
+# that are running when the command is run from one of them, a record that exists and is not cleared by a
+# second run or a second move, the command killed in the middle of a step, a finished move run again and
+# stopped, a server that asks for a creation token, and a member who did not create the team.
 .PHONY: server-test
 server-test: build ## The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, a team moved there with its join secret, its members following it there with no command, and a team moved there by one command (CI)
 	cd server && cargo test --workspace --locked
 	cd server && BRIGADE_BIN_DIR=$(CURDIR)/$(bin_dir) cargo test --locked -p brigade-server --test server -- --ignored --test-threads=1
-	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^(TestATeamOnAServerThroughTheRealBinary|TestATeamMovesToAServerWithItsSecretThroughTheRealBinary|TestATeamsMembersFollowItToAServerThroughTheRealBinary|TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary|TestATeamMovesToAServerByOneCommandThroughTheRealBinary|TestAMoveStoppedAtEachStepEndsTheSameWhenRunAgainThroughTheRealBinary|TestATeamIsMovedFromInsideASessionThroughTheRealBinary|TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary|TestRunningSessionsFollowAMoveMadeByOneCommandThroughTheRealBinary)$$' ./internal/harness/e2e/
+	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^(TestATeamOnAServerThroughTheRealBinary|TestATeamMovesToAServerWithItsSecretThroughTheRealBinary|TestATeamsMembersFollowItToAServerThroughTheRealBinary|TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary|TestATeamMovesToAServerByOneCommandThroughTheRealBinary|TestAMoveStoppedAtEachStepEndsTheSameWhenRunAgainThroughTheRealBinary|TestATeamIsMovedFromInsideASessionThroughTheRealBinary|TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary|TestRunningSessionsFollowAMoveMadeByOneCommandThroughTheRealBinary|TestARecordThatExistsIsNotClearedByAMoveThroughTheRealBinary|TestAMoveKilledInTheMiddleOfAStepIsFinishedByTheSameCommandThroughTheRealBinary|TestAFinishedMoveRunAgainAndStoppedIsMendedByTheSameCommandThroughTheRealBinary|TestATeamMovesToAServerThatAsksForACreationTokenThroughTheRealBinary|TestAMemberWhoDidNotCreateTheTeamIsRefusedBeforeAServerIsAskedThroughTheRealBinary)$$' ./internal/harness/e2e/
 
 # The move from the backend it was built for (work items 273 and 328): two of server-test's tests with a team on
 # the local Supabase stack as the team that moves, by the record and the operator's ticket, and by the one command.

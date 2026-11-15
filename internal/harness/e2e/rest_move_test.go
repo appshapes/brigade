@@ -75,6 +75,9 @@ type movingTeam struct {
 	// said collects everything a `team move` of the test printed, so that
 	// the secret and the ticket can be looked for in all of it at the end.
 	said strings.Builder
+	// alsoHidden are the values a test adds to the two noSecrets looks for,
+	// each with the files it may be in.
+	alsoHidden []hidden
 }
 
 // newMovingTeam reads the rig's team as it is before the move. The
@@ -226,27 +229,76 @@ func (m *movingTeam) ticket() (ticket, file string) {
 	return strings.TrimSpace(string(text)), file
 }
 
-// noSecrets fails the test when the join secret or the ticket is in
-// anything a `team move` printed, on an fs adapter child's argv, or in a
-// file the run left behind other than the files they travel in. allowed
-// are those files.
+// A hidden is one value that must be nowhere but in the files it travels
+// in.
+type hidden struct {
+	name, value string
+	files       []string
+}
+
+// secretPart is what follows the last dot of a join secret or of a ticket,
+// the part that is the secret, which a line or a file could carry without
+// the rest; "" for a value that has no dot in it.
+func secretPart(value string) string {
+	i := strings.LastIndex(value, ".")
+	if i < 0 {
+		return ""
+	}
+	return value[i+1:]
+}
+
+// noSecrets fails the test when the join secret, the ticket, the secret
+// part of either or a value the test added to alsoHidden is somewhere it
+// must not be: in anything a `team move` printed, the record as `--show
+// --json` prints it included; on an fs adapter child's argv or in its
+// environment; or in a file under the rig's root other than the files it
+// travels in. allowed are those files: the join secret's own is the one
+// file that may hold the join secret, and the others may hold the ticket.
+// Each hidden value has files of its own, so that a ticket in the secret's
+// file, or a join secret in the record, is not passed over.
+//
+// What it cannot see is the bundled `rest` adapter's argv and environment:
+// the built `brigade` runs that adapter as itself, with nothing between
+// them that a test could read. The spawn recorder of
+// internal/harness/commands holds those.
 func (m *movingTeam) noSecrets(ticket string, allowed ...string) {
 	t := m.r.t
 	t.Helper()
 	if ticket == "" || ticket == m.secret {
 		t.Fatalf("the ticket the old backend holds is not a ticket")
 	}
-	argv, _ := os.ReadFile(m.r.argvLog)
-	for name, hidden := range map[string]string{"the join secret": m.secret, "the move's ticket": ticket} {
-		if strings.Contains(m.said.String(), hidden) {
-			t.Errorf("%s is in what a team move printed", name)
-		}
-		if bytes.Contains(argv, []byte(hidden)) {
-			t.Errorf("%s was on an adapter child's argv", name)
-		}
-		for _, hit := range tokenHits(t, hidden, m.r.dirs.Root) {
-			if !slices.Contains(allowed, hit) {
-				t.Errorf("%s is in %s", name, hit)
+	// The recorders are live: a check that reads nothing passes whatever happened.
+	argv, err := os.ReadFile(m.r.argvLog)
+	if err != nil || !bytes.Contains(argv, []byte("--root")) {
+		t.Fatalf("the adapter wrapper recorded no argv (%v): the recorder is not live", err)
+	}
+	env, err := os.ReadFile(m.r.envLog)
+	if err != nil || !bytes.Contains(env, []byte("BRIGADE_")) {
+		t.Fatalf("the adapter wrapper recorded no environment (%v): the recorder is not live", err)
+	}
+	said := m.said.String() + m.recordJSON()
+	values := append([]hidden{
+		{name: "the join secret", value: m.secret, files: []string{m.r.secretFile}},
+		{name: "the move's ticket", value: ticket, files: slices.DeleteFunc(slices.Clone(allowed), func(file string) bool { return file == m.r.secretFile })},
+	}, m.alsoHidden...)
+	for _, h := range values {
+		for name, value := range map[string]string{h.name: h.value, "the secret part of " + h.name: secretPart(h.value)} {
+			if value == "" {
+				continue
+			}
+			if strings.Contains(said, value) {
+				t.Errorf("%s is in what a team move printed", name)
+			}
+			if bytes.Contains(argv, []byte(value)) {
+				t.Errorf("%s was on an adapter child's argv", name)
+			}
+			if bytes.Contains(env, []byte(value)) {
+				t.Errorf("%s was in an adapter child's environment", name)
+			}
+			for _, hit := range tokenHits(t, value, m.r.dirs.Root) {
+				if !slices.Contains(h.files, hit) {
+					t.Errorf("%s is in %s", name, hit)
+				}
 			}
 		}
 	}
@@ -290,37 +342,49 @@ func (s *olderServer) asked() []string {
 	return slices.Clone(s.paths)
 }
 
-// A lossyFront stands between a member's machine and a server and, while it
-// is told to, loses the answer of every take-in: it hands the request to the
-// server, lets the server carry it out, and closes the connection without a
-// word. It is what a network does to a request whose answer never arrives.
-// Every other request, and every take-in once it is told to stop, is handed
-// on and answered as the server answered it.
-type lossyFront struct {
+// A front stands between a member's machine and a server, as a network or a
+// proxy does. It hands each request to the server and the server's answer
+// back, but for the two things a test tells it to do: refuse a request in
+// the server's place, before the server sees it, and lose an answer the
+// server gave.
+type front struct {
 	*httptest.Server
 	backend string
 	client  *http.Client
-	mu      sync.Mutex
-	losing  bool
-	// lost counts the take-ins the server answered as done whose answer
-	// the front dropped.
-	lost int
+	// before, when it is set, is asked before a request is handed on, with
+	// the request's body. A status other than 0 is a refusal the front makes
+	// itself, with text as its body, and the server is not asked.
+	before func(req *http.Request, body []byte) (status int, text string)
+	// after, when it is set, is asked once the server has answered and
+	// before the member's machine has, with the answer's status. True loses
+	// the answer: the connection ends with nothing on it, which is what a
+	// network does to an answer that never arrives. The member's machine
+	// waits for as long as after takes to say so.
+	after func(req *http.Request, status int) bool
 }
 
-// startLossyFront starts a front for backend and answers the server a
-// member's machine is told of: the front's own address. A backend that
-// serves TLS under a pinned certificate gets a front that serves TLS under a
+// startFront starts a front for backend and answers the server a member's
+// machine is told of: the front's own address. A backend that serves TLS
+// under a pinned certificate gets a front that serves TLS under a
 // certificate of its own, whose pin is the one the member is given, and that
 // trusts the backend by the backend's pin and by nothing else, as the
 // member's adapter would.
-func startLossyFront(t *testing.T, backend restBackend) (*lossyFront, restBackend) {
+func startFront(t *testing.T, backend restBackend, before func(*http.Request, []byte) (int, string), after func(*http.Request, int) bool) (*front, restBackend) {
 	t.Helper()
-	f := &lossyFront{backend: backend.url, losing: true, client: http.DefaultClient}
+	f := &front{backend: backend.url, client: http.DefaultClient, before: before, after: after}
 	f.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
 			http.Error(w, "the request could not be read", http.StatusBadGateway)
 			return
+		}
+		if f.before != nil {
+			if status, text := f.before(req, body); status != 0 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = io.WriteString(w, text)
+				return
+			}
 		}
 		//nolint:gosec // G704: the url is the test's own server's, and the path one the built adapter asked this front for
 		forward, err := http.NewRequestWithContext(req.Context(), req.Method, f.backend+req.URL.RequestURI(), bytes.NewReader(body))
@@ -340,13 +404,7 @@ func startLossyFront(t *testing.T, backend restBackend) (*lossyFront, restBacken
 			http.Error(w, "the server's answer could not be read", http.StatusBadGateway)
 			return
 		}
-		f.mu.Lock()
-		lose := f.losing && req.URL.Path == "/v1/team/take-in"
-		if lose && answer.StatusCode == http.StatusOK {
-			f.lost++
-		}
-		f.mu.Unlock()
-		if lose {
+		if f.after != nil && f.after(req, answer.StatusCode) {
 			// The answer is lost: the connection ends with nothing on it.
 			if hijacker, ok := w.(http.Hijacker); ok {
 				if conn, _, herr := hijacker.Hijack(); herr == nil {
@@ -380,6 +438,38 @@ func startLossyFront(t *testing.T, backend restBackend) (*lossyFront, restBacken
 	}}}
 	f.StartTLS()
 	return f, restBackend{url: f.URL, certificate: adapterkit.CertificateFingerprint(f.Certificate().Raw)}
+}
+
+// A lossyFront is a front that, while it is told to, loses the answer of
+// every take-in: it hands the request to the server, lets the server carry
+// it out, and closes the connection without a word. Every other request,
+// and every take-in once it is told to stop, is handed on and answered as
+// the server answered it.
+type lossyFront struct {
+	*front
+	mu     sync.Mutex
+	losing bool
+	// lost counts the take-ins the server answered as done whose answer
+	// the front dropped.
+	lost int
+}
+
+// startLossyFront starts a front for backend that loses the answer of every
+// take-in until it is told to stop.
+func startLossyFront(t *testing.T, backend restBackend) (*lossyFront, restBackend) {
+	t.Helper()
+	f := &lossyFront{losing: true}
+	var where restBackend
+	f.front, where = startFront(t, backend, nil, func(req *http.Request, status int) bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		lose := f.losing && req.URL.Path == "/v1/team/take-in"
+		if lose && status == http.StatusOK {
+			f.lost++
+		}
+		return lose
+	})
+	return f, where
 }
 
 // lose tells the front whether a take-in's answer is lost from now on.
