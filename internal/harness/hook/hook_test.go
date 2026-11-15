@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -21,6 +22,27 @@ import (
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
+
+// TestRealDepsAreTheDocumentedBudgets pins the budgets a hook is given in
+// production, written out. Every fixture of this package runs with budgets
+// of its own (unhurried, and the tests of a budget), so nothing else holds
+// them: with GrokStartBudget at zero in RealDeps this package, cmd/brigade
+// and scripts/ci all passed (work item 336). A Deps a caller built with a
+// budget left at zero is given the same values, the git calls keep each
+// hook's own budget, and nobody is told of a lock that is held.
+func TestRealDepsAreTheDocumentedBudgets(t *testing.T) {
+	t.Parallel()
+	for name, d := range map[string]Deps{"RealDeps": RealDeps(), "a zero Deps with its defaults": Deps{}.withDefaults()} {
+		if d.PromptBudget != 4500*time.Millisecond || d.StopBudget != 4500*time.Millisecond || d.GrokStartBudget != 12*time.Second ||
+			d.FollowBudget != 55*time.Second || d.PidfileWait != 2*time.Second {
+			t.Errorf("%s: prompt %v, Stop %v, Grok start %v, follow %v, pidfile wait %v; want 4.5s, 4.5s, 12s, 55s and 2s",
+				name, d.PromptBudget, d.StopBudget, d.GrokStartBudget, d.FollowBudget, d.PidfileWait)
+		}
+		if d.GitBudget != 0 || d.GrokLockHeld != nil {
+			t.Errorf("%s: a git budget of %v, a GrokLockHeld that is set: %v; want each hook's own git budget and nobody told", name, d.GitBudget, d.GrokLockHeld != nil)
+		}
+	}
+}
 
 // TestRunUsageIsTheOnlyNonZeroExit is the positive control for every
 // "exits 0" assertion below: Run CAN return non-zero, and does so only
