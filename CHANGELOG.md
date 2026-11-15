@@ -61,6 +61,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   either backend is asked anything. When a move that was recorded is run
   again and its record fails, the refusal says that the record still hands
   out the ticket this run replaced.
+  `--ticket-days` is read in decimal, so `010` is ten days.
 
   **A skill, `move`**, in all four packages (`/brigade:move` in Claude Code
   and Grok Build, `$brigade:move` in Codex CLI, the move skill in Muse Code)

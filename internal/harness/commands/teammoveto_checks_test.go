@@ -549,3 +549,39 @@ func TestTeamMoveToRecordsAgainTheRecordItReadTheTicketOf(t *testing.T) {
 		t.Fatalf("the confirmation: %v", r.prompts)
 	}
 }
+
+// TestTeamMoveToReadsTheDaysInDecimal: --ticket-days is a number of days
+// in decimal digits. A zero before it does not make it octal, as the flag
+// package would read it, and a number in another base or with anything but
+// digits in it is refused before anything is asked.
+func TestTeamMoveToReadsTheDaysInDecimal(t *testing.T) {
+	t.Parallel()
+	for typed, days := range map[string]string{"010": "10", "0365": "365", "7": "7", "+7": "7"} {
+		t.Run(typed, func(t *testing.T) {
+			t.Parallel()
+			r := newMoveToRig(t)
+			if err := Team(r.inv(true, r.args("--ticket-days", typed)...)); err != nil {
+				t.Fatal(err)
+			}
+			if open := r.f.rec.specsOf("team open-move"); len(open) != 1 || !strings.HasSuffix(argvOf(open[0]), "--ticket-days "+days) {
+				t.Fatalf("the open: %s", argvOf(open[0]))
+			}
+		})
+	}
+	for _, typed := range []string{"0x10", "0b11", "0o17", "1_0", "7.5", "seven", "", " 7", "7 ", "1e1"} {
+		t.Run("refused "+typed, func(t *testing.T) {
+			t.Parallel()
+			r := newMoveToRig(t)
+			perr := wantCodeErr(t, Team(r.inv(true, r.args("--ticket-days", typed)...)), protocol.CodeUsage, "")
+			if !strings.Contains(perr.Message, "--ticket-days must be a whole number of days, in decimal digits, between 1 and 365") {
+				t.Fatalf("the refusal: %s", perr.Message)
+			}
+			if r.f.rec.count() != 0 || len(r.prompts) != 0 {
+				t.Fatalf("a refusal spawned %v and asked %d times", r.f.rec.verbs(), len(r.prompts))
+			}
+		})
+	}
+	// A number of days with another form of the command is still no form of it.
+	r := newMoveToRig(t)
+	wantCode(t, Team(r.inv(true, "--show", "--ticket-days", "010")), protocol.CodeUsage, "")
+}
