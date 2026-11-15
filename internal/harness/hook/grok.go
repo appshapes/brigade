@@ -60,7 +60,7 @@ func (r *run) runGrok() int {
 	// the shared Claude 55-second startup budget. Grok's hook allows 15s.
 	budget := r.deps.PromptBudget
 	if r.args.sub == SubSessionStart {
-		budget = 12 * time.Second
+		budget = r.deps.GrokStartBudget
 	}
 	if r.args.sub == SubSessionEnd {
 		budget = 500 * time.Millisecond

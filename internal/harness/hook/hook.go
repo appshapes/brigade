@@ -90,6 +90,10 @@ const (
 	// promptBudget keeps the prompt hook under its 5 s timeout with room
 	// for the process to exit.
 	promptBudget = 4500 * time.Millisecond
+	// grokStartBudget keeps a Grok Build SessionStart hook, lock wait
+	// included, under the 15 s Grok gives it. It is Deps.GrokStartBudget's
+	// production value.
+	grokStartBudget = 12 * time.Second
 	// endBudget keeps the session-end hook under the 1.5 s shared budget.
 	endBudget = 1400 * time.Millisecond
 	// receiveTimeout is the `message receive --limit 20` cap of 6.3.
@@ -279,6 +283,11 @@ type Deps struct {
 	// busy machine to decide, by how long git took to answer (work item
 	// 336).
 	GitBudget time.Duration
+	// GrokStartBudget bounds the whole SessionStart hook of a Grok Build
+	// session, its wait for the receiver's lock included; zero means
+	// grokStartBudget. Only a test raises it: whether a start registered
+	// must not be for a busy machine to decide (work item 336).
+	GrokStartBudget time.Duration
 	// GrokLockHeld, when set, is called by a Grok hook each time it finds
 	// the receiver's lock held by another hook (grok_lock.go), before it
 	// tries again or gives up. nil in production, which tells nobody. A
@@ -300,18 +309,19 @@ type Deps struct {
 // RealDeps returns the production dependencies.
 func RealDeps() Deps {
 	return Deps{
-		Now:          time.Now,
-		Spawner:      RealSpawner{},
-		ReadFile:     os.ReadFile,
-		Lookup:       procutil.Lookup,
-		LookPath:     lookPath,
-		SoundPlayer:  soundPlayer,
-		Notifier:     notifier,
-		PidfileWait:  DefaultPidfileWait,
-		PromptBudget: promptBudget,
-		StopBudget:   stopBudget,
-		FollowBudget: followBudget,
-		Getppid:      os.Getppid,
+		Now:             time.Now,
+		Spawner:         RealSpawner{},
+		ReadFile:        os.ReadFile,
+		Lookup:          procutil.Lookup,
+		LookPath:        lookPath,
+		SoundPlayer:     soundPlayer,
+		Notifier:        notifier,
+		PidfileWait:     DefaultPidfileWait,
+		PromptBudget:    promptBudget,
+		StopBudget:      stopBudget,
+		GrokStartBudget: grokStartBudget,
+		FollowBudget:    followBudget,
+		Getppid:         os.Getppid,
 	}
 }
 
@@ -353,6 +363,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.StopBudget <= 0 {
 		d.StopBudget = prod.StopBudget
+	}
+	if d.GrokStartBudget <= 0 {
+		d.GrokStartBudget = prod.GrokStartBudget
 	}
 	if d.FollowBudget <= 0 {
 		d.FollowBudget = prod.FollowBudget
