@@ -129,7 +129,18 @@ const (
 	ReasonAdapterUnresolved = "adapter_unresolved"
 	ReasonLeft              = "left_the_new_backend"
 	ReasonNoCapability      = "no_capability"
-	ReasonOldBackendFailed  = "old_backend_failed"
+	// ReasonOldBackendFailed: the backend the member joined did not answer
+	// the one question a follow asks of it, whether the team moved: it could
+	// not be reached, or did not answer in time. The follow learned nothing,
+	// of that backend or of the one the team file names.
+	ReasonOldBackendFailed = "old_backend_failed"
+	// ReasonOldBackendRefused: the backend the member joined answered that
+	// question, and its answer is no record: a refusal, above all that the
+	// caller is no active member of the team there (a member who left it or
+	// was revoked), or a shape this build does not read. That is an answer,
+	// as ReasonNewBackendRefused is on the other side: waiting mends
+	// nothing, and what helps is the member's own join where the team is.
+	ReasonOldBackendRefused = "old_backend_refused"
 	ReasonNoRecord          = "no_record"
 	ReasonRecordElsewhere   = "record_names_another_backend"
 	ReasonNoTicket          = "no_ticket"
@@ -426,7 +437,7 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 	// nothing: its describe is answered from local files.
 	desc, err := oldClient.Describe(ctx)
 	if err != nil {
-		return Outcome{Reason: ReasonOldBackendFailed}, err
+		return Outcome{Reason: oldBackendReason(err)}, err
 	}
 	if !slices.Contains(desc.Capabilities, Capability) {
 		return Outcome{Reason: ReasonNoCapability}, nil
@@ -468,13 +479,18 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		return Outcome{Reason: ReasonStore}, err
 	}
 	defer func() { _ = os.Remove(ticketFile) }()
+	// A question that fails is told apart as the other backend's is below: a
+	// backend that did not answer has said nothing, and a refusal is an
+	// answer (oldBackendReason). Until this both were one reason, and a
+	// member the backend had put out was taken for one whose backend was
+	// only out of reach (work item 341).
 	env, err := oldClient.Call(ctx, "team", "moved", []string{"--ticket-file", ticketFile}, nil)
 	if err != nil {
-		return Outcome{Reason: ReasonOldBackendFailed}, err
+		return Outcome{Reason: oldBackendReason(err)}, err
 	}
 	var record protocol.TeamMoveResult
 	if uerr := json.Unmarshal(env.Result, &record); uerr != nil || record.Validate() != nil {
-		return Outcome{Reason: ReasonOldBackendFailed}, errors.New("teammove: team moved answered a shape this build does not read")
+		return Outcome{Reason: ReasonOldBackendRefused}, errors.New("teammove: team moved answered a shape this build does not read")
 	}
 	if !record.Moved {
 		return Outcome{Reason: ReasonNoRecord}, nil
@@ -767,6 +783,16 @@ func unanswered(err error) bool {
 	}
 	var perr *protocol.Error
 	return errors.As(err, &perr) && perr.Code == protocol.CodeUnavailable
+}
+
+// oldBackendReason is the reason of a follow whose question to the backend
+// the member joined failed with err: that backend did not answer
+// (unanswered), or it answered, and its answer was a refusal.
+func oldBackendReason(err error) string {
+	if unanswered(err) {
+		return ReasonOldBackendFailed
+	}
+	return ReasonOldBackendRefused
 }
 
 // namesBack reports whether what the new backend records of the team is a

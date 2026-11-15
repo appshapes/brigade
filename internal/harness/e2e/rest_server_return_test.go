@@ -1127,6 +1127,90 @@ func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeftThroughTheRealBinary(t *t
 	}
 }
 
+// TestAMemberRevokedOnTheServerHeJoinedIsNotToldToWaitThroughTheRealBinary:
+// a member's first follow finds the server the team moved to down, and
+// leaves that for the checkout's prompts. The server comes back, and the
+// administrator revokes the member on the server the team left, as the
+// last step of a move has it. That server then refuses the one question a
+// follow asks of it. Until this a refusal there counted as a follow that
+// had learned nothing: every start and every prompt said that the server
+// the team moved to did not answer and that a session tries again, the
+// mark untouched, and only the member's own join got him in, which no line
+// named. A refusal is an answer: what the earlier follow left is taken
+// back, and the session says what a team file nobody vouched for is told,
+// which names the join.
+//
+//  1. The start while the server the team moved to is down says so.
+//  2. Revoked on the server he joined, his starts say that the file does
+//     not match and to run `brigade team join`, and nothing is left.
+//  3. A session's prompts say the same.
+//  4. His own join, with the team's secret, connects the session.
+func TestAMemberRevokedOnTheServerHeJoinedIsNotToldToWaitThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	down := &silent{}
+	a := startRestBackend(t)
+	_, b := startFront(t, startRestBackend(t), down.before, nil)
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onA := r.principalOf(r.configDirB, a)
+	r.movedTo(b, r.secretFile)
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	const join = "run `brigade team join`"
+
+	// --- 1. the server the team moved to is down --------------------------------------------------------------
+	down.on.Store(true)
+	if res, key := r.bobStarts(); key != "" || !strings.Contains(res.stdout, "did not answer") || strings.Contains(res.stdout, "does not match") {
+		t.Fatalf("the start while the server the team moved to is down: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if _, err := os.Stat(mark); err != nil {
+		t.Fatalf("that start left nothing for the checkout's prompts: %v", err)
+	}
+	down.on.Store(false)
+
+	// --- 2. revoked on the server he joined: an answer, and nothing to wait for -----------------------------
+	if res := r.runIn(r.checkout, term, "", "team", "revoke-member", "--on", hostOf(a), "--principal", onA); res.exit != 0 {
+		t.Fatalf("the revocation on the server the team left: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	for i := range 2 {
+		res, key := r.bobStarts()
+		if key != "" || !strings.Contains(res.stdout, "does not match") || !strings.Contains(res.stdout, join) || strings.Contains(res.stdout, "did not answer") ||
+			!strings.Contains(res.stderr, `"reason":"old_backend_refused"`) {
+			t.Fatalf("start %d of a member revoked on the server he joined: attached to %q\nstdout %q\nstderr %s", i+1, key, res.stdout, res.stderr)
+		}
+		if _, err := os.Stat(mark); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("start %d left what the earlier follow had said of the server the team moved to: %v", i+1, err)
+		}
+	}
+
+	// --- 3. a session's prompts say the same ------------------------------------------------------------------
+	s := r.newSession("bob", bobName, "", "", "")
+	if res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"})); r.mapExists(s) || !strings.Contains(res.stdout, "does not match") {
+		t.Fatalf("a session's start: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || !strings.Contains(res.stdout, "does not match") || strings.Contains(res.stdout, "did not answer") {
+		t.Fatalf("the prompt after that start: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		logged, rerr := os.ReadFile(moveLog) //nolint:gosec // G304: a log under the test's own state directory
+		return rerr == nil && strings.Contains(string(logged), `"reason":"old_backend_refused"`)
+	})
+	if _, err := os.Stat(mark); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the prompt's follow left a mark: %v", err)
+	}
+
+	// --- 4. his own join, with the team's secret --------------------------------------------------------------
+	if res := r.restJoin(s, bobLabel); res.exit != 0 || !strings.Contains(res.stdout, "joined team") {
+		t.Fatalf("the member's own join: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	r.promptedUntilMoved(s, r.keyAt(b), r.restPrompt)
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+}
+
 // unknownCredential is a server's answer to a credential it does not know,
 // as a front gives it in the server's place: what a server that was started
 // again from an older copy of its data answers a member who joined since.

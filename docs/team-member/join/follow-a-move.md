@@ -71,12 +71,14 @@ same in every case and names no cause, because the file is not to be trusted unt
   file names, or the backend the file names did not take the move's ticket because the move has ended: its
   ticket ran out, or the move was closed. Ask your administrator before you join anything. A team file that
   changed with no record behind it is exactly what this check is for.
-- **The backend you joined could not be asked.** It did not answer, or it no longer counts you a member (you
-  left the team on it, or were revoked). It is the only backend a session asks whether the team moved, so the
-  session learned nothing, and it says of a backend that is only out of reach what it says of a file nobody
-  vouched for. Where it is only out of reach, the next session asks again, and this one at its next prompts;
-  where it is gone, or you are no longer a member of it, ask your administrator and join the team where it is
-  with the secret file.
+- **The backend you joined did not answer.** It is the only backend a session asks whether the team moved, so
+  the session learned nothing, and it says of a backend that is only out of reach what it says of a file
+  nobody vouched for. The next session asks again, and this one at its next prompts. If that backend is gone
+  for good, ask your administrator and join the team where it is with the secret file.
+- **The backend you joined no longer counts you a member**: you left the team on it, or were revoked there.
+  That is its answer, and waiting mends nothing: no session of yours follows from that backend again. Ask
+  your administrator, and join the team where it is with the secret file,
+  `/brigade:join ~/brigade-<team>.secret`.
 - **Another session of yours was following or joining** at that moment, for more than ten seconds. The next
   session asks again, and this one at its next prompts.
 - **You left the team on the backend it moved to** (`brigade team leave`): no session joins you again. Join
@@ -89,9 +91,12 @@ same in every case and names no cause, because the file is not to be trusted unt
 - **This machine's own record of the team cannot be used**: the membership the checkout was joined with is
   missing or is not the one the checkout names, or Brigade's files could not be read or written.
 
-A session that could not ask, the second and third of these, says something else where an earlier session of
-the checkout did ask and was told that the backend the team moved to did not answer, that it refuses the
-membership, or that the two backends name each other: it says that again, because that is the last thing known.
+A session that could not ask, because the backend you joined did not answer or another session of yours held
+it up, says something else where an earlier session of the checkout did ask and was told that the backend the
+team moved to did not answer, that it refuses the membership, or that the two backends name each other: it says
+that again, because that is the last thing known. A backend you joined that no longer counts you a member is
+not such a case. It answered, so what an earlier session was told is taken back, and the session says that the
+file does not match.
 
 A plugin older than 0.55.0 does not follow either, though the move is recorded, and neither does one older than
 0.57.0 when the team left a Brigade server: update it ([Update](../update/README.md)) and start a new session, or

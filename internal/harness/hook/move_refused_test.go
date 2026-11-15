@@ -377,19 +377,99 @@ func TestAFollowThatLearnedNothingLeavesWhatTheLastOneLeft(t *testing.T) {
 // names. It counts the questions that went unanswered.
 func joinedBackendSilent(f *fixture) *atomic.Int32 {
 	f.t.Helper()
+	return joinedBackendSays(f, &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true})
+}
+
+// joinedBackendSays has the backend the member joined answer what it
+// records of the team with said, from here on, and counts the questions it
+// answered so.
+func joinedBackendSays(f *fixture, said *protocol.ErrorObject) *atomic.Int32 {
+	f.t.Helper()
 	inner, asked := f.deps.Spawn, &atomic.Int32{}
 	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
 		if i := slices.Index(spec.Argv, "--profile"); i < 0 || i+1 >= len(spec.Argv) || spec.Argv[i+1] != f.teamKey || verbOf(spec.Argv) != "team moved" {
 			return inner(ctx, spec)
 		}
 		asked.Add(1)
-		silent := &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true}
 		return &adapterkit.SpawnResult{
-			Envelope: &protocol.Envelope{OK: false, ProtocolVersion: protocol.ProtocolVersion, Error: silent},
-			ExitCode: silent.Code.Exit(),
+			Envelope: &protocol.Envelope{OK: false, ProtocolVersion: protocol.ProtocolVersion, Error: said},
+			ExitCode: said.Code.Exit(),
 		}, nil
 	}
 	return asked
+}
+
+// TestAMemberTheBackendHeJoinedRefusesIsNotToldToWait (work item 341): the
+// member's first follow found the server the team moved to silent, and left
+// that for the checkout's prompts. The server answers again, and the
+// administrator puts the member out of the backend he joined, as the last
+// step of a move has it for a member who is thought to have followed. From
+// then on that backend refuses the follow's question. A refusal is an
+// answer, not a backend that did not answer: until this the follow counted
+// as one that had learned nothing, the mark stayed, and every start and
+// prompt said that the server did not answer and that a session tries
+// again, of a member whom only his own join lets in. The mark is taken
+// back, and the start and the prompts say what a team file nobody vouched
+// for is told, which names that join.
+func TestAMemberTheBackendHeJoinedRefusesIsNotToldToWait(t *testing.T) {
+	t.Parallel()
+	f := memberOfTheServer(t)
+	var down atomic.Bool
+	down.Store(true)
+	joins := serverSays(f, func(verb string) *protocol.ErrorObject {
+		if !down.Load() || verb != "team moved" {
+			return nil
+		}
+		return &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true}
+	})
+	before, mark := f.checkoutPin(), config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+	start := func() []string {
+		t.Helper()
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+		if exit != 0 || f.mapExists() {
+			t.Fatalf("session-start: exit %d, a map is there: %v: %s", exit, f.mapExists(), errOut)
+		}
+		return lines(out)
+	}
+	if got := start(); !slices.Equal(got, []string{newBackendSilentLine}) || !exists(mark) {
+		t.Fatalf("the start while the server does not answer: %q; a mark is left: %v", got, exists(mark))
+	}
+	// The server answers again, and the member is put out of the backend he joined.
+	down.Store(false)
+	asked := joinedBackendSays(f, &protocol.ErrorObject{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"})
+	if got := start(); !slices.Equal(got, []string{driftLine}) || exists(mark) || asked.Load() != 1 {
+		t.Fatalf("the start of a member the backend he joined refuses: %q; the mark is still there: %v; that backend was asked %d times", got, exists(mark), asked.Load())
+	}
+	for i, want := range [][]string{{movedRetryLine, driftLine}, {driftLine}} {
+		if got := f.prompted(); !slices.Equal(got, want) || exists(mark) {
+			t.Fatalf("prompt %d of that member's session: %q, want %q; the mark is there: %v", i+1, got, want, exists(mark))
+		}
+		f.now = f.now.Add(registerRetryInterval)
+	}
+	if pin := f.checkoutPin(); pin != before || joins.Load() != 0 {
+		t.Fatalf("the pin moved (%+v), or the server was asked for %d joins", pin, joins.Load())
+	}
+}
+
+// TestOnlyAFollowThatCouldNotAskLearnedNothing (work item 341): a follow
+// learned nothing about the backend the team file names when it did not get
+// the lock, or when the backend the member joined did not answer it. A
+// refusal from that backend is an answer, and so is every outcome that
+// comes after its answer, a store that failed among them: each takes back
+// what an earlier follow left.
+func TestOnlyAFollowThatCouldNotAskLearnedNothing(t *testing.T) {
+	t.Parallel()
+	for reason, want := range map[string]bool{
+		teammove.ReasonBusy: true, teammove.ReasonOldBackendFailed: true,
+		teammove.ReasonOldBackendRefused: false, teammove.ReasonStore: false,
+		teammove.ReasonNewBackendFailed: false, teammove.ReasonNewBackendRefused: false, teammove.ReasonEachOther: false,
+		teammove.ReasonRejoinRefused: false, teammove.ReasonJoinRefused: false, teammove.ReasonNoRecord: false,
+		teammove.ReasonRecordElsewhere: false, teammove.ReasonLeft: false, "": false,
+	} {
+		if got := learnedNothing(reason); got != want {
+			t.Errorf("learnedNothing(%q) = %v, want %v", reason, got, want)
+		}
+	}
 }
 
 // TestAStartThatCouldNotAskSaysWhatTheLastFollowLeft (work item 341): the

@@ -358,8 +358,11 @@ func TestFollowIsRefusedAndChangesNothing(t *testing.T) {
 		{"the old backend's adapter keeps no record of moves", func(r *rig) { r.b.noRecord = true }, teammove.ReasonNoCapability, false},
 		{"the old backend refuses", func(r *rig) {
 			r.b.movedErr = &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+		}, teammove.ReasonOldBackendRefused, true},
+		{"the old backend does not answer", func(r *rig) {
+			r.b.movedErr = &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"}
 		}, teammove.ReasonOldBackendFailed, true},
-		{"the old backend answers a shape that is not the protocol's", func(r *rig) { r.b.moved = &protocol.TeamMoveResult{Moved: true} }, teammove.ReasonOldBackendFailed, true},
+		{"the old backend answers a shape that is not the protocol's", func(r *rig) { r.b.moved = &protocol.TeamMoveResult{Moved: true} }, teammove.ReasonOldBackendRefused, true},
 		{"no move is recorded", func(r *rig) { r.b.moved = &protocol.TeamMoveResult{TeamRef: teamRef} }, teammove.ReasonNoRecord, true},
 		{"the record names another url", func(r *rig) { r.b.moved.URL = "https://elsewhere.example.test" }, teammove.ReasonRecordElsewhere, true},
 		{"the record names another adapter", func(r *rig) { r.b.moved.Adapter = "other" }, teammove.ReasonRecordElsewhere, true},
@@ -1250,6 +1253,52 @@ func TestFollowTellsABackendThatRefusesFromOneThatDidNotAnswer(t *testing.T) {
 			}
 			if _, err := os.Stat(credential); err != nil {
 				t.Fatalf("the membership the machine held is gone: %v", err)
+			}
+			if pin := r.currentPin(); pin != r.pin {
+				t.Fatalf("the pin moved: %+v", pin)
+			}
+		})
+	}
+}
+
+// TestFollowTellsABackendTheMemberJoinedThatRefusesFromOneThatDidNotAnswer
+// (work item 341): the one question a follow asks of the backend the
+// member joined, whether the team moved, is refused, or is not answered.
+// Until this both were one reason, and its readers took it for a backend
+// that did not answer: a member who had been revoked there, over a mark an
+// earlier follow left of the server the team moved to, was told at every
+// start that that server did not answer and that a session tries again,
+// and only his own join got him in. A refusal is an answer, as it is on
+// the other backend's side: the two are told apart, and neither sends a
+// join or moves the pin.
+func TestFollowTellsABackendTheMemberJoinedThatRefusesFromOneThatDidNotAnswer(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		failure error
+		// shape is an answer that is no record of the protocol's.
+		shape  bool
+		reason string
+	}{
+		"it no longer counts the member one": {failure: &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}, reason: teammove.ReasonOldBackendRefused},
+		"a credential it does not know":      {failure: &protocol.Error{Code: protocol.CodeUnauthenticated, Message: "the credential is not known to this server"}, reason: teammove.ReasonOldBackendRefused},
+		"not an envelope":                    {failure: &protocol.Error{Code: protocol.CodeInternal, Message: "the backend answered with something that is not a result envelope"}, reason: teammove.ReasonOldBackendRefused},
+		"a shape that is not the protocol's": {shape: true, reason: teammove.ReasonOldBackendRefused},
+		"it could not be reached":            {failure: &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"}, reason: teammove.ReasonOldBackendFailed},
+		"its answer did not come in time":    {failure: context.DeadlineExceeded, reason: teammove.ReasonOldBackendFailed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			r.b.movedErr = tc.failure
+			if tc.shape {
+				r.b.moved = &protocol.TeamMoveResult{Moved: true}
+			}
+			out, err := r.follow()
+			if out.Followed || out.Reason != tc.reason || err == nil || (tc.failure != nil && !errors.Is(err, tc.failure)) {
+				t.Fatalf("follow: %+v, %v, want %s", out, err, tc.reason)
+			}
+			if len(r.b.called("team moved")) != 1 || len(r.b.called("team join")) != 0 {
+				t.Fatalf("the adapter calls of a follow whose question was not answered with a record: %v", r.b.verbs())
 			}
 			if pin := r.currentPin(); pin != r.pin {
 				t.Fatalf("the pin moved: %+v", pin)

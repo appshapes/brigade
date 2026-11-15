@@ -185,7 +185,13 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			why:   "a session says that the team file does not match of a backend it joined that does not answer, of a follow that did not get the lock and of a member who left: the member's page named none of these, and said that nothing vouched for the change",
 			files: []string{"docs/team-member/join/follow-a-move.md"},
 			gone:  []string{"Then nothing vouched for the change: the administrator"},
-			need:  []string{"The backend you joined could not be asked", "Another session of yours was following or joining", "You left the team on the backend it moved to"},
+			need:  []string{"The backend you joined did not answer", "Another session of yours was following or joining", "You left the team on the backend it moved to"},
+		},
+		{
+			why:   "a backend the member joined that no longer counts them a member has answered: the session does not say again what an earlier one was told of the backend the team moved to, and the member is not told to wait",
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			gone:  []string{"It did not answer, or it no longer counts you a member", "A session that could not ask, the second and third of these"},
+			need:  []string{"The backend you joined no longer counts you a member", "waiting mends nothing", "is not such a case"},
 		},
 		{
 			why:   "a join that the backend a team moved to did not answer is told as a backend that did not answer, and a session that could not ask says what the last one that asked was told",

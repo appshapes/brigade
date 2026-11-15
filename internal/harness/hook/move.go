@@ -445,7 +445,7 @@ func (r *run) follow() int {
 // this machine holds there, or naming the backend the checkout joined as
 // that one names it. It is left as it is by a follow that learned nothing
 // about that backend, because it could not ask: one that did not get the
-// lock, one whose store failed, one whose own backend did not answer.
+// lock, and one whose own backend did not answer (learnedNothing).
 // Until that a follow that never reached the server removed what the last
 // one to reach it had left, and the next prompt said that the team file
 // does not match, of a server that was only down. Every other outcome
@@ -476,14 +476,20 @@ func (r *run) markNotFollowed(stateDir, configDir, canon, teamKey, reason string
 }
 
 // learnedNothing reports whether a follow that ended with reason could not
-// ask about the backend the team file names: it did not get the lock, its
-// store failed, or the backend the member joined did not answer it. Such a
-// follow has no word of its own on that backend. The checkout's mark stays
-// as the last follow that asked left it (markNotFollowed), and a session's
-// start says what that one left, as a prompt does (followMove).
+// ask about the backend the team file names: it did not get the lock, or
+// the backend the member joined did not answer it. Such a follow has no
+// word of its own on that backend. The checkout's mark stays as the last
+// follow that asked left it (markNotFollowed), and a session's start says
+// what that one left, as a prompt does (followMove). Nothing else is such
+// a follow. A refusal from the backend the member joined is an answer
+// (teammove.ReasonOldBackendRefused): a member it has put out waits for
+// nothing, and until the two were told apart his sessions said for ever
+// that the server the team moved to did not answer, over a mark that no
+// follow could take back (work item 341). And a store that failed comes
+// after that backend's answer.
 func learnedNothing(reason string) bool {
 	switch reason {
-	case teammove.ReasonBusy, teammove.ReasonStore, teammove.ReasonOldBackendFailed:
+	case teammove.ReasonBusy, teammove.ReasonOldBackendFailed:
 		return true
 	}
 	return false
