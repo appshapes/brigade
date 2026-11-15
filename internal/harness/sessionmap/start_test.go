@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,23 @@ func TestStartFactsRoundTrip(t *testing.T) {
 	got, err := s.ReadStart(want.ClaudePID)
 	if err != nil || *got != want {
 		t.Fatalf("ReadStart = %+v, %v; want %+v", got, err, want)
+	}
+	// The option that keeps `brigade team move` out of a session (work item
+	// 328) is one word of the file, absent when it is on: facts written
+	// before the option existed read as on.
+	if text, rerr := os.ReadFile(path); rerr != nil || strings.Contains(string(text), "team_move_in_session") {
+		t.Fatalf("facts with the option on carry it: %s, %v", text, rerr)
+	}
+	off := want
+	off.TeamMoveInSession = "off"
+	if err := s.WriteStart(&off); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ReadStart(want.ClaudePID); err != nil || got.TeamMoveInSession != "off" {
+		t.Fatalf("ReadStart with the option off = %+v, %v", got, err)
+	}
+	if text, rerr := os.ReadFile(path); rerr != nil || !strings.Contains(string(text), `"team_move_in_session":"off"`) {
+		t.Fatalf("facts with the option off: %s, %v", text, rerr)
 	}
 	if _, err := s.ReadStart(9999); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("missing start facts: %v", err)

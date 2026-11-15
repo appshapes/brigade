@@ -119,6 +119,12 @@
       "title": "Follow your team when it moves to another backend",
       "description": "on (the default) lets a session follow its team when the team's administrator moved it to another backend, a Brigade server: when this project's .brigade.json names a new backend for the team you joined, the session asks the backend you joined whether its administrator recorded that move, joins the new one only when the record names exactly what the file names, and says in one line that it did. off never follows: the session stays unconnected until you run /brigade:join with the secret file yourself.",
       "default": "on"
+    },
+    "team_move_in_session": {
+      "type": "string",
+      "title": "Let a session move a team you administer to another backend",
+      "description": "on (the default) lets brigade team move run inside your sessions: a session can then move a team you created to a Brigade server (/brigade:move, with the server's URL and the path of the team's secret file that you give it), record where a team went and clear that record. Every member's next session follows such a move. off refuses the three inside a session and says to run them in your own terminal; brigade team move --show still reads the record. It changes nothing for a team you did not create: only its creator can move it.",
+      "default": "on"
     }
   }
 }

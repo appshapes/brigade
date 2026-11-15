@@ -1,60 +1,87 @@
 # Move the team to a server
 
-Your team is in a Supabase project and is going to a Brigade server. You do three things, in this order, and your
-members do nothing: their next session follows. It works from plugin 0.55.0, on a server of 0.5.0 or later, and
-needs the migration `20261114120000_team_move` applied to the Supabase project the team is leaving
-([Know which migration adds what](../../project-owner/update/migrations.md)). The whole move, with the
-operator's steps, is in [Move a team from Supabase](../../project-owner/server/move-from-supabase.md).
+Your team is in a Supabase project and is going to a Brigade server. You run one command in a checkout of the
+team, and your members run none: each one's next session follows. It works from plugin 0.56.0, on a server of
+0.7.0 or later, and needs the migration `20261114120000_team_move` applied to the Supabase project the team is
+leaving ([Know which migration adds what](../../project-owner/update/migrations.md)). The whole move, with what
+the server's operator and the Project Owner do first, is in
+[Move a team from Supabase](../../project-owner/server/move-from-supabase.md). A server older than 0.7.0 takes no
+team in by request: [With an older server](#with-an-older-server).
 
 ## What you need
 
 | | |
 | --- | --- |
-| The team taken in on the server, and its move opened | The server's operator does both, and gives you the server's URL, its certificate fingerprint if it has one, and the ticket's file ([Let a team's members follow it](../../project-owner/server/open-a-move.md)). |
-| The team's join secret file | The file `team create` wrote. You join the server with it. |
-| Your own terminal | `team move` refuses inside a session when it records or clears. |
-| Every member on plugin 0.55.0 or later | An older plugin does not follow: that member's next session says the file does not match, and they join with the secret file as before. |
+| The server's URL | Its operator gives it, with the certificate's fingerprint when the server made its own certificate, and a file that holds its creation token when it asks for one ([Hand over the values](../../project-owner/server/hand-over-the-values.md)). |
+| The team's join secret file | The file `team create` wrote, outside the repository. The command reads it. You never type the secret, and nobody else needs the file. |
+| To be the team's creator | Only the member who created the team on the old backend can move it, from a machine that is joined to it. |
+| Every member on plugin 0.55.0 or later | An older plugin does not follow. The command names the sessions that are online on one. |
 
-## 1. Point the team file at the server, and join
+## 1. Run the one command
 
-In one checkout, change `.brigade.json` as [Take in a team that exists](../../project-owner/server/take-in-a-team.md#point-the-team-at-the-server)
-shows: `adapter` becomes `rest`, `url` the server's, `publishable_key` goes, `certificate` is added when the
-server made its own, and `team_ref` stays. Do not commit yet. Then join, in a session opened there:
-
-```text
-/brigade:join ~/brigade-<team>.secret
-```
-
-You are the first to join the team on the server, so you own it there: you may rotate its secret, revoke a member
-and transfer it. Join before you record the move. A member that the ticket lets in never becomes the owner, and
-`team move` refuses to record until this machine has joined.
-
-## 2. Record the move
-
-In your terminal, in the same checkout:
+In a session, ask it to move the team (`/brigade:move` in Claude Code). It asks you for the values above, one at
+a time, and runs the command. It never asks for the secret itself: it asks for the path of its file. Or run the
+command yourself, in a terminal or with `!` in a session, in the checkout:
 
 ```sh
-brigade team move --ticket-file ~/<team>.ticket
+brigade team move --to <url> --secret-file <path>
 ```
 
-- It shows what it is about to record and asks: the team, the host it is leaving, the server's host, the adapter
-  and the certificate fingerprint. Answer `y`.
-- **Where the team went is read from `.brigade.json`**, so the record names exactly what each member's session
-  compares it with. Nothing is typed.
-- **It is recorded on the backend the team is leaving**, as you: only the team's creator can.
-- The ticket is read from the file. It is never an argument, and nothing printed repeats it. Keep the file
-  outside the repository; delete it once the move is recorded.
-- `brigade team move --show` reads the record back and says whether it names what `.brigade.json` names.
+For example `brigade team move --to https://brigade.example.com:8743 --secret-file ~/brigade-<team>.secret`. Add:
 
-## 3. Push the team file
+| | |
+| --- | --- |
+| `--certificate sha256:<fingerprint>` | for a server that made its own certificate. The fingerprint goes into `.brigade.json`, and each member's session trusts that certificate and no other. |
+| `--create-token-file <path>` | for a server that asks for a creation token: the file its operator gave you, outside the repository. |
+| `--ticket-days <n>` | to keep the move open for `n` days, from 1 to 365, in place of 30. |
 
-Commit and push `.brigade.json`, in every repository of the team. From then on a member's next session, in a
-checkout that was joined to the team on the old backend, follows: it says in one line that it followed the team,
-where to, and that you recorded the move. A session that was already running follows at its next prompts once
-its checkout has the changed file, on a plugin later than 0.55.0: the first prompt starts the follow, a later
-one moves the session and says the same line. On 0.55.0 it stays where it is until it ends. Move at a quiet
-moment: messages that are waiting on the old backend stay there, and a running session that holds any stays
-with them until its member releases them.
+What it does, in this order:
+
+1. **Checks, and changes nothing.** This checkout's `.brigade.json` names the backend the team is on, and this
+   machine is joined there. The secret file holds this team's secret. The old backend can keep a record, and you
+   are the team's creator. It lists the sessions that are online on a plugin older than 0.55.0.
+2. **Shows what it is about to do, and asks**: the team, the host it is leaving, the server's host and the
+   certificate's fingerprint. In a terminal you answer `y`. In a session nobody can be asked, so it prints the
+   same line and proceeds.
+3. **Takes the team in on the server**, with you as its owner, under the label you have on the old backend.
+4. **Opens the move.** The ticket goes to a private file under Brigade's state directory and is removed when the
+   command ends. You never see it.
+5. **Records the move** on the old backend, with the destination you typed.
+6. **Only then rewrites `.brigade.json`**: `adapter` becomes `rest`, `url` the server's, `certificate` is added
+   when you gave one, `publishable_key` goes, and everything else stays as it was. This checkout is joined to the
+   team on the server.
+7. **Says what was done and what is left.**
+
+Run the same command again after a failure: every step is safe to repeat, and the command says so when it stops
+part way. Move at a quiet moment: messages that are waiting on the old backend stay there, and a running session
+that holds any stays with them until its member releases them.
+
+## 2. Push the team file
+
+Commit and push `.brigade.json`, in every repository of the team: the file this checkout now has goes into each.
+From then on a member's next session, in a checkout that was joined to the team on the old backend, follows: it
+says in one line that it followed the team, where to, and that you recorded the move. A session that was already
+running follows at its next prompts once its checkout has the changed file, on a plugin later than 0.55.0: the
+first prompt starts the follow, a later one moves the session and says the same line. On 0.55.0 it stays where it
+is until it ends.
+
+`brigade team move --show` reads the record back and says whether it names what `.brigade.json` names.
+
+## When the command stops
+
+Each refusal says what to do. Nothing is written before the checks pass.
+
+| It says | What to do |
+| --- | --- |
+| the project lacks the migration `20261114120000_team_move` | The Project Owner applies it: `make backend-install project=<ref>` ([Update](../../project-owner/update/README.md)). Then run the command again. |
+| only the member who created this team can move it | Run it on the administrator's machine, or [transfer the team](transfer-the-team.md) first. |
+| the file holds the join secret of another team | Name the file `team create` wrote for this team. |
+| the server takes no team in by request | It is older than 0.7.0: [With an older server](#with-an-older-server). |
+| the server asks for a creation token, or refused the one you gave | Ask its operator for the token's file, and pass `--create-token-file <path>`. |
+| the team is held on the server and owned by someone else | Someone took the team in there before you. The server's operator names you its owner ([Name a team's owner](../../project-owner/server/name-the-owner.md)); then run the command again. |
+| the server holds a team of this reference under another join secret | Tell the server's operator: this team cannot be taken in there. |
+| the server did not take the team in | It could not be reached, or its answer did not arrive. Run the same command again, on the same machine. |
+| `Run the same command again to finish the move` | It stopped after the server took the team in. Remove the cause and run it again. |
 
 ## What a member sees, and when they do not follow
 
@@ -68,14 +95,57 @@ before when:
 - they set the option `follow_team_move` to `off`, or their plugin is older than 0.55.0;
 - the session runs in Grok Build and was running when the file changed: it follows when it starts;
 - the record names anything other than what the file they pulled names: check with `brigade team move --show`;
-- the ticket has ended, the operator closed the move, or you rotated the join secret on the server;
+- the ticket has ended, the move was closed, or you rotated the join secret on the server;
 - their session on the old backend has ended (they left the team there, or were revoked).
+
+## From a session, and how to turn that off
+
+`brigade team move` runs inside a session, so the session you work in can make the move: you give it the server's
+URL and the paths, and it runs the command and prints what the command printed. The skill never asks for a
+secret's content, never chooses a path and never writes a secret file.
+
+To keep it out of your sessions, set the option `team_move_in_session` to `off`
+([Know the options](../../team-member/configure/options.md)). The command then refuses inside a session when it
+would move a team, record a move or clear a record, and you run it in your own terminal. `--show` reads the
+record anywhere.
+
+To be asked each time instead, in Claude Code, add an ask rule to your settings:
+`"ask": ["Bash(brigade team move*)"]`. Without it the command runs with no dialog wherever `brigade` commands are
+allowed already: under a `Bash(brigade:*)` rule of your own, and in a turn that loaded the `team-messaging`
+skill. What a session-led move opens is in
+[Security, section 21](../../security.md#21-a-team-that-moves-to-another-backend).
+
+## With an older server
+
+A server older than 0.7.0 takes no team in by request, and the one command says so. Its operator does the
+server's side, and you do yours in three steps.
+
+1. The operator takes the team in and opens its move, with the server stopped
+   ([Take in a team that exists](../../project-owner/server/take-in-a-team.md),
+   [Let a team's members follow it](../../project-owner/server/open-a-move.md)), and gives you the server's URL,
+   its certificate fingerprint if it has one, and the ticket's file. They need the team's join secret file and
+   its name from you, the file the way a join secret is given: never in chat.
+2. In one checkout, change `.brigade.json` as
+   [Take in a team that exists](../../project-owner/server/take-in-a-team.md#point-the-team-at-the-server) shows,
+   and do not commit yet. Join, in a session opened there: `/brigade:join ~/brigade-<team>.secret`. You are the
+   first to join the team on the server, so you own it there. Join before you record the move: a member that the
+   ticket lets in never becomes the owner, and the record is refused until this machine has joined.
+3. Record the move, in a terminal or a session, in the same checkout:
+
+   ```sh
+   brigade team move --ticket-file ~/<team>.ticket
+   ```
+
+   It shows what it is about to record and asks. Where the team went is read from `.brigade.json`, so the record
+   names exactly what each member's session compares it with. The ticket is read from the file: it is never an
+   argument, and nothing printed repeats it. Keep the file outside the repository, and delete it once the move
+   is recorded. Then [push the team file](#2-push-the-team-file).
 
 ## Undo it, and end it
 
 - `brigade team move --clear` removes the record: the old backend no longer says where the team went, so no
-  session follows from then on. It does not end the ticket. The server's operator closes the move, or it runs
-  out.
+  session follows from then on. It does not end the ticket. The move ends when the ticket runs out, when you
+  rotate the join secret on the server, or when the server's operator closes it.
 - Clear the record **before** you point `.brigade.json` back at the old backend. If the file already names it,
   say which backend holds the record: `brigade team move --clear --from <the old backend's host>`, and
   `--show --from <host>` reads it.

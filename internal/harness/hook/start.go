@@ -677,15 +677,23 @@ const doingCapability = "session.description"
 // written, never a label — the account email is read at the point of use,
 // so this file never carries a member's email. Through sessionmap (the
 // state directory), never the team store: the hook still cannot join.
+// The `team_move_in_session` option rides along too (work item 328, ADR
+// 0006), as the one word a command reads: "off" when the member turned it
+// off, nothing when it is on.
 func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 	store := sessionmap.Store{StateDir: f.stateDir}
+	teamMove := ""
+	if !opts.TeamMoveInSession {
+		teamMove = config.SyncOff
+	}
 	err := store.WriteStart(&sessionmap.StartFacts{
-		ClaudePID:       f.pid,
-		ClaudeSessionID: in.SessionID,
-		ConfigDir:       opts.ConfigDir,
-		PluginBin:       f.pluginBin,
-		LabelOption:     opts.Label,
-		WrittenAt:       r.deps.Now(),
+		ClaudePID:         f.pid,
+		ClaudeSessionID:   in.SessionID,
+		ConfigDir:         opts.ConfigDir,
+		PluginBin:         f.pluginBin,
+		LabelOption:       opts.Label,
+		TeamMoveInSession: teamMove,
+		WrittenAt:         r.deps.Now(),
 	})
 	if err != nil {
 		r.log.Warn("session-start: start facts not written", log.Err(err))
@@ -1514,6 +1522,11 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 	// the day it matters (work item 273).
 	if res.opts.FollowTeamMoveWarning != "" {
 		warnings = append(warnings, res.opts.FollowTeamMoveWarning)
+	}
+	// The same for the option that keeps `team move` out of a session
+	// (work item 328, ADR 0006).
+	if res.opts.TeamMoveInSessionWarning != "" {
+		warnings = append(warnings, res.opts.TeamMoveInSessionWarning)
 	}
 	for _, w := range warnings {
 		r.say(w)

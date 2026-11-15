@@ -48,7 +48,10 @@ take-in`, `team open-move` and `team close-move`) run in the second and in `make
 and against the built server: only the `rest` adapter advertises `team.take_in`. The move itself, a member's session following its team with no
 command run, is proven end to end from the fs adapter in `make server-test`, and from the local Supabase stack by
 `make test-move-live`, which needs the stack and a Rust toolchain together and so is run by a developer and by no
-CI job. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
+CI job. The move by one command, `brigade team move --to` (work item 328), is proven the same way in
+`internal/harness/e2e/rest_move_test.go`: from the fs adapter to the stand-in server in `make test` and to the
+built server in `make server-test` (the move and what stops it, the command stopped at each step and run again,
+and the move made from inside a session), and from the local Supabase stack in `make test-move-live`. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
 `--setup <cmd>` when principals are provisioned out of band ([Write an adapter](../change/adapters.md)). Its own
 positive control is four deliberately broken builds of the reference adapter, each of which must fail exactly its
 own cases.

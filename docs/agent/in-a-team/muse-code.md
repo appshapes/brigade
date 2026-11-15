@@ -8,7 +8,7 @@ map. The reader uses `$HOME/.local/share/muse/sessions`: Muse strips `XDG_*` fro
 directories are unsupported. Missing/unsupported records preserve the last known name and leave unobserved
 context blank. See [format evidence, validation limits and read bounds](../../research/host-session-facts.md).
 
-The Muse Code package (`muse/brigade/`) ships the same fourteen skills, worded for Muse. They are the model's
+The Muse Code package (`muse/brigade/`) ships the same fifteen skills, worded for Muse. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
@@ -17,8 +17,9 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`muse/brigade/skills/sessions/SKILL.md`](../../../muse/brigade/skills/sessions/SKILL.md) | the sessions command | print the roster verbatim |
 | [`muse/brigade/skills/whoami/SKILL.md`](../../../muse/brigade/skills/whoami/SKILL.md) | the whoami command | print `brigade whoami`, this session's identity, verbatim |
 | [`muse/brigade/skills/join/SKILL.md`](../../../muse/brigade/skills/join/SKILL.md) | the join command | run `brigade team join --secret-file <path>` on the file the user named |
+| [`muse/brigade/skills/move/SKILL.md`](../../../muse/brigade/skills/move/SKILL.md) | the move command, and the model when the team's administrator asks to move the team to a Brigade server | ask the administrator for the server's URL and the paths it needs, never a secret's content; run `brigade team move --to <url> --secret-file <path>` and print what it printed |
 | [`muse/brigade/skills/update/SKILL.md`](../../../muse/brigade/skills/update/SKILL.md) | the update command | refresh the marketplace, remove and reinstall the package (the person approves the hooks), then a new session; a clone install pulls and updates |
-| [`muse/brigade/skills/setup/SKILL.md`](../../../muse/brigade/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures |
+| [`muse/brigade/skills/setup/SKILL.md`](../../../muse/brigade/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures, and that the `move` skill moves a team to a server |
 | [`muse/brigade/skills/email/SKILL.md`](../../../muse/brigade/skills/email/SKILL.md) | the email command | one `brigade send` to the mail gateway |
 | [`muse/brigade/skills/slack/SKILL.md`](../../../muse/brigade/skills/slack/SKILL.md) | the slack command | one `brigade send` to the Slack gateway |
 | [`muse/brigade/skills/quiet/SKILL.md`](../../../muse/brigade/skills/quiet/SKILL.md) | the quiet command | make this one session quiet with `brigade inbound hold`, the roster line and a standing instruction; `off` returns it |

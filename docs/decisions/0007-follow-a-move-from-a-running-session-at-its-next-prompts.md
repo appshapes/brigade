@@ -98,7 +98,7 @@ start follows on.
 
 - 2026-11-14, this machine (macOS, arm64), the built `brigade`, the fs adapter as the backend the team leaves and
   the built server 0.6.0 as the one it goes to
-  (`TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary`, `internal/harness/e2e/rest_move_test.go`):
+  (`TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary`, `internal/harness/e2e/rest_follow_test.go`):
   a session attached on the old backend followed in two prompts and was listed on the server's roster under its
   name; a new watcher served it, the old one was gone and had closed the old session, and a message sent on the
   server reached it. A team file naming an address the test listened on, with no record, earned one `team moved`

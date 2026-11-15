@@ -183,6 +183,49 @@ func Host(raw string) string {
 	return raw
 }
 
+// FollowsFromVersion is the first Brigade version whose sessions follow a
+// recorded move (0.55.0, work item 273): a session of an older one says
+// that its team file does not match, and its member joins with the secret
+// file as before.
+const FollowsFromVersion = "0.55.0"
+
+// followsFrom is FollowsFromVersion in numbers.
+var followsFrom = [3]int{0, 55, 0}
+
+// OlderThanFollow reports whether a session that reports the Brigade
+// version v is older than the first one that follows a recorded move. Only
+// a version this build can read counts: three dot-separated runs of
+// decimal digits, with whatever follows a `-` or a `+` left out (a
+// development build reports `0.55.0-dev`). Anything else, "" and
+// "unknown" included, is false: nothing is said about a session whose
+// version cannot be read.
+func OlderThanFollow(v string) bool {
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) != len(followsFrom) {
+		return false
+	}
+	var got [3]int
+	for i, part := range parts {
+		// Nine digits at most: a run that long is no version, and it keeps
+		// the number inside an int on every platform.
+		if part == "" || len(part) > 9 || strings.Trim(part, "0123456789") != "" {
+			return false
+		}
+		for _, digit := range part {
+			got[i] = got[i]*10 + int(digit-'0')
+		}
+	}
+	for i := range got {
+		if got[i] != followsFrom[i] {
+			return got[i] < followsFrom[i]
+		}
+	}
+	return false
+}
+
 // Follow follows the move in.File names, when the backend in.Pin names
 // says the team's administrator recorded exactly that move. It returns
 // Followed false with a Reason whenever it did not, having changed nothing
@@ -300,7 +343,7 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		if reason, jerr := join(ctx, in, newClient, newKey, ticket, old.HumanLabel); reason != "" {
 			return Outcome{Reason: reason}, jerr
 		}
-		carryLabelOrigin(in, oldKey, newKey, old.HumanLabel)
+		CarryLabelOrigin(in.ConfigDir, oldKey, newKey, old.HumanLabel, in.Now().UTC(), in.Log)
 		joined = true
 	}
 	if in.BeforePin != nil {
@@ -388,23 +431,25 @@ func join(ctx context.Context, in Inputs, client Caller, key, ticket, label stri
 	return "", nil
 }
 
-// carryLabelOrigin copies the record of where the member's label came from
+// CarryLabelOrigin copies the record of where the member's label came from
 // to the new credential directory, when the old one describes the label
 // that was just sent: the label is the same text, from the same source,
 // and `whoami` goes on saying where it came from. Best effort, as the
 // record is everywhere: without it `whoami` says the origin is unrecorded.
-func carryLabelOrigin(in Inputs, oldKey, newKey, label string) {
+// The follow calls it after its join, and `team move --to` after the
+// administrator's take-in (work item 328), which sends the same label.
+func CarryLabelOrigin(configDir, oldKey, newKey, label string, now time.Time, log *slog.Logger) {
 	if label == "" {
 		return
 	}
-	origin, err := teamstore.LoadLabelOrigin(in.ConfigDir, oldKey)
+	origin, err := teamstore.LoadLabelOrigin(configDir, oldKey)
 	if err != nil || !origin.Describes(label) {
 		return
 	}
 	carried := *origin
-	carried.SentAt = in.Now().UTC()
-	if err := write.LabelOrigin(in.ConfigDir, newKey, carried); err != nil && in.Log != nil {
-		in.Log.Debug("the label's record was not carried to the new backend's directory", slog.String("error", err.Error()))
+	carried.SentAt = now
+	if err := write.LabelOrigin(configDir, newKey, carried); err != nil && log != nil {
+		log.Debug("the label's record was not carried to the new backend's directory", slog.String("error", err.Error()))
 	}
 }
 

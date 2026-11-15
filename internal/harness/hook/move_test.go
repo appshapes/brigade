@@ -429,6 +429,30 @@ func TestHookSaysAnUnusableFollowOptionAtAnOrdinaryStart(t *testing.T) {
 	}
 }
 
+// TestHookSaysAnUnusableTeamMoveOptionAtAnOrdinaryStart: the same for the
+// option that keeps `brigade team move` out of a session (work item 328,
+// ADR 0006). A value that is neither word is said at the start, in the
+// option's own words, and the session attaches as usual; on and off say
+// nothing.
+func TestHookSaysAnUnusableTeamMoveOptionAtAnOrdinaryStart(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"), config.OptionTeamMoveInSession+"=sometimes")
+	if exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if got := lines(out); !slices.Contains(got, config.WarnTeamMoveInSessionInvalid) || slices.Contains(got, config.WarnFollowTeamMoveInvalid) ||
+		!strings.Contains(got[0], "(brigade-sess-1)") || !f.mapExists() {
+		t.Fatalf("lines = %q, map %v: want the context line first, the option's warning alone, and a session that attached", got, f.mapExists())
+	}
+	for _, word := range []string{"off", "on"} {
+		if exit, out, _ := f.run(SubSessionStart, f.startDoc("startup"), config.OptionTeamMoveInSession+"="+word); exit != 0 || strings.Contains(out, "team_move_in_session") {
+			t.Fatalf("a start with the option %s said something about it: %q", word, out)
+		}
+	}
+}
+
 // TestHookNeverAsksAboutAFileThatNamesAnotherTeam: a file re-pointed to
 // ANOTHER team is not a move, whatever backend it names, and no backend is
 // asked anything: the drift line, as before this work item.
