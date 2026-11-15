@@ -136,10 +136,10 @@ A server older than 0.7.0 takes no team in by request, and the one command says 
 server's side, and you do yours in three steps.
 
 1. The operator takes the team in and opens its move, with the server stopped
-   ([Take in a team that exists](../../project-owner/server/take-in-a-team.md),
-   [Let a team's members follow it](../../project-owner/server/open-a-move.md)), and gives you the server's URL,
-   its certificate fingerprint if it has one, and the ticket's file. They need the team's join secret file and
-   its name from you, the file the way a join secret is given: never in chat.
+   ([Take in a team that exists](../../project-owner/server/take-in-a-team.md#take-the-team-in-yourself),
+   [Let a team's members follow it](../../project-owner/server/open-a-move.md#open-the-move-yourself)), and
+   gives you the server's URL, its certificate fingerprint if it has one, and the ticket's file. They need the
+   team's join secret file and its name from you, the file the way a join secret is given: never in chat.
 2. In one checkout, change `.brigade.json` as
    [Take in a team that exists](../../project-owner/server/take-in-a-team.md#point-the-team-at-the-server) shows,
    and do not commit yet. Join, in a session opened there: `/brigade:join ~/brigade-<team>.secret`. You are the

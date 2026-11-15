@@ -51,8 +51,8 @@ its name, the file the way a join secret is given: never in chat.
 
 | | Step | Who | Details |
 | --- | --- | --- | --- |
-| 1 | Take the team in: stop the server, `brigade-server --data <dir> --import-team <name> --join-secret-file <file>`, start it. | operator | [Take in a team that exists](take-in-a-team.md) |
-| 2 | Open the move, between a stop and a start again: `--open-move <team_ref> --ticket-file <file>`. Give the ticket's file to the Team Admin the way you would give a join secret. | operator | [Let a team's members follow it](open-a-move.md) |
+| 1 | Take the team in: stop the server, `brigade-server --data <dir> --import-team <name> --join-secret-file <file>`, start it. | operator | [Take in a team that exists](take-in-a-team.md#take-the-team-in-yourself) |
+| 2 | Open the move, between a stop and a start again: `--open-move <team_ref> --ticket-file <file>`. Give the ticket's file to the Team Admin the way you would give a join secret. | operator | [Let a team's members follow it](open-a-move.md#open-the-move-yourself) |
 | 3 | In one checkout, point `.brigade.json` at the server: `adapter` becomes `rest`, `url` the server's, `publishable_key` goes, `certificate` is added when the server made its own, `team_ref` stays. Do not commit yet. Join there: `/brigade:join <the secret file>`. | Team Admin | [With an older server](../../team-admin/members/move-the-team.md#with-an-older-server) |
 | 4 | In that checkout: `brigade team move --ticket-file <path>`, and answer `y`. | Team Admin | the same page |
 | 5 | Commit and push `.brigade.json`, in every repository of the team. | Team Admin | the same page |
