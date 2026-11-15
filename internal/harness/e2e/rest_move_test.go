@@ -4,10 +4,12 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json/v2"
 	"errors"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +20,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/account"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
@@ -291,9 +294,12 @@ func (s *olderServer) asked() []string {
 // is told to, loses the answer of every take-in: it hands the request to the
 // server, lets the server carry it out, and closes the connection without a
 // word. It is what a network does to a request whose answer never arrives.
+// Every other request, and every take-in once it is told to stop, is handed
+// on and answered as the server answered it.
 type lossyFront struct {
 	*httptest.Server
 	backend string
+	client  *http.Client
 	mu      sync.Mutex
 	losing  bool
 	// lost counts the take-ins the server answered as done whose answer
@@ -301,23 +307,29 @@ type lossyFront struct {
 	lost int
 }
 
-func startLossyFront(t *testing.T, backend string) *lossyFront {
+// startLossyFront starts a front for backend and answers the server a
+// member's machine is told of: the front's own address. A backend that
+// serves TLS under a pinned certificate gets a front that serves TLS under a
+// certificate of its own, whose pin is the one the member is given, and that
+// trusts the backend by the backend's pin and by nothing else, as the
+// member's adapter would.
+func startLossyFront(t *testing.T, backend restBackend) (*lossyFront, restBackend) {
 	t.Helper()
-	f := &lossyFront{backend: backend, losing: true}
-	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	f := &lossyFront{backend: backend.url, losing: true, client: http.DefaultClient}
+	f.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
 			http.Error(w, "the request could not be read", http.StatusBadGateway)
 			return
 		}
-		//nolint:gosec // G704: the url is the stand-in server's own, and the path one the built adapter asked this front for
-		forward, err := http.NewRequestWithContext(req.Context(), req.Method, f.backend+req.URL.Path, bytes.NewReader(body))
+		//nolint:gosec // G704: the url is the test's own server's, and the path one the built adapter asked this front for
+		forward, err := http.NewRequestWithContext(req.Context(), req.Method, f.backend+req.URL.RequestURI(), bytes.NewReader(body))
 		if err != nil {
 			http.Error(w, "the request could not be forwarded", http.StatusBadGateway)
 			return
 		}
 		forward.Header = req.Header.Clone()
-		answer, err := http.DefaultClient.Do(forward) //nolint:gosec // G704: as above
+		answer, err := f.client.Do(forward) //nolint:gosec // G704: as above
 		if err != nil {
 			http.Error(w, "the server did not answer", http.StatusBadGateway)
 			return
@@ -348,8 +360,33 @@ func startLossyFront(t *testing.T, backend string) *lossyFront {
 		w.WriteHeader(answer.StatusCode)
 		_, _ = w.Write(answered)
 	}))
+	// A request the front drops is a handler that ended without an answer:
+	// nothing of it is worth a line in the test's output.
+	f.Config.ErrorLog = log.New(io.Discard, "", 0)
 	t.Cleanup(f.Close)
-	return f
+	if backend.certificate == "" {
+		f.Start()
+		return f, restBackend{url: f.URL}
+	}
+	f.client = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true, //nolint:gosec // G402: verified by the server's pinned fingerprint, below
+		VerifyConnection: func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 || adapterkit.CertificateFingerprint(state.PeerCertificates[0].Raw) != backend.certificate {
+				return errors.New("the server behind the front does not present the pinned certificate")
+			}
+			return nil
+		},
+	}}}
+	f.StartTLS()
+	return f, restBackend{url: f.URL, certificate: adapterkit.CertificateFingerprint(f.Certificate().Raw)}
+}
+
+// lose tells the front whether a take-in's answer is lost from now on.
+func (f *lossyFront) lose(losing bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.losing = losing
 }
 
 // answersLost is how many take-ins the server carried out whose answer the
@@ -925,23 +962,30 @@ func TestATeamIsMovedFromInsideASessionThroughTheRealBinary(t *testing.T) {
 // TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary: the
 // server takes the team in and its answer never arrives. The one command
 // stops, having recorded and written nothing, and it leaves the profile the
-// server's adapter wrote for the request where it is: that directory is
-// what the next run of the command is the same caller with, so nothing of
-// it may be cleaned away, as it is after a refusal. The server is the
-// stand-in, behind a front that loses the answer; what the next run is
-// answered is the adapter's and the server's to say, and is not held here.
+// server's adapter wrote for the request where it is: that directory holds
+// the retry key the adapter minted (ADR 0005), which is what the next run of
+// the command is the same caller with, so nothing of it may be cleaned away,
+// as it is after a refusal.
+//
+// Then the answers arrive again and the same command is run again. It is
+// the owner the first request made and no second member: the team was on
+// the server already, the move is opened and recorded, the checkout is
+// written, the retry key is gone, a member's next session follows and a
+// message is delivered. The server is the stand-in under `make test` and the
+// built server, over TLS, where `make server-test` names one; a front that
+// loses the answer stands before either.
 func TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.createTeam()
 	m := newMovingTeam(t, r, r.fsAdapterAs(r.configDir))
-	front := startLossyFront(t, startStub(t).url)
-	server := restBackend{url: front.URL}
-	profile := filepath.Join(r.configDir, "teams", teamstore.Key("rest", front.URL, r.teamRef))
+	front, server := startLossyFront(t, startRestBackend(t))
+	profile := filepath.Join(r.configDir, "teams", teamstore.Key("rest", server.url, r.teamRef))
 	if _, err := os.Lstat(profile); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the profile for the server before the move: %v", err)
 	}
 
+	// --- 1. the server takes the team in, and its answer is lost ------------------------------------------
 	res := m.move(m.terminal, "y\n", moveArgs(server, r.secretFile)...)
 	if res.exit == 0 || !strings.Contains(res.stderr, "did not take the team in") || !strings.Contains(res.stderr, "Nothing was recorded") ||
 		strings.Contains(res.stdout, "took") {
@@ -952,16 +996,90 @@ func TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary(t *testing.
 	}
 	m.unmoved("a move whose take-in's answer was lost")
 	// The profile the adapter wrote is where the adapter left it, with what
-	// it holds: the server it names, and no team yet.
+	// it holds: the server it names, no team yet, no credential, and the
+	// retry key of the take-in, in a file that is the member's alone.
 	entries, err := os.ReadDir(profile)
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("the profile's directory after a lost answer: %v, %v", entries, err)
 	}
 	kept, err := teamstore.LoadBinding(r.configDir, filepath.Base(profile))
-	if err != nil || kept.URL != front.URL || kept.TeamRef != "" {
+	if err != nil || kept.URL != server.url || kept.Certificate != server.certificate || kept.TeamRef != "" {
 		t.Fatalf("the profile after a lost answer: %+v, %v", kept, err)
+	}
+	if _, err := os.Lstat(filepath.Join(profile, "credential.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a take-in whose answer was lost left a credential: %v", err)
+	}
+	keyFile := filepath.Join(profile, "take-in-key.json")
+	if info, err := os.Lstat(keyFile); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("the retry key's file after a lost answer: %v, %v", info, err)
+	}
+	text, err := os.ReadFile(keyFile) //nolint:gosec // G304: a file of the test's own store
+	if err != nil {
+		t.Fatal(err)
+	}
+	var minted struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(text, &minted); err != nil || len(minted.Key) < 22 {
+		t.Fatalf("the retry key's file does not hold a key: %v", err)
 	}
 	if strings.Contains(m.said.String(), m.secret) {
 		t.Fatalf("the join secret is in what the move printed")
+	}
+
+	// --- 2. a second answer is lost too: the same key, and still one owner ---------------------------------
+	res = m.move(m.terminal, "y\n", moveArgs(server, r.secretFile)...)
+	if res.exit == 0 || !strings.Contains(res.stderr, "did not take the team in") || front.answersLost() != 2 {
+		t.Fatalf("a second take-in whose answer was lost: exit %d, %d lost\nstdout: %s\nstderr: %s", res.exit, front.answersLost(), res.stdout, res.stderr)
+	}
+	m.unmoved("a second move whose take-in's answer was lost")
+	if again, err := os.ReadFile(keyFile); err != nil || !bytes.Equal(again, text) { //nolint:gosec // G304: as above
+		t.Fatalf("the retry key's file changed between two attempts (%v)", err)
+	}
+
+	// --- 3. the answers arrive again: the same command finishes the move, as the owner the first run made ---
+	front.lose(false)
+	res = m.move(m.terminal, "y\n", moveArgs(server, r.secretFile)...)
+	if res.exit != 0 {
+		t.Fatalf("the move, run again once answers arrive: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	for _, need := range []string{
+		`team "` + teamName + `" (` + r.teamRef + `) was on `, "already, and you own it there",
+		"sent your display label: " + aliceLabel,
+		"opened its move: the ticket admits the team's members until ",
+		"recorded on " + m.oldHost + `: team "` + teamName + `" (` + r.teamRef + `) moved to `,
+		"wrote " + teamfile.FileName + ": it names ",
+	} {
+		if !strings.Contains(res.stdout, need) {
+			t.Errorf("the move's lines lack %q:\n%s", need, res.stdout)
+		}
+	}
+	if strings.Contains(res.stdout, "took team") {
+		t.Errorf("the run that found the team on the server says it took it in:\n%s", res.stdout)
+	}
+	m.movedFile(server)
+	// One member, the administrator: the two requests whose answers were lost
+	// and the one that was answered made one principal between them.
+	if members := m.serverRoster(r.configDir, server); len(members) != 1 || members[aliceLabel] == "" {
+		t.Fatalf("the team's roster on the server after three take-ins: %v", members)
+	}
+	if _, err := os.Lstat(keyFile); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the retry key's file after the take-in was answered: %v", err)
+	}
+	if front.answersLost() != 2 {
+		t.Fatalf("the front lost %d answers, want the two it was told to lose", front.answersLost())
+	}
+
+	// --- 4. a member's next session follows, and the team works -------------------------------------------
+	ticket, ticketRead := m.ticket()
+	m.followsAndTalks(server)
+	m.noSecrets(ticket, r.secretFile, ticketRead, filepath.Join(r.root, "teams", r.teamRef, "move.json"))
+	// The retry key was in one file for as long as it was needed, and nowhere else.
+	argv, _ := os.ReadFile(r.argvLog)
+	if strings.Contains(m.said.String(), minted.Key) || bytes.Contains(argv, []byte(minted.Key)) {
+		t.Errorf("the retry key is in what a team move printed or on an adapter child's argv")
+	}
+	if hits := tokenHits(t, minted.Key, r.dirs.Root); len(hits) != 0 {
+		t.Errorf("the retry key is still in %v", hits)
 	}
 }
