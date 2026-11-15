@@ -480,7 +480,7 @@ func (fx *fixture) useFS() {
 	fx.owner = fx.fsClient("default")
 	fx.peer = fx.fsClient("peer")
 
-	env := adapterCall(t, "team create", func(ctx context.Context) (*protocol.Envelope, error) {
+	env := adapterCall(fx, "the fixture's team create", func(ctx context.Context) (*protocol.Envelope, error) {
 		return fx.owner.Call(ctx, "team", "create", nil, &protocol.TeamCreateRequest{TeamName: fx.teamName, HumanLabel: "owner@example.com"})
 	})
 	var created protocol.TeamCreateResult
@@ -493,7 +493,7 @@ func (fx *fixture) useFS() {
 		Activity: protocol.ActivityIdle, Inbound: fx.inbound,
 	}).SessionID
 
-	adapterCall(t, "team join", func(ctx context.Context) (*protocol.Envelope, error) {
+	adapterCall(fx, "the fixture's team join", func(ctx context.Context) (*protocol.Envelope, error) {
 		return fx.peer.Call(ctx, "team", "join", nil, &protocol.TeamJoinRequest{JoinSecret: created.JoinSecret, HumanLabel: "peer@example.com"})
 	})
 	fx.senderSessionID = fx.register(fx.peer, &protocol.SessionRegistration{
@@ -528,7 +528,7 @@ func (fx *fixture) sendWith(body, key string) string {
 	if key == "" {
 		key = "send-" + testutil.RunID() + "-" + strconv.FormatInt(sendKeys.Add(1), 10)
 	}
-	res := adapterCall(fx.t, "send to the watched session", func(ctx context.Context) (*protocol.SendResponse, error) {
+	res := adapterCall(fx, "the send to the watched session", func(ctx context.Context) (*protocol.SendResponse, error) {
 		return fx.peer.Send(ctx, &protocol.SendRequest{
 			SenderSessionID: fx.senderSessionID, RecipientSessionID: fx.sessionID, Body: body, IdempotencyKey: key,
 		})
@@ -987,22 +987,56 @@ func (fx *fixture) warnings() string {
 // its work by then. (It was made again at first, and a team create that had
 // outlasted its thirty seconds was refused the second time, the team being
 // there.)
-func adapterCall[T any](t *testing.T, what string, call func(ctx context.Context) (T, error)) T {
+//
+// The deadline of one call is the long hang catcher, a minute. It was
+// thirty seconds, and a fixture's team create outlasted them twice beside
+// other suites (2026-11-15: `team create: adapter did not finish within its
+// deadline`). A create takes the store's lock, which nobody else has in a
+// store that is being made, and then writes and syncs a handful of files;
+// which of them it waited on those runs did not say, the adapter's own
+// stderr not being in the failure. It is now: a call that fails names
+// itself, says when it was the test's deadline that ended it, and prints
+// what the adapter wrote to its log.
+func adapterCall[T any](fx *fixture, what string, call func(ctx context.Context) (T, error)) T {
+	t := fx.t
 	t.Helper()
 	deadline := time.Now().Add(waitLong)
 	for {
-		ctx, cancel := context.WithTimeout(t.Context(), waitShort)
+		ctx, cancel := context.WithTimeout(t.Context(), waitLong)
 		got, err := call(ctx)
 		cancel()
 		if err == nil {
 			return got
 		}
 		var perr *protocol.Error
-		if !errors.As(err, &perr) || perr.Code != protocol.CodeUnavailable || perr.Details["reason"] != "lock_timeout" || !time.Now().Before(deadline) {
-			t.Fatalf("%s: %v", what, err)
+		switch {
+		case !errors.As(err, &perr) || perr.Code != protocol.CodeUnavailable:
+			t.Fatalf("%s: %v\n%s", what, err, fx.adapterLogs())
+		case perr.Details["reason"] == "timeout":
+			t.Fatalf("%s did not end within %v, the hang catcher of a test's own call to the adapter: %v\n%s", what, waitLong, err, fx.adapterLogs())
+		case perr.Details["reason"] != "lock_timeout" || !time.Now().Before(deadline):
+			t.Fatalf("%s: %v (%v)\n%s", what, err, perr.Details, fx.adapterLogs())
 		}
 		t.Logf("%s: the store's lock could not be had, asked again: %v", what, err)
 	}
+}
+
+// adapterLogs is what the adapter's children wrote to stderr, which the
+// client keeps under the state directory, one file for each profile.
+func (fx *fixture) adapterLogs() string {
+	paths, _ := filepath.Glob(filepath.Join(fx.dirs.BrigadeState, "logs", "adapter-*.log"))
+	var b strings.Builder
+	for _, p := range paths {
+		data, err := os.ReadFile(p) //nolint:gosec // G304: the test's own directory
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "%s:\n%s\n", filepath.Base(p), data)
+	}
+	if b.Len() == 0 {
+		return "the adapter's log: nothing"
+	}
+	return "the adapter's log:\n" + b.String()
 }
 
 // TestAdapterCallAsksAgainWhenTheLockCouldNotBeHad is adapterCall's
@@ -1011,7 +1045,7 @@ func adapterCall[T any](t *testing.T, what string, call func(ctx context.Context
 func TestAdapterCallAsksAgainWhenTheLockCouldNotBeHad(t *testing.T) {
 	t.Parallel()
 	asked := 0
-	got := adapterCall(t, "a call whose first answer is the lock's", func(context.Context) (string, error) {
+	got := adapterCall(&fixture{t: t}, "a call whose first answer is the lock's", func(context.Context) (string, error) {
 		if asked++; asked == 1 {
 			return "", &protocol.Error{Code: protocol.CodeUnavailable, Message: "timed out waiting for the file lock", Details: map[string]string{"reason": "lock_timeout"}}
 		}
@@ -1051,7 +1085,7 @@ func beforeFirst(verb string, do func()) adapterclient.SpawnFunc {
 // register registers a session through client (adapterCall).
 func (fx *fixture) register(client *adapterclient.Client, reg *protocol.SessionRegistration) *adapterclient.RegisterResult {
 	fx.t.Helper()
-	return adapterCall(fx.t, "register the session "+strconv.Quote(reg.SessionName), func(ctx context.Context) (*adapterclient.RegisterResult, error) {
+	return adapterCall(fx, "the registration of the session "+strconv.Quote(reg.SessionName), func(ctx context.Context) (*adapterclient.RegisterResult, error) {
 		return client.Register(ctx, reg)
 	})
 }
@@ -1060,7 +1094,7 @@ func (fx *fixture) register(client *adapterclient.Client, reg *protocol.SessionR
 // (adapterCall).
 func (fx *fixture) received(client *adapterclient.Client, sessionID string) []protocol.MessageEnvelope {
 	fx.t.Helper()
-	got := adapterCall(fx.t, "receive the messages of session "+sessionID, func(ctx context.Context) (*adapterclient.ReceiveResult, error) {
+	got := adapterCall(fx, "the read of the messages of session "+sessionID, func(ctx context.Context) (*adapterclient.ReceiveResult, error) {
 		return client.Receive(ctx, sessionID, 10)
 	})
 	return got.Messages
