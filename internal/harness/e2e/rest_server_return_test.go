@@ -1961,3 +1961,77 @@ func TestARunningSessionLeavesWhatAFollowLeftThatIsStillTrueThroughTheRealBinary
 		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 	}
 }
+
+// TestTheCommandsAMovePrintsRunAsPrintedWhereOneHostCarriesTheTeamsServersThroughTheRealBinary:
+// three servers behind one host and port, each under a path of its own.
+// A command the move prints names a backend after `--from`, and until this
+// it named it by its host: there the host names every server the team has
+// been on, and the command was refused as printed, with the undo of a move
+// among them.
+//
+//  1. The first move's undo names no backend: there is one to clear.
+//  2. The second move's undo names the server the team left by its whole
+//     address. Run as printed, it clears that server's record.
+//  3. The same command run again, which chooses no backend here, prints
+//     itself for each by its whole address. The one for the server the
+//     team left, run as printed, records the move there again.
+func TestTheCommandsAMovePrintsRunAsPrintedWhereOneHostCarriesTheTeamsServersThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	behind := startBehindOneHost(t, map[string]restBackend{"a": startRestBackend(t), "b": startRestBackend(t), "c": startRestBackend(t)})
+	a, b, c := behind["a"], behind["b"], behind["c"]
+	if teammove.Host(a.url) != teammove.Host(b.url) || teammove.Host(b.url) != teammove.Host(c.url) {
+		t.Fatalf("the arrangement: the three are not behind one host: %s %s %s", a.url, b.url, c.url)
+	}
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	moved := func(to restBackend) result {
+		t.Helper()
+		res := r.runIn(r.checkout, term, "y\n", moveArgs(to, r.secretFile)...)
+		if res.exit != 0 {
+			t.Fatalf("the one command to %s: exit %d\nstdout: %s\nstderr: %s", to.url, res.exit, res.stdout, res.stderr)
+		}
+		return res
+	}
+
+	// --- 1. the first move: one backend to clear, and the undo names none --------------------------------------
+	if undo := printed(t, moved(b).stdout, "brigade team move --clear"); undo != "brigade team move --clear" {
+		t.Fatalf("the undo of the first move: %q", undo)
+	}
+
+	// --- 2. the second move: the undo names the server the team left by its whole address ----------------------
+	undo := printed(t, moved(c).stdout, "brigade team move --clear")
+	if undo != "brigade team move --clear --from "+b.url {
+		t.Fatalf("the undo of a move among servers behind one host: %q, want the whole address of the server the team left, %s", undo, b.url)
+	}
+	if res := r.runIn(r.checkout, term, "y\n", strings.Fields(undo)[1:]...); res.exit != 0 || !strings.Contains(res.stdout, "cleared") {
+		t.Fatalf("the undo, as printed (%s): exit %d\nstdout: %s\nstderr: %s", undo, res.exit, res.stdout, res.stderr)
+	}
+	if onB := r.recordOn(r.configDir, b); onB.Moved {
+		t.Fatalf("the server the team left records the move after its undo ran: %+v", onB)
+	}
+
+	// --- 3. the same command again: it prints itself for each backend, and each line runs ----------------------
+	again := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
+	if again.exit == 0 || !strings.Contains(again.stderr, "Nothing was changed") {
+		t.Fatalf("the same command again, where nothing says which server the team is leaving: exit %d\nstdout: %s\nstderr: %s", again.exit, again.stdout, again.stderr)
+	}
+	line := ""
+	for said := again.stderr; ; {
+		_, rest, found := strings.Cut(said, "`brigade team move --to ")
+		if !found {
+			t.Fatalf("the refusal prints no command that names %s:\n%s", b.url, again.stderr)
+		}
+		tail, after, _ := strings.Cut(rest, "`")
+		if strings.HasSuffix(tail, " --from "+b.url) {
+			line = strings.Replace("brigade team move --to "+tail, "<path>", r.secretFile, 1)
+			break
+		}
+		said = after
+	}
+	if res := r.runIn(r.checkout, term, "y\n", strings.Fields(line)[1:]...); res.exit != 0 {
+		t.Fatalf("the line the refusal printed, %q: exit %d\nstdout: %s\nstderr: %s", line, res.exit, res.stdout, res.stderr)
+	}
+	if onB := r.recordOn(r.configDir, b); !onB.Moved || onB.URL != c.url {
+		t.Fatalf("the server the team left after the printed command ran: %+v", onB)
+	}
+}

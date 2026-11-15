@@ -65,24 +65,33 @@ func takeOn(rest []string) (on string, out []string, err error) {
 	return on, out, nil
 }
 
-// actsAt names the backend a team command acts on, in the line it prints
-// before the adapter is asked: the backend's host, and its whole address
-// where this machine has joined the same team on another backend that the
-// host names too (two servers behind one host and port, under two paths;
-// work item 341). The host alone would not say which of the two the
-// command acts on, and the whole address is what `--on` takes for either.
-func actsAt(configDir string, binding *adapterkit.Profile) string {
-	host := hostOf(binding.URL)
-	bindings, _, err := listBindings(configDir)
-	if err != nil {
-		return host
-	}
+// backendName names one backend of a team among the memberships this
+// machine holds: its host, and its whole address where that host names
+// another backend the machine has joined the same team on (two servers on
+// one machine, or behind one host and port under two paths; work item
+// 341). It is the one rule for the line that says which backend a team
+// command acts on and for the `--from` of a command a line prints for its
+// reader to run: there the host alone names more than one backend, the
+// line would not say which, and the command was refused as printed
+// (namesBackend). Either form is what `--on` and `--from` take.
+func backendName(bindings []*adapterkit.Profile, teamRef, url string) string {
+	host := hostOf(url)
 	for _, other := range bindings {
-		if other.TeamRef == binding.TeamRef && other.URL != binding.URL && hostOf(other.URL) == host {
-			return binding.URL
+		if other.TeamRef == teamRef && other.URL != url && hostOf(other.URL) == host {
+			return url
 		}
 	}
 	return host
+}
+
+// backendNameIn is backendName among the memberships of the store at
+// configDir. A store that cannot be listed names the host.
+func backendNameIn(configDir, teamRef, url string) string {
+	bindings, _, err := listBindings(configDir)
+	if err != nil {
+		return hostOf(url)
+	}
+	return backendName(bindings, teamRef, url)
 }
 
 // namesBackend reports whether where, a url or a host as a person types
@@ -223,7 +232,7 @@ func (inv Invocation) teamAdminOn(verb string, raw rawArgs) error {
 		// does the talking.
 		return inv.spawnThrough(t, "team", verb, raw.Rest, nil)
 	}
-	said := "brigade: team " + verb + " acts on team \"" + nameLine(binding.TeamName) + "\" (" + sanitizeID(binding.TeamRef) + ") at " + attrLine(actsAt(t.configDir, binding))
+	said := "brigade: team " + verb + " acts on team \"" + nameLine(binding.TeamName) + "\" (" + sanitizeID(binding.TeamRef) + ") at " + attrLine(backendNameIn(t.configDir, binding.TeamRef, binding.URL))
 	if _, err := io.WriteString(inv.Err, said+"\n"); err != nil {
 		return err
 	}

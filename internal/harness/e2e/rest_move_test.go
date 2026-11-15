@@ -560,6 +560,86 @@ func (m *movingTeam) withFsAdapterAfter(passed int, flag, refuse string, do func
 // project that lacks the team-move migration, word for word.
 const withoutMigration = `{"ok":false,"protocol_version":"` + protocol.ProtocolVersion + `","error":{"code":"config","message":"this backend cannot record a team's move: it lacks the migration 20261114120000_team_move.sql, which its Project Owner applies","retryable":false,"details":{"reason":"migration_drift"}}}`
 
+// startBehindOneHost puts several servers behind one host and port, each
+// under a path of its own, as a front before them does and as two servers
+// on one machine are for anyone who tries a move there. It answers each
+// server as a member's machine is told of it: the one address, with the
+// server's path. Servers that serve TLS under a pinned certificate get a
+// front that serves TLS under a certificate of its own, whose pin is the
+// one the member is given, and that trusts each server by its pin and by
+// nothing else (startFront).
+func startBehindOneHost(t *testing.T, backends map[string]restBackend) map[string]restBackend {
+	t.Helper()
+	clients, pinned := map[string]*http.Client{}, false
+	for path, backend := range backends {
+		clients[path] = http.DefaultClient
+		if backend.certificate == "" {
+			continue
+		}
+		pinned = true
+		pin := backend.certificate
+		clients[path] = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true, //nolint:gosec // G402: verified by the server's pinned fingerprint, below
+			VerifyConnection: func(state tls.ConnectionState) error {
+				if len(state.PeerCertificates) == 0 || adapterkit.CertificateFingerprint(state.PeerCertificates[0].Raw) != pin {
+					return errors.New("the server behind the front does not present the pinned certificate")
+				}
+				return nil
+			},
+		}}}
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, "the request could not be read", http.StatusBadGateway)
+			return
+		}
+		for path, backend := range backends {
+			rest, ok := strings.CutPrefix(req.URL.Path, "/"+path+"/")
+			if !ok {
+				continue
+			}
+			//nolint:gosec // G704: the url is the test's own server's, and the path one the built adapter asked this front for
+			forward, err := http.NewRequestWithContext(req.Context(), req.Method, backend.url+"/"+rest, bytes.NewReader(body))
+			if err != nil {
+				http.Error(w, "the request could not be forwarded", http.StatusBadGateway)
+				return
+			}
+			forward.Header = req.Header.Clone()
+			answer, err := clients[path].Do(forward) //nolint:gosec // G704: as above
+			if err != nil {
+				http.Error(w, "the server did not answer", http.StatusBadGateway)
+				return
+			}
+			defer func() { _ = answer.Body.Close() }()
+			answered, err := io.ReadAll(answer.Body)
+			if err != nil {
+				http.Error(w, "the server's answer could not be read", http.StatusBadGateway)
+				return
+			}
+			w.Header().Set("Content-Type", answer.Header.Get("Content-Type"))
+			w.WriteHeader(answer.StatusCode)
+			_, _ = w.Write(answered)
+			return
+		}
+		http.NotFound(w, req)
+	}))
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	t.Cleanup(srv.Close)
+	out, certificate := map[string]restBackend{}, ""
+	if pinned {
+		srv.StartTLS()
+		certificate = adapterkit.CertificateFingerprint(srv.Certificate().Raw)
+	} else {
+		srv.Start()
+	}
+	for path := range backends {
+		out[path] = restBackend{url: srv.URL + "/" + path, certificate: certificate}
+	}
+	return out
+}
+
 // unreachable is an adapter's answer for a backend it could not reach.
 const unreachable = `{"ok":false,"protocol_version":"` + protocol.ProtocolVersion + `","error":{"code":"unavailable","message":"the backend could not be reached","retryable":true}}`
 

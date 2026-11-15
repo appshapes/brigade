@@ -601,3 +601,90 @@ func TestTeamMoveSaysWhatIsKnownOfAClearThatWasNotAnswered(t *testing.T) {
 		t.Fatalf("the line of a clear that was not answered:\n%s", out)
 	}
 }
+
+// TestTheCommandsTheRecordsFormPrintsNameOneBackendWhereAHostNamesTwo (work
+// item 341): the record's own form prints commands for its reader to run
+// too, each naming a backend after `--from`: the ones that read or clear
+// the record a server holds of the team's leaving, and the one that clears
+// the record it has just made. Where the host of that backend names
+// another backend this machine has joined the team on, the command was
+// refused as printed; and the one that clears the new record named no
+// backend at all, and was refused on every machine whose team had moved
+// before. Each carries what names one backend: the host, and the whole
+// address where the host names two.
+func TestTheCommandsTheRecordsFormPrintsNameOneBackendWhereAHostNamesTwo(t *testing.T) {
+	t.Parallel()
+	left := func(adapter, url string) string {
+		return `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"` + adapter + `","url":"` + url + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	}
+	// rig is a machine that has joined the team on one more backend, at url:
+	// the form then needs --from to say which one the team is leaving.
+	rig := func(url func(r *moveRig) string) *moveRig {
+		t.Helper()
+		r := newMoveRig(t, true)
+		at := url(r)
+		if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, teamstore.Key("rest", at, setupTeamRef), "rest", at, "", "", setupTeamRef, "devs", "p_beside"); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	besideTheServer := func(r *moveRig) string { return r.newURL + "/second" }
+	record := func(r *moveRig) error { return Team(r.inv(true, "--ticket-file", r.ticket, "--from", r.oldURL)) }
+	refused, lost := failAnswer(protocol.CodeUnauthorized, "not an active member of this team"), failAnswer(protocol.CodeUnavailable, "the backend could not be reached")
+
+	// The server's record names the backend the team is leaving, and its
+	// clear is refused, or is not answered.
+	r := rig(besideTheServer)
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", refused)
+	perr := wantCodeErr(t, record(r), protocol.CodeConflict, reasonBackendsNameEachOther)
+	if need := "`brigade team move --clear --from " + r.newURL + "`"; !strings.Contains(perr.Message, need) {
+		t.Errorf("the refusal of a clear that was refused lacks %q: %s", need, perr.Message)
+	}
+	r = rig(besideTheServer)
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", lost)
+	perr = wantCodeErr(t, record(r), protocol.CodeUnavailable, reasonBackendsNameEachOther)
+	if need := "`brigade team move --show --from " + r.newURL + "` says"; !strings.Contains(perr.Message, need) {
+		t.Errorf("the refusal of a clear that was not answered lacks %q: %s", need, perr.Message)
+	}
+
+	// The server's record names a third place: the move is recorded, and the
+	// line names the command for the record that stands, or may.
+	r = rig(besideTheServer)
+	r.there.on("team moved", okAnswer(left("rest", "https://third.example.test"))).on("team move", refused)
+	r.f.rec.on("team move", okAnswer(r.recorded()))
+	if err := record(r); err != nil {
+		t.Fatal(err)
+	}
+	if need := "with `brigade team move --clear --from " + r.newURL + "`"; !strings.Contains(r.f.out.String(), need) {
+		t.Errorf("the line of a record that stands lacks %q:\n%s", need, r.f.out.String())
+	}
+	r = rig(besideTheServer)
+	r.there.on("team moved", okAnswer(left("rest", "https://third.example.test"))).on("team move", lost)
+	r.f.rec.on("team move", okAnswer(r.recorded()))
+	if err := record(r); err != nil {
+		t.Fatal(err)
+	}
+	if need := "(`brigade team move --show --from " + r.newURL + "` says; `brigade team move --clear --from " + r.newURL + "` clears it)"; !strings.Contains(r.f.out.String(), need) {
+		t.Errorf("the line of a record that may stand lacks %q:\n%s", need, r.f.out.String())
+	}
+
+	// The command that clears the record just made: it names the backend
+	// the team left whenever the machine has joined the team on more than one
+	// other, by its host, and by its whole address where the host names two.
+	for name, tc := range map[string]struct {
+		url  func(r *moveRig) string
+		from func(r *moveRig) string
+	}{
+		"another backend, on a host of its own":      {func(*moveRig) string { return "https://earlier.example.test:8743" }, func(r *moveRig) string { return r.oldHost }},
+		"another backend, on the host the team left": {func(r *moveRig) string { return r.oldURL + "/second" }, func(r *moveRig) string { return r.oldURL }},
+	} {
+		r := rig(tc.url)
+		r.f.rec.on("team move", okAnswer(r.recorded()))
+		if err := record(r); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if need := "(`brigade team move --clear --from " + tc.from(r) + "` stops this backend from saying where the team went)"; !strings.Contains(r.f.out.String(), need) {
+			t.Errorf("%s: the line that names the clear lacks %q:\n%s", name, need, r.f.out.String())
+		}
+	}
+}

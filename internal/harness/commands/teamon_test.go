@@ -162,3 +162,32 @@ func TestOnTellsTwoBackendsOfOneTeamOnOneHostApart(t *testing.T) {
 		t.Fatalf("stderr = %q, want %q: the whole address, where the host names two backends of the team", f.errb.String(), said)
 	}
 }
+
+// TestABackendIsNamedByItsWholeAddressWhereItsHostNamesTwoOfTheTeam (work
+// item 341): the one rule for the line that says which backend a team
+// command acts on and for the `--from` of a command a line prints. A host
+// names a backend as long as it names one backend of the team; where it
+// names another too, the whole address does. Another team's backend on the
+// host changes nothing, and neither does the backend's own membership.
+func TestABackendIsNamedByItsWholeAddressWhereItsHostNamesTwoOfTheTeam(t *testing.T) {
+	t.Parallel()
+	joined := func(team, url string) *adapterkit.Profile {
+		return &adapterkit.Profile{Version: adapterkit.ProfileVersion, Adapter: "rest", URL: url, TeamRef: team}
+	}
+	const one, two = "https://one.example.test:8743", "https://two.example.test"
+	bindings := []*adapterkit.Profile{
+		joined("t_a", one+"/a"), joined("t_a", one+"/b"), joined("t_a", two), joined("t_b", two+"/another-team"),
+	}
+	for _, tc := range []struct{ why, team, url, want string }{
+		{"two of the team behind one host", "t_a", one + "/a", one + "/a"},
+		{"the other of the two", "t_a", one + "/b", one + "/b"},
+		{"a server not joined yet, on a host that names two of the team", "t_a", one + "/c", one + "/c"},
+		{"the only one of the team on its host, beside another team's", "t_a", two, "two.example.test"},
+		{"another team's, the only one of that team on the host", "t_b", two + "/another-team", "two.example.test"},
+		{"a host that names nothing else", "t_a", "https://three.example.test:8743", "three.example.test:8743"},
+	} {
+		if got := backendName(bindings, tc.team, tc.url); got != tc.want {
+			t.Errorf("%s: backendName(%q) = %q, want %q", tc.why, tc.url, got, tc.want)
+		}
+	}
+}

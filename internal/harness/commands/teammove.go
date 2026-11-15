@@ -321,7 +321,11 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 	if err != nil {
 		return err
 	}
-	destHost := attrLine(hostOf(f.URL))
+	// destHost names the backend the team goes to for a reader, and destFrom
+	// is what follows --from in a command a line prints to be run: the host,
+	// and the whole address where the host names two backends of the team
+	// (backendName).
+	destHost, destFrom := attrLine(hostOf(f.URL)), attrLine(backendNameIn(configDir, f.TeamRef, f.URL))
 	line := "record that team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ") moved from " + attrLine(hostOf(source.URL)) +
 		" to " + moveDestination(f.Adapter, f.URL, f.Certificate)
 	consequence := "Every member's next session follows it there with no command of theirs."
@@ -366,16 +370,17 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 		// The clear got no answer and may have been carried out: the record
 		// may stand, and that is what is said.
 		lines = append(lines, destHost+" may still record that the team left it for "+moveDestination(held.Adapter, held.URL, held.Certificate)+
-			": the answer to the clear of that record did not arrive (`brigade team move --show --from "+destHost+"` says; `brigade team move --clear --from "+destHost+"` clears it)")
+			": the answer to the clear of that record did not arrive (`brigade team move --show --from "+destFrom+"` says; `brigade team move --clear --from "+destFrom+"` clears it)")
 	case held != nil:
 		lines = append(lines, destHost+" still records that the team left it for "+moveDestination(held.Adapter, held.URL, held.Certificate)+
-			": that record is its owner's to clear there, with `brigade team move --clear --from "+destHost+"`")
+			": that record is its owner's to clear there, with `brigade team move --clear --from "+destFrom+"`")
 	}
 	return writeLines(inv.Out, append(lines,
 		"recorded on "+attrLine(hostOf(source.URL))+": team \""+nameLine(f.TeamName)+"\" ("+sanitizeID(f.TeamRef)+") moved to "+
 			moveDestination(f.Adapter, f.URL, f.Certificate),
 		"next: commit and push "+teamfile.FileName+" in every repository of the team; a member's session follows at its next start, "+
-			"for as long as the new backend keeps the move open (`brigade team move --clear` stops this backend from saying where the team went)",
+			"for as long as the new backend keeps the move open (`"+clearCommandFor(configDir, f.TeamRef, teamstore.Key(f.Adapter, f.URL, f.TeamRef), source.URL)+
+			"` stops this backend from saying where the team went)",
 	)...)
 }
 
@@ -432,6 +437,8 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 		return outcome, nil
 	}
 	destHost, sourceHost := attrLine(hostOf(f.URL)), attrLine(hostOf(source.URL))
+	// What follows --from in the commands printed below (backendName).
+	destFrom := attrLine(backendNameIn(dest.configDir, f.TeamRef, f.URL))
 	why := "the step failed on this machine"
 	var perr *protocol.Error
 	if errors.As(cause, &perr) {
@@ -445,7 +452,7 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 		return outcome, &protocol.Error{
 			Code: code,
 			Message: destHost + " recorded that this team left it for " + sourceHost +
-				": the answer to the clear of that record did not arrive, so the record may be cleared all the same (`brigade team move --show --from " + destHost +
+				": the answer to the clear of that record did not arrive, so the record may be cleared all the same (`brigade team move --show --from " + destFrom +
 				"` says). The cause: " + why + ". Nothing was recorded on " + sourceHost + ": while that record may stand, the two would each say that the team is on the other; run this again",
 			Details: map[string]string{"reason": reasonBackendsNameEachOther},
 		}
@@ -454,7 +461,7 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 		Code: protocol.CodeConflict,
 		Message: destHost + " records that this team left it for " + sourceHost + ", and that record could not be cleared (" + why + "). " +
 			"Recording the move on " + sourceHost + " would leave the two each saying that the team is on the other, and a session could be sent back and forth. " +
-			"The team's owner on " + destHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + destHost + "`; then run this again. Nothing was recorded",
+			"The team's owner on " + destHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + destFrom + "`; then run this again. Nothing was recorded",
 		Details: map[string]string{"reason": reasonBackendsNameEachOther},
 	}
 }

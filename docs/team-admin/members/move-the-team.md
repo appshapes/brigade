@@ -245,7 +245,9 @@ server's side, and you do yours in three steps.
   say which backend holds the record: `brigade team move --clear --from <the old backend's host>`, and
   `--show --from <host>` reads it. A team that moved before leaves your machine joined to more than one earlier
   backend, and `--clear` and `--show` then ask which is meant in the same way: the last line of the move names
-  the command with its `--from`.
+  the command with its `--from`. Where one host names two backends of the team, two servers on one machine or
+  behind one front under two paths, the host names both: every command a move prints then carries the
+  backend's whole address after `--from`, so run it as it is printed.
 - When no checkout is left to follow, end the team on the old backend ([End a team](../delete/end-a-team.md)),
   with four differences. A team command goes to the backend the checkout is **joined** to, which after the
   move is the server, whatever the `.brigade.json` of an older commit names: `brigade team status` says which.

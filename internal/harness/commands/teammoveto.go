@@ -672,15 +672,11 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 			recorded = append(recorded, i)
 		}
 	}
+	// A candidate is named by its host, and by its whole address where the
+	// host names another backend of the team too, the server among them: the
+	// name is what follows --from in the commands printed below.
 	hostOfCandidate := func(i int) string {
-		host := teammove.Host(bindings[i].URL)
-		for _, other := range candidates {
-			if other != i && teammove.Host(bindings[other].URL) == host {
-				// Two of them on one host: the whole address tells them apart.
-				return attrLine(bindings[i].URL)
-			}
-		}
-		return attrLine(host)
+		return attrLine(backendName(bindings, m.file.TeamRef, bindings[i].URL))
 	}
 	hostsOf := func(named []int) string {
 		hosts := make([]string, 0, len(named))
@@ -1463,7 +1459,7 @@ func (m *serverMove) returnNotCleared(err error, held *protocol.TeamMoveResult, 
 		// not known, and where to read it.
 		where = "the team is taken in on " + m.toHost() + ", which recorded that the team left it for " +
 			moveDestination(held.Adapter, held.URL, held.Certificate) + ": the answer to the clear of that record did not arrive, so the record may be cleared all the same " +
-			"(`brigade team move --show --from " + m.toHost() + "` says)"
+			"(`brigade team move --show --from " + attrLine(backendNameIn(m.configDir, m.file.TeamRef, m.dest.URL)) + "` says)"
 	}
 	out.Message = where + ". Its move was not opened, and " + m.fromHost() + " was asked to record nothing: it holds what it held, and no session follows this move. " +
 		"The cause: " + perr.Message + ". Run the same command again to finish the move: every step of it is safe to repeat"
@@ -1667,24 +1663,33 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 }
 
 // clearCommand is the command that clears the record this move made, as
-// the administrator runs it in this checkout afterwards. The record's own
-// forms find the backend that holds it as the one other membership of the
-// team this machine holds beside the one the team file names; a team that
-// moved before leaves more than one, and the command then needs --from to
-// say which. So the backend is named whenever it would be asked for.
+// the administrator runs it in this checkout afterwards (clearCommandFor).
 func (m *serverMove) clearCommand() string {
-	bindings, keys, err := listBindings(m.configDir)
+	return clearCommandFor(m.configDir, m.file.TeamRef, m.destKey, m.source.URL)
+}
+
+// clearCommandFor is the command that clears the record of a team's move
+// on the backend at sourceURL, as the administrator runs it in a checkout
+// whose team file names the backend destKey is the team's key on. The
+// record's own forms find the backend that holds it as the one other
+// membership of the team this machine holds beside the one the team file
+// names; a team that moved before leaves more than one, and the command
+// then needs --from to say which. So the backend is named whenever it
+// would be asked for, and by what names one backend (backendName): its
+// host, and its whole address where the host names two.
+func clearCommandFor(configDir, teamRef, destKey, sourceURL string) string {
+	bindings, keys, err := listBindings(configDir)
 	if err != nil {
 		return "brigade team move --clear"
 	}
 	others := 0
 	for i, b := range bindings {
-		if b.TeamRef == m.file.TeamRef && keys[i] != m.destKey {
+		if b.TeamRef == teamRef && keys[i] != destKey {
 			others++
 		}
 	}
 	if others > 1 {
-		return "brigade team move --clear --from " + teammove.Host(m.source.URL)
+		return "brigade team move --clear --from " + attrLine(backendName(bindings, teamRef, sourceURL))
 	}
 	return "brigade team move --clear"
 }

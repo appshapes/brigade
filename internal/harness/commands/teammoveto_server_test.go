@@ -559,3 +559,70 @@ func TestARerunTakesTheCheckoutsBackendOnlyWhereNoOtherRecordsTheMove(t *testing
 		}
 	}
 }
+
+// TestTheCommandsAMovePrintsNameOneBackendWhereAHostNamesTwo (work item
+// 341): a command the move prints for its reader to run names a backend by
+// its host after `--from`. Two servers on one machine, or behind one front
+// under two paths, share a host: the host then names both, and the command
+// was refused as printed. Where the host names another backend this
+// machine has joined the team on, the printed command carries the whole
+// address, which names one.
+func TestTheCommandsAMovePrintsNameOneBackendWhereAHostNamesTwo(t *testing.T) {
+	t.Parallel()
+	beside := func(r *moveToRig, url string) {
+		t.Helper()
+		if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, teamstore.Key("rest", url, setupTeamRef), "rest", url, "", "", setupTeamRef, "devs", "p_beside"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The undo: the server the team leaves shares its host with another the
+	// machine has joined the team on.
+	r := newMoveToRig(t)
+	r.fromAServer()
+	beside(r, r.oldURL+"/second")
+	if err := Team(r.inv(true, r.args()...)); err != nil {
+		t.Fatal(err)
+	}
+	if need := "to undo: `brigade team move --clear --from " + r.oldURL + "` stops " + r.oldHost + " from saying where the team went"; !strings.Contains(r.f.out.String(), need) {
+		t.Errorf("the undo where the host names two backends of the team lacks %q:\n%s", need, r.f.out.String())
+	}
+
+	// The stop that says where the server's own record is read: the server
+	// the team returns to shares its host with another.
+	r = newMoveToRig(t)
+	r.fromAServer()
+	beside(r, r.newURL+"/second")
+	left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"rest","url":"` + r.oldURL + `","certificate":"` + moveOldPin + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	r.there.on("team moved", okAnswer(left))
+	r.there.on("team move", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
+	perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, reasonReturnNotCleared)
+	if need := "(`brigade team move --show --from " + r.newURL + "` says)"; !strings.Contains(perr.Message, need) {
+		t.Errorf("the stop where the host names two backends of the team lacks %q: %s", need, perr.Message)
+	}
+
+	// The same command run again, which names no backend by itself and
+	// prints the command for each: one of the backends the team may be
+	// leaving shares its host with the server the team moves to, and with no
+	// other. The host then names that backend and the server.
+	r = newMoveToRig(t)
+	r.fromAServer()
+	beside(r, r.newURL+"/second")
+	if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", r.newURL, "", moveNewPin, setupTeamRef, "devs", "p_new"); err != nil {
+		t.Fatal(err)
+	}
+	r.writeFile(strings.NewReplacer(r.oldURL, r.newURL, moveOldPin, moveNewPin).Replace(r.original))
+	canon, err := teamfile.Canonicalize(r.top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := write.Pin(r.f.dirs.BrigadeConfig, canon, teamstore.Pin{Adapter: "rest", URL: r.newURL, Certificate: moveNewPin, TeamRef: setupTeamRef, ConsentedAt: fixtureNow}); err != nil {
+		t.Fatal(err)
+	}
+	perr = wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeConfig, "team_ambiguous")
+	for _, need := range []string{"--from " + r.newURL + "/second`", "--from " + r.oldHost + "`"} {
+		if !strings.Contains(perr.Message, need) {
+			t.Errorf("the refusal of a command that is run again lacks %q: %s", need, perr.Message)
+		}
+	}
+}
