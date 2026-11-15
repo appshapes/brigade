@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
@@ -128,25 +129,32 @@ func TestCodexQueueDeliversTheBareFrame(t *testing.T) {
 // 107): Codex's /new rewrites the map with a new thread id at the new
 // chat's first prompt, and the next frame is queued into that thread, not
 // the one the watcher started with.
+//
+// The second message is sent when the watcher has said it read the map's
+// new thread, by a peer through the fs store (work item 318). It used to
+// come from a scripted adapter 1.5 s after the first, whatever the watcher
+// had read by then: on a loaded machine the first message's `codex queue`
+// child, the map's write and the tick that reads it took longer than that,
+// and the second message went, rightly, to the thread the watcher still
+// had.
 func TestCodexQueueFollowsTheThreadOfTheMap(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{host: "codex"})
-	m1, m2 := fakeMessage("m1", "sender-a", "first"), fakeMessage("m2", "sender-a", "second")
-	fx.useFake(fakeadapter.Script{Watch: &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{
-		readyLine(t), messageLine(t, m1, 0), messageLine(t, m2, 1500),
-	}}})
+	fx.useFS()
 	fx.writeMap()
 	deps := fx.deps()
 	var record string
 	deps.QueueCommand, record = queueRecorder(t, "0")
 	r := fx.start(deps, fx.args()...)
+	first := fx.send("first")
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return fx.logCount("injection reported", map[string]any{"message_id": "m1", "outcome": "injected"}) == 1
+		return fx.logCount("injection reported", map[string]any{"message_id": first, "outcome": "injected"}) == 1
 	})
 	fx.writeMapWith(func(m *sessionmap.ByPID) { m.ClaudeSessionID = "native-2" })
 	fx.waitLog("native session id updated from the by-pid map", nil)
+	second := fx.send("second")
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return fx.logCount("injection reported", map[string]any{"message_id": "m2", "outcome": "injected"}) == 1
+		return fx.logCount("injection reported", map[string]any{"message_id": second, "outcome": "injected"}) == 1
 	})
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -166,14 +174,18 @@ func TestCodexQueueFollowsTheThreadOfTheMap(t *testing.T) {
 // into a thread whose TUI has quit lands on the next resume — so the
 // watcher checks the TUI pid right before each queue and queues nothing
 // into a dead one, whatever the liveness tick (here far away) has seen.
+//
+// The message is sent when the process is seen to be gone, by a peer
+// through the fs store (work item 318's pattern, found here beside it). It
+// used to come from a scripted adapter 700 ms after the watcher's child
+// was ready, and the kill had to land inside them.
 func TestCodexQueueNothingWhenTheProcessIsGone(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{host: "codex"})
-	m := fakeMessage("m1", "sender-a", "lands on nobody")
-	fx.useFake(fakeadapter.Script{Watch: &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{readyLine(t), messageLine(t, m, 700)}}})
+	fx.useFS()
 	fx.writeMap()
 	deps := fx.deps()
-	deps.PollInterval = 10 * time.Second
+	deps.PollInterval = time.Hour
 	var record string
 	deps.QueueCommand, record = queueRecorder(t, "0")
 	r := fx.start(deps, fx.args()...)
@@ -181,7 +193,12 @@ func TestCodexQueueNothingWhenTheProcessIsGone(t *testing.T) {
 	if err := syscall.Kill(fx.hostPID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	fx.waitLog("injection failed; backing off", map[string]any{"message_id": "m1"})
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		info, err := procutil.Lookup(fx.hostPID)
+		return err == nil && (!info.Exists || info.Zombie)
+	})
+	id := fx.send("lands on nobody")
+	fx.waitLog("injection failed; backing off", map[string]any{"message_id": id})
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -191,7 +208,7 @@ func TestCodexQueueNothingWhenTheProcessIsGone(t *testing.T) {
 	if fx.logHas("ack sent", nil) {
 		t.Error("a message that was never queued was acknowledged")
 	}
-	if !fx.logHas("injection failed; backing off", map[string]any{"message_id": "m1", "err": "watch: the Codex process is gone; nothing is queued into a thread with no client"}) {
+	if !fx.logHas("injection failed; backing off", map[string]any{"message_id": id, "err": "watch: the Codex process is gone; nothing is queued into a thread with no client"}) {
 		t.Errorf("log: %v", fx.logLines())
 	}
 }
