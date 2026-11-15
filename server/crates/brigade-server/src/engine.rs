@@ -131,8 +131,13 @@ pub struct Client {
 }
 
 impl Client {
-    /// Has the engine answer one request. The body goes to the engine as it arrived: nothing of it is read
-    /// before the engine has looked at the credential.
+    /// Has the engine answer one request. The body goes to the engine as it arrived, and the engine reads
+    /// it in one order for every caller: that it is within the cap and is one JSON object, then the
+    /// credential, then the team the request names and, for a request only a team's owner is answered,
+    /// that the caller owns it, and only then the rest of the request. So a body over the cap and one
+    /// that is not one JSON object are `invalid_input` to every caller, with a credential or without, and
+    /// a `team_ref` that is missing, empty or no string is `invalid_input` to every caller the server
+    /// knows, before its membership is looked at: none of the three says anything about any team.
     ///
     /// `may_create` says whether the request may put a team on the server, by creating one or by taking
     /// one in, and `may_own` whether it may make the caller the owner of a team: by a join of one that has

@@ -1321,6 +1321,33 @@ mod tests {
                 "{ticket}"
             );
             assert!(!error.message.contains(ticket), "{ticket}");
+            // Nor do they spell the format of a join secret, which the adapter's redactor takes for one.
+            assert!(!error.message.contains("brg1"), "{}", error.message);
+        }
+        // `clear: true` goes with no member of a record that is not null, an empty one included, and
+        // `clear: false`, like a `clear` that is null, is no `clear`: the request is then a record.
+        for beside in [r#""url":"""#, r#""certificate":"x""#, r#""adapter":"rest""#] {
+            let error = refused(
+                "/v1/team/move",
+                &format!(r#"{{"team_ref":"t","clear":true,{beside}}}"#),
+            );
+            assert_eq!(
+                (field(&error), reason(&error)),
+                ("clear", "invalid_value"),
+                "{beside}"
+            );
+        }
+        for clear in ["false", "null"] {
+            let body = format!(
+                r#"{{"team_ref":"t","clear":{clear},"adapter":"rest","url":"u","ticket":"brg1.t.s"}}"#
+            );
+            assert!(
+                matches!(
+                    Command::parse("/v1/team/move", body.as_bytes()).unwrap(),
+                    Command::TeamMove(TeamMove::Record { .. })
+                ),
+                "{clear}"
+            );
         }
         for (body, with_ticket) in [
             (r#"{"team_ref":"t"}"#, false),

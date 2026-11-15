@@ -195,6 +195,23 @@ func TestTeamMoveRefusals(t *testing.T) {
 	if seen := b.seen(""); len(seen) != 0 {
 		t.Errorf("the refusals made %d requests, want none", len(seen))
 	}
+	// A ticket of this team that is longer than a server keeps passes this
+	// adapter and is the server's to refuse. Its words reach the person
+	// whole: they say what a ticket is and spell no join secret, which the
+	// redactor would print as redacted.
+	long := filepath.Join(t.TempDir(), "long.ticket")
+	if err := os.WriteFile(long, []byte(secretOf(team, strings.Repeat(moveTicketHalf, 40))+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tooLong := p.alice.fails(protocol.CodeInvalidInput, destination, "team", "move", "--ticket-file", long)
+	if details(t, tooLong.stdout)["field"] != "ticket" {
+		t.Errorf("a ticket longer than the server keeps: details %v", details(t, tooLong.stdout))
+	}
+	for _, said := range []string{tooLong.stdout, tooLong.stderr} {
+		if !strings.Contains(said, "which carries this team's reference") || strings.Contains(said, "[redacted]") {
+			t.Errorf("the server's refusal of a ticket did not reach the person whole: %s", said)
+		}
+	}
 
 	// An answer that names another record than the one that was given, and
 	// a clear that is answered a record, are not this command's.

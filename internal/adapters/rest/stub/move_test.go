@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // The record of where a team went (the contract's section 3c; work item
@@ -116,6 +118,12 @@ func TestTheRecordOfAMoveIsItsOwnersToWriteAndEveryMembersToRead(t *testing.T) {
 		if strings.Contains(got.raw, ticketHalf) {
 			t.Errorf("%s: the refusal holds the ticket: %s", what, got.raw)
 		}
+		// Nor the format of a join secret: the adapter's redactor takes
+		// that format for a secret, and the person would read the hint
+		// as redacted.
+		if strings.Contains(got.raw, protocol.JoinSecretPrefix) {
+			t.Errorf("%s: the refusal spells a join secret: %s", what, got.raw)
+		}
 	}
 	if got := h.must(alice.credential, "/v1/team/moved", team); got["moved"] != false {
 		t.Fatalf("a refused request recorded a move: %v", got)
@@ -176,5 +184,23 @@ func TestTheRecordOfAMoveIsItsOwnersToWriteAndEveryMembersToRead(t *testing.T) {
 	}
 	if got := h.must(alice.credential, "/v1/team/moved", asked); len(got) != 2 || got["moved"] != false {
 		t.Errorf("/v1/team/moved after the clear: %v", got)
+	}
+
+	// `clear: false`, like a `clear` that is null, is no `clear`: the
+	// request is then a record. `clear: true` beside members of a record
+	// that are null is a clear, and beside one that is empty it is refused
+	// by the name of `clear`.
+	for _, rest := range []string{`,"clear":false`, `,"clear":null`} {
+		if got := h.must(bob.credential, "/v1/team/move", moveBody(alice.team, "https://brigade.example.com", ticket, rest)); got["moved"] != true {
+			t.Errorf("a record with %s: %v, want the record", rest, got)
+		}
+	}
+	if got := h.must(bob.credential, "/v1/team/move", `{"team_ref":"`+alice.team+`","clear":true,"certificate":null,"ticket":null}`); got["moved"] != false {
+		t.Errorf("a clear beside members that are null: %v, want the clear", got)
+	}
+	empty := h.post(bob.credential, "/v1/team/move", `{"team_ref":"`+alice.team+`","clear":true,"url":""}`)
+	h.refused(empty, "invalid_input", http.StatusBadRequest)
+	if details, _ := empty.err["details"].(map[string]any); details["field"] != "clear" {
+		t.Errorf("a clear beside an empty url: details %v, want the field clear", details)
 	}
 }

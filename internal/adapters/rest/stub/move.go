@@ -18,9 +18,14 @@ import (
 //     team went, the destination of 4.4.10 (adapter, url, certificate) and
 //     the move ticket that the backend the team went to admits a member
 //     with, or with `clear` alone it clears the record. A second record
-//     takes the place of the first. The owner is checked before the request
-//     is looked at, so every other caller reads the one refusal whatever
-//     the request held.
+//     takes the place of the first. The owner is checked before any member
+//     of the request but its `team_ref` is acted on, so every other caller
+//     reads the one refusal whatever else the request held. What comes
+//     before that check says nothing about any team: a body over the cap
+//     and one that is not one JSON object are `invalid_input` to every
+//     caller, a caller with no credential the stub knows is
+//     `unauthenticated`, and a `team_ref` that is missing, empty or no
+//     string is `invalid_input`.
 //   - `/v1/team/moved`, for every active member. It answers the record,
 //     with the ticket only when the request asks for it.
 //
@@ -101,18 +106,20 @@ func capped(name, value string, limit int) *protocol.Error {
 }
 
 // notAMoveTicket refuses a ticket that is not a join secret of the team it
-// is recorded for, or is longer than a server keeps. Fixed text: the
-// ticket is a secret.
+// is recorded for, or is longer than a server keeps. Fixed text, the built
+// server's own: the ticket is a secret, and the words name no format of a
+// join secret either, which the adapter's redactor would take for one.
 func notAMoveTicket() *protocol.Error {
 	return invalid("ticket", "invalid_value",
-		"ticket is not a move ticket of this team; expected the join secret the backend the team went to made when its move was opened, brg1.<team_ref>.<secret>")
+		"ticket is not a move ticket of this team; expected the join secret that the backend the team went to made when its move was opened, which carries this team's reference")
 }
 
 // teamMove records where the caller's team went, or clears that record.
-// The gate comes before the request is looked at, and the members are read
-// in the order the built server reads them: `clear`, which goes with no
-// member of a record, then the adapter, the url and the certificate, each
-// within 4.4.10's cap, and the ticket last.
+// The gate comes before any member of the request but its `team_ref` is
+// acted on, and the members are read in the order the built server reads
+// them: `clear`, which when true goes with no member of a record that is
+// not null, then the adapter, the url and the certificate, each within
+// 4.4.10's cap, and the ticket last. `clear: false` is no `clear`.
 func (s *Server) teamMove(c *call) (any, *protocol.Error) {
 	s.membership.Lock()
 	defer s.membership.Unlock()
