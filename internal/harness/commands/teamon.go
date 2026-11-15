@@ -149,7 +149,7 @@ func (inv Invocation) resolveOn(on, teamFlag string) (string, error) {
 	teams, urls := map[string]bool{}, make([]string, 0, len(found))
 	for _, i := range found {
 		teams[bindings[i].TeamRef] = true
-		urls = append(urls, attrLine(bindings[i].URL))
+		urls = append(urls, addressLine(bindings[i].URL))
 	}
 	slices.Sort(urls)
 	if len(teams) > 1 {
@@ -232,7 +232,7 @@ func (inv Invocation) teamAdminOn(verb string, raw rawArgs) error {
 		// does the talking.
 		return inv.spawnThrough(t, "team", verb, raw.Rest, nil)
 	}
-	said := "brigade: team " + verb + " acts on team \"" + nameLine(binding.TeamName) + "\" (" + sanitizeID(binding.TeamRef) + ") at " + attrLine(backendNameIn(t.configDir, binding.TeamRef, binding.URL))
+	said := "brigade: team " + verb + " acts on team \"" + nameLine(binding.TeamName) + "\" (" + sanitizeID(binding.TeamRef) + ") at " + addressLine(backendNameIn(t.configDir, binding.TeamRef, binding.URL))
 	if _, err := io.WriteString(inv.Err, said+"\n"); err != nil {
 		return err
 	}

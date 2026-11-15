@@ -676,7 +676,7 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 	// host names another backend of the team too, the server among them: the
 	// name is what follows --from in the commands printed below.
 	hostOfCandidate := func(i int) string {
-		return attrLine(backendName(bindings, m.file.TeamRef, bindings[i].URL))
+		return addressLine(backendName(bindings, m.file.TeamRef, bindings[i].URL))
 	}
 	sorted := func(named []int) []string {
 		hosts := make([]string, 0, len(named))
@@ -833,9 +833,9 @@ func (inv Invocation) clearOn(t *target) (teammove.ClearOutcome, error) {
 // a membership names, and the command would refuse it or fail to trust it.
 func toServer(url, certificate string) string {
 	if certificate == "" {
-		return attrLine(url)
+		return addressLine(url)
 	}
-	return attrLine(url) + " --certificate " + pinLine(certificate)
+	return addressLine(url) + " --certificate " + pinLine(certificate)
 }
 
 // checkMoveSecret is checkJoinSecret for the secret a move presents to the
@@ -1477,7 +1477,7 @@ func (m *serverMove) returnNotCleared(err error, held *protocol.TeamMoveResult, 
 		// not known, and where to read it.
 		where = "the team is taken in on " + m.toHost() + ", which recorded that the team left it for " +
 			moveDestination(held.Adapter, held.URL, held.Certificate) + ": the answer to the clear of that record did not arrive, so the record may be cleared all the same " +
-			"(`brigade team move --show --from " + attrLine(backendNameIn(m.configDir, m.file.TeamRef, m.dest.URL)) + "` says)"
+			"(`brigade team move --show --from " + addressLine(backendNameIn(m.configDir, m.file.TeamRef, m.dest.URL)) + "` says)"
 	}
 	out.Message = where + ". Its move was not opened, and " + m.fromHost() + " was asked to record nothing: it holds what it held, and no session follows this move. " +
 		"The cause: " + perr.Message + ". Run the same command again to finish the move: every step of it is safe to repeat"
@@ -1614,7 +1614,7 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 		}
 		return writeJSON(inv.Out, moveToResult{
 			TeamRef: sanitizeID(m.file.TeamRef), TeamName: protocol.SanitizeName(taken.TeamName),
-			From:            moveEnd{Adapter: attrLine(m.source.Adapter), URL: attrLine(m.source.URL)},
+			From:            moveEnd{Adapter: attrLine(m.source.Adapter), URL: sanitizeID(m.source.URL)},
 			To:              moveEnd{Adapter: m.dest.Adapter, URL: m.dest.URL, Certificate: m.dest.Certificate},
 			TakenIn:         taken.TakenIn,
 			PrincipalRef:    sanitizeID(taken.PrincipalRef),
@@ -1707,7 +1707,7 @@ func clearCommandFor(configDir, teamRef, destKey, sourceURL string) string {
 		}
 	}
 	if others > 1 {
-		return "brigade team move --clear --from " + attrLine(backendName(bindings, teamRef, sourceURL))
+		return "brigade team move --clear --from " + addressLine(backendName(bindings, teamRef, sourceURL))
 	}
 	return "brigade team move --clear"
 }

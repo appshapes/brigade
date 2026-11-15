@@ -1967,7 +1967,8 @@ func TestARunningSessionLeavesWhatAFollowLeftThatIsStillTrueThroughTheRealBinary
 // A command the move prints names a backend after `--from`, and until this
 // it named it by its host: there the host names every server the team has
 // been on, and the command was refused as printed, with the undo of a move
-// among them.
+// among them. The paths are long, as an organisation's are: an address was
+// then printed cut at 64 code points, and the command refused for that.
 //
 //  1. The first move's undo names no backend: there is one to clear.
 //  2. The second move's undo names the server the team left by its whole
@@ -1977,10 +1978,11 @@ func TestARunningSessionLeavesWhatAFollowLeftThatIsStillTrueThroughTheRealBinary
 //     team left, run as printed, records the move there again.
 func TestTheCommandsAMovePrintsRunAsPrintedWhereOneHostCarriesTheTeamsServersThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
-	behind := startBehindOneHost(t, map[string]restBackend{"a": startRestBackend(t), "b": startRestBackend(t), "c": startRestBackend(t)})
-	a, b, c := behind["a"], behind["b"], behind["c"]
-	if teammove.Host(a.url) != teammove.Host(b.url) || teammove.Host(b.url) != teammove.Host(c.url) {
-		t.Fatalf("the arrangement: the three are not behind one host: %s %s %s", a.url, b.url, c.url)
+	const teams = "the-teams-of-a-company-whose-servers-have-long-addresses/"
+	behind := startBehindOneHost(t, map[string]restBackend{teams + "alpha": startRestBackend(t), teams + "beta": startRestBackend(t), teams + "gamma": startRestBackend(t)})
+	a, b, c := behind[teams+"alpha"], behind[teams+"beta"], behind[teams+"gamma"]
+	if teammove.Host(a.url) != teammove.Host(b.url) || teammove.Host(b.url) != teammove.Host(c.url) || len(b.url) <= 64 {
+		t.Fatalf("the arrangement: the three are not behind one host, at addresses longer than 64 code points: %s %s %s", a.url, b.url, c.url)
 	}
 	r := teamOnAServer(t, a)
 	term := r.terminalEnv(r.configDir)

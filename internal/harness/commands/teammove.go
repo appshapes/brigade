@@ -325,7 +325,7 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 	// is what follows --from in a command a line prints to be run: the host,
 	// and the whole address where the host names two backends of the team
 	// (backendName).
-	destHost, destFrom := attrLine(hostOf(f.URL)), attrLine(backendNameIn(configDir, f.TeamRef, f.URL))
+	destHost, destFrom := attrLine(hostOf(f.URL)), addressLine(backendNameIn(configDir, f.TeamRef, f.URL))
 	line := "record that team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ") moved from " + attrLine(hostOf(source.URL)) +
 		" to " + moveDestination(f.Adapter, f.URL, f.Certificate)
 	consequence := "Every member's next session follows it there with no command of theirs."
@@ -451,7 +451,7 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 	}
 	destHost, sourceHost := attrLine(hostOf(f.URL)), attrLine(hostOf(source.URL))
 	// What follows --from in the commands printed below (backendName).
-	destFrom := attrLine(backendNameIn(dest.configDir, f.TeamRef, f.URL))
+	destFrom := addressLine(backendNameIn(dest.configDir, f.TeamRef, f.URL))
 	why := "the step failed on this machine"
 	var perr *protocol.Error
 	if errors.As(cause, &perr) {
@@ -646,9 +646,10 @@ func (inv Invocation) callMove(t *target, verb string, flags []string, stdin any
 // the path prefix of the address when it has one, the adapter, and the
 // certificate pin in full when there is one. The prefix is shown because
 // it is part of where every member's session is sent: two addresses on one
-// host are two servers.
+// host are two servers. So the host and the prefix are printed whole
+// (addressLine): cut, two destinations on one host could print alike.
 func moveDestination(adapter, url, certificate string) string {
-	out := attrLine(hostOf(url)+pathPrefix(url)) + " via adapter \"" + attrLine(adapter) + "\""
+	out := addressLine(hostOf(url)+pathPrefix(url)) + " via adapter \"" + attrLine(adapter) + "\""
 	if certificate != "" {
 		out += ", server certificate " + pinLine(certificate)
 	}

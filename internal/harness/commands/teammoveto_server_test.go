@@ -703,3 +703,71 @@ func TestARerunsRefusalSpeaksOfSeveralBackendsInThePlural(t *testing.T) {
 	r.there.on("team moved", okAnswer(r.recorded()))
 	refused(r, protocol.CodeConfig, "this checkout was joined to "+r.oldHost+", which records a move to "+r.newHost+", and so do "+earlier+" and "+third)
 }
+
+// longPath is a path that makes a server's address longer than the 64
+// code points a display value is cut at.
+const longPath = "/the-teams-of-a-company-whose-servers-have-long-addresses/alpha"
+
+// TestTheCommandsAMovePrintsCarryALongAddressWhole (work item 341): the
+// address after `--from` and `--to` in a command the move prints went
+// through the sanitiser of a short display value, which cuts at 64 code
+// points: a server at a long address was printed cut, and the command was
+// refused as printed. It is printed whole.
+func TestTheCommandsAMovePrintsCarryALongAddressWhole(t *testing.T) {
+	t.Parallel()
+	// The same command run again: a backend the team may be leaving is at a
+	// long address on the host of the server the team moves to.
+	r := newMoveToRig(t)
+	r.fromAServer()
+	cfg, beside := r.f.dirs.BrigadeConfig, r.newURL+longPath
+	for key, url := range map[string]string{teamstore.Key("rest", beside, setupTeamRef): beside, r.newKey: r.newURL} {
+		if err := write.EnsureBinding(cfg, key, "rest", url, "", moveNewPin, setupTeamRef, "devs", "p_there"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.writeFile(strings.NewReplacer(r.oldURL, r.newURL, moveOldPin, moveNewPin).Replace(r.original))
+	canon, err := teamfile.Canonicalize(r.top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := write.Pin(cfg, canon, teamstore.Pin{Adapter: "rest", URL: r.newURL, Certificate: moveNewPin, TeamRef: setupTeamRef, ConsentedAt: fixtureNow}); err != nil {
+		t.Fatal(err)
+	}
+	perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeConfig, "team_ambiguous")
+	if need := "--secret-file <path> --from " + beside + "`"; len(beside) <= 64 || !strings.Contains(perr.Message, need) {
+		t.Errorf("the refusal of a command that is run again lacks %q: %s", need, perr.Message)
+	}
+
+	// The stop that says where the server's own record is read: the server
+	// the team returns to is at a long address, beside another on its host.
+	r = newMoveToRig(t)
+	r.fromAServer()
+	short := r.newURL
+	r.newURL = short + longPath
+	if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", short, "", moveNewPin, setupTeamRef, "devs", "p_beside"); err != nil {
+		t.Fatal(err)
+	}
+	left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"rest","url":"` + r.oldURL + `","certificate":"` + moveOldPin + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	r.there.on("team moved", okAnswer(left))
+	r.there.on("team move", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
+	perr = wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, reasonReturnNotCleared)
+	if need := "(`brigade team move --show --from " + r.newURL + "` says)"; !strings.Contains(perr.Message, need) {
+		t.Errorf("the stop of a move to a server at a long address lacks %q: %s", need, perr.Message)
+	}
+
+	// The result a script reads: the address of the server the team left,
+	// which was cut there too.
+	r = newMoveToRig(t)
+	r.oldHost = "old-" + strings.Repeat("a-long-label-", 5) + r.oldHost
+	r.fromAServer()
+	iv := r.inv(true, r.args()...)
+	iv.JSON = true
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	ok, result := envelopeOf(t, r.f.out.String())
+	from, _ := result["from"].(map[string]any)
+	if !ok || len(r.oldURL) <= 64 || from["url"] != r.oldURL {
+		t.Errorf("the result's address of the server the team left: %v, want %s", from["url"], r.oldURL)
+	}
+}

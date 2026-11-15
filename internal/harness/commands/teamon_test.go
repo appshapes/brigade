@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/harness/teamstore/write"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
@@ -189,5 +191,72 @@ func TestABackendIsNamedByItsWholeAddressWhereItsHostNamesTwoOfTheTeam(t *testin
 		if got := backendName(bindings, tc.team, tc.url); got != tc.want {
 			t.Errorf("%s: backendName(%q) = %q, want %q", tc.why, tc.url, got, tc.want)
 		}
+	}
+}
+
+// TestAnAddressThatNamesABackendIsPrintedWhole (work item 341): an address
+// printed after a flag in a command its reader is to run, and an address
+// that tells two backends on one host apart, went through the sanitiser of
+// a short display value, which cuts at 64 code points and says nothing of
+// it. Two servers at one long host under two paths then printed alike, and
+// a command that carried one was refused as printed. Such an address is
+// made safe as a display value is, and is never cut.
+func TestAnAddressThatNamesABackendIsPrintedWhole(t *testing.T) {
+	t.Parallel()
+	const host = "brigade-server.internal.example-company.com:8443"
+	const alpha, beta = "https://" + host + "/teams/alpha", "https://" + host + "/teams/alpine"
+	const pin = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+	if attrLine(alpha) != attrLine(beta) {
+		t.Fatalf("the two addresses do not print alike when cut: the test holds nothing")
+	}
+	if got := addressLine(alpha + "\"<>\n"); got != alpha {
+		t.Errorf("addressLine keeps %q of %q", got, alpha)
+	}
+	if got, want := toServer(alpha, pin), alpha+" --certificate "+pin; got != want {
+		t.Errorf("what follows --to: %q, want %q", got, want)
+	}
+
+	f, dump := passThroughFixture(t, fakeadapter.Script{
+		Responses: map[string][]fakeadapter.Response{
+			"team revoke-member": {{Result: []byte(`{"team_ref":"t_bob","revoked":1}`)}},
+		},
+	})
+	for name, url := range map[string]string{"bob-alpha": alpha, "bob-beta": beta} {
+		if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, name, &adapterkit.Profile{
+			Version: adapterkit.ProfileVersion, Adapter: "fake", URL: url, TeamRef: "t_bob", TeamName: "bobteam",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(args ...string) error {
+		iv := f.inv(f.terminalEnv(), "", append([]string{"revoke-member"}, args...)...)
+		iv.Deps.Getwd = func() (string, error) { return f.dirs.Root, nil }
+		return Team(iv)
+	}
+	// The refusal that tells the two apart names each whole.
+	perr := wantCodeErr(t, run("--team", "bobteam", "--on", host, "--max-version", "1"), protocol.CodeConfig, "team_ambiguous")
+	if !strings.Contains(perr.Message, alpha) || !strings.Contains(perr.Message, beta) {
+		t.Errorf("the refusal of an --on that names two backends: %s", perr.Message)
+	}
+	// And so does the line that says which one a command acts on.
+	if err := run("--team", "bobteam", "--on", beta, "--max-version", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if invs := readDump(t, dump); len(invs) != 1 || invs[0].Env["BRIGADE_PROFILE"] != "bob-beta" {
+		t.Fatalf("the adapter was asked %+v, want one call under bob-beta", invs)
+	}
+	if said := `brigade: team revoke-member acts on team "bobteam" (t_bob) at ` + beta + "\n"; !strings.Contains(f.errb.String(), said) {
+		t.Errorf("stderr = %q, want %q", f.errb.String(), said)
+	}
+
+	// The command that clears a record names its backend whole.
+	store := t.TempDir()
+	for _, url := range []string{alpha, beta, "https://gone-to.example.test"} {
+		if err := write.EnsureBinding(store, teamstore.Key("rest", url, "t_bob"), "rest", url, "", "", "t_bob", "bobteam", "p_bob"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := clearCommandFor(store, "t_bob", teamstore.Key("rest", "https://gone-to.example.test", "t_bob"), alpha), "brigade team move --clear --from "+alpha; got != want {
+		t.Errorf("the command that clears the record: %q, want %q", got, want)
 	}
 }

@@ -814,3 +814,54 @@ func TestTheRecordsFormDoesNotTellAMemberWhoCannotRecordToRunItAgain(t *testing.
 		t.Errorf("the stop of a record that was not answered:\n%s\nwant\n%s", perr.Message, want)
 	}
 }
+
+// TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole (work item
+// 341): the same for the record's own form, whose commands name the server
+// the team goes to. At a long address it was printed cut at 64 code
+// points, and the command was refused as printed.
+func TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole(t *testing.T) {
+	t.Parallel()
+	left := func(adapter, url string) string {
+		return `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"` + adapter + `","url":"` + url + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	}
+	// rig is a team that goes to a server at a long address, on a host this
+	// machine has joined the team on under another path too.
+	rig := func() (*moveRig, string) {
+		t.Helper()
+		r := newMoveRig(t, true)
+		long := r.newURL + "/the-teams-of-a-company-whose-servers-have-long-addresses/alpha"
+		key := teamstore.Key("rest", long, setupTeamRef)
+		if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, key, "rest", long, "", moveNewPin, setupTeamRef, "devs", "p_long"); err != nil {
+			t.Fatal(err)
+		}
+		doc := `{"version":1,"adapter":"rest","url":"` + long + `","certificate":"` + moveNewPin + `","team_ref":"` + setupTeamRef + `","team_name":"devs"}`
+		//nolint:gosec // G306: a committed team file IS 0644
+		if err := os.WriteFile(filepath.Join(r.top, teamfile.FileName), []byte(doc), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		r.f.rec.delegate(key, r.there, "team moved", "team move")
+		return r, long
+	}
+	lost := failAnswer(protocol.CodeUnavailable, "the backend could not be reached")
+
+	// The server's record names the backend the team is leaving, and its
+	// clear is not answered: the command that reads it.
+	r, long := rig()
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", lost)
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket, "--from", r.oldURL)), protocol.CodeUnavailable, reasonBackendsNameEachOther)
+	if need := "`brigade team move --show --from " + long + "` says"; len(long) <= 64 || !strings.Contains(perr.Message, need) {
+		t.Errorf("the refusal of a clear that was not answered lacks %q: %s", need, perr.Message)
+	}
+
+	// The record names a third place and its clear is not answered: the
+	// commands that read and clear it.
+	r, long = rig()
+	r.there.on("team moved", okAnswer(left("rest", "https://third.example.test"))).on("team move", lost)
+	r.f.rec.on("team move", okAnswer(strings.Replace(r.recorded(), r.newURL, long, 1)))
+	if err := Team(r.inv(true, "--ticket-file", r.ticket, "--from", r.oldURL)); err != nil {
+		t.Fatal(err)
+	}
+	if need := "(`brigade team move --show --from " + long + "` says; `brigade team move --clear --from " + long + "` clears it)"; !strings.Contains(r.f.out.String(), need) {
+		t.Errorf("the line of a record that may stand lacks %q:\n%s", need, r.f.out.String())
+	}
+}
