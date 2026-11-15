@@ -1023,12 +1023,25 @@ const eachOtherLine = "Brigade: not connected: .brigade.json names another backe
 // newBackendSilentLine is said in place of the drift line when the backend
 // the member joined recorded the move to the backend the file names, this
 // machine holds a membership there, and that backend did not answer the
-// follow's question (work item 341; teammove.ReasonNewBackendFailed). The
+// follow's question (work item 341; teammove.ReasonNewBackendFailed: it
+// could not be reached, or did not answer in time). The
 // file is vouched for and nothing is wrong with it: the drift line's words,
 // that it does not match and that `brigade team join` reviews the change,
 // would send the member to a join for a server that is only down. Nothing
 // was changed, and the follow is tried again.
 const newBackendSilentLine = "Brigade: not connected: the team's administrator recorded that the team moved to another backend, and that backend did not answer, so this session could not follow the team there yet. Nothing was changed: a session tries again when it starts, and this one at its next prompts."
+
+// membershipRefusedLine is said in place of the drift line when the backend
+// the member joined recorded the move to the backend the file names, this
+// machine holds a membership there, and that backend refuses it (work item
+// 341): it answered the follow's question with a refusal that is not a
+// backend out of reach (teammove.ReasonNewBackendRefused: a credential it
+// does not know, above all). The file is vouched for, and waiting mends
+// nothing: what helps is a join with the team's secret, made on the profile
+// the machine holds, and the line names that command with the flag a
+// session needs. A plain `brigade team join` there would find the machine
+// joined already. Like the drift line it names no host.
+const membershipRefusedLine = "Brigade: not connected: the team's administrator recorded that the team moved to another backend, and that backend refuses the membership this machine holds there. To join the team there, run `brigade team join --secret-file <path>` with the file of the team's current join secret, which its administrator has."
 
 // notFollowedLine is the line of a follow that did not follow: the drift
 // line, but for the reasons that have a line of their own.
@@ -1038,6 +1051,8 @@ func notFollowedLine(reason string) string {
 		return eachOtherLine
 	case teammove.ReasonNewBackendFailed:
 		return newBackendSilentLine
+	case teammove.ReasonNewBackendRefused:
+		return membershipRefusedLine
 	}
 	return driftLine
 }

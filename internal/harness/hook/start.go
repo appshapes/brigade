@@ -1257,6 +1257,13 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 			// The child found the two backends naming each other: the
 			// prompt says that in place of the drift line, as a start does.
 			r.notFollowed = teammove.ReasonEachOther
+		} else if reason := r.lastNotFollowed(f, opts, canon, tf); reason != "" {
+			// The last follow of the checkout, this session's start or a
+			// child, found the backend the team moved to silent, or
+			// refusing the membership this machine holds there: the prompt
+			// says the line a start says of it, not that the file does not
+			// match. The follow started below finds what is so now.
+			r.notFollowed = reason
 		}
 		if r.startFollow(ctx, f, opts, canon) {
 			r.tell(f, in, toldAsked, movedRetryLine)
@@ -1268,6 +1275,9 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		Client: r.moveClient(opts.ConfigDir, f.stateDir),
 		Now:    r.deps.Now, Log: r.log,
 	})
+	// Why it did not follow is left for the session's next prompt where the
+	// prompt has the same line to say, and taken back by any other outcome.
+	r.markNotFollowed(f.stateDir, opts.ConfigDir, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), out.Reason)
 	if !out.Followed {
 		attrs := []any{slog.String("reason", out.Reason)}
 		if err != nil {

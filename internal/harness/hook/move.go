@@ -170,6 +170,9 @@ type followedMark struct {
 	TeamKey    string    `json:"team_key"`
 	Joined     bool      `json:"joined"`
 	FollowedAt time.Time `json:"followed_at"`
+	// Reason is set in the mark of a follow that did not follow
+	// (config.MoveNotFollowedMark): one of teammove's Reason words.
+	Reason string `json:"reason,omitzero"`
 }
 
 // readFollowedMark reads the mark at path under the strict private-file
@@ -418,6 +421,8 @@ func (r *run) follow() int {
 	} else if rerr := os.Remove(eachOther); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 		r.log.Debug("follow: the mark of two backends that named each other was not removed", log.Err(rerr))
 	}
+	// And so is why it did not follow, where a session has a line for it.
+	r.markNotFollowed(a.stateDir, a.configDir, canon, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef), out.Reason)
 	if !out.Followed {
 		attrs := []any{slog.String("reason", out.Reason)}
 		if err != nil {
@@ -447,6 +452,43 @@ func (r *run) leaveEachOtherMark(path, teamKey string) {
 	if err != nil {
 		r.log.Warn("follow: the mark of two backends that name each other was not written", log.Err(err))
 	}
+}
+
+// markNotFollowed keeps the checkout's mark of why its last follow did not
+// follow (config.MoveNotFollowedMark) true to the follow that just ended:
+// it is written for a reason the next prompt has a line of its own for, the
+// backend the team moved to not answering or refusing the membership this
+// machine holds there, and removed for every other outcome, a follow that
+// followed included. Best effort: without it a prompt says what it always
+// said, that the team file does not match.
+func (r *run) markNotFollowed(stateDir, configDir, canon, teamKey, reason string) {
+	path := config.MoveNotFollowedMark(stateDir, configDir, canon)
+	if reason != teammove.ReasonNewBackendFailed && reason != teammove.ReasonNewBackendRefused {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			r.log.Debug("the mark of a follow that did not follow was not removed", log.Err(err))
+		}
+		return
+	}
+	data, err := json.Marshal(followedMark{Version: followedMarkVersion, TeamKey: teamKey, FollowedAt: r.deps.Now().UTC(), Reason: reason})
+	if err == nil {
+		if err = adapterkit.MkdirPrivate(filepath.Dir(path)); err == nil {
+			err = adapterkit.WriteAtomic(path, append(data, '\n'))
+		}
+	}
+	if err != nil {
+		r.log.Debug("the mark of a follow that did not follow was not written", log.Err(err))
+	}
+}
+
+// lastNotFollowed is why the last follow of the checkout did not follow,
+// where it left a mark for the backend the team file names now
+// (markNotFollowed), and "" otherwise.
+func (r *run) lastNotFollowed(f facts, opts config.Options, canon string, tf *teamfile.File) string {
+	mark, marked := readFollowedMark(config.MoveNotFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
+	if !marked {
+		return ""
+	}
+	return mark.Reason
 }
 
 // dropEachOtherMark removes the checkout's mark of two backends that named

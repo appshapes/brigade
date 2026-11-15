@@ -114,9 +114,16 @@ const (
 	ReasonStore             = "store"
 	// ReasonNewBackendFailed: the backend the team file names did not answer
 	// the question a follow asks of it with the membership this machine
-	// holds there, for a reason other than that it does not honour the
-	// membership. Nothing is changed, and the next follow asks again.
+	// holds there: it could not be reached, or did not answer in time.
+	// Nothing is changed, and the next follow asks again.
 	ReasonNewBackendFailed = "new_backend_failed"
+	// ReasonNewBackendRefused: the backend the team file names answered that
+	// question, and its answer is a refusal other than that the caller is no
+	// active member: above all `unauthenticated`, a credential it does not
+	// know, which is what a server started again from an older copy of its
+	// data answers a member who joined since. Nothing is changed. Waiting
+	// mends nothing here: the member joins there with the team's secret.
+	ReasonNewBackendRefused = "new_backend_refused"
 	// ReasonEachOther: the backend the team file names itself records that
 	// the team moved to the backend the checkout is pinned to. The two name
 	// each other, and a session follows neither (work item 341).
@@ -475,8 +482,11 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 	// who was banned is refused, because a ban is by principal, and stays
 	// out; and the team's owner, answered `unauthorized` once by something
 	// in front of the backend, joins as the principal that owns the team
-	// and owns it still. Any other failure is no word about the membership:
-	// nothing is changed, and the next follow asks again.
+	// and owns it still. A backend that did not answer has said nothing
+	// about the membership: nothing is changed, and the next follow asks
+	// again. One that answered any other refusal, a credential it does not
+	// know above all, is not one to wait for: nothing is changed either, and
+	// the caller tells the member to join there (ReasonNewBackendRefused).
 	held := berr == nil && teamstore.VerifyBinding(existing, in.File) == nil
 	rejoin := false
 	if held {
@@ -484,8 +494,10 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		switch {
 		case unauthorized(aerr):
 			rejoin = true
-		case aerr != nil:
+		case unanswered(aerr):
 			return Outcome{Reason: ReasonNewBackendFailed}, aerr
+		case aerr != nil:
+			return Outcome{Reason: ReasonNewBackendRefused}, aerr
 		case namesBack(theirs, in.Pin, in.File.TeamRef):
 			return Outcome{Reason: ReasonEachOther}, nil
 		}
@@ -578,6 +590,19 @@ func askNew(ctx context.Context, client Caller) (*protocol.TeamMoveResult, error
 func unauthorized(err error) bool {
 	var perr *protocol.Error
 	return errors.As(err, &perr) && perr.Code == protocol.CodeUnauthorized
+}
+
+// unanswered reports whether a question to a backend failed because the
+// backend did not answer it: `unavailable`, which is a backend that could
+// not be reached, one that failed and an adapter that did not finish within
+// its deadline, and a deadline of the caller's own that ran out. Any other
+// failure is an answer: the backend, or its adapter, said no.
+func unanswered(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var perr *protocol.Error
+	return errors.As(err, &perr) && perr.Code == protocol.CodeUnavailable
 }
 
 // namesBack reports whether what the new backend records of the team is a

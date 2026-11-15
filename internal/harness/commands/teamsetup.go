@@ -931,6 +931,10 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 	}); err != nil {
 		return err
 	}
+	// What a follow of this checkout left for its sessions' prompts to say,
+	// that the backend the file names did not answer or refused this
+	// machine's membership, is over: the checkout is joined there now.
+	_ = os.Remove(config.MoveNotFollowedMark(t.stateDir, t.configDir, canon))
 	name := nameLine(f.TeamName)
 	if inv.inSession() {
 		head := did + " team \"" + name + "\" (" + sanitizeID(f.TeamRef) + ")"

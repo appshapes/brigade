@@ -4,6 +4,8 @@ package e2e
 
 import (
 	json "encoding/json/v2"
+	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
@@ -818,17 +821,112 @@ func TestAServerThatDoesNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThroughTheR
 	if err != nil {
 		t.Fatal(err)
 	}
+	silentWords := func(said string) bool {
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+	}
 
 	down.on.Store(true)
-	res, key := r.startsIn("bob", bobName, second)
-	down.on.Store(false)
-	if key != "" || !strings.Contains(res.stdout, "did not answer") || strings.Contains(res.stdout, "does not match") || strings.Contains(res.stdout, "brigade team join") {
-		t.Fatalf("a start while the server the team moved to does not answer: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	s := r.newSession("bob", bobName, "", "", "")
+	s.cwd = second
+	res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if r.mapExists(s) || !silentWords(res.stdout) || strings.Contains(res.stdout, "brigade team join") {
+		t.Fatalf("a start while the server the team moved to does not answer: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	if pin, _, perr := teamstore.LookupPin(r.configDirB, canon); perr != nil || *pin != *pinBefore {
 		t.Fatalf("the pin moved while the server did not answer: %+v %v", pin, perr)
 	}
-	if res, key := r.startsIn("bob", bobName, second); key != r.keyAt(b) || !strings.Contains(res.stdout, "this machine had joined it there already") {
-		t.Fatalf("the start after the server answered again: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	// The session's next prompt says what its start said, and not that the
+	// team file does not match: the follow it starts finds the same.
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	if res := r.restPrompt(s); r.mapExists(s) || !silentWords(res.stdout) {
+		t.Fatalf("the prompt after that start: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		return logLines(moveLog, "the team file names another backend for this team, and the move was not followed") == 1
+	})
+	if pin, _, perr := teamstore.LookupPin(r.configDirB, canon); perr != nil || *pin != *pinBefore {
+		t.Fatalf("the pin moved at a prompt while the server did not answer: %+v %v", pin, perr)
+	}
+	// The server answers again. A minute later the session's prompt starts
+	// the follow once more, and the prompt after it connects the session.
+	down.on.Store(false)
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		for _, stamp := range []string{config.MoveAttemptStamp(r.stateDir, r.configDirB, canon), config.RegisterRetryStamp(r.stateDirOf(s), s.pid)} {
+			if err := os.Remove(stamp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("a minute's stamp: %v", err)
+			}
+		}
+		res = r.restPrompt(s)
+		return r.mapExists(s)
+	})
+	if at := r.mustMap(s); at.TeamKey != r.keyAt(b) || strings.Contains(res.stdout, "does not match") {
+		t.Fatalf("the session after the server answered again: %+v\nstdout %q", at, res.stdout)
+	}
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+}
+
+// unknownCredential is a server's answer to a credential it does not know,
+// as a front gives it in the server's place: what a server that was started
+// again from an older copy of its data answers a member who joined since.
+const unknownCredential = `{"ok":false,"protocol_version":"` + protocol.ProtocolVersion + `","error":{"code":"unauthenticated","message":"the credential is not known to this server","retryable":false}}`
+
+// TestAServerThatRefusesIsNotToldAsOneThatDidNotAnswerThroughTheRealBinary:
+// the server the team moved to answers the follow's question, and its
+// answer is that it does not know the credential this machine holds for it.
+// That is an answer. Until this every failure of that question but
+// `unauthorized` was told as a server that did not answer, with nothing to
+// do but wait, at every start: a member whose credential the server no
+// longer knows was never told to join. A server that answers a refusal is
+// told as that, with the command that joins; the line is the same at the
+// session's next prompt; and the command, run as the line prints it,
+// connects the session.
+func TestAServerThatRefusesIsNotToldAsOneThatDidNotAnswerThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	var forgets atomic.Bool
+	a := startRestBackend(t)
+	_, b := startFront(t, startRestBackend(t), func(req *http.Request, _ []byte) (int, string) {
+		if forgets.Load() && req.URL.Path == "/v1/team/moved" {
+			return http.StatusUnauthorized, unknownCredential
+		}
+		return 0, ""
+	}, nil)
+	r := teamOnAServer(t, a)
+	second, canon := r.anotherCheckout(r.configDirB, "checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	pinBefore, _, err := teamstore.LookupPin(r.configDirB, canon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const join = "brigade team join --secret-file <path>"
+	refusedWords := func(said string) bool {
+		return strings.Contains(said, "refuses the membership this machine holds there") && strings.Contains(said, "`"+join+"`") &&
+			!strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match")
+	}
+
+	forgets.Store(true)
+	s := r.newSession("bob", bobName, "", "", "")
+	s.cwd = second
+	res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if r.mapExists(s) || !refusedWords(res.stdout) {
+		t.Fatalf("a start while the server the team moved to does not know the credential: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	if res := r.restPrompt(s); r.mapExists(s) || !refusedWords(res.stdout) {
+		t.Fatalf("the prompt after that start: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	if pin, _, perr := teamstore.LookupPin(r.configDirB, canon); perr != nil || *pin != *pinBefore {
+		t.Fatalf("the pin moved on a refusal: %+v %v", pin, perr)
+	}
+	// The command the line prints, run as printed with the secret's file.
+	line := strings.Replace(printed(t, res.stdout, "brigade team join "), "<path>", r.secretFile, 1)
+	if res := r.runIn(second, r.restEnv(s), "", strings.Fields(line)[1:]...); res.exit != 0 || !strings.Contains(res.stdout, "joined team") {
+		t.Fatalf("the command the line printed, %q: exit %d\nstdout: %s\nstderr: %s", line, res.exit, res.stdout, res.stderr)
+	}
+	if res := r.restPrompt(s); !r.mapExists(s) || r.mustMap(s).TeamKey != r.keyAt(b) {
+		t.Fatalf("the prompt after the member's own join: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 }

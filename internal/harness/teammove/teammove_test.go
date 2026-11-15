@@ -1113,6 +1113,43 @@ func TestFollowKeepsAMembershipTheNewBackendDidNotAnswerFor(t *testing.T) {
 	}
 }
 
+// TestFollowTellsABackendThatRefusesFromOneThatDidNotAnswer: the new
+// backend answers the follow's question, and its answer is a refusal that
+// is not `unauthorized`: a credential it does not know, above all, which is
+// what a server started again from an older copy of its data answers. That
+// is not a backend that did not answer, and it is told apart: the caller
+// has a member to send to a join, not one to keep waiting. Nothing is
+// joined, nothing of the membership is touched and no pin is written.
+func TestFollowTellsABackendThatRefusesFromOneThatDidNotAnswer(t *testing.T) {
+	t.Parallel()
+	for name, refusal := range map[string]error{
+		"a credential it does not know": &protocol.Error{Code: protocol.CodeUnauthenticated, Message: "the credential is not known to this server"},
+		"no such endpoint":              &protocol.Error{Code: protocol.CodeNotFound, Message: "no such endpoint"},
+		"not an envelope":               &protocol.Error{Code: protocol.CodeInternal, Message: "the backend answered with something that is not a result envelope"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			credential := r.memberAtTheNewBackend()
+			r.b.newRecords = true
+			r.b.newMovedErrs = []error{refusal}
+			out, err := r.follow()
+			if out.Followed || out.Reason != teammove.ReasonNewBackendRefused || !errors.Is(err, refusal) {
+				t.Fatalf("follow: %+v, %v, want %s", out, err, teammove.ReasonNewBackendRefused)
+			}
+			if len(r.b.called("team join")) != 0 {
+				t.Fatalf("a follow that was refused joined: %v", r.b.verbs())
+			}
+			if _, err := os.Stat(credential); err != nil {
+				t.Fatalf("the membership the machine held is gone: %v", err)
+			}
+			if pin := r.currentPin(); pin != r.pin {
+				t.Fatalf("the pin moved: %+v", pin)
+			}
+		})
+	}
+}
+
 // TestFollowGoesNowhereBetweenTwoBackendsThatNameEachOther: the backend
 // the file names itself records that the team moved to the backend the
 // checkout is pinned to (work item 341). A session follows neither,
