@@ -576,12 +576,20 @@ func TestInboundChangeIsHeartbeatedAtOnce(t *testing.T) {
 // second.
 //
 // Two things are held, neither against the clock of the machine (work item
-// 336). The interval is held as a value: the watcher says what it handed
-// its ticker (`heartbeat ticker set`, attempt.go), and that is a third of
-// the lease, exactly. And the ticker is held to tick: after the heartbeat
-// at ready the watcher sends at least two more, by its own `heartbeat`
-// lines, under the long hang catcher, and the fs store's last_seen_at
-// moves on.
+// 336). The interval is held as a value, as the watcher says it: the
+// watcher logs what it hands its ticker (`heartbeat ticker set`,
+// attempt.go), and that is a third of the lease, exactly. And the ticker is
+// held to tick: after the heartbeat at ready the watcher sends at least two
+// more, by its own `heartbeat` lines, under the long hang catcher, and the
+// fs store's last_seen_at moves on.
+//
+// What is not held is that the ticker was made with the value the watcher
+// logs. Nothing here ties the two: a ticker made with ten times that value
+// passes, its two heartbeats coming twenty seconds after ready, well inside
+// the hang catcher (a second reviewer's mutation), and only a ticker that
+// does not tick twice within the minute fails. Holding it needs a ticker the
+// test hands the watcher, which is more shipped code than work item 336
+// takes.
 //
 // The test first gave the store's last_seen_at 5 s of real time to move
 // twice, and beside a second `make test` two heartbeats, each a store write
@@ -590,9 +598,9 @@ func TestInboundChangeIsHeartbeatedAtOnce(t *testing.T) {
 // thirds of the lease. A heartbeat is not sent while the one before it is
 // unanswered, so those times follow the child's answers: a ticker that was
 // right failed when the store answered slowly, and the bound was a guess a
-// wrong ticker could pass. A ticker left at the hour, and one at the whole
-// lease, both fail on the value. The arithmetic of the interval, for every
-// lease, is TestHeartbeatTimingFollowsTheLease's.
+// wrong ticker could pass. An interval the watcher computes as the hour, or
+// as the whole lease, fails on the value. The arithmetic of the interval,
+// for every lease, is TestHeartbeatTimingFollowsTheLease's.
 func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
 	t.Parallel()
 	const lease = 3 * time.Second
