@@ -16,6 +16,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -1001,6 +1002,129 @@ func TestAFirstJoinTheServerDidNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThro
 		t.Fatalf("the member on the server's roster: %v, want him once", listed)
 	}
 	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+}
+
+// TestAStartThatCouldNotAskSaysWhatTheLastFollowLeftThroughTheRealBinary:
+// the server a team moved to does not answer, a session's start says so and
+// leaves that for the checkout's prompts. The next session starts while its
+// own follow cannot ask at all: the server the member joined does not
+// answer either, or another follow of the machine holds the lock. Until
+// this such a start said that `.brigade.json` does not match the team and to
+// run `brigade team join`, though the mark stayed and the prompt after it
+// said that the server did not answer. A start whose follow learned nothing
+// says what the last one that asked left, and leaves it as it was.
+//
+//  1. With nothing left by an earlier follow, a start while the server the
+//     member joined does not answer says what it always said, that the file
+//     does not match, and leaves nothing.
+//  2. The server the team moved to does not answer: the start says so, and
+//     leaves that.
+//  3. Neither answers: the start says what was left, and so does its prompt.
+//  4. Another follow holds the lock: the start says what was left.
+//  5. Both answer again: the next start follows, and nothing is left.
+func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeftThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	downA, downB := &silent{}, &silent{}
+	_, a := startFront(t, startRestBackend(t), downA.before, nil)
+	_, b := startFront(t, startRestBackend(t), downB.before, nil)
+	r := teamOnAServer(t, a)
+	second, canon := r.anotherCheckout(r.configDirB, "checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	pinBefore, _, err := teamstore.LookupPin(r.configDirB, canon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	silentWords := func(said string) bool {
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+	}
+	// start starts a session of the member's in the second checkout and ends
+	// it, and holds it to having attached to nothing with the pin where it was.
+	start := func(when string) string {
+		t.Helper()
+		res, key := r.startsIn("bob", bobName, second)
+		if key != "" {
+			t.Fatalf("%s: the session attached to %q\nstdout %q\nstderr %s", when, key, res.stdout, res.stderr)
+		}
+		if pin, _, perr := teamstore.LookupPin(r.configDirB, canon); perr != nil || *pin != *pinBefore {
+			t.Fatalf("%s: the pin moved: %+v %v", when, pin, perr)
+		}
+		return res.stdout
+	}
+
+	// --- 1. nothing left, and the server the member joined does not answer ---------------------------------
+	downA.on.Store(true)
+	if said := start("a start while the server he joined does not answer"); !strings.Contains(said, "does not match") {
+		t.Fatalf("a start while the server he joined does not answer, with nothing left by an earlier follow: stdout %q", said)
+	}
+	downA.on.Store(false)
+	if _, err := os.Stat(mark); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a start that could not ask left a mark: %v", err)
+	}
+
+	// --- 2. the server the team moved to does not answer -----------------------------------------------------
+	downB.on.Store(true)
+	if said := start("a start while the server the team moved to does not answer"); !silentWords(said) {
+		t.Fatalf("a start while the server the team moved to does not answer: stdout %q", said)
+	}
+	left, err := os.ReadFile(mark) //nolint:gosec // G304: a file under the test's own state directory
+	if err != nil {
+		t.Fatalf("that start left nothing for the checkout's prompts: %v", err)
+	}
+	same := func(when string) {
+		t.Helper()
+		if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // G304: as above
+			t.Fatalf("%s: what the last follow left is %q, %v; it was %q", when, now, err, left)
+		}
+	}
+
+	// --- 3. neither answers: the start's own follow cannot ask ------------------------------------------------
+	downA.on.Store(true)
+	s := r.newSession("bob", bobName, "", "", "")
+	s.cwd = second
+	res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if r.mapExists(s) || !silentWords(res.stdout) || !strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
+		t.Fatalf("a start while neither server answers: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	same("a start while neither server answers")
+	// Its prompt says the same, and the follow it starts learns nothing either.
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || !silentWords(res.stdout) {
+		t.Fatalf("the prompt after that start: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		return logLines(moveLog, "the team file names another backend for this team, and the move was not followed") == 1
+	})
+	same("a prompt's follow while neither server answers")
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+	downA.on.Store(false)
+
+	// --- 4. another follow of the machine holds the lock ------------------------------------------------------
+	lock, err := teammove.Lock(r.configDirB, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, key := r.startsIn("bob", bobName, second)
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	if key != "" || !silentWords(res.stdout) || !strings.Contains(res.stderr, `"reason":"busy"`) {
+		t.Fatalf("a start while another follow holds the lock: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	same("a start while another follow holds the lock")
+
+	// --- 5. both answer again ---------------------------------------------------------------------------------
+	downB.on.Store(false)
+	if res, key := r.startsIn("bob", bobName, second); key != r.keyAt(b) || !strings.Contains(res.stdout, "followed team") {
+		t.Fatalf("the start after both answered again: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if _, err := os.Stat(mark); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a start that followed left the mark of one that did not: %v", err)
+	}
 }
 
 // unknownCredential is a server's answer to a credential it does not know,

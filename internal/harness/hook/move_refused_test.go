@@ -4,6 +4,7 @@ package hook
 
 import (
 	"context"
+	"os"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -364,5 +366,133 @@ func TestAFollowThatLearnedNothingLeavesWhatTheLastOneLeft(t *testing.T) {
 	}
 	if pin := f.checkoutPin(); pin != before {
 		t.Fatalf("the pin moved: %+v", pin)
+	}
+}
+
+// joinedBackendSilent has the backend the member joined stop answering
+// what it records of the team, from here on: a follow then cannot ask
+// whether the team moved, and learns nothing about the server the team file
+// names. It counts the questions that went unanswered.
+func joinedBackendSilent(f *fixture) *atomic.Int32 {
+	f.t.Helper()
+	inner, asked := f.deps.Spawn, &atomic.Int32{}
+	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if i := slices.Index(spec.Argv, "--profile"); i < 0 || i+1 >= len(spec.Argv) || spec.Argv[i+1] != f.teamKey || verbOf(spec.Argv) != "team moved" {
+			return inner(ctx, spec)
+		}
+		asked.Add(1)
+		silent := &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true}
+		return &adapterkit.SpawnResult{
+			Envelope: &protocol.Envelope{OK: false, ProtocolVersion: protocol.ProtocolVersion, Error: silent},
+			ExitCode: silent.Code.Exit(),
+		}, nil
+	}
+	return asked
+}
+
+// TestAStartThatCouldNotAskSaysWhatTheLastFollowLeft (work item 341): the
+// last follow of the checkout reached the server the team moved to and left
+// what it found for the checkout's prompts: the server did not answer, it
+// refuses the membership this machine holds, or it and the backend the
+// member joined each record that the team moved to the other. A session
+// then starts while the backend the member joined does not answer, so its
+// own follow cannot ask and learns nothing. Until this the start said that
+// the team file does not match and to run `brigade team join`, while the
+// mark stayed and the next prompt said the mark's line. A start whose
+// follow learned nothing says what the mark says, as a prompt does, and
+// leaves the mark as it was.
+func TestAStartThatCouldNotAskSaysWhatTheLastFollowLeft(t *testing.T) {
+	t.Parallel()
+	refusal := func(code protocol.Code) func(*fixture) *adapterkit.SpawnResult {
+		return func(*fixture) *adapterkit.SpawnResult {
+			said := &protocol.ErrorObject{Code: code, Message: "scripted " + string(code), Retryable: code.Retryable()}
+			return &adapterkit.SpawnResult{Envelope: &protocol.Envelope{OK: false, ProtocolVersion: protocol.ProtocolVersion, Error: said}, ExitCode: code.Exit()}
+		}
+	}
+	for name, tc := range map[string]struct {
+		// answer is what the server answers the follow's question.
+		answer func(f *fixture) *adapterkit.SpawnResult
+		line   string
+	}{
+		"the server did not answer":         {refusal(protocol.CodeUnavailable), newBackendSilentLine},
+		"the server refuses the membership": {refusal(protocol.CodeUnauthenticated), membershipRefusedLine},
+		"the two name each other": {func(f *fixture) *adapterkit.SpawnResult {
+			pin := f.checkoutPin()
+			return okResult(mustJSON(map[string]any{"team_ref": "team-1", "moved": true, "adapter": pin.Adapter, "url": pin.URL, "recorded_at": "2026-11-15T12:00:00Z"}))
+		}, eachOtherLine},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := memberOfTheServer(t)
+			inner, server := f.deps.Spawn, teamstore.Key("rest", movedURL, "team-1")
+			f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+				if i := slices.Index(spec.Argv, "--profile"); i >= 0 && i+1 < len(spec.Argv) && spec.Argv[i+1] == server && verbOf(spec.Argv) == "team moved" {
+					return tc.answer(f), nil
+				}
+				return inner(ctx, spec)
+			}
+			before := f.checkoutPin()
+			start := func() []string {
+				t.Helper()
+				exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+				if exit != 0 || f.mapExists() {
+					t.Fatalf("session-start: exit %d, a map is there: %v: %s", exit, f.mapExists(), errOut)
+				}
+				return lines(out)
+			}
+			if got := start(); !slices.Equal(got, []string{tc.line}) {
+				t.Fatalf("the start that reached the server: %q", got)
+			}
+			mark := config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+			left, err := os.ReadFile(mark) //nolint:gosec // the fixture's own state directory
+			if err != nil {
+				t.Fatalf("the start left no mark for the checkout's prompts: %v", err)
+			}
+			// From here the backend the member joined does not answer.
+			asked := joinedBackendSilent(f)
+			if got := start(); !slices.Equal(got, []string{tc.line}) {
+				t.Fatalf("a start whose follow could not ask: %q, want what the last follow that reached the server left", got)
+			}
+			if asked.Load() != 1 {
+				t.Fatalf("that start asked the backend the member joined %d times: the test holds nothing", asked.Load())
+			}
+			if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // as above
+				t.Fatalf("the mark after a start that learned nothing: %q, %v; it was %q", now, err, left)
+			}
+			if pin := f.checkoutPin(); pin != before {
+				t.Fatalf("the pin moved: %+v", pin)
+			}
+		})
+	}
+}
+
+// TestAStartThatCouldNotAskTellsOfARefusalNobodyWasTold (work item 341): a
+// follow that ran beside a prompt found that the server refuses the
+// membership this machine holds and the join made under it, and left that
+// on record with nobody to tell. A session then starts while the backend
+// the member joined does not answer. Its follow learned nothing, and it
+// says what a prompt would say in its place: that the server refuses the
+// membership, with the command that joins, once. The start after it says
+// what a team file nobody followed is told.
+func TestAStartThatCouldNotAskTellsOfARefusalNobodyWasTold(t *testing.T) {
+	t.Parallel()
+	f := memberOfTheServer(t)
+	var banned atomic.Bool
+	banned.Store(true)
+	joins := refusing(f, &banned)
+	// The prompt reads what there is to say before it starts the follow, and
+	// the follow is the one that is refused: nobody has been told.
+	if got := f.prompted(); !slices.Equal(got, []string{movedRetryLine, driftLine}) || joins.Load() != 1 {
+		t.Fatalf("the prompt whose follow was refused: lines %q, %d joins", got, joins.Load())
+	}
+	if _, err := teamstore.LoadRejoinRefusal(f.configDir, teamstore.Key("rest", movedURL, "team-1")); err != nil {
+		t.Fatalf("the refused join left no record: %v", err)
+	}
+	joinedBackendSilent(f)
+	for i, want := range []string{membershipRefusedLine, driftLine} {
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+		if exit != 0 || !slices.Equal(lines(out), []string{want}) || joins.Load() != 1 {
+			t.Fatalf("start %d while the backend the member joined does not answer: exit %d, lines %q, %d joins; want %q\n%s", i+1, exit, lines(out), joins.Load(), want, errOut)
+		}
 	}
 }

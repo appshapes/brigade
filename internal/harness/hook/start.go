@@ -1258,24 +1258,16 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		// new backend before its next prompt: it is told that the old one
 		// is being asked, once in a conversation, as a session that is
 		// attached is (moveSession).
-		if last := r.lastNotFollowed(f, opts, canon, tf); last == teammove.ReasonEachOther {
-			// The last follow of the checkout, this session's start or a
-			// child, found the two backends naming each other: the prompt
-			// says that in place of the drift line, as a start does.
-			r.notFollowed = last
-		} else if r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
-			// A follow found that the backend the file names refuses this
-			// machine's membership and the join made under it, and the
-			// member has not been told: this prompt says so, once.
-			r.notFollowed = teammove.ReasonRejoinRefused
-		} else if last != "" {
-			// The last follow of the checkout, this session's start or a
-			// child, found the backend the team moved to silent, or
-			// refusing the membership this machine holds there: the prompt
-			// says the line a start says of it, not that the file does not
-			// match. The follow started below finds what is so now.
-			r.notFollowed = last
-		}
+		//
+		// What the prompt says in place of the drift line is what the last
+		// follow of the checkout, this session's start or a child, left: the
+		// two backends naming each other; a refusal of this machine's
+		// membership and of the join made under it that the member has not
+		// been told of, once; or the backend the team moved to silent, or
+		// refusing the membership. It is the line a start says of each, not
+		// that the file does not match. The follow started below finds what
+		// is so now.
+		r.notFollowed = r.leftByLastFollow(f, opts, canon, tf)
 		if r.startFollow(ctx, f, opts, canon) {
 			r.tell(f, in, toldAsked, movedRetryLine)
 		}
@@ -1298,7 +1290,17 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		}
 		r.log.Info("the team file names another backend for this team, and the move was not followed", attrs...)
 		r.notFollowed = out.Reason
-		if out.Reason == teammove.ReasonRejoinRefused && !r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
+		switch {
+		case learnedNothing(out.Reason):
+			// This start's follow could not ask: it did not get the lock, or
+			// the backend the member joined did not answer it. It has no
+			// word of its own on the backend the file names, and the mark is
+			// as the last follow that asked left it (markNotFollowed): the
+			// start says what that one left, as its prompts will. Until this
+			// it said that the file does not match, of a server the mark and
+			// the next prompt said was only down (work item 341).
+			r.notFollowed = r.leftByLastFollow(f, opts, canon, tf)
+		case out.Reason == teammove.ReasonRejoinRefused && !r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)):
 			// The member was told of this refusal already, by this start's
 			// like or by a prompt: this one says what a team file nobody
 			// followed is told.

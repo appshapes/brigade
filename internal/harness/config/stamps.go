@@ -91,7 +91,8 @@ func MoveFollowedMark(stateDir, configDir, checkout string) string {
 // say that the team file does not match. The next follow of the checkout
 // that learns anything takes it back or writes it anew; one that could not
 // ask (the lock, the store, a backend the member joined that does not
-// answer) leaves it as it is; and the member's own join there removes it.
+// answer) leaves it as it is, and a session's start whose own follow could
+// not ask says what it holds; and the member's own join there removes it.
 func MoveNotFollowedMark(stateDir, configDir, checkout string) string {
 	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".not-followed")
 }

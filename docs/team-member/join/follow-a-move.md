@@ -89,6 +89,10 @@ same in every case and names no cause, because the file is not to be trusted unt
 - **This machine's own record of the team cannot be used**: the membership the checkout was joined with is
   missing or is not the one the checkout names, or Brigade's files could not be read or written.
 
+A session that could not ask, the second and third of these, says something else where an earlier session of
+the checkout did ask and was told that the backend the team moved to did not answer, that it refuses the
+membership, or that the two backends name each other: it says that again, because that is the last thing known.
+
 A plugin older than 0.55.0 does not follow either, though the move is recorded, and neither does one older than
 0.57.0 when the team left a Brigade server: update it ([Update](../update/README.md)) and start a new session, or
 join with the secret file.
