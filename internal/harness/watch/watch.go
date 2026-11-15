@@ -225,6 +225,11 @@ type Deps struct {
 	StatePruneDelay    time.Duration
 	StatePruneInterval time.Duration
 	StateCheckInterval time.Duration
+	// StateChecked, when set, is called by the state goroutine each time
+	// one of its checks has ended (state.go), so a test waits for checks
+	// that ran where it would otherwise sleep through an interval of
+	// them (work item 336). nil in production, which tells nobody.
+	StateChecked func()
 	// HoldGiveUp is how long after its wait ended a held ask that cannot
 	// be sent is still tried before the hold ends unsent (card 236,
 	// askhold.go); zero means DefaultHoldGiveUp, a test sets its own.

@@ -7,15 +7,54 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/appshapes/brigade/internal/harness/digest"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/state"
+	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 )
+
+// How the tests of the state goroutine wait (work item 336). The goroutine
+// checks on a real ticker, and what a check decides it decides by the
+// watcher's clock: when a held ask's wait has passed, when a rank's delay
+// has, when a subscriber who was not reached is tried again. These tests
+// measured all three in real time and did their own work, a file synced to
+// disk or an adapter child, inside the same milliseconds: on a loaded
+// machine the work outlasted the window and the watcher did the next thing
+// first. So the clock is the test's (stateWaits), and stands still until
+// the test moves it: a window is open for as long as the test needs it and
+// closes when the test says so. And where a test says that nothing
+// happened, it says it of checks that ran (checkCount), not of a time that
+// passed.
+
+// A checkCount counts the checks the watcher's state goroutine has made
+// (Deps.StateChecked): one for each tick, counted when the check has ended.
+type checkCount struct{ n atomic.Int64 }
+
+func (c *checkCount) checked() { c.n.Add(1) }
+
+// pass waits until two more checks have ended. The first of them may have
+// begun before the call; the second began after the first ended, so it
+// read everything the test wrote, and the clock as the test set it, before
+// the call.
+func (c *checkCount) pass(t *testing.T) {
+	t.Helper()
+	from := c.n.Load()
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return c.n.Load() >= from+2 })
+}
+
+// stateWaits gives the watcher a clock that stands at now until the test
+// moves it and counts its checks, every interval of real time.
+func stateWaits(deps *watch.Deps, now time.Time, every time.Duration) (*fakeClock, *checkCount) {
+	clock, checks := &fakeClock{now: now}, &checkCount{}
+	deps.Clock, deps.StateChecked, deps.StateCheckInterval = clock.Now, checks.checked, every
+	return clock, checks
+}
 
 // TestStatePrunesTheFolder (card 162, state.go): a watcher whose map
 // names a state folder prunes the folder's expired entries — a
@@ -124,6 +163,8 @@ func TestStateProducesTheDigest(t *testing.T) {
 	deps.SyncCommand = []string{filepath.Join(t.TempDir(), "no-such-sync-adapter")}
 	deps.StateCheckInterval = 100 * time.Millisecond
 	deps.StatePruneDelay = time.Hour
+	checks := &checkCount{}
+	deps.StateChecked = checks.checked
 	fx.start(deps, fx.args()...)
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.logHas("state: digest produced", nil) })
 	marker, err := digest.ReadMarker(folder, "peer@example.com")
@@ -147,13 +188,15 @@ func TestStateProducesTheDigest(t *testing.T) {
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
 		return strings.Contains(fx.notice(), "Brigade digest: sent to peer@example.com (slack)")
 	})
-	// Nothing more while the period runs, whatever is written.
-	e.AddNote("Next: the report command", now)
-	e.UpdatedAt = now
+	// Nothing more while the period runs, whatever is written: a note newer
+	// than the marker, and the checks that read it.
+	later := time.Now().UTC()
+	e.AddNote("Next: the report command", later)
+	e.UpdatedAt = later
 	if err := mine.Save(e); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(6 * deps.StateCheckInterval)
+	checks.pass(t)
 	if n := fx.logCount("state: digest produced", nil); n != 1 {
 		t.Fatalf("produced %d times within the period", n)
 	}
@@ -164,6 +207,12 @@ func TestStateProducesTheDigest(t *testing.T) {
 // a marker another session writes meanwhile stands it down with no send;
 // with none, it produces after the delay — which is what happens when the
 // first-ranked session has stopped.
+//
+// The delay is one check interval by the watcher's clock, and the clock is
+// the test's (work item 336). It was 400 ms of real time, and the first
+// session's marker had to land inside what the watcher's roster read, an
+// adapter child, left of them: on a loaded machine it landed after this
+// session had produced.
 func TestStateRankHandsOver(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -210,17 +259,25 @@ func TestStateRankHandsOver(t *testing.T) {
 			}
 			deps := fx.deps()
 			deps.SyncCommand = []string{filepath.Join(t.TempDir(), "no-such-sync-adapter")}
-			deps.StateCheckInterval = 400 * time.Millisecond
 			deps.StatePruneDelay = time.Hour
+			clock, checks := stateWaits(&deps, now, 50*time.Millisecond)
 			fx.start(deps, fx.args()...)
 			testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.logHas("state: a digest is due", map[string]any{"rank": float64(1)}) })
+			// The delay has not passed, the clock standing where it stood when
+			// the digest came due: the checks that run produce nothing.
+			checks.pass(t)
+			if fx.logHas("state: digest produced", nil) {
+				t.Fatal("produced before the rank's delay had passed")
+			}
 			if tc.markerArrives {
 				// The first session's marker lands during this one's delay: the
-				// next tick finds the period not elapsed and stands down.
+				// checks after the delay find the period not elapsed and stand
+				// down.
 				if err := digest.WriteMarker(folder, &digest.Marker{Label: "peer@example.com", ProducedAt: now, SessionID: first.SessionID, SessionName: "first"}); err != nil {
 					t.Fatal(err)
 				}
-				time.Sleep(6 * deps.StateCheckInterval)
+				clock.Advance(deps.StateCheckInterval)
+				checks.pass(t)
 				if fx.logHas("state: digest produced", nil) {
 					t.Fatal("produced although another session had")
 				}
@@ -234,6 +291,7 @@ func TestStateRankHandsOver(t *testing.T) {
 				}
 				return
 			}
+			clock.Advance(deps.StateCheckInterval)
 			testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.logHas("state: digest produced", map[string]any{"how": "session"}) })
 			marker, err := digest.ReadMarker(folder, "peer@example.com")
 			if err != nil || marker.SessionID != fx.sessionID {
@@ -257,6 +315,13 @@ func TestStateRankHandsOver(t *testing.T) {
 // and holds the unreached one back rather than trying every tick; a
 // 0.43 file's one manager is a subscriber too, judged by the legacy
 // marker.
+//
+// The unreached subscriber is held back by the watcher's clock, which is
+// the test's (work item 336). The hold was 1.5 s of real time, fifteen
+// checks of 100 ms, and what this test does between the digests and its
+// last look, an adapter child that reads the gateway's inbox among it, took
+// longer than that on a loaded machine: the watcher tried again, as it
+// should, and the test counted two.
 func TestStateFansOut(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{sink: true})
@@ -302,8 +367,8 @@ func TestStateFansOut(t *testing.T) {
 	}
 	deps := fx.deps()
 	deps.SyncCommand = []string{filepath.Join(t.TempDir(), "no-such-sync-adapter")}
-	deps.StateCheckInterval = 100 * time.Millisecond
 	deps.StatePruneDelay = time.Hour
+	clock, checks := stateWaits(&deps, now, 100*time.Millisecond)
 	fx.start(deps, fx.args()...)
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
 		return fx.logHas("state: digests produced", map[string]any{"sent": float64(1), "missed": float64(1)})
@@ -327,8 +392,10 @@ func TestStateFansOut(t *testing.T) {
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
 		return strings.Contains(fx.notice(), "Brigade digest: sent to peer@example.com (slack); not sent to Nobody (no gateway of their recipients and no session of theirs on the roster, or the send failed)")
 	})
-	// Nobody is held back: no second attempt within six checks.
-	time.Sleep(6 * deps.StateCheckInterval)
+	// Nobody is held back: six check intervals on, the checks that run make
+	// no second attempt.
+	clock.Advance(6 * deps.StateCheckInterval)
+	checks.pass(t)
 	if n := fx.logCount("state: digests produced", nil); n != 1 {
 		t.Fatalf("produced %d times; the unreached subscriber was tried again", n)
 	}
