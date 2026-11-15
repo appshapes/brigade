@@ -68,6 +68,9 @@ func (w *watcher) runState(ctx context.Context) {
 		case <-check.C:
 			w.holdCheck(ctx)
 			w.produceCheck(ctx)
+			if w.deps.StateChecked != nil {
+				w.deps.StateChecked()
+			}
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -572,29 +573,66 @@ func TestInboundChangeIsHeartbeatedAtOnce(t *testing.T) {
 // clamp rule (card 53): the ticker runs at the session's interval, never
 // slower than a third of the lease asked for, whatever the configured
 // heartbeat. A heartbeat of an hour against a 3 s lease beats every
-// second: the fs store's last_seen_at moves on at least twice within 5 s
-// of the heartbeat at ready, and the session stays online.
+// second.
+//
+// Two things are held, neither against the clock of the machine (work item
+// 336). The interval is held as a value, as the watcher says it: the
+// watcher logs what it hands its ticker (`heartbeat ticker set`,
+// attempt.go), and that is a third of the lease, exactly. And the ticker is
+// held to tick: after the heartbeat at ready the watcher sends at least two
+// more, by its own `heartbeat` lines, under the long hang catcher, and the
+// fs store's last_seen_at moves on.
+//
+// What is not held is that the ticker was made with the value the watcher
+// logs. Nothing here ties the two: a ticker made with ten times that value
+// passes, its two heartbeats coming twenty seconds after ready, well inside
+// the hang catcher (a second reviewer's mutation), and only a ticker that
+// does not tick twice within the minute fails. Holding it needs a ticker the
+// test hands the watcher, which is more shipped code than work item 336
+// takes.
+//
+// The test first gave the store's last_seen_at 5 s of real time to move
+// twice, and beside a second `make test` two heartbeats, each a store write
+// synced to disk, did not come in them (2026-11-15). It then judged the
+// interval by the least time between two `heartbeat` lines, under two
+// thirds of the lease. A heartbeat is not sent while the one before it is
+// unanswered, so those times follow the child's answers: a ticker that was
+// right failed when the store answered slowly, and the bound was a guess a
+// wrong ticker could pass. An interval the watcher computes as the hour, or
+// as the whole lease, fails on the value. The arithmetic of the interval,
+// for every lease, is TestHeartbeatTimingFollowsTheLease's.
 func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
 	t.Parallel()
+	const lease = 3 * time.Second
 	fx := newFixture(t, fixtureOptions{})
 	fx.useFS()
 	fx.writeMap()
 	deps := fx.deps()
-	deps.HeartbeatInterval, deps.LeaseSeconds = time.Hour, 3
+	deps.HeartbeatInterval, deps.LeaseSeconds = time.Hour, int(lease/time.Second)
 	r := fx.start(deps)
 	fx.waitLog("watch ready", nil)
-	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+	testutil.Await(t, waitShort, pollEvery, "the store to show the session under a lease of 3s", func() bool {
 		s := fx.session()
-		return s.LeaseUntil.Sub(s.LastSeenAt) == 3*time.Second
-	})
+		return s.LeaseUntil.Sub(s.LastSeenAt) == lease
+	}, nil)
 	base := fx.session().LastSeenAt
-	seen := map[time.Time]bool{}
-	testutil.Eventually(t, 5*time.Second, pollEvery, func() bool {
-		if at := fx.session().LastSeenAt; at.After(base) {
-			seen[at] = true
+	// The ticker was made before the child said it was ready, so its line
+	// is there by now: one for the one attempt, with a third of the lease.
+	var set []time.Duration
+	for _, l := range fx.logLines() {
+		if l["msg"] == "heartbeat ticker set" {
+			set = append(set, time.Duration(fx.logInt(l, "every")))
 		}
-		return len(seen) >= 2
+	}
+	if !slices.Equal(set, []time.Duration{lease / 3}) {
+		t.Fatalf("the watcher set its heartbeat ticker to %v under a lease of %v and a heartbeat of %v; want once, to a third of the lease, %v",
+			set, lease, deps.HeartbeatInterval, lease/3)
+	}
+	sent := func() int { return fx.logCount("heartbeat", nil) }
+	testutil.Await(t, waitLong, pollEvery, "two heartbeats after the one at ready", func() bool { return sent() >= 3 }, func() string {
+		return fmt.Sprintf("%d heartbeat(s) came, the one at ready among them", sent())
 	})
+	testutil.Await(t, waitShort, pollEvery, "the store's last_seen_at to move past the heartbeat at ready", func() bool { return fx.session().LastSeenAt.After(base) }, nil)
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

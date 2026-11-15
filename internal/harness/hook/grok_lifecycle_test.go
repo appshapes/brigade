@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,6 +51,16 @@ func TestGrokPublishesExactBindingBeforeWatcherSpawn(t *testing.T) {
 // Native first-prompt hooks can overlap SessionStart. Hold the first backend
 // registration response while the other hook enters, reproducing two successful
 // IDs and an older finish overwriting a newer receiver without synchronization.
+//
+// The other hook has entered when it has found the receiver's lock held
+// (Deps.GrokLockHeld): the first registration is let go on that, and each
+// wait here is a hang catcher that says what did not come (work item 336).
+// A second hook that registers meanwhile, or ends without ever finding the
+// lock held, fails the test where it stands: a hook that took no lock would
+// do one or the other. The test slept 100 ms for the other hook, gave the
+// first registration 3 s to reach the backend and each hook 5 s to end, and
+// with the package's tests sharing one core it failed on the 3 s in every
+// pass (2026-11-15).
 func TestGrokOverlappingInitialHooksKeepOneReceiver(t *testing.T) {
 	t.Parallel()
 	for _, first := range []string{SubSessionStart, SubPrompt} {
@@ -61,17 +72,22 @@ func TestGrokOverlappingInitialHooksKeepOneReceiver(t *testing.T) {
 				"session heartbeat": {okResp(heartbeatDoc())},
 			})
 			entered, release := make(chan struct{}), make(chan struct{})
-			var registrations atomic.Int32
+			var registrations, held atomic.Int32
 			deps := f.deps
+			deps.GrokLockHeld = func() { held.Add(1) }
+			// The first registration is held until the test lets it go, whatever
+			// deadline the hook made it under: a registration has eight seconds,
+			// and with the tests of this package sharing one core the second
+			// hook took longer than that to reach the lock. The first then gave
+			// its registration up and the lock with it, and the second
+			// registered, with nobody owning the receiver (2026-11-15).
+			var letGo sync.Once
+			t.Cleanup(func() { letGo.Do(func() { close(release) }) })
 			deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
 				result, err := seam.spawn(ctx, spec)
 				if verbOf(spec.Argv) == "session register" && registrations.Add(1) == 1 {
 					close(entered)
-					select {
-					case <-release:
-					case <-ctx.Done():
-						return nil, ctx.Err()
-					}
+					<-release
 				}
 				return result, err
 			}
@@ -88,22 +104,42 @@ func TestGrokOverlappingInitialHooksKeepOneReceiver(t *testing.T) {
 			go func() { runHook(first); close(firstDone) }()
 			select {
 			case <-entered:
-			case <-time.After(3 * time.Second):
-				t.Fatal("first registration never entered")
+			case <-time.After(pollTimeout):
+				t.Fatalf("the first hook's registration had not reached the backend after %v", pollTimeout)
 			}
 			second := SubPrompt
 			if first == SubPrompt {
 				second = SubSessionStart
 			}
+			// The first hook is held in its registration, the receiver's lock
+			// its own: whoever finds the lock held is the second.
 			go func() { runHook(second); close(secondDone) }()
 			// A contending hook must not register while the first owns the receiver.
-			time.Sleep(100 * time.Millisecond)
-			close(release)
-			for _, done := range []chan struct{}{firstDone, secondDone} {
+			testutil.Await(t, pollTimeout, pollInterval, "the second hook to find the receiver's lock held", func() bool {
+				if n := registrations.Load(); n > 1 {
+					t.Fatalf("the second hook registered while the first owned the receiver: %d registrations", n)
+				}
+				if held.Load() > 0 {
+					return true
+				}
 				select {
-				case <-done:
-				case <-time.After(5 * time.Second):
-					t.Fatal("hook did not settle")
+				case <-secondDone:
+					if held.Load() == 0 {
+						t.Fatal("the second hook ended without having found the receiver's lock held")
+					}
+				default:
+				}
+				return false
+			}, nil)
+			letGo.Do(func() { close(release) })
+			for _, hook := range []struct {
+				name string
+				done chan struct{}
+			}{{"first", firstDone}, {"second", secondDone}} {
+				select {
+				case <-hook.done:
+				case <-time.After(pollTimeout):
+					t.Fatalf("the %s hook had not ended %v after the first registration was let go", hook.name, pollTimeout)
 				}
 			}
 			if got := registrations.Load(); got != 1 {

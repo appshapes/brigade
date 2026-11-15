@@ -318,7 +318,7 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	if entry.PID != d.pid() || entry.BrigadeSessionID != m.BrigadeSessionID || entry.SocketPath != "" || entry.TokenSHA256 != "" {
 		t.Fatalf("pidfile: %+v (watcher %d)", entry, d.pid())
 	}
-	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.logHas(carol, "watch ready") })
+	testutil.Await(t, waitLong, pollEvery, "the sink watcher's `watch ready` line", func() bool { return r.logHas(carol, "watch ready") }, nil)
 
 	// bob sends from his own session; the record lands in the sink.
 	r.hook(bob, "session-start", bob.hookDoc("SessionStart", map[string]any{"source": "startup"}))
@@ -326,10 +326,10 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	res = r.mustRun(r.env(bob), "to the sink", "send", m.BrigadeSessionID, "--json")
 	sent := jsonResult[sendResult](t, res.stdout)
 	var records []sinkRecord
-	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+	testutil.Await(t, waitLong, pollEvery, "the record of bob's message in the sink", func() bool {
 		records = readSink(t, sink)
 		return len(records) >= 1
-	})
+	}, nil)
 	rec := records[0]
 	if len(records) != 1 || rec.MessageID != sent.MessageID || rec.SenderSessionID != bobMap.BrigadeSessionID || rec.TS.IsZero() {
 		t.Fatalf("sink records: %+v", records)
@@ -341,7 +341,7 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	if fi, err := os.Stat(sink); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Errorf("sink mode: %v %v", fi, err)
 	}
-	testutil.Eventually(t, waitLong, pollEvery, func() bool { return len(r.storeIDs("acked", m.BrigadeSessionID)) == 1 })
+	testutil.Await(t, waitLong, pollEvery, "the store to hold bob's message as acknowledged", func() bool { return len(r.storeIDs("acked", m.BrigadeSessionID)) == 1 }, nil)
 
 	// SIGTERM ends it with exit 0, the pidfile gone and the session closed.
 	if exit := d.stop(t); exit != 0 {
@@ -350,8 +350,38 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	if _, err := os.Lstat(r.pidfilePath(carol)); err == nil {
 		t.Error("the pidfile survived the watcher's exit")
 	}
+	// The watcher closes the session on its way out under its production
+	// budget, one second (CloseWaitClean), which the rig cannot raise: one
+	// store write of the fs adapter, two files synced to disk, measured up
+	// to 6.2 s under a whole-tree `go test -race` on 2026-09-11. When the
+	// budget runs out the watcher stops its child and exits 0 with the
+	// session open, and the lease's expiry is authoritative (3.8). A bare
+	// closed_at here failed beside other suites on 2026-11-14 (work item
+	// 336).
+	//
+	// So one outcome is held beside closed_at, and it takes two lines of the
+	// watcher's log: that it wrote the close command to its child (a debug
+	// line, which this watcher's BRIGADE_LOG_LEVEL shows), and that the child
+	// did not end within the budget. The second alone says nothing of a
+	// close: it is written when the budget runs out, asked or not, and a
+	// watcher that never asked for the close passed this test on it until a
+	// reviewer took the request out.
+	//
+	// Neither line says that the child acted on the close: a watch child
+	// that ignored `close` in sink mode would write both for ever. That the
+	// fs adapter's child in sink mode ends on the close and that closed_at
+	// is then in the store is held in process, with the close's budget a
+	// dependency no disk decides (CloseWaitClean), by
+	// watch.TestASinkWatcherClosesItsSessionThroughItsChild; the socket
+	// mode's tests of the same are named in the comment of
+	// TestSessionLifecycleThroughTheRealBinary.
 	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt == nil {
-		t.Errorf("the session was not closed: %+v", s)
+		wrote, ranOut := r.logHas(carol, "close command written"), r.logHas(carol, "watch child did not end after close; stopping it")
+		if !wrote || !ranOut {
+			t.Errorf("the session was not closed, and the watcher's log does not say both that it wrote the close command (%v) and that its close budget ran out (%v): %+v", wrote, ranOut, s)
+		} else {
+			t.Logf("the watcher wrote the close command and its budget ran out before the child ended; lease expiry is authoritative")
+		}
 	}
 	if out, err := os.ReadFile(stdout); err != nil || len(out) != 0 {
 		t.Errorf("the watcher wrote to stdout: %q (%v)", out, err)

@@ -195,6 +195,9 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 // awaitPidfile polls for this pid's watcher pidfile until it exists or
 // wait elapses (the system clock: this is a real wait, not a timestamp).
 func (r *run) awaitPidfile(f facts, wait time.Duration) bool {
+	if r.deps.PidfileAwaited != nil {
+		r.deps.PidfileAwaited()
+	}
 	path := pidfile.Path(f.stateDir, f.pid)
 	deadline := time.Now().Add(wait)
 	for {

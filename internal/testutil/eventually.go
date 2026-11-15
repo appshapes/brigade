@@ -32,3 +32,27 @@ func Eventually(tb testing.TB, timeout, interval time.Duration, cond func() bool
 		time.Sleep(interval)
 	}
 }
+
+// Await is Eventually for a wait that has to say what did not come: a
+// failure that reads `condition not met within 30s` names nothing, and the
+// tests of three packages each had a loop of their own that did (work item
+// 336). what is the thing awaited, read after "waited 30s for"; seen, when
+// it is not nil, is asked once the wait has given up, and its answer, what
+// was there instead, ends the message. The timeout is a hang catcher and
+// the clock the standard one, as Eventually's are, and cond is called at
+// least once, before any wait.
+func Await(tb testing.TB, timeout, interval time.Duration, what string, cond func() bool, seen func() string) {
+	tb.Helper()
+	deadline := time.Now().Add(timeout)
+	for !cond() {
+		if !time.Now().Before(deadline) {
+			if seen != nil {
+				tb.Fatalf("waited %v for %s, which did not come; %s", timeout, what, seen())
+				return
+			}
+			tb.Fatalf("waited %v for %s, which did not come", timeout, what)
+			return
+		}
+		time.Sleep(interval)
+	}
+}

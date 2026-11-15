@@ -418,11 +418,11 @@ func TestBurstStaysBoundedWithOneNotice(t *testing.T) {
 		if l["msg"] != "watcher exiting" {
 			continue
 		}
-		if q, _ := l["queued"].(float64); q > inbound.QueueCapacity {
-			t.Errorf("queued at exit = %v, over the cap", l["queued"])
+		if q := fx.logInt(l, "queued"); q > inbound.QueueCapacity {
+			t.Errorf("queued at exit = %d, over the cap", q)
 		}
-		if s, _ := l["senders"].(float64); s > inbound.MaxSenders {
-			t.Errorf("senders at exit = %v, over the cap", l["senders"])
+		if s := fx.logInt(l, "senders"); s > inbound.MaxSenders {
+			t.Errorf("senders at exit = %d, over the cap", s)
 		}
 	}
 	if fx.logHas("injection reported", map[string]any{"kind": "drop_notice", "ack": true}) {

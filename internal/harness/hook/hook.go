@@ -90,7 +90,12 @@ const (
 	// promptBudget keeps the prompt hook under its 5 s timeout with room
 	// for the process to exit.
 	promptBudget = 4500 * time.Millisecond
+	// grokStartBudget keeps a Grok Build SessionStart hook, lock wait
+	// included, under the 15 s Grok gives it. It is Deps.GrokStartBudget's
+	// production value.
+	grokStartBudget = 12 * time.Second
 	// endBudget keeps the session-end hook under the 1.5 s shared budget.
+	// It is Deps.EndBudget's production value.
 	endBudget = 1400 * time.Millisecond
 	// receiveTimeout is the `message receive --limit 20` cap of 6.3.
 	receiveTimeout = 4 * time.Second
@@ -268,6 +273,40 @@ type Deps struct {
 	// promptBudget. Only a test lowers it, to reach the doing reminder's
 	// budget guard (plan 5.4) without a real 3.5 s stall.
 	PromptBudget time.Duration
+	// StopBudget bounds the whole Stop-hook run; zero means stopBudget. Only
+	// a test raises it: the ask is made only while stopMinBudget of the
+	// budget is left, and a test of what the ask says must not have a busy
+	// machine decide whether it is said (work item 336).
+	StopBudget time.Duration
+	// GitBudget, when set, is the budget of each git call the state entry
+	// makes (state.go) in place of its hook's own; zero means that one.
+	// Only a test sets it: whether the hook saw a commit must not be for a
+	// busy machine to decide, by how long git took to answer (work item
+	// 336).
+	GitBudget time.Duration
+	// GrokStartBudget bounds the whole SessionStart hook of a Grok Build
+	// session, its wait for the receiver's lock included; zero means
+	// grokStartBudget. Only a test raises it: whether a start registered
+	// must not be for a busy machine to decide (work item 336).
+	GrokStartBudget time.Duration
+	// EndBudget bounds what the SessionEnd hook does under a deadline: the
+	// state entry's last git call, and after it the session's close; zero
+	// means endBudget. Only a test raises it: whether the end saw the last
+	// commit, and whether a slow git call left the close any time, must not
+	// be for a busy machine to decide (work item 336).
+	EndBudget time.Duration
+	// GrokLockHeld, when set, is called by a Grok hook each time it finds
+	// the receiver's lock held by another hook (grok_lock.go), before it
+	// tries again or gives up. nil in production, which tells nobody. A
+	// test waits on it for the moment a second hook contends, where it
+	// would otherwise sleep and hope (work item 336).
+	GrokLockHeld func()
+	// PidfileAwaited, when set, is called by a hook each time it begins to
+	// wait for a watcher's pidfile (awaitPidfile). nil in production,
+	// which tells nobody. A test counts on it whether a hook waited: a wait
+	// for a pidfile that never comes shows otherwise only on a clock, or in
+	// the wording of a log line (work item 336).
+	PidfileAwaited func()
 	// FollowBudget bounds the whole follow of `brigade hook follow`, the
 	// child a prompt hook starts (move.go, work item 327); zero means
 	// followBudget. Only a test lowers it, to see a follow whose backend
@@ -283,17 +322,20 @@ type Deps struct {
 // RealDeps returns the production dependencies.
 func RealDeps() Deps {
 	return Deps{
-		Now:          time.Now,
-		Spawner:      RealSpawner{},
-		ReadFile:     os.ReadFile,
-		Lookup:       procutil.Lookup,
-		LookPath:     lookPath,
-		SoundPlayer:  soundPlayer,
-		Notifier:     notifier,
-		PidfileWait:  DefaultPidfileWait,
-		PromptBudget: promptBudget,
-		FollowBudget: followBudget,
-		Getppid:      os.Getppid,
+		Now:             time.Now,
+		Spawner:         RealSpawner{},
+		ReadFile:        os.ReadFile,
+		Lookup:          procutil.Lookup,
+		LookPath:        lookPath,
+		SoundPlayer:     soundPlayer,
+		Notifier:        notifier,
+		PidfileWait:     DefaultPidfileWait,
+		PromptBudget:    promptBudget,
+		StopBudget:      stopBudget,
+		GrokStartBudget: grokStartBudget,
+		EndBudget:       endBudget,
+		FollowBudget:    followBudget,
+		Getppid:         os.Getppid,
 	}
 }
 
@@ -332,6 +374,15 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.PromptBudget <= 0 {
 		d.PromptBudget = prod.PromptBudget
+	}
+	if d.StopBudget <= 0 {
+		d.StopBudget = prod.StopBudget
+	}
+	if d.GrokStartBudget <= 0 {
+		d.GrokStartBudget = prod.GrokStartBudget
+	}
+	if d.EndBudget <= 0 {
+		d.EndBudget = prod.EndBudget
 	}
 	if d.FollowBudget <= 0 {
 		d.FollowBudget = prod.FollowBudget

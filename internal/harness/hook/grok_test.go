@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -61,9 +62,34 @@ func grokRun(f *fixture, sub, doc string, extra ...string) (int, string, string)
 	env := []string{"HOME=" + f.dirs.Home, "PATH=/usr/bin:/bin", "GROK_SESSION_ID=" + f.nativeID, "GROK_WORKSPACE_ROOT=" + f.cwd, "GROK_PLUGIN_ROOT=" + f.dirs.PluginRoot}
 	env = append(env, extra...)
 	f.writeScript()
+	began := time.Now()
 	code := Run([]string{sub, "--host", "grok", "--plugin-root", f.dirs.PluginRoot}, cli.Streams{In: strings.NewReader(doc), Out: &out, Err: &errOut}, env, f.deps)
+	f.onFailure(fmt.Sprintf("the Grok hook %s: exit %d after %v, %d bytes on stdout, and on stderr:\n%s", sub, code, time.Since(began).Round(time.Millisecond), out.Len(), errOut.String()))
 	return code, out.String(), errOut.String()
 }
+
+// TestGrokStartRegistersNothingPastItsBudget: a Grok start has one budget
+// for everything, its wait for the receiver's lock, the adapter's describe
+// and the registration (Deps.GrokStartBudget: 12 s of the 15 Grok gives its
+// hook). A start whose budget is over before its adapter has answered
+// registers nothing and says why. That is what a busy machine did to the
+// tests of this file (work item 336, the fixture's unhurried); here the
+// budget is made too short for anything, and the control is the same start
+// with its budget back.
+func TestGrokStartRegistersNothingPastItsBudget(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	f.deps.GrokStartBudget = time.Nanosecond
+	code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+	if code != 0 || f.mapExists() || !strings.Contains(errOut, "adapter did not finish within its deadline") {
+		t.Fatalf("a start with no budget: exit %d, a map %v, stderr:\n%s", code, f.mapExists(), errOut)
+	}
+	f.unhurried()
+	if code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil)); code != 0 || !f.mapExists() {
+		t.Fatalf("the same start with its budget back: exit %d, a map %v, stderr:\n%s", code, f.mapExists(), errOut)
+	}
+}
+
 func TestGrokLifecycleAndBoundedStop(t *testing.T) {
 	t.Parallel()
 	f := grokFixture(t)

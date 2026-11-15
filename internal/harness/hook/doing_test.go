@@ -825,8 +825,8 @@ func TestPromptDoingLineIsSilentWhereItMustBe(t *testing.T) {
 		if got := f.readDoingStamp(t); got != "" {
 			t.Fatalf("a stamp was written with no budget to print: %q", got)
 		}
-		// The control: the production budget prints.
-		f.deps.PromptBudget = 0
+		// The control: with its budget back, the same prompt prints.
+		f.unhurried()
 		if exit, out, _ := f.run(SubPrompt, f.promptDoc("bypassPermissions")); exit != 0 || out != doingLineBlank+"\n" {
 			t.Fatalf("control: exit %d out %q", exit, out)
 		}

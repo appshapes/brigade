@@ -289,7 +289,7 @@ func TestRealDepsAreTheDocumentedDefaults(t *testing.T) {
 	if s.Min() != backoff.AdapterErrorMin || s.Max() != backoff.AdapterErrorMax {
 		t.Errorf("inject schedule %v..%v", s.Min(), s.Max())
 	}
-	if d.Lookup == nil || d.Signal == nil || d.Clock == nil || d.Registry == nil || d.Post == nil || d.Stop != nil || d.Spawn != nil {
+	if d.Lookup == nil || d.Signal == nil || d.Clock == nil || d.Registry == nil || d.Post == nil || d.Stop != nil || d.Spawn != nil || d.StateChecked != nil {
 		t.Errorf("seams: %+v", d)
 	}
 }
