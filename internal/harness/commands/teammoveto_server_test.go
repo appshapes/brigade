@@ -772,19 +772,21 @@ func TestTheCommandsAMovePrintsCarryALongAddressWhole(t *testing.T) {
 	}
 }
 
-// TestARerunLeavesOutABackendThatRefusesToSayWhatItRecords (work item 341):
+// TestARerunSaysOfABackendThatRefusesTheReadThatItRefuses (work item 341):
 // a command that is run again asks every backend this machine has joined
 // the team on what it records. One that answers that the caller may not
-// ask, `unauthorized` or `unauthenticated`, was listed with the ones that
+// ask, `unauthorized` or `unauthenticated`, was told with the ones that
 // did not answer: "did not answer what it records … Run the same command
-// again when it answers", which it never will. Such a backend is not the
-// one the team is leaving, whose owner reads its record: it is no
-// candidate. With one left the command goes on as it does on a machine
-// that has joined the team on one other backend, and with none it refuses
-// as it does where there is none. A backend that did not answer, and one
-// that answered something that is no record, stay as they were: either may
-// be the one.
-func TestARerunLeavesOutABackendThatRefusesToSayWhatItRecords(t *testing.T) {
+// again when it answers", which it never will. It is a backend that could
+// not be read all the same, and may be the one the team is leaving: its
+// owner there may have put this member out, and a command that left it
+// out took an earlier backend for it, opened the move again and recorded
+// there. So nothing is chosen, as with one that did not answer, and
+// nothing is asked of the server. What differs is the sentence: it refuses
+// to say what it records to this machine, which it no longer counts a
+// member, and the remedy is the command with --from. A backend that did
+// not answer, and one that answered what is no record, keep their words.
+func TestARerunSaysOfABackendThatRefusesTheReadThatItRefuses(t *testing.T) {
 	t.Parallel()
 	const earlier = "earlier.example.test:8743"
 	// rerun is a machine that has joined the team on the server the file
@@ -808,49 +810,56 @@ func TestARerunLeavesOutABackendThatRefusesToSayWhatItRecords(t *testing.T) {
 		if err := write.Pin(cfg, canon, teamstore.Pin{Adapter: "rest", URL: r.newURL, Certificate: moveNewPin, TeamRef: setupTeamRef, ConsentedAt: fixtureNow}); err != nil {
 			t.Fatal(err)
 		}
-		r.f.rec.on("team take-in", okAnswer(r.takenIn(false, true)))
 		return r
 	}
-	notAMember := failAnswer(protocol.CodeUnauthorized, "not an active member of this team")
-
-	// The earlier one refuses the read, and the one the team left answers:
-	// the earlier one is left out, and the command goes on with the other.
-	for name, refusal := range map[string]answer{
-		"no active member":      notAMember,
-		"an unknown credential": failAnswer(protocol.CodeUnauthenticated, "the credential is not known to this server"),
-	} {
-		r := rerun()
-		// The server answers the earlier backend's question first, and then its own.
-		r.there.on("team moved", refusal, okAnswer(r.notMoved()))
-		if err := Team(r.inv(true, r.args()...)); err != nil {
-			t.Fatalf("%s: the same command with one backend left: %v", name, err)
+	// refused holds the command to a refusal that chose nothing and asked the
+	// server nothing but what a candidate was asked: no take-in, no question
+	// to the administrator, and the command printed for each backend.
+	refused := func(r *moveToRig, needs, gone []string) {
+		t.Helper()
+		perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, "team_ambiguous")
+		for _, need := range append(needs, "--from "+earlier+"`", "--from "+r.oldHost+"`", "a backend that cannot be read may be the one", "Nothing was changed") {
+			if !strings.Contains(perr.Message, need) {
+				t.Errorf("the refusal lacks %q: %s", need, perr.Message)
+			}
 		}
-		if out := r.f.out.String(); !strings.Contains(out, "recorded on "+r.oldHost+":") || len(r.prompts) != 1 || !strings.Contains(r.prompts[0], "from "+r.oldHost+" to "+r.newHost) {
-			t.Errorf("%s: the move did not go on from the one backend left:\n%s\n%v", name, out, r.prompts)
+		for _, not := range gone {
+			if strings.Contains(perr.Message, not) {
+				t.Errorf("the refusal says %q: %s", not, perr.Message)
+			}
+		}
+		if len(r.prompts) != 0 || slices.Contains(r.order, "new:team take-in") || slices.Contains(r.order, "new:team open-move") {
+			t.Errorf("a command that chose no backend asked %v and put %d questions", r.order, len(r.prompts))
 		}
 	}
+	notAMember := failAnswer(protocol.CodeUnauthorized, "not an active member of this team")
+	const refuses = " refuses to say what it records of this team to this machine, which it no longer counts a member"
 
-	// Both refuse: there is nothing left to move from here.
+	// The earlier one refuses the read, and the one the team left answers.
+	for _, refusal := range []answer{notAMember, failAnswer(protocol.CodeUnauthenticated, "the credential is not known to this server")} {
+		r := rerun()
+		r.there.on("team moved", refusal)
+		refused(r, []string{earlier + refuses, "Run the same command with the backend it leaves named: "}, []string{"did not answer", "when it answers", "when they answer"})
+	}
+
+	// Both refuse.
 	r := rerun()
 	r.f.rec.on("team moved", notAMember)
 	r.there.on("team moved", notAMember)
-	perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeConfig, "no_move")
-	for _, need := range []string{"names that server already", earlier, r.oldHost, "no longer count", "nothing left to move from here"} {
-		if !strings.Contains(perr.Message, need) {
-			t.Errorf("the refusal where every other backend refuses the read lacks %q: %s", need, perr.Message)
-		}
-	}
-	if len(r.prompts) != 0 || strings.Contains(perr.Message, "did not answer") {
-		t.Errorf("the refusal where every other backend refuses the read: %s; %d confirmations", perr.Message, len(r.prompts))
-	}
+	refused(r, []string{earlier + " and " + r.oldHost + " refuse to say what they record of this team to this machine, which they no longer count a member", "Run the same command with the backend it leaves named: "},
+		[]string{"did not answer", "when it answers", "when they answer"})
 
-	// One that answers what is no record may be the one: nothing is chosen.
+	// One refuses and the other does not answer: each keeps its words, and
+	// the command is worth running again once the one that did not answer does.
+	r = rerun()
+	r.f.rec.on("team moved", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
+	r.there.on("team moved", notAMember)
+	refused(r, []string{r.oldHost + " did not answer what it records of this team", earlier + refuses, "Run the same command again when it answers, or with the backend it leaves named: "}, nil)
+
+	// One that answers what is no record keeps the words of one that did not answer.
 	r = rerun()
 	r.there.on("team moved", failAnswer(protocol.CodeInternal, "the backend answered with something that is not a result envelope"))
-	perr = wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, "team_ambiguous")
-	if !strings.Contains(perr.Message, earlier+" did not answer what it records of this team") || !strings.Contains(perr.Message, "--from "+earlier) || !strings.Contains(perr.Message, "--from "+r.oldHost) {
-		t.Errorf("the refusal where a backend answers what is no record: %s", perr.Message)
-	}
+	refused(r, []string{earlier + " did not answer what it records of this team", "Run the same command again when it answers, or with the backend it leaves named: "}, []string{"refuses to say"})
 }
 
 // TestTeamMoveToTellsAClearThatIsToldToWaitAsOneThatWasNotAnswered (work

@@ -184,10 +184,11 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   two backends that both record the move, it changes nothing, names the
   backends and prints itself for each with its `--from`; and where one of
   those backends does not answer what it records, it chooses none
-  either, and says to run it again when it answers. A backend that
-  answers that this member may not read its record is not the one the
-  team is leaving: it is left out, and with one backend left the
-  command goes on from that one.
+  either, and says to run it again when it answers. Of a backend that
+  refuses to say what it records to this machine, which it no longer
+  counts a member, it says that, and to name the backend with `--from`:
+  it chooses nothing beside such a backend either, which may be the one
+  the team is leaving.
   The line either refusal prints is the whole command: it carries
   `--certificate sha256:…` for a server that made its own certificate,
   as does the address the command prints for a move back to an earlier

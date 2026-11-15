@@ -2389,44 +2389,101 @@ func TestAnAdapterThatCannotDescribeItselfTakesNothingBackThroughTheRealBinary(t
 	}
 }
 
-// TestARerunLeavesOutAServerThatRefusesToSayWhatItRecordsThroughTheRealBinary:
-// a team went from A to B and from B to C, and the same command is run
-// again. The administrator's machine has joined the team on A and on B, and
-// A now answers that she may not read what it records, as a server does of
-// a member it has put out. Until this A was listed with the servers that
-// did not answer: the command changed nothing and said to run it again
-// when A answers, which it never will. A server that refuses the read is
-// not the one the team is leaving, whose owner reads its record: it is
-// left out, one server is left, and the command goes on from it as it does
-// on a machine that has joined the team on one other backend.
-func TestARerunLeavesOutAServerThatRefusesToSayWhatItRecordsThroughTheRealBinary(t *testing.T) {
+// TestARerunDoesNotLeaveOutAServerThatRefusesTheReadThroughTheRealBinary:
+// a team went from A to C and from C to B. On B the team is handed to
+// another member, who puts the first owner out of B and records that the
+// team goes to C. The first owner, whose checkout is still joined to B,
+// runs the same command to C again. B answers that she may not read what
+// it records. A command that left such a server out of the ones the team
+// may be leaving took A for it, whose record of the first move still
+// names C: it opened the move again, which replaced the ticket B's record
+// hands out, and recorded on A, and a member on B who had not followed was
+// refused. A server that refuses the read is one that could not be read:
+// the command chooses nothing, changes nothing, and says of it that it
+// refuses to say what it records to this machine, not that it did not
+// answer nor to run the command again when it answers.
+func TestARerunDoesNotLeaveOutAServerThatRefusesTheReadThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
-	var refuses atomic.Bool
-	_, a := startFront(t, startRestBackend(t), func(req *http.Request, _ []byte) (int, string) {
-		if refuses.Load() && req.URL.Path == "/v1/team/moved" {
-			return http.StatusForbidden, notAMember
-		}
-		return 0, ""
-	}, nil)
-	b, c := startRestBackend(t), startRestBackend(t)
+	a, b, c := startRestBackend(t), startRestBackend(t), startRestBackend(t)
 	r := teamOnAServer(t, a)
-	term := r.terminalEnv(r.configDir)
-	r.movedTo(b, r.secretFile)
+	term, member := r.terminalEnv(r.configDir), r.terminalEnv(r.configDirB)
 	r.movedTo(c, r.secretFile)
-	onA, onB := r.recordOn(r.configDir, a), r.recordOn(r.configDir, b)
-	if !onA.Moved || onA.URL != b.url || !onB.Moved || onB.URL != c.url {
+	fileOfC := r.teamFile()
+	if res, key := r.bobStarts(); key != r.keyAt(c) {
+		t.Fatalf("the member did not follow to C: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	r.movedTo(b, r.secretFile)
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	// A third member joins the team on B, where it is, and starts no session
+	// until the end: she never was on C.
+	carolDir := filepath.Join(r.dirs.Root, "config-carol")
+	if err := os.MkdirAll(carolDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	carol := func() session {
+		s := r.newSession("carol", "carol-session", "", "", "")
+		s.extraEnv = []string{"CLAUDE_PLUGIN_OPTION_CONFIG_DIR=" + carolDir}
+		return s
+	}
+	joining := carol()
+	r.restHook(joining, "session-start", joining.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if res := r.runIn(r.checkout, r.restEnv(joining), "", "team", "join", "--secret-file", r.secretFile, "--label", "carol@example.com"); res.exit != 0 {
+		t.Fatalf("the third member's join on B: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	r.restHook(joining, "session-end", joining.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+
+	// The team on B is handed to the member, who puts the first owner out of
+	// B and records there that the team goes to C, where she owns it still.
+	firstOwner := r.principalOf(r.configDir, b)
+	if res := r.runIn(r.checkout, term, "", "team", "transfer", "--principal", r.principalOf(r.configDirB, b)); res.exit != 0 {
+		t.Fatalf("the transfer on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	if res := r.runIn(r.checkout, member, "", "team", "revoke-member", "--principal", firstOwner); res.exit != 0 {
+		t.Fatalf("the first owner put out of B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	ticket := filepath.Join(r.dirs.Root, "c.ticket")
+	if res := r.adapterAs(r.configDir, r.keyAt(c), "team", "move", "--clear"); res.exit != 0 {
+		t.Fatalf("C's record of the team's leaving cleared: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	if res := r.adapterAs(r.configDir, r.keyAt(c), "team", "open-move", "--ticket-file", ticket); res.exit != 0 {
+		t.Fatalf("the move opened on C: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	record := []string{"team", "move", "--ticket-file", ticket, "--adapter", "rest", "--url", c.url}
+	if c.certificate != "" {
+		record = append(record, "--certificate", c.certificate)
+	}
+	if res := r.adapterAs(r.configDirB, r.keyAt(b), record...); res.exit != 0 {
+		t.Fatalf("the move recorded on B by its new owner: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	r.putTeamFile(fileOfC)
+	onA, onB := r.recordOn(r.configDir, a), r.recordOn(r.configDirB, b)
+	if !onA.Moved || onA.URL != c.url || !onB.Moved || onB.URL != c.url {
 		t.Fatalf("the records before the rerun: A %+v, B %+v", onA, onB)
 	}
-	refuses.Store(true)
+
+	// The first owner runs the same command again, in the checkout joined to B.
 	res := r.runIn(r.checkout, term, "y\n", moveArgs(c, r.secretFile)...)
-	refuses.Store(false)
-	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") || !strings.Contains(res.stderr, "from "+hostOf(b)+" to "+hostOf(c)) || strings.Contains(res.stderr, "did not answer") {
-		t.Fatalf("the same command while an earlier server refuses the read: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	for _, need := range []string{
+		hostOf(b) + " refuses to say what it records of this team to this machine, which it no longer counts a member",
+		"Run the same command with the backend it leaves named: ", "--from " + hostOf(a), "--from " + hostOf(b), "Nothing was changed",
+	} {
+		if !strings.Contains(res.stderr, need) {
+			t.Errorf("the refusal lacks %q: %s", need, res.stderr)
+		}
 	}
-	if now := r.recordOn(r.configDir, a); !now.RecordedAt.Equal(onA.RecordedAt) || now.URL != b.url {
-		t.Fatalf("A's record was written: %+v, was %+v", now, onA)
+	if res.exit == 0 || strings.Contains(res.stderr, "[y/N]") || strings.Contains(res.stderr, "did not answer") || strings.Contains(res.stderr, "when it answers") {
+		t.Fatalf("the same command while the server the team is leaving refuses the read: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
-	if now := r.recordOn(r.configDir, b); !now.Moved || now.URL != c.url || !now.RecordedAt.After(onB.RecordedAt) {
-		t.Fatalf("B's record after the rerun: %+v, was %+v", now, onB)
+	if nowA, nowB := r.recordOn(r.configDir, a), r.recordOn(r.configDirB, b); !nowA.RecordedAt.Equal(onA.RecordedAt) || !nowB.RecordedAt.Equal(onB.RecordedAt) {
+		t.Fatalf("a record was written: A %+v, was %+v; B %+v, was %+v", nowA, onA, nowB, onB)
 	}
+	// B's record still hands out a ticket that admits: the member on B follows.
+	following := carol()
+	got := r.restHook(following, "session-start", following.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if !r.mapExists(following) || r.mustMap(following).TeamKey != r.keyAt(c) || !strings.Contains(got.stdout, "with the move's ticket") {
+		t.Fatalf("the member on B after the refused rerun: stdout %q\nstderr %s", got.stdout, got.stderr)
+	}
+	r.restHook(following, "session-end", following.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 }

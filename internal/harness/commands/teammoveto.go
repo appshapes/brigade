@@ -648,8 +648,9 @@ func onThatServerAlready(to, has, typed string) *protocol.Error {
 // may be the very backend the team is leaving. So nothing is chosen while
 // one does not answer either: the command names it, and says to run it
 // again when it answers, or with --from. A backend that answers that this
-// member may not read its record is another matter: it is not the backend
-// the team is leaving, and is no candidate (teammove.RefusesCaller).
+// member may not read its record is such a candidate too, and nothing is
+// chosen beside it either: the refusal says of it that it refuses, and not
+// that it did not answer (teammove.RefusesCaller).
 func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string, error) {
 	bindings, keys, err := listBindings(m.configDir)
 	if err != nil {
@@ -660,27 +661,23 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		if b.TeamRef != m.file.TeamRef || keys[i] == m.destKey {
 			continue
 		}
+		candidates = append(candidates, i)
 		t, terr := inv.dialectTarget(b.Adapter, keys[i])
 		if terr != nil {
-			candidates, unread = append(candidates, i), append(unread, i)
+			unread = append(unread, i)
 			continue
 		}
 		record, _, rerr := inv.recordOn(t)
-		if teammove.RefusesCaller(rerr) {
-			// The backend answered that this member may not read what it
-			// records. The one the team is leaving is its owner's to record
-			// on, and its owner reads it: so this is not that one, and it is
-			// no candidate. Until this it was listed with the backends that
-			// did not answer, and the command said to run it again when it
-			// answers, which it never would (work item 341).
-			refusing = append(refusing, i)
-			continue
-		}
-		candidates = append(candidates, i)
 		switch {
+		case teammove.RefusesCaller(rerr):
+			// It answered that this member may not read what it records. It
+			// is a candidate all the same, and one that cannot be read: the
+			// team's owner there may have put this member out, and it may be
+			// the very backend the team is leaving. What differs from one
+			// that did not answer is only what is said of it below.
+			refusing = append(refusing, i)
 		case rerr != nil:
-			// It did not answer, or answered what is no record: it may be
-			// the one, and nothing is chosen while it cannot be read.
+			// It did not answer, or answered what is no record.
 			unread = append(unread, i)
 		case record != nil && record.Moved && record.Adapter == m.dest.Adapter && teammove.SameAddress(record.URL, m.dest.URL):
 			recorded = append(recorded, i)
@@ -719,34 +716,34 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		slices.Sort(lines)
 		return strings.Join(lines, ", or ")
 	}
-	// With the backends that refuse the read left out, one candidate or none
-	// may remain: the command then goes on as it does on a machine that has
-	// joined the team on one other backend, or on none (moveFrom).
-	if len(refusing) > 0 && len(candidates) == 1 {
-		return bindings[candidates[0]], keys[candidates[0]], nil
-	}
-	if len(refusing) > 0 && len(candidates) == 0 {
-		they := "the other backends this machine has joined this team on (" + hostsOf(refusing) + ") no longer count"
-		if len(refusing) == 1 {
-			they = "the other backend this machine has joined this team on (" + hostsOf(refusing) + ") no longer counts"
+	if len(unread)+len(refusing) > 0 {
+		// What is said of each: one that did not answer may answer the same
+		// command run again, and one that refuses to say what it records to
+		// this machine will not. Until the two were told apart, a backend
+		// that had put this member out was said not to have answered, and
+		// the command said to run it again when it answers (work item 341).
+		// Either way nothing is chosen, and what helps at once is --from.
+		var could []string
+		remedy := "Run the same command with the backend it leaves named: "
+		if len(unread) > 0 {
+			it, did := "it answers", " did not answer what it records of this team"
+			if len(unread) > 1 {
+				it, did = "they answer", " did not answer what they record of this team"
+			}
+			could = append(could, subject(unread)+did)
+			remedy = "Run the same command again when " + it + ", or with the backend it leaves named: "
 		}
-		return nil, "", &protocol.Error{
-			Code: protocol.CodeConfig,
-			Message: "this project's " + teamfile.FileName + " names that server already, and " + they + " it a member of the team: " +
-				"there is nothing left to move from here (`brigade team status` names the team this checkout is on)",
-			Details: map[string]string{"reason": "no_move"},
-		}
-	}
-	if len(unread) > 0 {
-		it, did := "it answers", " did not answer what it records of this team"
-		if len(unread) > 1 {
-			it, did = "they answer", " did not answer what they record of this team"
+		if len(refusing) > 0 {
+			refuses := " refuses to say what it records of this team to this machine, which it no longer counts a member"
+			if len(refusing) > 1 {
+				refuses = " refuse to say what they record of this team to this machine, which they no longer count a member"
+			}
+			could = append(could, subject(refusing)+refuses)
 		}
 		return nil, "", &protocol.Error{
 			Code: protocol.CodeUnavailable,
-			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + subject(unread) + did +
-				", so which one the team is leaving is not known: a backend that cannot be read may be the one. Run the same command again when " + it +
-				", or with the backend it leaves named: " + reruns() + ". Nothing was changed",
+			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + strings.Join(could, ", and ") +
+				", so which one the team is leaving is not known: a backend that cannot be read may be the one. " + remedy + reruns() + ". Nothing was changed",
 			Details: map[string]string{"reason": "team_ambiguous"},
 		}
 	}
