@@ -13,9 +13,11 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
@@ -721,11 +723,12 @@ func TestTheHooksThatRewriteAMapKeepItsCheckout(t *testing.T) {
 	})
 }
 
-// TestASessionRegisteredAgainKeepsItsCheckout: a running session whose
-// watcher died is registered again by its next start, on the backend it is
-// on. That is the same session of the same process, so it is still the
-// checkout's it registered in, though this start's directory is in another
-// checkout of the team. A map that names no checkout takes the start's.
+// TestASessionRegisteredAgainKeepsItsCheckout: a running session, its
+// watcher alive, whose backend no longer has it is registered again by its
+// next start, on the backend it is on. That is the same session of the same
+// process, so it is still the checkout's it registered in, though this
+// start's directory is in another checkout of the team. A map that names no
+// checkout takes the start's.
 func TestASessionRegisteredAgainKeepsItsCheckout(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -738,19 +741,20 @@ func TestASessionRegisteredAgainKeepsItsCheckout(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newMemberFixture(t)
-			seam := registerSeam(t, f)
+			// The backend answers the start's heartbeat that it has no such
+			// session.
+			seam := memberSeam(t, f, movedDoc(movedURL, movedPin), map[string][]fakeadapter.Response{
+				"session heartbeat": {errResp(protocol.CodeNotFound, "session_not_found")},
+			})
 			startMember(t, f)
 			own, oldPin := f.canon(), f.checkoutPin()
 			behind, behindCanon := f.addCheckout("behind", fileOf(oldPin), pinDoc(oldPin))
 			if tc.old {
 				f.withoutCheckout()
 			}
-			if err := os.Remove(f.pidfilePath()); err != nil { // its watcher is gone
-				t.Fatal(err)
-			}
-			// The same conversation, from the other checkout.
-			f.cwd = behind
-			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("resume")); exit != 0 {
+			// Another conversation, from the other checkout.
+			f.nativeID, f.cwd = otherConversation, behind
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("clear")); exit != 0 {
 				t.Fatalf("exit %d: %s", exit, errOut)
 			}
 			want := own
@@ -761,5 +765,75 @@ func TestASessionRegisteredAgainKeepsItsCheckout(t *testing.T) {
 				t.Fatalf("the map after the session was registered again: checkout %q, want %q; key %q; %d registrations", m.Checkout, want, m.TeamKey, len(seam.callsFor("session register")))
 			}
 		})
+	}
+}
+
+// TestAStartInAnotherCheckoutWithNoWatcherAliveRegistersThere: a start is
+// from another checkout than a running session's own only when a session
+// is running, which its live watcher shows. With no watcher alive the map
+// can still name the conversation the start names, and on Codex CLI that
+// shows nothing: a thread is keyed by its id, its map outlives its process,
+// and a thread that is resumed, in a new process, from another checkout
+// finds the map of the process before. Such a start registers where it is,
+// as it did before a map named a checkout, and its map names the checkout
+// it starts in: on the server when that checkout is there, with no resume
+// hint for an id the server never issued, and on the backend the map named
+// when the checkout is still on it. Messages that waited for the session of
+// the process before keep nobody back. A watcher is started in each case.
+func TestAStartInAnotherCheckoutWithNoWatcherAliveRegistersThere(t *testing.T) {
+	t.Parallel()
+	for _, host := range []config.Host{config.HostCodex, config.HostClaude} {
+		for _, tc := range []struct {
+			name   string
+			server bool
+			held   bool
+		}{
+			{"the checkout is on the server", true, false},
+			{"the checkout is on the server, and messages waited", true, true},
+			{"the checkout is on the backend the map names", false, false},
+		} {
+			t.Run(string(host)+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+				f := movingFixture(t, host)
+				f.noAdapterOption = true
+				seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+				oldPin := f.checkoutPin()
+				other, otherCanon := f.addCheckout("behind", fileOf(oldPin), pinDoc(oldPin))
+				wantKey := f.teamKey
+				if tc.server {
+					f.memberOf("team-1")
+					other, otherCanon = f.addCheckout("on-the-server", serverFile("team-1"), serverPin("team-1", oldPin.URL))
+					wantKey = teamstore.Key("rest", movedURL, "team-1")
+				}
+				if tc.held {
+					if err := pendingStoreOf(f).Save(inbound.PendingFile{Entries: heldEntries(1, "payments-api"), UpdatedAt: fixedTime}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				// The process ends: its watcher goes, and the map stays.
+				if err := os.Remove(f.pidfilePath()); err != nil {
+					t.Fatal(err)
+				}
+				spawns := f.spawner.count()
+				// The same conversation, started again from the other checkout.
+				f.cwd = other
+				exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("resume"))
+				if exit != 0 || strings.Contains(out, "not connected") || strings.Contains(out, "(brigade-sess-1)") {
+					t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+				}
+				m := f.mustMap()
+				if m.Checkout != otherCanon || m.TeamKey != wantKey || m.BrigadeSessionID != "brigade-sess-2" {
+					t.Fatalf("the map after the start: checkout %q, want %q; key %q, want %q; session %q", m.Checkout, otherCanon, m.TeamKey, wantKey, m.BrigadeSessionID)
+				}
+				regs := seam.callsFor("session register")
+				if len(regs) != 2 || f.spawner.count() != spawns+1 {
+					t.Fatalf("%d registrations and %d watchers started, want one of each", len(regs)-1, f.spawner.count()-spawns)
+				}
+				// An id is a hint only to the backend that issued it.
+				if reg := registration(t, regs[1]); (reg.Resume != nil) == tc.server {
+					t.Fatalf("the registration's resume hint: %v; the checkout is on the server: %v", reg.Resume, tc.server)
+				}
+			})
+		}
 	}
 }

@@ -222,22 +222,35 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// it names the conversation this document names. A map a dead process
 	// left under the same pid is neither.
 	ours := existing != nil && (watcherOfExisting || (in.SessionID != "" && existing.ClaudeSessionID == in.SessionID))
+	// another: the map names a checkout, and this start comes from another
+	// one. A hook document's directory follows the model (a `cd`, a
+	// worktree), so a start can come from anywhere.
+	another := existing != nil && existing.Checkout != "" && existing.Checkout != res.checkout
+	// foreign: a session is running, its watcher alive, and this start comes
+	// from another checkout than the one it registered in: a `/clear` while
+	// the model works elsewhere. A session is its own checkout's, at a start
+	// as at a prompt (moveSession): one that moved to whatever backend the
+	// checkout of its last `/clear` was on would go back and forth between
+	// two checkouts of one team. So this start changes neither where the
+	// session is attached nor the checkout it is of.
+	foreign := another && watcherOfExisting && !r.moving
+	// displaced: the start comes from another checkout and no watcher is
+	// alive, so nothing shows a session running in the checkout the map
+	// names. What the map can still say is that it names this conversation,
+	// and on Codex CLI that is no evidence of a running session at all: a
+	// thread is keyed by its id, its map outlives its process, and a thread
+	// that is resumed in another checkout names the conversation its map
+	// names. Such a start is of a session that begins where it is: it
+	// registers there, as it did before a map named a checkout, and is that
+	// checkout's. Nothing that keeps a running session applies to it.
+	displaced := another && !watcherOfExisting && !r.moving
 	// staying: this is a session's start (a /clear among them, which fires
 	// it again in the same process), the session is running on the backend
 	// its team left, and what would move it may not: then it is kept where
 	// it is, as a prompt keeps it (reattach), and is never told that it is
 	// `not connected`, which it is not. A prompt that moves a session
 	// (r.moving) decides both for itself.
-	staying := elsewhere && ours && !r.moving
-	// foreign: the session is running, and this start comes from another
-	// checkout than the one it registered in. A hook document's directory
-	// follows the model (a `cd`, a worktree), so a `/clear` can come from
-	// anywhere. A session is its own checkout's, at a start as at a prompt
-	// (moveSession): one that moved to whatever backend the checkout of its
-	// last `/clear` was on would go back and forth between two checkouts of
-	// one team. So this start changes neither where the session is attached
-	// nor the checkout it is of.
-	foreign := ours && !r.moving && existing.Checkout != "" && existing.Checkout != res.checkout
+	staying := elsewhere && ours && !r.moving && !displaced
 	if foreign && elsewhere {
 		r.log.Info("this start comes from another checkout than the session's own; the session stays where it is")
 		r.keep(ctx, f, in, res, existing, now, watcherOfExisting)
@@ -416,10 +429,12 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	if request != "" {
 		m.SetInboundRequest(request)
 	}
-	if ours && existing.Checkout != "" {
-		// A session of this process that is registered again (its watcher
-		// died, or its own checkout moved) is still its checkout's, wherever
-		// this hook's directory is.
+	if ours && !displaced && existing.Checkout != "" {
+		// A session of this process that is registered again (the backend
+		// no longer had it, or its own checkout moved) is still its
+		// checkout's, wherever this hook's directory is. One that starts in
+		// another checkout with no watcher alive is that checkout's
+		// (displaced).
 		m.Checkout = existing.Checkout
 	}
 	if err := r.adoptGrokBacklog(f.stateDir, prior, m); err != nil {
