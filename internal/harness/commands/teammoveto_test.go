@@ -394,6 +394,11 @@ func TestTeamMoveToMovesTheTeam(t *testing.T) {
 			}
 		}
 	}
+	// The roster that is read is the sessions that are online: one that is
+	// gone says nothing about the plugin its member runs today.
+	if list := r.f.rec.specsOf("session list"); len(list) != 1 || slices.Contains(list[0].Argv, "--include-offline") {
+		t.Errorf("the roster was read with the offline sessions: %v", r.asked())
+	}
 
 	// The take-in: the server's adapter, the team's key there, the secret and
 	// the destination in the document, the token by its file's path.
@@ -527,6 +532,27 @@ func TestTeamMoveToSendsTheLabelOfTheOldBackend(t *testing.T) {
 // adapter, asks nothing and leaves everything as it was.
 func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 	t.Parallel()
+	// says is what a `usage` refusal has to say, where another rule would
+	// refuse the same argv with the same code.
+	says := map[string]string{ //nolint:gosec // G101: the names of test cases and the refusals' fixed texts, not credentials
+		"no secret file":                                      "team move --to needs --secret-file <path>",
+		"a secret on the command line":                        "join secrets must never be passed on the command line",
+		"a relative secret file":                              "--secret-file must be an absolute path",
+		"a secret file inside the checkout":                   "--secret-file must not be inside this project",
+		"a secret file inside the checkout that is not there": "--secret-file must not be inside this project",
+		"a secret file with a .. in it":                       "--secret-file must not contain a `..` component",
+		"a server over plain http":                            "--to must use https",
+		"a url with a query":                                  "with no credentials, query or fragment",
+		"a url with credentials":                              "with no credentials, query or fragment",
+		"another scheme":                                      "--to must use https",
+		"a pin that is not one":                               "--certificate must be the SHA-256 fingerprint",
+		"a pin for a server over http":                        "--certificate goes with an https --to",
+		"no days":                                             "--ticket-days must be between 1 and 365",
+		"too many days":                                       "--ticket-days must be between 1 and 365",
+		"a relative creation token file":                      "--create-token-file must be an absolute path",
+		"a creation token file inside the checkout":           "--create-token-file must be a plainly spelled path outside this project",
+		"the secret of another team":                          "name the file `team create` wrote for this team",
+	}
 	for _, tc := range []struct {
 		name   string
 		args   func(r *moveToRig) []string
@@ -540,6 +566,9 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 			inside := filepath.Join(r.top, "ops.secret")
 			writeSecretFile(r.t, inside, moveToSecret)
 			return []string{"--to", r.newURL, "--secret-file", inside}
+		}, protocol.CodeUsage, ""},
+		{"a secret file inside the checkout that is not there", func(r *moveToRig) []string {
+			return []string{"--to", r.newURL, "--secret-file", filepath.Join(r.top, "no-such.secret")}
 		}, protocol.CodeUsage, ""},
 		{"a secret file with a .. in it", func(r *moveToRig) []string {
 			return []string{"--to", r.newURL, "--secret-file", r.f.dirs.Root + "/x/../ops.secret"}
@@ -623,6 +652,9 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 				fileBefore = string(b)
 			}
 			perr := wantCodeErr(t, Team(r.inv(true, args...)), tc.code, tc.reason)
+			if need := says[tc.name]; !strings.Contains(perr.Message, need) {
+				t.Fatalf("the refusal lacks %q: %s", need, perr.Message)
+			}
 			for _, hidden := range []string{strings.Repeat("cd", 16), "MUST-NOT-LEAK", "user:pw"} {
 				if strings.Contains(perr.Message, hidden) {
 					t.Fatalf("the refusal carries %q", hidden)
@@ -638,6 +670,41 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 				t.Fatalf("a refusal wrote the store")
 			}
 		})
+	}
+}
+
+// TestTeamMoveToTicketDays: the days a move stays open are 1 to 365, both
+// ends included, and go to the server's adapter as they were typed.
+func TestTeamMoveToTicketDays(t *testing.T) {
+	t.Parallel()
+	for _, days := range []string{"1", "365"} {
+		t.Run(days, func(t *testing.T) {
+			t.Parallel()
+			r := newMoveToRig(t)
+			if err := Team(r.inv(true, r.args("--ticket-days", days)...)); err != nil {
+				t.Fatal(err)
+			}
+			if open := r.f.rec.specsOf("team open-move"); len(open) != 1 || !strings.HasSuffix(argvOf(open[0]), "--ticket-days "+days) {
+				t.Fatalf("the open: %v", r.asked())
+			}
+		})
+	}
+}
+
+// TestTeamMoveToRefusesASecretFileLinkedIntoTheCheckout: a path outside
+// the checkout that is a link to a file inside it is inside it.
+func TestTeamMoveToRefusesASecretFileLinkedIntoTheCheckout(t *testing.T) {
+	t.Parallel()
+	r := newMoveToRig(t)
+	inside := filepath.Join(r.top, "ops.secret")
+	writeSecretFile(t, inside, moveToSecret)
+	link := filepath.Join(r.f.dirs.Root, "linked.secret")
+	if err := os.Symlink(inside, link); err != nil {
+		t.Fatal(err)
+	}
+	perr := wantCodeErr(t, Team(r.inv(true, "--to", r.newURL, "--secret-file", link)), protocol.CodeUsage, "")
+	if !strings.Contains(perr.Message, "--secret-file must not be inside this project") || r.f.rec.count() != 0 {
+		t.Fatalf("a secret file linked into the checkout: %s, spawned %v", perr.Message, r.f.rec.verbs())
 	}
 }
 

@@ -192,7 +192,6 @@ func (inv Invocation) moveTo(flags moveFlags) error {
 	if err := inv.writeMove(m, taken); err != nil {
 		return m.stopped(err, "the move is recorded on "+m.fromHost()+", and this checkout was not written")
 	}
-	_ = os.Remove(ticketFile)
 	return inv.reportMove(m, taken, opened, recorded)
 }
 
