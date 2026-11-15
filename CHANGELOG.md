@@ -120,14 +120,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   no refusal, and no refusal is put on record for it; a directory for
   the server is in the member's store by then, and the server may have
   carried the join out though its answer did not arrive. A session
-  that starts while it cannot ask at all, because the
-  backend it joined does not answer or another follow of the machine
-  holds the lock, says what the last follow that asked left, as its
-  prompts do; where none left anything it says, as it did, that the
-  file does not match. What a follow left is said for fifteen minutes
-  from when a follow last asked: past that a session says that the file
-  does not match, so a member whose old backend is gone for good is
-  told the join and not to wait. A backend the member joined that
+  that starts while it cannot ask at all, because the backend it joined
+  does not answer or another follow of the machine holds the lock, says
+  as it did that the file does not match, which names the join: where
+  that backend is gone for good, the join is the way in. What an
+  earlier follow left stays as it was, and the session's prompts say
+  it, however long ago it was left. A backend the member joined that
   refuses the question, as it refuses a member it has put out, has
   answered: what an earlier follow left is taken back, and the session
   says that the file does not match, which names the join that helps. A

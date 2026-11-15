@@ -194,15 +194,21 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			need:  []string{"The backend you joined no longer counts you a member", "waiting mends nothing", "is not such a case"},
 		},
 		{
-			why:   "a join that the backend a team moved to did not answer is told as a backend that did not answer, and a session that could not ask says what the last one that asked was told",
+			why:   "a join that the backend a team moved to did not answer is told as a backend that did not answer",
 			files: []string{"docs/team-member/join/follow-a-move.md"},
-			need:  []string{"joined it with the move's ticket", "A session that could not ask"},
+			need:  []string{"joined it with the move's ticket"},
 		},
 		{
-			why:   "the changelog says the same of a join that was not answered and of a session that starts while it cannot ask, which says that the file does not match where no follow left anything",
+			why:   "a session that starts while it cannot ask says that the file does not match, which names the join, and its next prompt says what an earlier session was told: the page says both, and names no time after which a prompt stops saying it",
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			gone:  []string{"A session that could not ask, because the backend you joined did not answer", "fifteen minutes from when a session last asked", "within the last fifteen minutes"},
+			need:  []string{"A session that starts while it cannot ask, the second and fourth of these, says that the file does not match", "its next prompt then says that again", "Until then a prompt says the same."},
+		},
+		{
+			why:   "the changelog says the same of a join that was not answered and of a session that starts while it cannot ask, which says that the file does not match and leaves what an earlier follow left for its prompts",
 			files: []string{"CHANGELOG.md"},
-			gone:  []string{"as its prompts do, and not that the file does not match", "A server that does not answer changes nothing"},
-			need:  []string{"A join that was not answered is no refusal", "while it cannot ask at all", "where none left anything"},
+			gone:  []string{"as its prompts do, and not that the file does not match", "A server that does not answer changes nothing", "says what the last follow that asked left, as its prompts do", "What a follow left is said for fifteen minutes"},
+			need:  []string{"A join that was not answered is no refusal", "while it cannot ask at all", "says as it did that the file does not match, which names the join", "however long ago it was left"},
 		},
 		{
 			why:   "a backend that says to wait has said nothing about the member: it is told as one that did not answer, where the question to the backend the member joined took back what an earlier follow left and the member was told to join",
@@ -217,16 +223,6 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			why:   "the changelog says the same of a backend that says to wait",
 			files: []string{"CHANGELOG.md"},
 			need:  []string{"or that says to wait (`rate_limited`"},
-		},
-		{
-			why:   "what a follow left is said for fifteen minutes and no longer: a member whose old backend is gone for good is told the join, where a session said with no end that the backend the team moved to did not answer",
-			files: []string{"docs/team-member/join/follow-a-move.md"},
-			need:  []string{"for fifteen minutes from when a session last asked", "After that it says that the file does not match"},
-		},
-		{
-			why:   "the changelog says the same of how long what a follow left is said",
-			files: []string{"CHANGELOG.md"},
-			need:  []string{"What a follow left is said for fifteen minutes"},
 		},
 		{
 			why:   "a join that was not answered has left a directory for the backend in the member's store, and the backend may have carried it out: the page does not say that nothing was changed",

@@ -70,11 +70,6 @@ const (
 	// and a team file that names a backend nobody recorded would otherwise
 	// have it asked at every prompt.
 	followInterval = time.Minute
-	// notFollowedSpeaksFor is how long what a follow left for the checkout's
-	// hooks (config.MoveNotFollowedMark) is said by a hook that could not ask
-	// for itself, counted from when a follow that learned something wrote it
-	// (lastNotFollowed).
-	notFollowedSpeaksFor = 15 * time.Minute
 	// moveLogLimit is the size at which the child's log is set aside for a
 	// fresh one, one generation kept.
 	moveLogLimit = 1 << 20
@@ -505,10 +500,10 @@ func (r *run) dropSettledMark(stateDir, configDir, canon string, tf *teamfile.Fi
 // learnedNothing reports whether a follow that ended with reason could not
 // ask about the backend the team file names: it did not get the lock, or
 // the backend the member joined did not answer it. Such a follow has no
-// word of its own on that backend. The checkout's mark stays as the last
-// follow that asked left it (markNotFollowed), and a session's start says
-// what that one left, as a prompt does (followMove). Nothing else is such
-// a follow. A refusal from the backend the member joined is an answer
+// word of its own on that backend, and the checkout's mark stays as the
+// last follow that asked left it (markNotFollowed), for the checkout's
+// prompts to say. Nothing else is such a follow. A refusal from the
+// backend the member joined is an answer
 // (teammove.ReasonOldBackendRefused): a member it has put out waits for
 // nothing, and until the two were told apart his sessions said for ever
 // that the server the team moved to did not answer, over a mark that no
@@ -540,50 +535,19 @@ func (r *run) dropNotFollowedMark(stateDir, configDir, canon string) {
 
 // lastNotFollowed is why the last follow of the checkout did not follow,
 // where it left a mark for the backend the team file names now
-// (markNotFollowed) and the mark still speaks, and "" otherwise.
-//
-// A mark speaks for notFollowedSpeaksFor from when a follow that learned
-// something wrote it, by the hook's clock. A follow that learns nothing
-// leaves the mark and its time as they are, so where every follow learns
-// nothing the mark grows old: the backend the member joined is gone for
-// good, a server shut down or a project deleted, which is how a migration
-// ends. Until this the mark was then said with no end, "that backend did
-// not answer … a session tries again", and no line named the join that is
-// the only way in (work item 341). Past that time a hook says what it says
-// where no follow left anything. The mark itself stays on disk until a
-// follow that learns something takes it back or writes it anew. A mark
-// from the future is a clock that was set back, and speaks of nothing, as
-// a refusal's record from the future pauses nothing (teammove.RejoinPause).
+// (markNotFollowed), and "" otherwise. A mark has no age: a prompt says
+// what the last follow that learned something left, whenever that was. A
+// session that is prompted now and then while the backend its team moved
+// to is down reads, each time, what the follow of its last prompt left,
+// and a rule that let a mark speak for a while only had it say that the
+// team file does not match, of a move that every follow vouched for (work
+// item 341).
 func (r *run) lastNotFollowed(f facts, opts config.Options, canon string, tf *teamfile.File) string {
 	mark, marked := readFollowedMark(config.MoveNotFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
 	if !marked {
 		return ""
 	}
-	if age := r.deps.Now().Sub(mark.FollowedAt); age < 0 || age >= notFollowedSpeaksFor {
-		return ""
-	}
 	return mark.Reason
-}
-
-// leftByLastFollow is what a hook that cannot ask for itself says of the
-// backend the team file names, from what the last follow of the checkout
-// that asked left: "" where it left nothing, and the caller says that the
-// team file does not match. It is the one reading for a prompt, whose
-// follow runs beside it and has nobody to tell, and for a session's start
-// whose own follow learned nothing (learnedNothing); until both read it
-// here a start said that the team file does not match over a mark that
-// the prompt after it then said (work item 341). Two backends that name
-// each other come first. Then a refusal of the membership this machine
-// holds that the member has not been told of, which is in the member's
-// store and not in the mark, and is told once (refusalUntold). Then
-// whatever else the mark says: that the backend did not answer, or that it
-// refuses the membership. The mark is read and never changed here.
-func (r *run) leftByLastFollow(f facts, opts config.Options, canon string, tf *teamfile.File) string {
-	last := r.lastNotFollowed(f, opts, canon, tf)
-	if last != teammove.ReasonEachOther && r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
-		return teammove.ReasonRejoinRefused
-	}
-	return last
 }
 
 // refusalUntold reports whether the member has yet to be told that the
