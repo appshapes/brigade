@@ -47,6 +47,27 @@ var setupDocFiles = map[string][]string{
 	"docs/team-admin/members/move-the-team.md":        {setupDocWitnesses[5]},
 	"docs/project-owner/server/README.md":             {setupDocWitnesses[5]},
 	"docs/project-owner/server/move-from-supabase.md": {setupDocWitnesses[5]},
+	// The pages that name the one command since they were revised to lead with it (2026-11-15, execution log
+	// P103-4), and the page of a team's move from one server to another (work item 341): every path a reader
+	// takes to the move names the same command.
+	"docs/project-owner/server/move-to-another-server.md": {setupDocWitnesses[5]},
+	"docs/project-owner/server/hand-over-the-values.md":   {setupDocWitnesses[5]},
+	"docs/project-owner/server/keep-the-server.md":        {setupDocWitnesses[5]},
+	"docs/project-owner/server/open-a-move.md":            {setupDocWitnesses[5]},
+	"docs/project-owner/server/run-the-server.md":         {setupDocWitnesses[5]},
+	"docs/project-owner/server/take-in-a-team.md":         {setupDocWitnesses[5]},
+	"docs/project-owner/README.md":                        {setupDocWitnesses[5]},
+	"docs/project-owner/delete/README.md":                 {setupDocWitnesses[5]},
+	"docs/project-owner/delete/delete-the-project.md":     {setupDocWitnesses[5]},
+	"docs/project-owner/update/migrations.md":             {setupDocWitnesses[5]},
+	"docs/team-admin/README.md":                           {setupDocWitnesses[5]},
+	"docs/team-admin/configure/team-file.md":              {setupDocWitnesses[5]},
+	"docs/developer/change/server.md":                     {setupDocWitnesses[5]},
+	"docs/agent/in-a-team/README.md":                      {setupDocWitnesses[5]},
+	"docs/agent/in-a-team/claude-code.md":                 {setupDocWitnesses[5]},
+	"docs/agent/in-a-team/codex.md":                       {setupDocWitnesses[5]},
+	"docs/agent/in-a-team/grok.md":                        {setupDocWitnesses[5]},
+	"docs/agent/in-a-team/muse-code.md":                   {setupDocWitnesses[5]},
 }
 
 // pluginBinPrefix is the one difference the join tolerates: each copy names the binary the way its own reader
@@ -164,6 +185,11 @@ var setupDocMutations = []struct {
 		"b_muse_skill_changes_a_flag",
 		replaceOnceIn("muse/brigade/skills/setup/SKILL.md", "team create --url https://<ref>.supabase.co --key sb_publishable_", "team create --url https://<ref>.supabase.co --secret sb_publishable_"),
 		"the Muse reader may see only this copy",
+	},
+	{
+		"d_a_server_page_changes_the_move",
+		replaceOnceIn("docs/project-owner/server/move-to-another-server.md", "brigade team move --to <url> --secret-file <path>", "brigade team move --url <url> --secret-file <path>"),
+		"an operator who reads only the page of a move between two servers gives the Team Admin that command",
 	},
 	{
 		"c_skill_changes_a_profile_name",

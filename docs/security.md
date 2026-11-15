@@ -1382,7 +1382,8 @@ what differs. The server is experimental in its 0.1.0.
   request on, because the server cannot check who administered it on the old backend. That moves no member. A
   member's session follows a team only on the record on the backend the team leaves (section 21), and the join
   secret does not let anyone write that record: only the team's creator there can, and whoever controls that
-  backend. And a team's reference is public, because the committed team file names it: on a server that asks
+  backend. Where the backend the team leaves is itself a server, that is the team's owner there, and the
+  bullets "A team that moves away" and "Who administers a team" below say who that can be. And a team's reference is public, because the committed team file names it: on a server that asks
   for no creation token, a stranger can take in a team under that reference with a secret of their own
   invention, and the real team's take-in is then refused as a conflict. A creation token closes that, because
   the stranger takes nothing in without it. No command of the operator's removes such a team yet.
@@ -1406,6 +1407,19 @@ what differs. The server is experimental in its 0.1.0.
   file and says that `profile revoke-credentials` and the same take-in make the take-in again. The key is in
   no argument, no output and no log line on either side. A key that is wrong, a key that has ended and none
   are a member's join, and no answer says whether a team keeps one.
+- **A team that moves away.** From 0.8.0 a team that lives on a server can leave it for another backend as a
+  team leaves a Supabase project: its owner records on the server where the team went, and its members'
+  sessions follow that record (section 21; work item 341,
+  [ADR 0010](decisions/0010-keep-the-record-of-a-teams-move-on-the-server-it-leaves.md)). Two things follow,
+  stated plainly. The record holds the move ticket of the backend the team went to, and the server keeps that
+  ticket as it was given: the one secret it keeps that is not a hash, because it hands it to the team's active
+  members. It is in the data directory with everything else, in the log and in the snapshots, so whoever can
+  read the directory, or a copy of it, can join the team where it went, as a member and never as its owner,
+  until the ticket ends. Clearing the record takes it out of what the server holds now; the log's earlier
+  entries and the snapshots that are still kept hold it until they are let go. No line the server writes holds
+  it. And the server the team leaves keeps the team as it is: nothing is ended, closed or refused there because
+  the team moved, so that a member who has not followed can still read the record, and nothing removes the team
+  afterwards. What its members wrote stays on that server for as long as its data directory does.
 - **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
   here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
   revokes or bans a member and transfers the team. Three things differ from section 9. A team that the operator
@@ -1421,6 +1435,14 @@ what differs. The server is experimental in its 0.1.0.
   a team taken by someone who joined first is not lost; equally whoever runs the server can take a team's
   administration, as they can read everything in it. And a revocation ends a member's sessions and its place in the team, not its credential:
   the credential names a principal that may be a member of other teams on the same server.
+  From 0.8.0 the owner can do one thing more, which makes each of these weigh more: record that the team moved
+  to another backend, and so send every member's sessions to a server of the owner's choosing (section 21). On a
+  server the owner is not always the member who created the team. On a team the operator took in it is whoever
+  joined first with the join secret, and the operator can name anyone. So what was a way to administer a team
+  there is now a way to redirect it. A team that its Team Admin took in by request has that Team Admin as its
+  owner from the first, and no join changes that; for a team the operator took in, the operator sees to it
+  that the Team Admin joins first, or names the owner. The operator's command that takes a team back clears
+  such a record with everything else the owner held.
 - **What it does not have yet.** One instance and no standby, so the server's disk is the team's only copy.
 
 ## 21. A team that moves to another backend
@@ -1448,12 +1470,17 @@ fingerprint and the team — your machine joins the server with the ticket, unde
 session says so in one line before anything else: the team, the server, the fingerprint it trusts there, that
 the administrator recorded the move, how to leave and how to turn this off. In any other case nothing changed:
 the session connects to nothing, says that the file does not match, and `team join` asks for the secret file.
+From plugin 0.57.0 and server 0.8.0 a team that lives on a Brigade server moves to another server in the same
+way, by the same command, and the server it leaves is then the backend that holds the record (work item 341;
+[ADR 0010](decisions/0010-keep-the-record-of-a-teams-move-on-the-server-it-leaves.md)). Everything below holds
+for it, with that server where it says the old backend or the project.
 
 - **Whose word it is.** The file's word is never enough. A `.brigade.json` can be changed by anyone who can
   commit, and by the branch of a pull request you check out, so a session is sent nowhere and sends nothing on
   its say alone. The word that counts is the old backend's: the one you consented to and still hold a session
   on. Only the team's administrator can write the record there, and so can whoever controls that backend
-  (section 2), because they can write anything in it.
+  (section 2), because they can write anything in it. On a server the administrator is the team's owner, who
+  need not be the member who created it (section 20, "Who administers a team").
 - **What you give up.** A confirmation. The team's administrator, or whoever controls the old backend, can now
   send your sessions for that team to a server of their choosing, and that server's operator reads what they
   send, as section 20 says of any server. Before, that took your own command. You get a line in the session
@@ -1468,7 +1495,9 @@ the session connects to nothing, says that the file does not match, and `team jo
   whoever opened the move chose otherwise.
   The server keeps only its hash. The old backend keeps the ticket itself, because your
   machine has to present it: on Supabase in a table that no role of the Data API can read, handed to an active
-  member of the team by one function. So whoever can read the old project's database can read the ticket, and
+  member of the team by one function. A server the team leaves keeps it in its data directory, in the log and in
+  its snapshots, and hands it to an active member by one request (section 20). So whoever can read the old
+  project's database, or the old server's data directory, can read the ticket, and
   join the team at the server with it until it ends, and so can every active member of the old team, each of
   whom holds the join secret already. A member who was revoked or banned on the old team reads no record. What
   the ticket lets in is a member and never the team's owner: the administrator owns the team at the server
@@ -1523,7 +1552,9 @@ the session connects to nothing, says that the file does not match, and `team jo
   the team's owner rotates the join secret on the server, which closes it too.
   The administrator's `team move --clear` stops the old backend from
   saying where the team went; it does not end the ticket. Ending the team on the old backend removes the record
-  with it.
+  with it. A server has no command that ends a team: there the record stands until the team's owner clears it
+  or the server's operator takes the team back, and the team stays on that server with what its members wrote.
+  Clearing the record moves nobody back: a member who followed stays where the team went.
 - **What does not come over.** Messages that were waiting on the old backend stay there until their retention
   ends, so an administrator moves a team at a quiet moment. A running session that holds messages for your
   review stays on the old backend until you release them, and says so once: a held message does not move with
@@ -1538,6 +1569,17 @@ the session connects to nothing, says that the file does not match, and `team jo
   one place and behind the one comparison this section describes. The pin records the backend it moved from, so
   you can tell a pin a command wrote from one a session followed.
 - **Other backends.** The record is a capability of an adapter (`team.move`), which the Supabase adapter
-  carries. A backend whose adapter lacks it is asked nothing about a move, and a team on it, or on a Supabase
-  project without the migration that adds the record, is never followed anywhere: its members join as before. A migration is applied to a hosted project
+  carries. From plugin 0.57.0 the adapter for a Brigade server carries it too, for a server of 0.8.0 or later.
+  A backend whose adapter lacks it is asked nothing about a move, and a team on it, or on a Supabase
+  project without the migration that adds the record, is never followed anywhere: its members join as before.
+  The same holds for a team on a server older than 0.8.0, which is asked what it offers and nothing about a
+  move, and for a session on a plugin older than 0.57.0 whose team is on a server.
+- **A team that moved twice, and one that came back.** A move is followed from the backend your machine is on,
+  one move at a time: the record that counts is that backend's, and it names one place. If the team moved on
+  before a session of yours followed, the backend you joined names a place the file no longer names, nothing is
+  followed, and you join with the secret file. A session is never sent on by a backend it was not on. And two
+  backends never each say that the team is on the other: when a team returns to a server it left, the
+  administrator's command clears that server's record of the leaving before the other backend records
+  anything, and stops if it cannot. Without that, a `.brigade.json` flipped between the two, by a commit or a
+  branch, would send a session back and forth, each time behind a record that was true once. A migration is applied to a hosted project
   by its owner.

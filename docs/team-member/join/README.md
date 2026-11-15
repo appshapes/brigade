@@ -12,7 +12,7 @@ secret your administrator sent you, saved outside the repository, lets you in. Y
 | join from a Codex CLI session | [Join in Codex CLI](#join-in-codex-cli) |
 | join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
 | choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
-| know what to do when your team moves from Supabase to a Brigade server: nothing | [When your team moves](#when-your-team-moves) |
+| know what to do when your team moves to a Brigade server, from Supabase or from another server: nothing | [When your team moves](#when-your-team-moves) |
 | use Grok Build join status | [Grok Build](#grok-build) |
 
 ## Join in Claude Code
@@ -64,11 +64,13 @@ Details: [Choose your label](your-label.md).
 1. Run nothing: no join and no command. Your administrator moves the team to a Brigade server with one command
    of theirs and pushes the changed `.brigade.json`; you pull as on any day.
 2. Your next session in the checkout follows, on plugin 0.55.0 or later, and says so in one line: where the team
-   went and who vouched for it.
+   went and who vouched for it. A team that leaves a Brigade server is followed from plugin 0.57.0.
 3. A session that was already running follows at its next prompts, on plugin 0.56.0 or later, and says the same
    line; one that holds messages for your review stays until you release them.
 4. To decide each move yourself: set the option `follow_team_move` to `off`, and join a moved team with
    `/brigade:join ~/brigade-<team>.secret`.
+5. If the team moved twice before you started a session, the session says that the file does not match: join
+   with the secret file.
 
 Details: [When your team moves](follow-a-move.md).
 

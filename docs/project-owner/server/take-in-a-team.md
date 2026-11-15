@@ -1,9 +1,10 @@
 # Take in a team that exists
 
-From server 0.7.0 you take no team in yourself. The Team Admin of a team in a Supabase project runs one command,
+From server 0.7.0 you take no team in yourself. The Team Admin of a team in a Supabase project, or on another
+Brigade server, runs one command,
 `brigade team move --to <url> --secret-file <path>`, and the running server takes the team in by request, with
 the Team Admin as its owner: you run nothing, and the server is not stopped
-([Move a team from Supabase](move-from-supabase.md)). Your own command, `--import-team`, stays. It is the way on
+([Move a team from Supabase](move-from-supabase.md), [Move a team to another server](move-to-another-server.md)). Your own command, `--import-team`, stays. It is the way on
 a server older than 0.7.0, from 0.3.0, and for a team that is to be on the server before its administrator acts:
 [Take the team in yourself](#take-the-team-in-yourself).
 

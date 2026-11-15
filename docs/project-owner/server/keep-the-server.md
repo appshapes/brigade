@@ -86,11 +86,26 @@ The data directory carries over. A release whose notes say that the log's format
 a directory across; until the log's own format is frozen, that can mean starting a new log from the newest
 snapshot.
 
+Going back to an earlier release is not always possible, and the release's notes say when. From 0.8.0: a server
+before 0.8.0 does not start on a data directory on which a team's owner has recorded that the team moved away
+([Move a team to another server](move-to-another-server.md)), until that record is cleared and the server has
+stopped once since. It says that a snapshot of format 4 is passed over and that the log holds a record of a kind
+it does not know, `team.move_recorded`, and ends. On a directory where no move was recorded, 0.7.0 and 0.8.0 start
+on each other's.
+
 ## Move it
 
-Stop the server, copy the data directory to the new machine, and start the server there with the same options. If
-members reach it by the same URL, nothing else changes. A changed URL is a changed backend to a member: each one
-joins again with the secret.
+**To another machine, at the same URL.** Stop the server, copy the data directory to the new machine, and start
+the server there with the same options. Members reach it by the URL they know, and nothing else changes.
+
+**To another URL.** A changed URL is a changed backend to a member. Do not start the copy at the new URL: a
+server that holds the teams already is no place to move them to
+([why](move-to-another-server.md#the-server-the-team-goes-to-must-not-be-a-copy)). From server 0.8.0 and plugin
+0.57.0, start a fresh server at the new URL and keep the old one running: each Team Admin moves their team with
+one command, `brigade team move --to <url> --secret-file <path>`, and the members follow with no command of
+theirs ([Move a team to another server](move-to-another-server.md)). Stop the old server when every team has
+moved and its members have followed. With an older server or plugin, each member joins the new URL with the
+secret file, as before.
 
 ## Replace its certificate
 

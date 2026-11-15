@@ -58,6 +58,10 @@ sudo systemctl start brigade-server
   had before stops working.
 - **Every membership ends**, the owner's among them, and their sessions close. A member who was banned stays
   banned.
+- **The record of where the team went is cleared**, from 0.8.0, when its owner had made one
+  ([Move a team to another server](move-to-another-server.md)). The record is the owner's word: whoever held
+  the team could have recorded a move to a server of their own, and every member who came back would have
+  followed it. The command then says `cleared the record of where it went` in its line.
 - **The team has no owner** until someone joins with the new secret, and the first to do so owns it. So give the
   file to the Team Admin alone, let them join, and only then let them hand it to the members they keep
   ([Hand out the secret](../../team-admin/create/hand-out-the-secret.md)).

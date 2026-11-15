@@ -4,7 +4,7 @@ A Brigade server is the backend you run yourself: one program on an always-on ma
 instance, with no Supabase project. It keeps every team on that machine's disk, so whoever can read its data
 directory can read every message. It is experimental: one instance with no standby. From 0.2.0 it carries the mail
 and Slack gateways itself. From 0.7.0 a team in a Supabase project moves to it with one command, which its Team
-Admin runs: you run nothing.
+Admin runs: you run nothing. From 0.8.0 a team moves from one server to another the same way.
 
 ## If you want to
 
@@ -17,6 +17,7 @@ Admin runs: you run nothing.
 | back it up, restore it, update it, move it, watch it, replace its certificate | [Keep the server](#keep-the-server) |
 | let people write to the team by email or from Slack | [Open the gateways](#open-the-gateways) |
 | have a team move here from a Supabase project: one command, which its Team Admin runs, and none of yours | [Move a team from Supabase](#move-a-team-from-supabase) |
+| have a team move from one server to another, or change a server's URL without a join on every machine | [Move a team to another server](#move-a-team-to-another-server) |
 | take a team in yourself: on a server older than 0.7.0, or before its Team Admin acts | [Take in a team that exists](#take-in-a-team-that-exists) |
 | open, replace or close a team's move yourself | [Let a team's members follow it](#let-a-teams-members-follow-it) |
 | say who administers a team, name a new owner, or take a team back | [Name a team's owner](#name-a-teams-owner) |
@@ -66,7 +67,8 @@ Details: [Hand over the values](hand-over-the-values.md).
 ## Keep the server
 
 1. Everything is in the data directory. To back it up: stop the server, copy the directory, start the server.
-2. To update: stop it, replace the binary, start it on the same directory.
+2. To update: stop it, replace the binary, start it on the same directory. To move it to another machine at the
+   same URL: copy the directory. To another URL: a fresh server there, and each team moved with one command.
 3. Losing the directory with no copy loses every team in it: there is one instance and no standby yet. With a
    copy the teams return as of the copy, and the files outside the directory are placed again.
 4. A monitor asks `POST /v1/info`, which needs no credential.
@@ -103,6 +105,23 @@ Details: [Open the gateways](gateways.md).
    server stopped. The Team Admin then joins and records the move with `brigade team move --ticket-file <path>`.
 
 Details: [Move a team from Supabase](move-from-supabase.md).
+
+## Move a team to another server
+
+1. The Team Admin, who owns the team on the server it leaves, runs one command in a checkout of the team, or
+   asks a session to (`/brigade:move`): `brigade team move --to <url> --secret-file <path>`
+2. Neither operator runs a command. The operator of the new server gives the Team Admin its URL, its
+   certificate's fingerprint when it made its own, and the creation token's file when it asks for one.
+3. The server the team leaves is 0.8.0 or later and stays up until every member has followed: it holds the
+   record they follow on, and it keeps the team as it is. The server the team goes to is 0.7.0 or later and a
+   fresh one, never a copy of the old one's data directory at a new URL.
+4. The Team Admin commits and pushes `.brigade.json`. Each member's next session follows, on plugin 0.57.0 or
+   later, and a session that is running follows at its next prompts.
+5. After: open the gateways on the new server, point the Slack app and the mail provider at it, and take the
+   team out of the old server's gateway configuration.
+6. Do not go back to 0.7.0 on the old server's data directory while it records a move.
+
+Details: [Move a team to another server](move-to-another-server.md).
 
 ## Take in a team that exists
 
@@ -144,6 +163,6 @@ Details: [Let a team's members follow it](open-a-move.md).
    `brigade-server --data <dir> --set-owner <team_ref> --principal <principal_ref>`, then start it.
 4. If whoever holds the team has locked the others out: `--take-back <team_ref> --secret-file <path>` in place
    of step 3 gives the team a new secret in that file, ends every membership and leaves it to the first member
-   who joins with the file.
+   who joins with the file. From 0.8.0 it also clears the record of where the team went, if its owner made one.
 
 Details: [Name a team's owner](name-the-owner.md).

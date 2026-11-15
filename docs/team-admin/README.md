@@ -3,7 +3,7 @@
 You create a team and you are its only administrator: the credential `team create` left on your machine is the
 one that rotates the secret, revokes a member and hands the team over. A team belongs to a project, through the
 committed `.brigade.json`, and you decide what else that file makes the project's checkouts share. You are also
-the one who moves the team from a Supabase project to a Brigade server, with one command.
+the one who moves the team to a Brigade server, from a Supabase project or from another server, with one command.
 
 ## If you want to
 
@@ -12,7 +12,7 @@ the one who moves the team from a Supabase project to a Brigade server, with one
 | create a team, hand out its secret, add a repository, back up the credential | [Create](create/README.md) |
 | decide what the project's checkouts sync, set up the digests, how often sessions check in, how people without a session reach the team | [Configure](configure/README.md) |
 | revoke or ban a member, rotate a leaked secret, transfer the team | [Members](members/README.md) |
-| move the team from a Supabase project to a Brigade server: one command, and your members run none | [Members](members/README.md#move-the-team-to-a-server) |
+| move the team to a Brigade server, from a Supabase project or from another server: one command, and your members run none | [Members](members/README.md#move-the-team-to-a-server) |
 | end a team | [Delete](delete/README.md) |
 
 ## Create
@@ -28,8 +28,8 @@ credential. [Create](create/README.md) also covers handing out the secret, addin
 ## Members
 
 Revoking takes effect at once, rotating evicts nobody, a transfer is the only way out of the creator role, and
-one command, `brigade team move --to <url> --secret-file <path>`, moves the team from a Supabase project to a
-Brigade server. [Members](members/README.md) has each procedure in order.
+one command, `brigade team move --to <url> --secret-file <path>`, moves the team to a Brigade server, from a
+Supabase project or from another server. [Members](members/README.md) has each procedure in order.
 
 ## Delete
 

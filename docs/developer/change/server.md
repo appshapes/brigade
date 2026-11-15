@@ -217,6 +217,54 @@ owner. The operator's three commands stay as they are, and call the same functio
 - **`/v1/info`** lists `team.take_in` beside `team.admin`, and the conformance suite holds the three with cases
   C-53 to C-55 through the `rest` adapter.
 
+## The record of where a team went
+
+From 0.8.0 the contract's section 3c is two requests like any other (work item 341, ADR 0010): a server keeps the
+record of where a team went, which until then only the Supabase and the filesystem backends kept, so a team on a
+server is moved to another with the one command and its members follow. The sections above are the server a team
+moves **to**; this one is the server a team **leaves**. BAP/1 does not change.
+
+- **`/v1/team/move`** is an administration path (`Command::administration_path`): `answer` holds the caller to
+  `owned_team` before the request's shape is read, so every other caller reads one refusal for a record, for a
+  clear and for a request that reads as neither. **`/v1/team/moved`** is a team-scoped path, as a roster is:
+  `member_team`, then the read. Neither is answered without a credential.
+- **Two forms** of `/v1/team/move`, read in `wire.rs` in the order the stand-in reads them: `clear`, which goes
+  with `team_ref` alone, then the adapter, the url and the certificate within BAP/1's caps, then the ticket. A
+  ticket is a `JoinSecret` that carries the request's `team_ref`, within `limits::MAX_MOVE_TICKET_CHARS`; what is
+  not is `Error::not_a_move_ticket`, fixed words that name `ticket`.
+- **Two records.** `team.move_recorded` holds the destination and the ticket; `team.move_cleared` names the
+  team. Applying the first puts `Team.moved_to` in the place of the record the team had, with the record's own
+  time as `recorded_at`; applying the second takes it away. A clear of a team that has no record makes no entry.
+  Both end the retry key the team keeps for its owner (`State::apply`): only the owner is answered the request.
+  No request reaches a kept key through a clear, because a team that keeps a key holds no record, and the rule
+  is the same all the same.
+- **The record changes nothing else.** No arm of `execute.rs` reads `Team.moved_to` but the two requests: a
+  join, a registration and a send are answered as before. `/v1/team/rotate-secret` and `/v1/team/transfer`
+  leave it. `take_back` appends `team.move_cleared` after the rotation, in the same entry, when the team has a
+  record, and its answer then carries `move_cleared: true`, which the command's line says; a team with none is
+  answered as it always was.
+- **The ticket is kept whole.** It is the one secret that is not a hash: an active member is handed it. Its
+  type, `record::KeptTicket`, serialises as the text and prints as `[redacted]`, so the debug rendering of a
+  record, an entry and a state holds none of it, and the one way to its text is `expose`. `said.rs` writes the
+  destination, cut and cleaned as a label is, and never the ticket. Keep both true: a new line, a new `Debug`
+  and a new log call are where it would leak, and `rules.rs`, `said.rs` and `tests/server.rs` each look for the
+  ticket's bytes.
+- **Snapshots are format 3 or 4, by what they hold** (`snapshot::format_of`). A state with a `moved_to` is
+  written as format 4. A state with none is written as format 3, in the bytes 0.7.0 writes: `Team.moved_to` is
+  skipped when it is `None`. This build reads formats 1 to 4.
+- **When an older binary stops being able to start.** Until a team's owner records a move, 0.7.0 and 0.8.0
+  start on each other's directories. From the first `team.move_recorded`, a server before 0.8.0 does not start:
+  it passes a format 4 snapshot over and refuses the log's record as a kind it does not know. Once every record
+  is cleared and a snapshot has been written since, which a stop does, the newest snapshot is format 3 again and
+  the older binary starts on it without reading the entries before it. Measured with the released 0.7.0 on
+  2026-11-15 (`server/CHANGELOG.md`, section 0.8.0). A new member of `Team` that an older build must not drop
+  without a word is a new format; one it may drop is not (the retry key, the bounds).
+- **`/v1/info`** lists `team.move` beside `team.admin` and `team.take_in`, and the conformance suite holds the
+  two with cases C-51 and C-52 through the `rest` adapter. The server's test of the suite names both cases.
+- **The walk** in `rules.rs` chooses among the requests by a fixed seed, and asserts at its end that every
+  rule was reached. Adding a request to its list is another walk: when the assertions name a rule it did not
+  reach, give it a seed from which it does, as work item 341 did.
+
 ## The gateways
 
 From 0.2.0 the mail and Slack gateways are part of the server (the plan's section 4.6), off until
@@ -339,6 +387,9 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
   with no credential is a new principal each time and is held by none of them, and nothing bounds the
   principals a join secret or a move ticket makes or the teams a server holds: a limit by address is the
   proxy's.
+- A team that moved away stays on the server it left, with its messages and its gateways, until someone ends
+  it there, and nothing ends one (ADR 0010). The record of where it went is followed one move at a time: a
+  member whose machine missed a move does not follow the next.
 - Nothing removes a team from a server. On one that asks for no creation token, a stranger can take in a team
   under a reference that is not theirs, with a secret of their own, and the real team's take-in then answers
   `conflict` (ADR 0006; `docs/security.md`, section 20). A creation token keeps a stranger from it.

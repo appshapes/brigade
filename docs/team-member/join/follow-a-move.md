@@ -1,9 +1,11 @@
 # When your team moves
 
-A team can move from one backend to another: from a Supabase project to a Brigade server your organisation runs.
-Its administrator moves it with one command, and you run nothing: no join and no command. Once you have pulled
-the changed `.brigade.json`, the next session you start in the project follows the team, on plugin 0.55.0 or
-later. A session that is already running follows at its next prompts. Either tells you so in one line:
+A team can move from one backend to another: from a Supabase project to a Brigade server your organisation runs,
+or from one Brigade server to another. Its administrator moves it with one command, and you run nothing: no join
+and no command. Once you have pulled the changed `.brigade.json`, the next session you start in the project
+follows the team: on plugin 0.55.0 or later when the team leaves a Supabase project, and on 0.57.0 or later when
+it leaves a server. A session that is already running follows at its next prompts. Either tells you so in one
+line:
 
 ```text
 Brigade: this checkout followed team "ops" to brigade.example.com:8743, trusting the server certificate sha256:…: the team's administrator recorded that move on abc.supabase.co, the backend you joined it on, and this machine joined it there with the move's ticket, under the label you had. To leave the team run `brigade team leave`; to stay put until you join a moved team yourself, set the option follow_team_move to off.
@@ -66,8 +68,15 @@ Then nothing vouched for the change: the administrator has not recorded a move, 
 the file names, or the move has ended. Ask your administrator before you join anything. A team file that changed
 with no record behind it is exactly what this check is for.
 
-A plugin older than 0.55.0 does not follow either, though the move is recorded: update it
-([Update](../update/README.md)) and start a new session, or join with the secret file.
+A plugin older than 0.55.0 does not follow either, though the move is recorded, and neither does one older than
+0.57.0 when the team left a Brigade server: update it ([Update](../update/README.md)) and start a new session, or
+join with the secret file.
+
+**If the team moved twice.** A move is followed from the backend your machine is on, one move at a time. If the
+team went on to a third backend before a session of yours followed the first move, the backend you joined
+records a move to the second, the file names the third, and the session says that the file does not match. Join
+the team where it is now with the secret file, `/brigade:join ~/brigade-<team>.secret`. Your administrator can
+tell you that this is what happened.
 
 A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
 you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or

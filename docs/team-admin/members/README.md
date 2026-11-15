@@ -14,7 +14,7 @@ with one command, in a terminal or a session, while the server's operator and yo
 | remove a member at once, or bar their return | [Revoke or ban a member](#revoke-or-ban-a-member) |
 | replace a leaked secret and evict whoever joined with it | [Rotate a leaked secret](#rotate-a-leaked-secret) |
 | hand the team to another member | [Transfer the team](#transfer-the-team) |
-| move the team from a Supabase project to a Brigade server: one command, and your members run none | [Move the team to a server](#move-the-team-to-a-server) |
+| move the team to a Brigade server, from a Supabase project or from another server: one command, and your members run none | [Move the team to a server](#move-the-team-to-a-server) |
 | know what the creator's credential is, and what losing it costs | [Know where the authority lives](#know-where-the-authority-lives) |
 
 ## Revoke or ban a member
@@ -47,11 +47,14 @@ Details: [Transfer the team](transfer-the-team.md).
    `--create-token-file <path>` for one that asks for a creation token. Answer `y`.
 3. Commit and push `.brigade.json` in every repository of the team. Your members run nothing: each one's next
    session follows, and a session that is running follows at its next prompts.
-4. It needs a server of 0.7.0 or later, plugin 0.56.0 or later on your machine and 0.55.0 or later on each
-   member's (0.56.0 for a running session to follow), and the migration `20261114120000_team_move` on the
-   Supabase project. The server's operator runs nothing, and gives you its URL.
-5. `brigade team move --show` reads the record; `brigade team move --clear` removes it.
-6. A server older than 0.7.0: its operator takes the team in and opens the move, and you join and record it
+4. From a Supabase project it needs a server of 0.7.0 or later, plugin 0.56.0 or later on your machine and
+   0.55.0 or later on each member's (0.56.0 for a running session to follow), and the migration
+   `20261114120000_team_move` on the project. The server's operator runs nothing, and gives you its URL.
+5. From another Brigade server it needs that server at 0.8.0 or later and plugin 0.57.0 or later on every
+   machine, and you own the team there. The server it leaves keeps the team as it is: nothing is ended there.
+6. `brigade team move --show` reads the record; `brigade team move --clear` removes it, and undoes nothing
+   else: whoever followed stays on the new server.
+7. A server older than 0.7.0: its operator takes the team in and opens the move, and you join and record it
    with `brigade team move --ticket-file <path>`.
 
 Details: [Move the team to a server](move-the-team.md).

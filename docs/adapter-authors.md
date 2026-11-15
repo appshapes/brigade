@@ -1404,9 +1404,11 @@ team with no record answers `{team_ref, moved: false}` and nothing else. A harne
 team to its new backend, which is a decision of the harness's and not of the protocol's: Brigade's follows only
 when the record names exactly what the project's team file names (`docs/security.md`, section 21). Leave it out
 and the two verbs are unknown verbs of yours, the two cases are SKIP, and a team on your backend is joined at
-its new one by each member's own command. The Supabase adapter and the fs adapter carry it, and
-`internal/adapterkit/teammove.go` reads the request and the ticket's file for both; the `rest` adapter leaves it
-out, because a record is kept by the backend a team leaves.
+its new one by each member's own command. The Supabase adapter and the fs adapter carry it, and from 0.57.0 the
+`rest` adapter does too, for a server that lists `team.move` in `/v1/info` (the backend contract's section 3c;
+work item 341, ADR 0010): `internal/adapterkit/teammove.go` reads the request and the ticket's file for all
+three. A backend that cannot say whether a team moved answers `moved: false` to `team moved`, as the `rest`
+adapter does for a server that keeps no record.
 
 A third optional capability is `team.take_in`, the other end of that move: the three commands of a backend that
 teams may move *to* (4.4.10, 4.7; added 2026-11-14, work item 328, ADR 0006). `team take-in` presents the join

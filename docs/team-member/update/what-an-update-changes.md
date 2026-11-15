@@ -30,9 +30,10 @@ The VERSION column of `brigade sessions` shows each session's plugin version. Th
 - **Around 0.16.0**, which changed how a synced folder's id is made: members on either side of it do not exchange
   files until the last one has updated ([Sync folders](../use/sync-folders.md)).
 - **Before a team moves to a Brigade server**, a member's plugin must be 0.55.0 or later for their next session
-  to follow the team with no command of theirs, and 0.56.0 or later for a session that is running to follow. An
-  older one does not follow, and its member updates or joins the server with the secret file
-  ([When your team moves](../join/follow-a-move.md)).
+  to follow the team with no command of theirs, and 0.56.0 or later for a session that is running to follow. A
+  team that leaves a Brigade server for another is followed from 0.57.0, the first plugin that reads a server's
+  record of where a team went. An older one does not follow, and its member updates or joins the server with the
+  secret file ([When your team moves](../join/follow-a-move.md)).
 
 ## Plugin versions and migrations are independent
 

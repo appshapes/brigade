@@ -9,6 +9,64 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A team moves from one Brigade server to another with the one
+  command, and its members follow** (work item 341, ADR 0010). Until now
+  `brigade team move --to` moved a team from a Supabase project only. A
+  member's session follows a team on a record kept by the backend the
+  team leaves, and a server kept none: from a checkout whose team was on
+  a server the command refused with "the backend this team was joined on
+  keeps no record of where a team goes", and each member joined the new
+  server with the secret file. Now a server keeps that record, from
+  server 0.8.0, and the bundled `rest` adapter carries the two commands
+  that write and read it, `team move` and `team moved` (capability
+  `team.move`; the backend contract's new section 3c, two requests a
+  server may leave out). The command is the one it was: run by the
+  team's owner in a checkout of the team, with the new server's URL and
+  the team's secret file. The adapter protocol is unchanged.
+- **What it needs.** The server the team leaves at 0.8.0 or later, the
+  server it goes to at 0.7.0 or later, and this plugin on every machine:
+  a session on a plugin older than 0.57.0 does not follow a team that
+  leaves a server, and the command names the ones that are online by
+  that number, where it names them by 0.55.0 for a team that leaves a
+  Supabase project. A server older than 0.8.0 is asked what it offers
+  and nothing else, and the command says that its operator updates it,
+  before the new server is asked anything.
+- **Who may, on a server.** The team's owner there, who need not be the
+  member who created it: the refusal now says "only the owner of this
+  team on <host> can move it" for a team on a server.
+- **The server a team leaves keeps the team as it is.** Nothing is
+  ended, closed or refused there because the team moved, so a member who
+  has not followed still reaches it and reads where the team went. The
+  command says so in what is left to do, and says what the old server's
+  gateways go on doing. Ending the team there is a later step of its
+  administrator's, and a server has no command that removes a team.
+- **A team that comes back.** A team that moved from server A to B and
+  moves back finds A still recording that it left. The command clears
+  that record on A once A has answered that the caller owns the team
+  there, and before B is asked to record anything, so the two servers
+  never each say that the team is on the other. A clear that is refused
+  or fails stops the move with nothing recorded, and the refusal says
+  which server holds what. The lines and the `--json` result
+  (`destination_record_cleared`) say when a record was cleared, and the
+  question says beforehand that one will be, on a machine that has
+  joined the team on that server before.
+- **The last line of a move names a command that runs.** `brigade team
+  move --to` ends with the command that clears the record it made. When
+  the machine has joined the team on more than one other backend, after
+  an earlier move or an attempt that left it joined elsewhere, that line
+  is now `brigade team move --clear --from <host>`: without `--from` the
+  command asks which backend is meant.
+- **Pages.** A new page for the two operators, "Move a team to another
+  server", with what each must have in place, what a team with gateways
+  does, and why the server a team goes to must not be a copy of the old
+  one's data directory; the Team Admin's page of the move covers both
+  kinds of backend, what `--clear` does and does not undo, and what a
+  member who missed a move does: a team that moves twice is followed one
+  move at a time. `docs/security.md` sections 20 and 21 say what a
+  server that keeps the record opens.
+
 ### Changed
 
 - **The plugin's page says where a session's messages go for a team on a

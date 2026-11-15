@@ -17,8 +17,8 @@
 - **The creation token** exists only if you set one. Without it anyone who can reach the server can create a
   team, and there is nothing to hand over.
 
-For a team that comes from a Supabase project, these values are all its move asks of you. Its Team Admin runs
-one command, `brigade team move --to <url> --secret-file <path>`, with `--certificate` for the fingerprint and
+For a team that comes from a Supabase project, or from another Brigade server, these values are all its move asks
+of you. Its Team Admin runs one command, `brigade team move --to <url> --secret-file <path>`, with `--certificate` for the fingerprint and
 `--create-token-file` for the token's file, and you run nothing
 ([Move the team to a server](../../team-admin/members/move-the-team.md)). For a new team, the Team Admin's side
 is [Create the team on a server](../../team-admin/create/create-on-a-server.md).

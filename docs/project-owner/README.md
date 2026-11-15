@@ -18,6 +18,7 @@ message, so it holds nothing else.
 | delete the project, once the teams that are to go on have moved to a Brigade server | [Delete](delete/README.md) |
 | run a Brigade server on a machine you keep, with no Supabase project | [Server](server/README.md) |
 | have a team move from your Supabase project to a Brigade server: one command, which its Team Admin runs | [Server](server/README.md#move-a-team-from-supabase) |
+| have a team move from one Brigade server to another, the same way | [Server](server/README.md#move-a-team-to-another-server) |
 
 ## Install
 

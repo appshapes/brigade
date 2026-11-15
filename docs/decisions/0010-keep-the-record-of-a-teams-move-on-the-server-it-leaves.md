@@ -137,6 +137,10 @@ All on 2026-11-15, on this machine (macOS, Apple silicon), in the worktree of wo
 - What the chain showed: a member whose machine was on the first backend, with a team file that named the third,
   followed nothing and was told that the file does not match. With the file of the first move it followed to
   the second backend, and with the file of the second move it followed from there to the third.
+- A server started from a copy of the old server's data directory, at another address, as the destination
+  (`TestAServerStartedFromACopyOfTheDataIsNoPlaceToMoveATeamToThroughTheRealBinary`, the built server only): the
+  one command stopped because the team is owned by someone else there, nothing was recorded, and the
+  administrator was on the copy's roster twice. The operators' page says so.
 - The server's rules: `server/crates/brigade-core/tests/rules.rs`, four tests of the record, and the two that
   walk every request against the rule of a retry key, which now ask the two new requests. The walk's seed
   changed with its list of requests.
@@ -153,7 +157,13 @@ All on 2026-11-15, on this machine (macOS, Apple silicon), in the worktree of wo
   the snapshot's position, 704: not an entry: unknown variant `team.move_recorded`, expected one of …`, and
   ended with status 1. After the record was cleared and the server stopped, it started and answered again. Its
   words name the kind of record and the format, and no version to run: they were released before this.
-- Not measured: a move between two servers on two machines, and a team with gateways on the server it leaves.
+- The one command between the released 0.7.0 and this build's server, run by hand through the built `brigade`
+  in both directions. From a team on the 0.7.0 it was refused with "keeps no record of where a team goes: it is
+  older than 0.8.0", and the new server, behind a front that counts requests, was asked none. From a team on
+  this build's server to the 0.7.0 the team moved, and its member's next session followed.
+- Not measured: a move between two servers on two machines, a team with gateways on the server it leaves, and
+  the record's older road, `brigade team move --ticket-file`, for a team that comes back: it clears no record on
+  the server the team returns to.
 
 ## Consequences
 
