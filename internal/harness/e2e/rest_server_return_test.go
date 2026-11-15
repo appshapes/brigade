@@ -136,6 +136,18 @@ func (s *silent) before(*http.Request, []byte) (int, string) {
 	return 0, ""
 }
 
+// printed is the text a command printed between backticks that begins with
+// start: a line it told its reader to run, as it printed it.
+func printed(t *testing.T, said, start string) string {
+	t.Helper()
+	_, rest, found := strings.Cut(said, "`"+start)
+	line, _, closed := strings.Cut(rest, "`")
+	if !found || !closed {
+		t.Fatalf("nothing printed between backticks begins with %q:\n%s", start, said)
+	}
+	return start + line
+}
+
 // teamFile reads the rig's checkout's team file, and putTeamFile writes it:
 // what a pull, or a checkout of another commit, does to a checkout.
 func (r *rig) teamFile() string {
@@ -714,6 +726,16 @@ func TestAnEarlierServerUnderAnotherAddressIsKnownForWhatItIsThroughTheRealBinar
 	if record := r.recordOn(r.configDir, b); record.Moved {
 		t.Fatalf("B recorded a move that was refused: %+v", record)
 	}
+	// The address the refusal prints, run as it is printed, moves the team
+	// back: it carries the certificate's pin where the server has one.
+	back := append([]string{"team", "move"}, strings.Fields(printed(t, res.stderr, "--to "))...)
+	res = r.runIn(r.checkout, r.terminalEnv(r.configDir), "y\n", append(back, "--secret-file", r.secretFile)...)
+	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") {
+		t.Fatalf("the address the refusal printed, run as printed: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if record := r.recordOn(r.configDir, b); !record.Moved || record.URL != a.url || record.Certificate != a.certificate {
+		t.Fatalf("B's record of the move back: %+v", record)
+	}
 }
 
 // TestARerunDoesNotGuessWhileABackendTheTeamWasOnDoesNotAnswerThroughTheRealBinary:
@@ -763,9 +785,12 @@ func TestARerunDoesNotGuessWhileABackendTheTeamWasOnDoesNotAnswerThroughTheRealB
 	if now := r.recordOn(r.configDir, a); !now.RecordedAt.Equal(onA.RecordedAt) || read() != held {
 		t.Fatalf("A's record was written while C did not answer: %+v, was %+v", now, onA)
 	}
-	// With the backend named, it runs.
-	if res := r.runIn(r.checkout, term, "y\n", moveArgs(b, r.secretFile, "--from", hostOf(c))...); res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(c)+":") {
-		t.Fatalf("the same command with --from: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	// The line it prints, run as it is printed with the backend named and the
+	// secret's file, runs: it carries the certificate's pin where the server
+	// has one.
+	line := strings.NewReplacer("<path>", r.secretFile, "<host>", hostOf(c)).Replace(printed(t, res.stderr, "brigade team move --to "))
+	if res := r.runIn(r.checkout, term, "y\n", strings.Fields(line)[1:]...); res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(c)+":") {
+		t.Fatalf("the line the refusal printed, %q: exit %d\nstdout: %s\nstderr: %s", line, res.exit, res.stdout, res.stderr)
 	}
 }
 

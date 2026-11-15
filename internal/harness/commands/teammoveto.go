@@ -651,7 +651,7 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		}
 		return strings.Join(hosts, ", ")
 	}
-	rerun := "`brigade team move --to " + attrLine(m.dest.URL) + " --secret-file <path> --from <host>`"
+	rerun := "`brigade team move --to " + toServer(m.dest.URL, m.dest.Certificate) + " --secret-file <path> --from <host>`"
 	if len(unread) > 0 {
 		it, did := "it answers", " did not answer what it records of this team"
 		if len(unread) > 1 {
@@ -688,6 +688,19 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 			", so which one the team is leaving is not known. Run the same command with --from <host>, one of those: " + rerun + ". Nothing was changed",
 		Details: map[string]string{"reason": "team_ambiguous"},
 	}
+}
+
+// toServer is what follows `--to` in a command a refusal prints for its
+// reader to run: the server's address, and `--certificate` with its pin
+// where the server has one. A line printed without the pin is not the same
+// command for a server that made its own certificate: it names a server
+// with no pin, which is another destination than the one the team file or
+// a membership names, and the command would refuse it or fail to trust it.
+func toServer(url, certificate string) string {
+	if certificate == "" {
+		return attrLine(url)
+	}
+	return attrLine(url) + " --certificate " + pinLine(certificate)
 }
 
 // checkMoveSecret is checkJoinSecret for the secret a move presents to the
@@ -1164,7 +1177,7 @@ func (inv Invocation) sameServer(m *serverMove, known *adapterkit.Profile, fresh
 	if known.URL != m.source.URL || known.Adapter != m.source.Adapter {
 		// A server the team was on before, not the one it is on: a team may
 		// go back to it, by the address this machine knows it by.
-		what = "and a team is not moved to a copy. To move the team back to " + knownHost + ", name it by the address this machine knows it by: `--to " + attrLine(known.URL) + "`. "
+		what = "and a team is not moved to a copy. To move the team back to " + knownHost + ", name it by the address this machine knows it by: `--to " + toServer(known.URL, known.Certificate) + "`. "
 	}
 	return &protocol.Error{
 		Code: protocol.CodeConflict,

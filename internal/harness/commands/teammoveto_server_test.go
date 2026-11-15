@@ -457,3 +457,20 @@ func TestTeamMoveToKnowsTheServerTheTeamIsOnByAnotherSpelling(t *testing.T) {
 		}
 	}
 }
+
+// TestALinePrintedToBeRunNamesTheServerWithItsCertificate: a refusal that
+// prints a `team move --to` line for its reader to run names the server as
+// the command has to be given it: with `--certificate` and the pin where
+// the server made its own certificate. Until this the line carried the
+// address alone, and run as printed it named a server with no pin: the
+// rerun was refused for a `--from` that the team file did not name, and
+// the move back to an earlier server did not trust the server.
+func TestALinePrintedToBeRunNamesTheServerWithItsCertificate(t *testing.T) {
+	t.Parallel()
+	if got := toServer("https://brigade.example.test:8743", moveOldPin); got != "https://brigade.example.test:8743 --certificate "+moveOldPin {
+		t.Errorf("a server with a pin: %q", got)
+	}
+	if got := toServer("https://brigade.example.test:8743", ""); got != "https://brigade.example.test:8743" {
+		t.Errorf("a server with no pin: %q", got)
+	}
+}
