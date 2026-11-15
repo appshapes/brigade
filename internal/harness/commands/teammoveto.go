@@ -1266,7 +1266,30 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 			"Ending it there is a later step of its own (docs/team-admin/members/move-the-team.md)")
 	}
 	return writeLines(inv.Out, append(lines,
-		"to undo: `brigade team move --clear` stops "+m.fromHost()+" from saying where the team went, so no session follows from then on. "+
+		"to undo: `"+m.clearCommand()+"` stops "+m.fromHost()+" from saying where the team went, so no session follows from then on. "+
 			"The move on "+m.toHost()+" stays open until "+ends+", or until its operator closes it or you rotate the team's join secret there",
 	)...)
+}
+
+// clearCommand is the command that clears the record this move made, as
+// the administrator runs it in this checkout afterwards. The record's own
+// forms find the backend that holds it as the one other membership of the
+// team this machine holds beside the one the team file names; a team that
+// moved before leaves more than one, and the command then needs --from to
+// say which. So the backend is named whenever it would be asked for.
+func (m *serverMove) clearCommand() string {
+	bindings, keys, err := listBindings(m.configDir)
+	if err != nil {
+		return "brigade team move --clear"
+	}
+	others := 0
+	for i, b := range bindings {
+		if b.TeamRef == m.file.TeamRef && keys[i] != m.destKey {
+			others++
+		}
+	}
+	if others > 1 {
+		return "brigade team move --clear --from " + teammove.Host(m.source.URL)
+	}
+	return "brigade team move --clear"
 }

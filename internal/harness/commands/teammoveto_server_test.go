@@ -148,6 +148,22 @@ func TestTeamMoveToMovesATeamFromOneServerToAnother(t *testing.T) {
 		t.Errorf("a server that held no record of the team is said to have had one cleared:\n%s", out)
 	}
 	r.noSecrets()
+
+	// A team that moved before: the machine holds a membership on the
+	// backend the team was on before this one as well. The record's own
+	// forms would then ask which backend is meant, so the undo names it.
+	again := newMoveToRig(t)
+	again.fromAServer()
+	earlier := "https://earlier.example.test:8743"
+	if err := write.EnsureBinding(again.f.dirs.BrigadeConfig, teamstore.Key("rest", earlier, setupTeamRef), "rest", earlier, "", "", setupTeamRef, "devs", "p_earlier"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Team(again.inv(true, again.args()...)); err != nil {
+		t.Fatal(err)
+	}
+	if need := "to undo: `brigade team move --clear --from " + again.oldHost + "` stops " + again.oldHost + " from saying where the team went"; !strings.Contains(again.f.out.String(), need) {
+		t.Errorf("the undo of a team that moved before lacks %q:\n%s", need, again.f.out.String())
+	}
 }
 
 // TestTeamMoveToFromAServerRefusesBeforeTheNewServerIsAsked: the two

@@ -919,7 +919,9 @@ func teamMovesByOneCommand(t *testing.T, m *movingTeam, fsBackend bool) {
 		"left to do:",
 		"commit and push " + teamfile.FileName + " in every repository of the team",
 		"1 session that is online runs a plugin older than 0.55.0 and will not follow until its member updates it: billing-old-plugin (" + bobLabel + ", 0.54.0)",
-		"to undo: `brigade team move --clear` stops " + m.oldHost + " from saying where the team went",
+		// The machine joined another server on the way here (step 4), so the record's own forms would ask
+		// which backend is meant: the undo names it (work item 341).
+		"to undo: `brigade team move --clear --from " + m.oldHost + "` stops " + m.oldHost + " from saying where the team went",
 	} {
 		if !strings.Contains(res.stdout, need) {
 			t.Errorf("the move's lines lack %q:\n%s", need, res.stdout)
