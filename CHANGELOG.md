@@ -118,9 +118,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   again. A profile that ran `team join` between the two runs holds a
   member's credential, which the server answers for whatever key the
   request carries: the adapter then keeps the key file and says on
-  stderr that `profile revoke-credentials` and the same take-in make the
-  take-in again as the owner. The adapter protocol does not change: the
-  key is in no request and no result of BAP/1.
+  stderr what `profile revoke-credentials` and the same take-in do then.
+  They are answered for the owner the first run made; or, where no
+  earlier run reached the server, they join the profile as a new member,
+  which the line says as well, because the adapter cannot tell the two
+  apart. The adapter protocol does not change: the key is in no request
+  and no result of BAP/1.
 
 ### Changed
 

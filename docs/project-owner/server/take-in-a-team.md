@@ -65,7 +65,10 @@ takes the team in, opens its move and records it
   state directory), not on the terminal. Once that machine's credential at the server is revoked, the same
   command owns the team: `brigade team revoke-credentials`, run in a checkout whose `.brigade.json` names the
   server. In a checkout that still names the backend the team leaves, that command revokes the membership
-  there, the one the move is recorded with, so it is not run there.
+  there, the one the move is recorded with, so it is not run there. The adapter cannot tell an answer that was
+  lost from a request that never arrived, and its line says so: where the server never took the team in for
+  that machine, the same two steps make it a new member and leave its old membership with no credential, and
+  you name the owner.
 - The journal says who did it: `member <reference> took in team <name> (<team_ref>) with the join secret it has on
   another backend, and owns it`. No line holds the secret.
 - **Decide about the creation token first.** A team's reference is in its committed `.brigade.json`, so it is

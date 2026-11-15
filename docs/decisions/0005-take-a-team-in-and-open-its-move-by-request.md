@@ -91,11 +91,12 @@ A running server takes a team in, and opens and closes its move, by request.
      written by rename, never under the project directory), registers it for redaction, sends it, and on an
      answer writes the credential first and removes the key file only then. One answer leaves the file where it
      is: a take-in that carried a key an earlier run kept, and was answered `owner: false` for a credential the
-     profile holds. The server did not look at that key, and it is the key of the owner the earlier run made
-     when the machine joined the team in between; the adapter says on stderr that `profile revoke-credentials`
-     and the same take-in make that take-in again. A clock of its own would add nothing to the key: a person
-     makes a request again when they come back to it, and the key ends when its owner first acts. BAP/1 does not
-     change: the key is in no request and no result of the adapter protocol.
+     profile holds. The server did not look at that key. It is the key of the owner the earlier run made when
+     that run's answer was lost and the machine joined the team in between, and a key no server ever saw when
+     the earlier run did not arrive: the adapter cannot tell which, and says on stderr what `profile
+     revoke-credentials` and the same take-in do in either case. A clock of its own would add nothing to the
+     key: a person makes a request again when they come back to it, and the key ends when its owner first
+     acts. BAP/1 does not change: the key is in no request and no result of the adapter protocol.
 5. **`/v1/team/open-move` and `/v1/team/close-move`** answer the team's owner only, by its credential, and do
    what the operator's `--open-move`, with `--ticket-days`, and `--close-move` do. The ticket is in the answer
    of the request that opens the move, once. The adapter writes it to a file of mode 0600 that the caller
@@ -363,6 +364,11 @@ no hosted project was asked.
     empty state hold as before. Six one-line changes to the reading, each caught, two of them against the
     server as a process as well. 0.6.0 and 0.5.0 read the snapshots without the member: 76 checks each, on
     the file log and on the Cavalry feed.
+  - The adapter's line about a key file that stays said that the two commands make the take-in again "as the
+    owner it made". The adapter does not know that: a request that never arrived leaves the same file as an
+    answer that was lost. The line now says what it knows and what the two commands do in either case, and
+    the test holds the second case too: a member's profile with a key no server saw says the line, and the
+    two commands then join it as a new member. Six one-line changes to the line, each caught.
 - Not measured: a move of a real team from a hosted project by these requests, and an answer lost by a real
   proxy or a real timeout. The command that makes the requests from the administrator's machine is the next
   part of work item 328.
@@ -393,8 +399,10 @@ no hosted project was asked.
   after it such a request is a stranger's join and takes nothing from the owner.
 - A machine that ran `team join` between a lost answer and the take-in run again holds a member's credential,
   and a request with a credential the server knows is that principal's whatever key it carries. The adapter
-  keeps the key file through that answer and says what to do: `profile revoke-credentials`, and the take-in
-  again, which is then answered for the owner. It says so on its own stderr. A caller that keeps an adapter's
+  keeps the key file through that answer and says what `profile revoke-credentials` and the take-in again
+  then do: they are answered for the owner. It says the same line where the key an earlier run kept never
+  reached the server, which it cannot tell apart, and there the two commands join the profile as a new member:
+  the line says both, and asserts neither. It says so on its own stderr. A caller that keeps an adapter's
   stderr in a log, as `brigade team move --to` does, shows the person nothing of it.
 - A server keeps one hash more for a team that was taken in with a key, and in memory one reference more for
   its owner, until that owner's first request that leaves a record.
