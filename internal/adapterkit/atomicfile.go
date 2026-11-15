@@ -75,6 +75,49 @@ func WriteAtomicMode(path string, data []byte, mode os.FileMode) error {
 	return syncDir(dir)
 }
 
+// probeBytes is how much CanWriteAtomic writes: more than the longest file
+// it stands in for, a join secret or a move ticket on one line, so a disk
+// with no room for that file has none for the probe either.
+const probeBytes = 4096
+
+// CanWriteAtomic reports whether WriteAtomic could put a file at path now,
+// by doing it beside path: it makes a file of its own in path's directory,
+// writes it by WriteAtomic itself (a temporary file, the write, the sync
+// and the rename over a name that exists) and removes it. path itself is
+// not opened, not changed and not followed, so what is there stays as it
+// is, a symbolic link included. A path that names a directory is refused:
+// the rename onto it would fail.
+//
+// A caller asks before it does something that cannot be undone and whose
+// answer it then has to write to path: the request that opens a move puts a
+// new ticket in the place of the live one, and the one that rotates a join
+// secret ends the secret before it. A directory that takes no file, a disk
+// with no room and a path that names a directory are told here, while they
+// cost nothing. It says what held a moment ago and no more: a directory
+// that is taken away afterwards still fails the write.
+func CanWriteAtomic(path string) error {
+	if info, err := os.Lstat(path); err == nil && info.IsDir() {
+		return fmt.Errorf("adapterkit: %s is a directory", path)
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".probe-")
+	if err != nil {
+		return fmt.Errorf("adapterkit: create a probe for an atomic write: %w", err)
+	}
+	probe := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(probe)
+		return fmt.Errorf("adapterkit: close the probe for an atomic write: %w", err)
+	}
+	if err := WriteAtomic(probe, make([]byte, probeBytes)); err != nil {
+		_ = os.Remove(probe)
+		return err
+	}
+	if err := os.Remove(probe); err != nil {
+		return fmt.Errorf("adapterkit: remove the probe of an atomic write: %w", err)
+	}
+	return nil
+}
+
 // MaxStrictBytes caps what ReadStrict will read: every private file it
 // serves — a profile, a credential, the adapter sidecar and registry, a
 // seen file, a pidfile — is a few KiB at most, so anything past 1 MiB is

@@ -582,9 +582,14 @@ func optionalArg(s string) any {
 
 // checkSecretFile refuses a relative --secret-file — the path is resolved
 // against the process's working directory, which under a hook is the
-// project tree (3.2), and a join secret must never be written there — and
-// a parent directory that does not exist, before any network call, so a
-// mistyped path cannot cost a created team.
+// project tree (3.2), and a join secret must never be written there — a
+// parent directory that does not exist and one a file cannot be written
+// to, before any network call, so a mistyped path cannot cost a created
+// team and a directory that takes no file cannot cost a rotation: the
+// backend ends the previous secret before the adapter has the new one to
+// write. adapterkit.CanWriteAtomic proves the last by writing a file of
+// its own beside the path and removing it; what is at the path stays as
+// it is.
 func checkSecretFile(path string) error {
 	if path == "" {
 		return nil
@@ -594,6 +599,9 @@ func checkSecretFile(path string) error {
 	}
 	if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
 		return errConfig("the directory of --secret-file does not exist", "secret_file_unwritable")
+	}
+	if adapterkit.CanWriteAtomic(path) != nil {
+		return errConfig("the file named by --secret-file cannot be written: its directory takes no new file, or the path names a directory", "secret_file_unwritable")
 	}
 	return nil
 }

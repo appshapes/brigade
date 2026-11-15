@@ -95,6 +95,13 @@ pub struct Team {
     /// moves reads as none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub move_ticket: Option<MoveTicket>,
+    /// The take-in that gave the team its owner, when that request carried a retry key: what its client
+    /// repeats the request with when the answer was lost. It is here from that take-in until the team's
+    /// join secret is rotated, and a team that was not taken in so has none. A snapshot written before
+    /// there were retry keys reads as none, and a build that does not know the member drops it: it
+    /// answers no take-in at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub take_in_retry: Option<TakeInRetry>,
     /// Every membership the team has had, by principal.
     pub members: BTreeMap<String, Member>,
     /// Every session the team still holds, by id.
@@ -110,6 +117,17 @@ pub struct MoveTicket {
     /// When the ticket stops admitting. It stays here after that, admitting nobody, until the move is
     /// closed or another is opened: the end is a time, and no record marks it.
     pub ends_at: Timestamp,
+}
+
+/// What a team keeps of the take-in that gave it its owner, for the request made again: the hash of the
+/// key that request carried, and the principal it made.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakeInRetry {
+    /// The SHA-256 of the retry key. The key itself is never kept.
+    pub key_hash: String,
+    /// The principal the take-in made, which a repeat of it is answered for. It owned the team when it
+    /// was made; whether it still does is the team's own to say.
+    pub principal_ref: String,
 }
 
 /// One principal's membership of one team.
@@ -516,6 +534,7 @@ impl State {
                         created_at: at,
                         secret_version: FIRST_SECRET_VERSION,
                         move_ticket: None,
+                        take_in_retry: None,
                         members: BTreeMap::new(),
                         sessions: BTreeMap::new(),
                     }
@@ -532,8 +551,17 @@ impl State {
                 human_label,
                 // A member that came in with the move ticket is the member it would be with the secret.
                 by_move_ticket: _,
+                retry_key_hash,
             } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
+                    // The take-in that made this member the team's owner carried a key: the team keeps
+                    // its hash and the principal, for that request made again.
+                    if !retry_key_hash.is_empty() {
+                        team.take_in_retry = Some(TakeInRetry {
+                            key_hash: retry_key_hash.clone(),
+                            principal_ref: principal_ref.clone(),
+                        });
+                    }
                     // The secret a join was let in with is the one the team has when the join is recorded,
                     // and a join by the move ticket counts as one with that secret.
                     let secret_version = team.secret_version;
@@ -599,6 +627,9 @@ impl State {
                 if let Some(team) = self.teams.get_mut(team_ref) {
                     team.join_secret_hash.clone_from(join_secret_hash);
                     team.secret_version = *secret_version;
+                    // A retry key is honoured for as long as the team has the secret it was taken in
+                    // with: a rotation ends it, as it ends everything that let anyone in before it.
+                    team.take_in_retry = None;
                 }
             }
             Event::TeamOwnerChanged {

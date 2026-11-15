@@ -737,6 +737,52 @@ func TestTeamRotateSecretWritesTheFileOnly(t *testing.T) {
 	}
 }
 
+// TestARotationThatCouldNotKeepItsSecretIsNotAsked: a --secret-file in a
+// directory that exists and takes no file, and one that names a
+// directory, is `config` secret_file_unwritable before any call. The
+// backend is not asked: asked, it would have ended the team's secret, and
+// the write of the new one would have failed. In a directory that takes a
+// file again the rotation is made and the secret is in the file.
+func TestARotationThatCouldNotKeepItsSecretIsNotAsked(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a directory whatever its mode")
+	}
+	r := newRig(t)
+	r.joined()
+	locked := filepath.Join(r.base, "read-only")
+	if err := os.Mkdir(locked, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // G302: restoring a DIRECTORY mode so the test's cleanup can remove it
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	answerRPC(t, r.be, rpcRotateJoinSecret, rotatedBody(rotatedSecret))
+	path := filepath.Join(locked, "rotated.secret")
+	for name, target := range map[string]string{
+		"a directory that takes no file": path,
+		"a path that names a directory":  locked,
+	} {
+		got := r.fails("config", 11, "", "team", "rotate-secret", "--secret-file", target)
+		if details(t, got.stdout)["reason"] != "secret_file_unwritable" {
+			t.Errorf("%s: details = %v", name, details(t, got.stdout))
+		}
+	}
+	if r.be.total() != 0 {
+		t.Fatalf("%d backend calls for a rotation that could not keep its secret, want none", r.be.total())
+	}
+	// Positive control: the same path, once its directory takes a file.
+	//nolint:gosec // G302: a DIRECTORY mode
+	if err := os.Chmod(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.exec("", "team", "rotate-secret", "--secret-file", path); got.code != 0 {
+		t.Fatalf("a rotation into a directory that takes a file: exit %d: %s %s", got.code, got.stdout, got.stderr)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != rotatedSecret+"\n" { //nolint:gosec // the test's own temp file
+		t.Fatalf("secret file content = %q %v", data, err)
+	}
+}
+
 // TestTeamRotateSecretRefusals: --secret-file missing is `usage` and a
 // relative one is `usage`, a missing parent is `config`, all before any
 // call; the ladder (no team bound is `config`, a non-uuid team_ref is the

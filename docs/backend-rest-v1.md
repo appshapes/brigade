@@ -69,7 +69,7 @@ unless this table adds a member.
 | `team rotate-secret` | `/v1/team/rotate-secret` | `{"team_ref": <team>}` | `{"team_ref", "team_name", "secret_version", "rotated_at", "join_secret"}` (§3a) |
 | `team revoke-member` | `/v1/team/revoke-member` | `{"team_ref": <team>, "principal_ref", "ban"?}` or `{"team_ref": <team>, "joined_secret_version_lte"}` | 4.4.10 |
 | `team transfer` | `/v1/team/transfer` | `{"team_ref": <team>, "principal_ref"}` | 4.4.10 |
-| `team take-in` | `/v1/team/take-in` | `{"join_secret", "team_name", "human_label"?}` | 4.4.10, plus `credential` (§3, §3b) |
+| `team take-in` | `/v1/team/take-in` | `{"join_secret", "team_name", "human_label"?, "retry_key"?}` | 4.4.10, plus `credential` (§3, §3b) |
 | `team open-move` | `/v1/team/open-move` | `{"team_ref": <team>, "ticket_days"?}` | `{"team_ref", "team_name", "ticket", "ends_at", "replaced"}` (§3b) |
 | `team close-move` | `/v1/team/close-move` | `{"team_ref": <team>}` | 4.4.10 |
 | `session register` | `/v1/session/register` | `SessionRegistration` (4.4.2), plus `team_ref: <team>` | 4.4.2's result |
@@ -163,9 +163,34 @@ server may leave these three endpoints out (§5).
     owner yet gets one by the server's own rule (§3a). `taken_in` is `false`, `owner` says whether the caller
     owns the team once the request is answered, and `team_name` is the team's own: the request's is not read. So
     a request is safe to repeat. One that is repeated without the credential its first answer carried acts for a
-    new principal, which joins as a member.
+    new principal, which joins as a member, unless it is the take-in made again with its retry key (below).
   - **A team the server holds under another secret** is `conflict` with `details.reason = "other_join_secret"`,
     and so, byte for byte, is the request of a principal the team banned. Nothing is made.
+  - **`retry_key`** is optional: an opaque string of 22 to 128 characters from a credential's alphabet (§1),
+    which the client minted from at least 128 random bits for this take-in and shows to nobody but the server.
+    A take-in needs no credential, and the credential of the owner it makes is in its answer alone: when that
+    answer never arrives, nobody holds it. The key is what lets the machine that made the request make it
+    again. A request without the member is answered as one always was. A value that is not of that form is
+    `invalid_input` naming `retry_key`, in words that hold nothing of it, checked after the rest of the
+    request's shape and whatever the server holds. A server keeps a hash of the key, never the key, with the
+    record of the take-in, when the request made a principal and made it the team's owner: by taking the team
+    in, or, on a team that had no owner, by the join. Any other request keeps none, so no later take-in can put
+    another key in the place of the owner's.
+  - **A take-in made again.** A request for a team the server holds that carries the team's current join
+    secret, the `retry_key` whose hash the server kept, and no credential the server knows, is not the join of
+    a new principal. It is answered for the principal the first request made, by the rules of a join for that
+    principal, and the result carries a new `credential` for it; every credential that named the principal
+    before is unknown from then on, so the one the lost answer carried admits nobody. `taken_in` is `false`,
+    and `owner` says whether that principal owns the team when the request is answered: `true` unless the team
+    was transferred since. Nothing else changes. Another key, and no key, with the right secret is the plain
+    join above, and no answer says whether a team keeps a key; the key with another secret is the `conflict`
+    above; the key with the ticket of the team's move is the join the ticket is; a request with a known
+    credential acts for that credential's principal whatever key it carries; and a principal the team banned
+    is refused as above, with no credential made. The key is honoured for as long as the team's join secret is
+    the one the take-in presented: `/v1/team/rotate-secret` ends it, and it has no other end. The bundled
+    adapter mints the key before the request, keeps it in a file of mode 0600 beside its credential, and
+    removes that file once the credential the answer carried is written, so the key outlives a take-in only
+    when the answer was lost.
   - A `join_secret` that is malformed is `invalid_input` as on a join, and a `team_name` that breaks
     `/v1/team/create`'s rule is `invalid_input` naming `team_name`, checked before the secret's format.
   - The `team_ref` inside the secret is the caller's choice, and a server keeps it. So a server may hold it to

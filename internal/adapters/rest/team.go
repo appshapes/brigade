@@ -217,6 +217,9 @@ func (c *command) teamJoin() (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// What is presented may be the team's join secret or the ticket of its
+	// move: either way its secret half is hidden before anything is sent.
+	c.hideSecretHalf(secret.Secret())
 	if present && p.TeamRef != "" && p.TeamRef != secret.TeamRef() {
 		return nil, errConflict("this profile is already bound to another team", reasonProfileBound)
 	}
@@ -430,9 +433,13 @@ func validHeaderToken(s string) bool {
 
 // checkSecretFile refuses a relative --secret-file (the path is resolved
 // against the process's working directory, which under a hook is the
-// project tree, and a join secret must never be written there) and a
-// parent directory that does not exist, before any request, so a mistyped
-// path cannot cost a created team.
+// project tree, and a join secret must never be written there), a parent
+// directory that does not exist and one a file cannot be written to, before
+// any request, so a mistyped path cannot cost a created team and a
+// directory that takes no file cannot cost a rotation: the server ends the
+// previous secret before the adapter has the new one to write.
+// adapterkit.CanWriteAtomic proves the last by writing a file of its own
+// beside the path and removing it; what is at the path stays as it is.
 func checkSecretFile(path string) error {
 	if path == "" {
 		return nil
@@ -443,7 +450,41 @@ func checkSecretFile(path string) error {
 	if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
 		return errConfig("the directory of --secret-file does not exist", reasonSecretFile)
 	}
+	if adapterkit.CanWriteAtomic(path) != nil {
+		return errConfig("the file named by --secret-file cannot be written: its directory takes no new file, or the path names a directory", reasonSecretFile)
+	}
 	return nil
+}
+
+// minHiddenHalfChars is the fewest characters the secret half of a join
+// secret has for hideSecretHalf to register it. A backend mints a half
+// from at least 128 random bits, which no alphabet writes in fewer than
+// sixteen characters, so every minted half is registered. A shorter one
+// is somebody's own text, and a short text registered as it stands would
+// be cut out of every line that happens to hold those characters: `ops`
+// out of a team's name, a digit out of a status.
+const minHiddenHalfChars = 16
+
+// hideSecretHalf registers on the redactor the secret half of a join
+// secret or a move ticket: what follows its last dot, when it is
+// minHiddenHalfChars or longer. The redactor's own pattern replaces the
+// whole `brg1.<team_ref>.<secret>` wherever it finds one and knows
+// nothing of the half alone, so a server that broke the contract's rule
+// and repeated only the half in a refusal would have this adapter print
+// the one part of the secret that is secret: the reference is in the
+// committed team file. It is called with what a command presents, before
+// the request (`team join`, `team take-in`), and with what an answer
+// carries, before anything else is done with the answer (`team
+// rotate-secret`, `team open-move`). A text with no dot has no half and
+// registers nothing.
+func (c *command) hideSecretHalf(secret string) {
+	dot := strings.LastIndexByte(secret, '.')
+	if dot < 0 {
+		return
+	}
+	if half := secret[dot+1:]; len(half) >= minHiddenHalfChars {
+		c.redactor.Add(half)
+	}
 }
 
 // warnSecretShownOnce puts the 4.4.10 warning on stderr. It names no
@@ -554,8 +595,10 @@ func (c *command) teamRotateSecret() (any, error) {
 		return nil, err
 	}
 	// The new secret is registered on the redactor before anything else is
-	// done with the answer, so no line this command writes can carry it.
+	// done with the answer, so no line this command writes can carry it, and
+	// so is its secret half, which is not of a join secret's form.
 	c.redactor.Add(answer.JoinSecret)
+	c.hideSecretHalf(answer.JoinSecret)
 	if answer.TeamRef != c.profile.TeamRef {
 		c.rotationLost()
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
@@ -696,6 +739,15 @@ func (c *command) requireTeamTakeIn() error {
 // anything on the network. The secret is sent once and never stored; the
 // creation token rides as on `team create`, because a server that limits
 // who may create a team limits who may take one in.
+//
+// The answer carries the credential of the owner the server made, and an
+// answer that is lost would leave that owner with nobody: so the request
+// carries a retry key, which is in take-in-key.json before anything is
+// sent (retrykey.go). The same command run again finds the key and sends
+// it, and the server answers for the principal the first request made,
+// with a new credential. On an answer the credential is written first and
+// the key file removed only then; on anything else the key stays where it
+// is, for the next run.
 func (c *command) teamTakeIn() (any, error) {
 	fs := newFlags()
 	flags := adapterkit.NewTeamTakeInFlags(fs)
@@ -711,10 +763,12 @@ func (c *command) teamTakeIn() (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Nothing registers the secret on the redactor: the redactor replaces
-	// every text of a join secret's form wherever it finds one
+	// The whole secret is not registered on the redactor: the redactor
+	// replaces every text of a join secret's form wherever it finds one
 	// (adapterkit/log), the whole of this one included, so a registration of
-	// the same text would change no line.
+	// the same text would change no line. Its secret half is not of that
+	// form, and is.
+	c.hideSecretHalf(taken.Secret.Secret())
 	if present && p.TeamRef != "" && p.TeamRef != taken.Secret.TeamRef() {
 		return nil, errConflict("this profile is already bound to another team", reasonProfileBound)
 	}
@@ -736,7 +790,13 @@ func (c *command) teamTakeIn() (any, error) {
 	if humanLabel == "" {
 		humanLabel = c.profile.HumanLabel
 	}
-	body := &teamTakeInBody{JoinSecret: taken.Secret.Secret(), TeamName: taken.Request.TeamName, HumanLabel: humanLabel}
+	key, err := c.takeInRetryKey(taken.Secret.TeamRef())
+	if err != nil {
+		return nil, err
+	}
+	body := &teamTakeInBody{
+		JoinSecret: taken.Secret.Secret(), TeamName: taken.Request.TeamName, HumanLabel: humanLabel, RetryKey: key,
+	}
 	var answer teamTakeInAnswer
 	if err := c.bindingCall(pathTeamTakeIn, body, &answer, headers); err != nil {
 		return nil, err
@@ -747,6 +807,8 @@ func (c *command) teamTakeIn() (any, error) {
 	if err := c.keepCredential(answer.Credential, answer.PrincipalRef); err != nil {
 		return nil, err
 	}
+	// The credential is kept: the key has nothing left to repeat.
+	c.dropRetryKey()
 	if err := c.bind(answer.TeamRef, answer.TeamName, answer.PrincipalRef, humanLabel); err != nil {
 		return nil, err
 	}
@@ -789,8 +851,10 @@ func (c *command) teamOpenMove() (any, error) {
 	}
 	// The ticket is a join secret in form, which the redactor replaces
 	// wherever it finds one; one that is not is refused below in fixed words.
-	// Nothing after this line writes any part of the answer but the result,
-	// which has no ticket member.
+	// Its secret half is not of that form, and is registered. Nothing after
+	// this line writes any part of the answer but the result, which has no
+	// ticket member.
+	c.hideSecretHalf(answer.Ticket)
 	if answer.TeamRef != c.profile.TeamRef {
 		c.ticketLost()
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")

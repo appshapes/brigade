@@ -40,7 +40,10 @@ The toolchain is the one `server/rust-toolchain.toml` pins; rustup installs it o
 
 `make server-test` builds the Go binaries first, because the oracle is the conformance suite through
 `bin/brigade`'s `rest` adapter (the contract's section 6). It runs the suite twice: on the file log, and with
-`--slow` on the Cavalry feed. Beside it, `crates/brigade-core/tests/rules.rs` holds the same rules at the size of a
+`--slow` on the Cavalry feed. With it runs one test of the two built programs together that no suite can
+make: `bin/brigade`'s `rest` adapter takes a team in through a front that loses the server's answer, and the
+same command run again owns the team and opens its move
+(`a_take_in_whose_answer_is_lost_is_run_again_by_the_built_adapter_and_owns_the_team`). Beside it, `crates/brigade-core/tests/rules.rs` holds the same rules at the size of a
 function call with the clock in the test's hands, and `crates/brigade-server/tests/server.rs` holds what only a
 process shows: a kill and a start, a receive that waits, TLS, a process held still past Cavalry's timeouts.
 
@@ -161,6 +164,15 @@ owner. The operator's three commands stay as they are, and call the same functio
   `conflict` with `other_join_secret`, the refusal of `import_team`.
 - **`may_own` is read by a take-in too.** A caller whose request may not own takes a team in with no owner, as
   the operator does. Only a gateway's request may not, and no gateway takes a team in.
+- **`retry_key`** is read last by `wire.rs`, into a `RetryKey` that prints as nothing of itself, and only its
+  form is held there. `execute.rs` hashes it before it looks at the team. The hash goes on `member.joined`
+  (`retry_key_hash`, written only when it is not empty) when the request made a principal and made it the
+  team's owner, in either branch, and applying that record sets `Team.take_in_retry` to the hash and the
+  principal; applying `team.secret_rotated` clears it. `repeated_take_in` tells a take-in made again: no
+  credential the state knows, the team's current secret and the kept hash. `join` then acts for that
+  principal, and `reissue_credential` writes a `credential.revoked` for every credential that names it and one
+  `credential.issued`, in the entry of the join. Nothing in the answer of any other take-in differs by whether
+  the team keeps a key.
 - **`taken_in`** is one member more of `team.created`, written only when it is true and read by the journal's
   line alone, as `by_move_ticket` is on `member.joined`. The team is the team a creation makes, so there is no
   new kind of record and no new snapshot format: a 0.6.0 starts on what 0.7.0 wrote.
@@ -171,7 +183,9 @@ owner. The operator's three commands stay as they are, and call the same functio
 - **A team that is taken in counts** against the principal that takes it in, in `teams_created_at`, because
   applying `team.created` counts it for its `created_by`.
 - **`said.rs`** has a line for a team taken in, for a move its owner opened and for one its owner closed. A
-  `team.move_closed` in an entry that also holds a rotation is the rotation's; alone it is the owner's.
+  `team.move_closed` in an entry that also holds a rotation is the rotation's; alone it is the owner's. A
+  `member.joined` in an entry that makes a credential unknown and issues one is a take-in made again, and has
+  a line of its own in the place of the join's.
 - **`/v1/info`** lists `team.take_in` beside `team.admin`, and the conformance suite holds the three with cases
   C-53 to C-55 through the `rest` adapter.
 
@@ -300,8 +314,9 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
 - Nothing removes a team from a server. On one that asks for no creation token, a stranger can take in a team
   under a reference that is not theirs, with a secret of their own, and the real team's take-in then answers
   `conflict` (ADR 0005; `docs/security.md`, section 20). A creation token keeps a stranger from it.
-- A take-in whose answer is lost leaves a team owned by a principal whose credential nobody holds: the request
-  made again joins as a member, and the operator names the owner with `--set-owner`.
+- A take-in whose answer is lost is made again with its retry key and owns the team (ADR 0005). Without the
+  key, from a client that sends none or a machine that lost the file, or after the team's secret was rotated,
+  the request made again joins as a member, and the operator names the owner with `--set-owner`.
 - An entry that fails its seal refuses the start, wherever it is in the log. Whether a power loss can leave such
   an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here.
 - The seal has one key and no rotation. Nonces are random, which is sound for about four thousand million

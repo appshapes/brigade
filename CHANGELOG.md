@@ -30,6 +30,54 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   advertises it. Until now the server's operator took a team in and
   opened its move with two commands on a stopped server; those commands
   stay. No `brigade` command makes the three requests yet.
+- **A `team take-in` whose answer was lost is run again, and owns the
+  team** (work item 328, ADR 0005). The server makes the team's owner
+  and puts its credential in the answer, and an answer that never
+  arrives (the command's deadline, a proxy's 502, an interrupt) left a
+  team owned by a member nobody could be: the command run again joined
+  as a stranger, and only the server's operator, on a stopped server,
+  could name the owner. The `rest` adapter now mints a retry key before
+  it asks, keeps it in `take-in-key.json` beside `credential.json`
+  (mode 0600), and sends it; a server 0.7.0 keeps its hash. The same
+  command run again sends the same key and is answered as the owner,
+  with a new credential in the place of the lost one. The key file is
+  removed once the credential is written, is for one server and one
+  team, and is never printed or logged. The adapter protocol does not
+  change: the key is in no request and no result of BAP/1.
+
+### Fixed
+
+- **A rotation and an opened move are no longer asked for when their
+  file could not be written** (work item 328). `team rotate-secret
+  --secret-file` and `team open-move --ticket-file` checked only that
+  the file's directory exists. In a directory that takes no file the
+  backend still ended the team's join secret, or put a new ticket in
+  the place of the live one, and the write then failed: the new secret
+  or ticket was lost and the one before it was dead. The `rest` adapter
+  and the Supabase adapter now write a file of their own beside the
+  path and remove it before they ask anything
+  (`adapterkit.CanWriteAtomic`), so a directory that takes no file, and
+  a path that names a directory, is `config` with
+  `secret_file_unwritable` or `ticket_file_unwritable`, and the backend
+  is not asked. `team create --secret-file` and `team moved
+  --ticket-file`, the filesystem adapter's included, make the same
+  check. What was at the path is left as it is until the write, which
+  still replaces a symbolic link there and never follows it.
+- **A server that repeats only the secret half of a join secret cannot
+  make the `rest` adapter print it** (work item 328). The adapter passes
+  a server's refusal through its redactor, which replaces a whole
+  `brg1.<team_ref>.<secret>` wherever it finds one and knew nothing of
+  the part after the last dot alone, the one part that is secret: a
+  team's reference is in its committed team file. A server that broke
+  the contract's rule and repeated that half in a refusal got it
+  printed on stdout and stderr. `team join` and `team take-in` now
+  register the half of what they present before they send it, the
+  team's join secret or the ticket of its move, and `team
+  rotate-secret` and `team open-move` the half of the secret in the
+  server's answer before they do anything else with it. A half shorter
+  than sixteen characters is not registered: no backend mints one, and
+  a short text would be cut out of every line that holds those
+  characters.
 
 ### Changed
 

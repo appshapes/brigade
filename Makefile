@@ -334,7 +334,9 @@ server-check: ## rustfmt and clippy on server/ with warnings denied, with and wi
 	cd server && cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 
 # The second line runs the tests marked ignored: the conformance suite through bin/brigade's rest adapter against a
-# running server, on the file log and then with --slow on the Cavalry feed (the contract's section 6). One at a
+# running server, on the file log and then with --slow on the Cavalry feed (the contract's section 6), and a take-in
+# by bin/brigade's rest adapter whose answer is lost on the way back and that owns the team when it is run again
+# (work item 328). One at a
 # time, so the suite's own deadlines are met on a runner with four cores. The third is the member's side against
 # the same server: the built `brigade` creates a team with --adapter rest, a second member joins, and a message is
 # delivered, over TLS with a certificate that only its pin in the team file makes trusted. `make test` runs that

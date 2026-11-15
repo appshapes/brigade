@@ -180,8 +180,10 @@ type TeamOpenMove struct {
 // Request resolves a parsed `team open-move`, before any network call:
 // `--ticket-file` is required and names an absolute path, and
 // `--ticket-days`, when given, is within 1..protocol.MoveTicketMaxDays,
-// each `usage` otherwise; a directory that does not exist is `config`
-// with details.reason ticket_file_unwritable.
+// each `usage` otherwise; a directory that does not exist, or that takes
+// no file, is `config` with details.reason ticket_file_unwritable
+// (CheckTicketFileTarget): the move is not opened for a ticket that could
+// not be kept.
 func (f *TeamOpenMoveFlags) Request() (*TeamOpenMove, error) {
 	if *f.ticketFile == "" {
 		return nil, usageError("--ticket-file <path> is required: the move ticket is written to a file and never to stdout")
