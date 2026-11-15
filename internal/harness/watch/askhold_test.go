@@ -118,7 +118,7 @@ func (c *holdCase) sent(t *testing.T, n int, attrs map[string]any) {
 	if len(attrs) > 0 {
 		what += fmt.Sprintf(" with %v", attrs)
 	}
-	acts(t, what, c.clock, holdEvery, func() bool { return c.fx.logCount("decision: held ask sent", attrs) == n })
+	acts(t, c.fx, what, c.clock, holdEvery, func() bool { return c.fx.logCount("decision: held ask sent", attrs) == n })
 }
 
 // ended waits until the watcher's log says a hold ended with nothing sent,
@@ -419,7 +419,7 @@ func TestHeldAskWaitsForARoad(t *testing.T) {
 		// Until the refusal the clock runs a millisecond at a look: enough for
 		// a roster read that failed to be tried again, and too little to move
 		// past the hold-back that the refusal starts.
-		acts(t, "the watcher's line that the held ask was not sent", c.clock, time.Millisecond, func() bool {
+		acts(t, c.fx, "the watcher's line that the held ask was not sent", c.clock, time.Millisecond, func() bool {
 			return c.fx.logHas("decision: the held ask was not sent", map[string]any{"how": "slack"})
 		})
 		// Held back, by the watcher's clock, which now stands still: the

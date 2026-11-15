@@ -51,22 +51,29 @@ func (c *checkCount) pass(t *testing.T) {
 
 // acts waits until the watcher has done what cond tells of, which what
 // names for the failure, and moves the watcher's clock on by step, one
-// check interval as a rule, at each look. A watcher that could not do it at once, its
-// backend busy or its roster unread, tries again after some check intervals
-// by its own clock: under a clock that stood still it would wait for ever,
-// where in real time it tries again. (The first proof of work item 336 met
+// check interval as a rule, at each look. A watcher that could not do it
+// at once, its backend busy or its roster unread, tries again after some
+// check intervals by its own clock: under a clock that stood still it
+// would wait for ever, where in real time it tries again. (The first proof of work item 336 met
 // it: an adapter's lock timed out under load, the watcher held the ask back
 // for three intervals of a clock that no longer moved, and the test timed
 // out.) Nothing may be held open across a call: the watcher's time runs.
-func acts(t *testing.T, what string, clock *fakeClock, step time.Duration, cond func() bool) {
+//
+// Its hang catcher is the long one: what the watcher does here it does
+// through its adapter, several calls of it, and tries again when one fails,
+// and one attempt can take the ten seconds the fs store's lock is waited
+// for. Beside other suites two asks were once not out in thirty seconds
+// (2026-11-15); why was not seen, the failure having said nothing of the
+// watcher, so a wait that gives up now says what the watcher warned of.
+func acts(t *testing.T, fx *fixture, what string, clock *fakeClock, step time.Duration, cond func() bool) {
 	t.Helper()
-	await(t, what+" (the watcher's clock running)", func() bool {
+	awaitFor(t, waitLong, what+" (the watcher's clock running)", func() bool {
 		if cond() {
 			return true
 		}
 		clock.Advance(step)
 		return false
-	})
+	}, fx.warnings)
 }
 
 // awaitNotice waits until the session's notice file carries text.
@@ -297,7 +304,7 @@ func TestStateRankHandsOver(t *testing.T) {
 			// The delay passes, and the clock runs on: a send that failed is
 			// tried again.
 			clock.Advance(deps.StateCheckInterval)
-			acts(t, "the watcher's line of a digest produced to the manager's session", clock, deps.StateCheckInterval, func() bool {
+			acts(t, fx, "the watcher's line of a digest produced to the manager's session", clock, deps.StateCheckInterval, func() bool {
 				return fx.logHas("state: digest produced", map[string]any{"how": "session"})
 			})
 			marker, err := digest.ReadMarker(folder, "peer@example.com")

@@ -939,13 +939,37 @@ func (fx *fixture) waitLog(msg string, attrs map[string]any) {
 // item 336: `condition not met within 30s` names nothing).
 func await(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(waitShort)
+	awaitFor(t, waitShort, what, cond, nil)
+}
+
+// awaitFor is await with the hang catcher's length and, when it gives up,
+// what seen answers beside what did not come.
+func awaitFor(t *testing.T, catcher time.Duration, what string, cond func() bool, seen func() string) {
+	t.Helper()
+	deadline := time.Now().Add(catcher)
 	for !cond() {
 		if !time.Now().Before(deadline) {
-			t.Fatalf("waited %v for %s, which did not come", waitShort, what)
+			if seen != nil {
+				t.Fatalf("waited %v for %s, which did not come; %s", catcher, what, seen())
+			}
+			t.Fatalf("waited %v for %s, which did not come", catcher, what)
 		}
 		time.Sleep(pollEvery)
 	}
+}
+
+// warnings is the watcher's log lines at warn or above, for a wait that
+// gave up on something the watcher was to do.
+func (fx *fixture) warnings() string {
+	var b strings.Builder
+	n := 0
+	for _, l := range fx.logLines() {
+		if l["level"] == "WARN" || l["level"] == "ERROR" {
+			n++
+			fmt.Fprintf(&b, "\n  %v", l)
+		}
+	}
+	return fmt.Sprintf("the watcher warned %d times:%s", n, b.String())
 }
 
 // adapterCall makes one of a test's own calls to the adapter, and makes it
