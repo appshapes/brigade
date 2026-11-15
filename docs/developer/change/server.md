@@ -182,15 +182,23 @@ owner. The operator's three commands stay as they are, and call the same functio
   `team.move_closed` when they say `by_owner`, which the owner's request writes and the operator's command
   does not. `team.owner_changed` to another principal and `team.secret_rotated` end it as well. So a team
   keeps a key for its owner alone, the same request after the end is a stranger's join, and nothing that
-  leaves no record, a read or a refusal, ends anything. A new request of the owner's that leaves a record of
-  another kind needs its arm here, and `rules.rs` walks twenty thousand requests against the rule.
+  leaves no record, a read or a refusal, ends anything. The five records of a session (`session.resumed`,
+  `session.heartbeat`, `session.closed`, `message.accepted`, `message.acked`) have no arm, because none can
+  be an owner's first: a principal that a team keeps a key for has no session, and the request that gives it
+  one ends the key. A new request of the owner's that leaves a record of another kind
+  needs its arm here. `rules.rs` holds that from both sides: one test asks every request the server reads
+  with the credential of an owner whose key is kept, and does not build when a request is added that it does
+  not name; and the walk of twenty thousand requests holds at every step that such an owner has no session
+  and is in no other team, names every kind of record in a match that does not build when one is added, and
+  starts again from a snapshot and the log after it every 199 steps.
 - **`taken_in`** is one member more of `team.created`, written only when it is true and read by the journal's
   line alone, as `by_move_ticket` is on `member.joined`. The team is the team a creation makes, so there is no
   new kind of record and no new snapshot format: a 0.6.0 starts on what 0.7.0 wrote.
 - **`/v1/team/open-move` and `/v1/team/close-move`** are administration paths: `answer` checks the owner before
   it reads anything of the body but its `team_ref`, and each function checks it again before it calls
-  `open_move` or `close_move`, the operator's own. `ticket_days` is read by `wire.rs` with the bounds
-  `open_move` holds.
+  `open_a_move` or `close_a_move`, which the operator's `open_move` and `close_move` call as well: the
+  owner's request passes `by_owner`, which the record then says, and the operator's command does not.
+  `ticket_days` is read by `wire.rs` with the bounds `open_a_move` holds.
 - **A team that is taken in counts** against the principal that takes it in, in `teams_created_at`, because
   applying `team.created` counts it for its `created_by`.
 - **`said.rs`** has a line for a team taken in, for a move its owner opened and for one its owner closed. A
