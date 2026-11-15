@@ -557,8 +557,9 @@ func TestTeamJoinGoesOnWithoutALockItCannotHave(t *testing.T) {
 	t.Parallel()
 	joined := func(t *testing.T, f *fixture, top string) {
 		t.Helper()
-		if n := countOf(f.rec.verbs(), "team join"); n != 1 {
-			t.Fatalf("%d joins were sent, want 1", n)
+		sent := slices.DeleteFunc(f.rec.verbs(), func(verb string) bool { return verb != "team join" })
+		if len(sent) != 1 {
+			t.Fatalf("%d joins were sent, want 1", len(sent))
 		}
 		key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
 		if _, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key); err != nil {
