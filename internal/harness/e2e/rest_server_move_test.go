@@ -3,8 +3,6 @@
 package e2e
 
 import (
-	"errors"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,7 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
@@ -322,30 +319,10 @@ func TestRunningSessionsFollowAMoveFromOneServerToAnotherThroughTheRealBinary(t 
 		return res
 	}
 	// moved prompts s until its session is registered on the new server, and
-	// returns what those prompts said. One prompt does it where the machine
-	// has time to spare. A prompt has a few seconds for the registration, and
-	// on a loaded machine an adapter child may not start within them: the
-	// session then says once that it could not be registered, stays where it
-	// is, and tries again at a later prompt, a minute later at the earliest.
-	// That is what its member sees, and the member prompts again; here the
-	// minute is made to pass by taking the stamp away. waitLong is the hang
-	// catcher for a session that never moves.
+	// returns what those prompts said (promptedUntilMoved).
 	moved := func(s session) string {
 		t.Helper()
-		var said strings.Builder
-		testutil.Eventually(t, waitLong, pollEvery, func() bool {
-			res := prompt(s)
-			said.WriteString(res.stdout)
-			if r.mustMap(s).TeamKey == newKey {
-				return true
-			}
-			t.Logf("a prompt did not move the session, and it is prompted again: stdout %q\nstderr %s", res.stdout, res.stderr)
-			if err := os.Remove(config.RegisterRetryStamp(r.stateDirOf(s), s.pid)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				t.Fatalf("the registration's retry stamp: %v", err)
-			}
-			return false
-		})
-		return said.String()
+		return r.promptedUntilMoved(s, newKey, prompt).stdout
 	}
 
 	// --- 2. the owner moves the team from her terminal ---------------------------------------------------

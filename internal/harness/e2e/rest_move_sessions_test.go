@@ -44,6 +44,11 @@ import (
 //     checkout does, and joins nothing: the machine is the team's owner on
 //     the server already.
 //  6. One owner and one member are on the server's roster at the end.
+//
+// A session moves at a prompt that has time to register it, which on a
+// loaded machine is not always the first: wherever a prompt moves a session
+// here, the session is prompted until it has moved (promptedUntilMoved),
+// and what those prompts said is held, each line once.
 func TestRunningSessionsFollowAMoveMadeByOneCommandThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
@@ -141,16 +146,16 @@ func TestRunningSessionsFollowAMoveMadeByOneCommandThroughTheRealBinary(t *testi
 		unmoved(s, "after the command, before any prompt")
 	}
 	asked := questions()
-	res = prompt(mover)
+	res = r.promptedUntilMoved(mover, newKey, prompt)
 	moverMap := r.mustMap(mover)
 	if !strings.Contains(res.stdout, rejoined+where+" now, and this session moves there with it.") ||
-		!strings.Contains(res.stdout, `this session is "`+aliceName+`" (`+moverMap.BrigadeSessionID+`)`) ||
+		strings.Count(res.stdout, `this session is "`+aliceName+`" (`+moverMap.BrigadeSessionID+`)`) != 1 ||
 		strings.Contains(res.stdout, "followed") || strings.Contains(res.stdout, recorded) || strings.Contains(res.stdout, movedWords) ||
 		strings.Contains(res.stdout, "not connected") || strings.Count(res.stdout, rejoined) != 1 {
-		t.Fatalf("the prompt of the session that made the move: stdout %q\nstderr %s", res.stdout, res.stderr)
+		t.Fatalf("the prompts of the session that made the move: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	if moverMap.TeamKey != newKey || moverMap.BrigadeSessionID == old[mover.pid] || moverMap.SessionName != aliceName {
-		t.Fatalf("her map after that prompt: %+v", moverMap)
+		t.Fatalf("her map after it moved: %+v", moverMap)
 	}
 	if questions() != asked {
 		t.Fatalf("her own move asked the old backend whether the team moved")
@@ -198,15 +203,15 @@ func TestRunningSessionsFollowAMoveMadeByOneCommandThroughTheRealBinary(t *testi
 	if pin := m.pinOf(r.configDirB); pin.URL != backend.url || pin.Certificate != backend.certificate || pin.MovedFrom != m.oldPin.URL {
 		t.Fatalf("the member's pin after the follow: %+v", pin)
 	}
-	res = prompt(bob)
+	res = r.promptedUntilMoved(bob, newKey, prompt)
 	bobMap := r.mustMap(bob)
-	if !strings.Contains(res.stdout, `followed team "`+teamName+`" to `+where) || !strings.Contains(res.stdout, recorded+" on "+m.oldHost) ||
+	if strings.Count(res.stdout, `followed team "`+teamName+`" to `+where) != 1 || !strings.Contains(res.stdout, recorded+" on "+m.oldHost) ||
 		!strings.Contains(res.stdout, "with the move's ticket, under the label you had") ||
-		!strings.Contains(res.stdout, `this session is "`+bobName+`" (`+bobMap.BrigadeSessionID+`)`) || strings.Contains(res.stdout, bobLabel) {
-		t.Fatalf("the prompt that moved the member's session: stdout %q\nstderr %s", res.stdout, res.stderr)
+		strings.Count(res.stdout, `this session is "`+bobName+`" (`+bobMap.BrigadeSessionID+`)`) != 1 || strings.Contains(res.stdout, bobLabel) {
+		t.Fatalf("the prompts that moved the member's session: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	if bobMap.TeamKey != newKey || bobMap.BrigadeSessionID == old[bob.pid] || bobMap.SessionName != bobName {
-		t.Fatalf("the member's map after the second prompt: %+v", bobMap)
+		t.Fatalf("the member's map after it moved: %+v", bobMap)
 	}
 	if got := questions() - asked; got != 1 {
 		t.Fatalf("the member's follow asked the old backend %d times, want once", got)
@@ -257,13 +262,13 @@ func TestRunningSessionsFollowAMoveMadeByOneCommandThroughTheRealBinary(t *testi
 		pin, ok, err := teamstore.LookupPin(r.configDir, canonOther)
 		return err == nil && ok && pin.Adapter == "rest" && pin.MovedFrom == m.oldPin.URL
 	})
-	res = prompt(other)
+	res = r.promptedUntilMoved(other, newKey, prompt)
 	otherMap := r.mustMap(other)
 	// The line is the one a member's checkout says, the administrator's own record named as "the team's
 	// administrator" recorded it: her machine was on the server already, and joined nothing.
-	if !strings.Contains(res.stdout, `followed team "`+teamName+`" to `+where) || !strings.Contains(res.stdout, "this machine had joined it there already") ||
+	if strings.Count(res.stdout, `followed team "`+teamName+`" to `+where) != 1 || !strings.Contains(res.stdout, "this machine had joined it there already") ||
 		strings.Contains(res.stdout, "with the move's ticket") || otherMap.TeamKey != newKey || otherMap.SessionName != "payments-other" {
-		t.Fatalf("the prompt that moved the session of her second checkout: stdout %q\nmap %+v", res.stdout, otherMap)
+		t.Fatalf("the prompts that moved the session of her second checkout: stdout %q\nmap %+v", res.stdout, otherMap)
 	}
 	if got := questions() - asked; got != 1 {
 		t.Fatalf("her second checkout's follow asked the old backend %d times, want once", got)
@@ -277,10 +282,10 @@ func TestRunningSessionsFollowAMoveMadeByOneCommandThroughTheRealBinary(t *testi
 		t.Fatalf("the released message did not reach the session once: %q", got)
 	}
 	testutil.Eventually(t, waitLong, pollEvery, func() bool { return pending() == 0 })
-	res = prompt(held)
+	res = r.promptedUntilMoved(held, newKey, prompt)
 	heldMap := r.mustMap(held)
 	if heldMap.TeamKey != newKey || heldMap.BrigadeSessionID == old[held.pid] || heldMap.Inbound != "hold" ||
-		!strings.Contains(res.stdout, `this session is "payments-held" (`+heldMap.BrigadeSessionID+`)`) || strings.Contains(res.stdout, rejoined) {
+		strings.Count(res.stdout, `this session is "payments-held" (`+heldMap.BrigadeSessionID+`)`) != 1 || strings.Contains(res.stdout, rejoined) {
 		t.Fatalf("her session after its message was released: stdout %q\nmap %+v", res.stdout, heldMap)
 	}
 
