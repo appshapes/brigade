@@ -747,4 +747,10 @@ and P103-3). Work item 329 is the one command's proof on a real team and waits o
 the verifications left open is on work items 336, 337 and 339. The pages say on every path that the move is one
 command (execution log P103-4), and on 2026-11-15 the roadmap went on to the standby the owner had set up, the
 session `6611b` (execution log P103-5), with work item 329 waiting on the owner and 341 new: a team on a server
-cannot yet be moved to another server by the one command.
+cannot yet be moved to another server by the one command. That session, `89-server-9-second-team-and-roadmap`,
+brought work item 323 to `master` (execution log P104-1: the certificate of the appshapes team's server is
+watched) and, at its account's usage limit, handed the roadmap on the same day to the standby the owner had set
+up, the session `a88e4` (execution log P104-3). That one named itself `89-server-10-timing-tests-and-server-move`
+and brought work item 336 to `master` (execution log P104-2: the timing tests wait on what they are about), with
+341 in its rounds of fixes on a branch and work item 354 new (a join whose answer is lost leaves a second
+membership on a server).
