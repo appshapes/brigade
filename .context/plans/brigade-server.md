@@ -752,10 +752,12 @@ brought work item 323 to `master` (execution log P104-1: the certificate of the 
 watched), led work item 341 on a branch and, at its account's usage limit, handed the roadmap on the same day to
 the standby the owner had set up, the session `a88e4` (execution log P104-3). That one named itself
 `89-server-10-timing-tests-and-server-move` and brought work item 336 to `master` (execution log P104-2: the
-timing tests wait on what they are about), and then 341, after three more rounds of fixes that a verifier who
-wrote none of the code asked for (execution log P104-4): a server keeps the record of where a team went, two
+timing tests wait on what they are about), and then 341, after five more rounds of review, each run against
+built servers by a verifier who wrote none of the code (execution log P104-4): a server keeps the record of where a team went, two
 requests behind the capability `team.move` in the contract's new section 3c, so the one command moves a team from
 one server to another and its members follow. The decision is ADR 0010, which supersedes ADR 0003's sentence that
 the `rest` adapter carries no record; the old server keeps the team as it is, and nothing ends a team on a server
 yet. It ships as server 0.8.0 and in the next plugin release, 0.57.0, neither released by that work item. Work
-item 354 is new from its verification: a join whose answer is lost leaves a second membership on a server.
+items 354, 357 and 359 are new from its verification: a join whose answer is lost leaves a second membership on a
+server, an address with shell characters is printed in a command as it stands, and 359 holds the low findings
+that were left so that the feature could land.
