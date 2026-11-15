@@ -469,7 +469,7 @@ func (fx *fixture) useHelper(mode string) {
 
 // useFS builds the fs store: the owner creates the team and registers the
 // watched session; the peer joins with the secret and registers a sender
-// session. Each call is made again while the adapter is unavailable
+// session. Each call is made again while the store's lock cannot be had
 // (adapterCall).
 func (fx *fixture) useFS() {
 	t := fx.t
@@ -521,8 +521,8 @@ func (fx *fixture) send(body string) string {
 }
 
 // sendWith is send with an idempotency key. The send is made again while
-// the adapter is unavailable (adapterCall); a send with no key is given one
-// of its own for that, so that asking twice is one message.
+// the store's lock cannot be had (adapterCall); a send with no key is given
+// one of its own, so that asking twice is one message whatever happens.
 func (fx *fixture) sendWith(body, key string) string {
 	fx.t.Helper()
 	if key == "" {
@@ -973,13 +973,20 @@ func (fx *fixture) warnings() string {
 }
 
 // adapterCall makes one of a test's own calls to the adapter, and makes it
-// again for as long as the adapter answers `unavailable`, the code the
-// protocol gives a caller to try again on (4.3). The fs store's lock is
-// waited for ten seconds, and beside other suites a test's own read of an
-// inbox ran into that: `receive: timed out waiting for the file lock`
+// again for as long as the adapter answers that its store's lock could not
+// be had: `unavailable`, the code a caller tries again on (4.3), with the
+// reason `lock_timeout`, under which the adapter did nothing. The fs store's
+// lock is waited for ten seconds, and beside other suites a test's own read
+// of an inbox ran into that: `receive: timed out waiting for the file lock`
 // (work item 336, 2026-11-15). What a test asserts is the answer, not how
-// soon the store was free. Any other error fails the test, and so does
-// `unavailable` for longer than a hang catcher.
+// soon the store was free.
+//
+// Every other error fails the test, and so does a lock that cannot be had
+// for longer than a hang catcher. A call the test's own deadline gave up on
+// is `unavailable` too, and is not made again: the adapter may have done
+// its work by then. (It was made again at first, and a team create that had
+// outlasted its thirty seconds was refused the second time, the team being
+// there.)
 func adapterCall[T any](t *testing.T, what string, call func(ctx context.Context) (T, error)) T {
 	t.Helper()
 	deadline := time.Now().Add(waitLong)
@@ -991,10 +998,27 @@ func adapterCall[T any](t *testing.T, what string, call func(ctx context.Context
 			return got
 		}
 		var perr *protocol.Error
-		if !errors.As(err, &perr) || perr.Code != protocol.CodeUnavailable || !time.Now().Before(deadline) {
+		if !errors.As(err, &perr) || perr.Code != protocol.CodeUnavailable || perr.Details["reason"] != "lock_timeout" || !time.Now().Before(deadline) {
 			t.Fatalf("%s: %v", what, err)
 		}
-		t.Logf("%s: the adapter was unavailable, asked again: %v", what, err)
+		t.Logf("%s: the store's lock could not be had, asked again: %v", what, err)
+	}
+}
+
+// TestAdapterCallAsksAgainWhenTheLockCouldNotBeHad is adapterCall's
+// positive control: an answer of `unavailable` with the lock's reason is
+// asked for again, and the answer that follows is the call's.
+func TestAdapterCallAsksAgainWhenTheLockCouldNotBeHad(t *testing.T) {
+	t.Parallel()
+	asked := 0
+	got := adapterCall(t, "a call whose first answer is the lock's", func(context.Context) (string, error) {
+		if asked++; asked == 1 {
+			return "", &protocol.Error{Code: protocol.CodeUnavailable, Message: "timed out waiting for the file lock", Details: map[string]string{"reason": "lock_timeout"}}
+		}
+		return "answered", nil
+	})
+	if got != "answered" || asked != 2 {
+		t.Fatalf("got %q after %d calls, want the answer after 2", got, asked)
 	}
 }
 
