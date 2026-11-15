@@ -196,8 +196,14 @@ func (w *watcher) eventLoop(s *session, r *attemptResult) {
 	defer readyTimer.Stop()
 	liveTick := time.NewTicker(w.deps.PollInterval)
 	defer liveTick.Stop()
-	hbTick := time.NewTicker(w.heartbeatInterval(s))
+	// The interval is said as it is handed to the ticker: what a test of
+	// the cadence holds is this value, where the times of the heartbeats
+	// that follow are the child's answers' as much as the ticker's (work
+	// item 336).
+	every := w.heartbeatInterval(s)
+	hbTick := time.NewTicker(every)
 	defer hbTick.Stop()
+	w.log.Debug("heartbeat ticker set", slog.Duration("every", every))
 	var fatal <-chan time.Time
 	// healthy fires HealthyAfter after the ready event of a watcher on the
 	// slow schedule (card 34): the child has stayed up, and the watcher

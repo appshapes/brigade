@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -572,18 +573,26 @@ func TestInboundChangeIsHeartbeatedAtOnce(t *testing.T) {
 // clamp rule (card 53): the ticker runs at the session's interval, never
 // slower than a third of the lease asked for, whatever the configured
 // heartbeat. A heartbeat of an hour against a 3 s lease beats every
-// second: after the heartbeat at ready the watcher sends at least two
-// more, two of them less than two thirds of the lease apart, and the fs
-// store's last_seen_at moves on.
+// second.
 //
-// What is waited for is the watcher's own word, the `heartbeat` lines of
-// its log and their times, under the long hang catcher (work item 336).
-// The test gave the store's last_seen_at 5 s of real time to move twice,
-// and beside a second `make test` two heartbeats, each a store write synced
-// to disk, did not come in them (2026-11-15). A ticker left at the hour
-// sends nothing after ready, and one at the whole lease never sends two
-// that close: both fail here, saying how many came. The interval's value
-// is TestHeartbeatTimingFollowsTheLease's.
+// Two things are held, neither against the clock of the machine (work item
+// 336). The interval is held as a value: the watcher says what it handed
+// its ticker (`heartbeat ticker set`, attempt.go), and that is a third of
+// the lease, exactly. And the ticker is held to tick: after the heartbeat
+// at ready the watcher sends at least two more, by its own `heartbeat`
+// lines, under the long hang catcher, and the fs store's last_seen_at
+// moves on.
+//
+// The test first gave the store's last_seen_at 5 s of real time to move
+// twice, and beside a second `make test` two heartbeats, each a store write
+// synced to disk, did not come in them (2026-11-15). It then judged the
+// interval by the least time between two `heartbeat` lines, under two
+// thirds of the lease. A heartbeat is not sent while the one before it is
+// unanswered, so those times follow the child's answers: a ticker that was
+// right failed when the store answered slowly, and the bound was a guess a
+// wrong ticker could pass. A ticker left at the hour, and one at the whole
+// lease, both fail on the value. The arithmetic of the interval, for every
+// lease, is TestHeartbeatTimingFollowsTheLease's.
 func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
 	t.Parallel()
 	const lease = 3 * time.Second
@@ -599,32 +608,21 @@ func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
 		return s.LeaseUntil.Sub(s.LastSeenAt) == lease
 	}, nil)
 	base := fx.session().LastSeenAt
-	// sent is when the watcher said it sent each heartbeat, and closest the
-	// least time between two that follow each other.
-	sent := func() (at []time.Time, closest time.Duration) {
-		closest = -1
-		for _, l := range fx.logLines() {
-			text, _ := l["time"].(string)
-			when, err := time.Parse(time.RFC3339Nano, text)
-			if l["msg"] != "heartbeat" || err != nil {
-				continue
-			}
-			if n := len(at); n > 0 && (closest < 0 || when.Sub(at[n-1]) < closest) {
-				closest = when.Sub(at[n-1])
-			}
-			at = append(at, when)
+	// The ticker was made before the child said it was ready, so its line
+	// is there by now: one for the one attempt, with a third of the lease.
+	var set []time.Duration
+	for _, l := range fx.logLines() {
+		if l["msg"] == "heartbeat ticker set" {
+			set = append(set, time.Duration(fx.logInt(l, "every")))
 		}
-		return at, closest
 	}
-	testutil.Await(t, waitLong, pollEvery, "two heartbeats after the one at ready, two of them less than two thirds of the lease apart", func() bool {
-		at, closest := sent()
-		return len(at) >= 3 && closest < 2*lease/3
-	}, func() string {
-		at, closest := sent()
-		if len(at) < 2 {
-			return fmt.Sprintf("%d heartbeat(s) came, the one at ready among them", len(at))
-		}
-		return fmt.Sprintf("%d heartbeats came, the one at ready among them, the closest two %v apart", len(at), closest)
+	if !slices.Equal(set, []time.Duration{lease / 3}) {
+		t.Fatalf("the watcher set its heartbeat ticker to %v under a lease of %v and a heartbeat of %v; want once, to a third of the lease, %v",
+			set, lease, deps.HeartbeatInterval, lease/3)
+	}
+	sent := func() int { return fx.logCount("heartbeat", nil) }
+	testutil.Await(t, waitLong, pollEvery, "two heartbeats after the one at ready", func() bool { return sent() >= 3 }, func() string {
+		return fmt.Sprintf("%d heartbeat(s) came, the one at ready among them", sent())
 	})
 	testutil.Await(t, waitShort, pollEvery, "the store's last_seen_at to move past the heartbeat at ready", func() bool { return fx.session().LastSeenAt.After(base) }, nil)
 	if code := r.stopAndWait(); code != 0 {
