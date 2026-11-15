@@ -12,7 +12,8 @@
 Since ADR 0003 a member's session follows a team that moved, when it starts. A session that was already running
 stayed on the backend the team left until it ended, and was told once to start a new one. Work item 327 records
 what that cost in a real move on 2026-11-14: for hours the new server had no member session while mail and Slack
-already arrived there. The owner asked whether a running session can follow by itself.
+already arrived there. The owner asked whether "sessions already open ... can automatically reappear on the
+roster. This is just data, so technically it seems possible."
 
 Read from the code that day:
 
@@ -28,9 +29,10 @@ Read from the code that day:
 - Grok Build discards what a prompt hook prints. A Muse Code or Codex CLI hook finds its session through its
   parent process.
 
-An assessment of the same day recommended a follow in two steps at the session's next prompts. The design below
-was handed to the build as decided; the choices the build made inside it are the building session's, under the
-owner's standing rule that a session decides on its own recommendation.
+The design below is the recommendation that the session `89-server-7-roadmap-and-week-check` recorded on work
+item 327 on 2026-11-14, after an agent's assessment of the code read above: a follow in two steps at the
+session's next prompts. It stands under the owner's standing word that a session decides on its own
+recommendation, and so do the choices the build made inside it, which are the building session's.
 
 ## Decision
 
@@ -111,6 +113,18 @@ start follows on.
 - Each half-state has a test in `internal/harness/hook/move_prompt_test.go`: a child stopped before the pin, a
   session that ended between the steps, a registration made and not recorded, a new backend that cannot be
   reached.
+- The same day, a second session verified the work against backends that never answer
+  (`internal/harness/hook/move_budget_test.go`). With the old backend accepting the follow's question and
+  holding it, the prompt that started the child, the prompt after it and the registration retry of a session
+  attached to nothing each returned in a small part of the hook's budget, the child still waiting; so did both
+  steps with the follow's lock held by another process. With the new backend holding the registration, the
+  prompt ended with its budget, the map and the watcher as they were. Its other tests
+  (`move_races_test.go`) are of two sessions of one checkout, a session start beside a child that joined,
+  `/clear` between the two steps, and the stamp that holds the once-a-minute bound.
+- That verification made 62 one-line changes of its own to the same rules. Sixteen passed the tests as they
+  were, among them the bound made a second, a stamp from the future bounding for ever, a child started without
+  its stamp, and one held message not keeping a session. The tests it added catch fifteen; the one left is the
+  last line of a join made inside a Grok Build session.
 - The same day, 35 one-line changes to the rules above, in the hook, the follow and the join's last line, were
   each caught by a test. One of them, the map of another backend treated as a session that continues, was also
   run through the built binary: the test failed, and the hook's log showed the server answering `not_found` to
@@ -136,6 +150,9 @@ start follows on.
   sends to the id it had does not reach it.
 - A session with held messages stays behind until its member releases them, and a team may be on two backends
   for that long.
+- The prompt that registers a session on the new backend waits for that backend, as the registration retry of
+  a session attached to nothing always has: while it does not answer, one prompt a minute lasts the hook's
+  budget.
 - The hooks detach a second kind of child. `brigade hook follow` joins the watcher as a process a hook starts
   and does not wait for.
 - A session's start, a prompt and a member's join can each write the same pin. The follow's lock and its check

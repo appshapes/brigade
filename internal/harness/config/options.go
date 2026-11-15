@@ -151,8 +151,9 @@ func ParseSync(raw string) (bool, string) {
 // administrator, recorded on the backend the team left (work item 273, ADR
 // 0003): "" (unset — the default is on) or "on" → true; "off" → false;
 // anything else → false with WarnFollowTeamMoveInvalid. The grammar is
-// ParseSync's, and there is no BRIGADE_* fallback: only a session's start
-// follows, and a terminal's `team join` is the member's own word.
+// ParseSync's, and there is no BRIGADE_* fallback: only a session's hooks
+// follow (its start, and the child a prompt starts, work item 327, ADR
+// 0007), and a terminal's `team join` is the member's own word.
 func ParseFollowTeamMove(raw string) (bool, string) {
 	switch strings.TrimSpace(raw) {
 	case "", SyncOn:

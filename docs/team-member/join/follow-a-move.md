@@ -32,7 +32,8 @@ ends. Nothing is asked of you.
   does not move. The session says so once and stays until you release it (`brigade inbox`, then `brigade inbox
   release`, in your own terminal), and moves at its next prompt after that.
 - **If the server cannot be reached**, the session stays where it is, says so once, and tries again at a later
-  prompt.
+  prompt, a minute later at the earliest. A prompt that tries waits for the server, for no longer than the few
+  seconds a prompt may take.
 - **With no record behind the file**, the session stays where it is. The backend you joined is asked again at
   most once a minute while you prompt, and the address the file names is sent nothing.
 - **A Grok Build session** follows when it starts, not while it runs: Grok Build shows nothing a prompt hook
@@ -51,6 +52,9 @@ moves at its next prompt after your join.
 Then nothing vouched for the change: the administrator has not recorded a move, or recorded another server than
 the file names, or the move has ended. Ask your administrator before you join anything. A team file that changed
 with no record behind it is exactly what this check is for.
+
+A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
+you prompt it asks again, at most once a minute, and follows within a prompt or two of the record being there.
 
 ## To leave
 
