@@ -91,7 +91,7 @@ was already there.
 | the file holds the join secret of another team | Name the file `team create` wrote for this team. |
 | the server takes no team in by request | It is older than 0.7.0: [With an older server](#with-an-older-server). |
 | the server asks for a creation token, or refused the one you gave | Ask its operator for the token's file, and pass `--create-token-file <path>`. |
-| the team is held on the server and owned by someone else | Someone took the team in there before you. The server's operator names you its owner ([Name a team's owner](../../project-owner/server/name-the-owner.md)); then run the command again. |
+| the team is held on the server and owned by someone else | Someone took the team in there before you, or this machine did in a run whose answer was lost and has joined the team as a member since. The server's operator names you its owner ([Name a team's owner](../../project-owner/server/name-the-owner.md)); then run the command again. |
 | the server holds a team of this reference under another join secret | Tell the server's operator: this team cannot be taken in there. |
 | the server did not take the team in | It could not be reached, or its answer did not arrive. Run the same command again, on the same machine. |
 | `Run the same command again to finish the move` | It stopped after the server took the team in. Remove the cause and run it again. |

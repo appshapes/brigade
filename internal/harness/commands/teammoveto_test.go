@@ -950,7 +950,7 @@ func TestTeamMoveToStopsBeforeAnythingIsWritten(t *testing.T) {
 		{name: "a team that someone else owns on the server", confirm: true, args: plain, taken: true,
 			setup: func(r *moveToRig) { r.f.rec.on("team take-in", okAnswer(r.takenIn(false, false))) },
 			code:  protocol.CodeConflict, reason: reasonNotOwnerThere,
-			says: []string{"is held on ", "and owned by someone else", "the server's operator can name its owner", "brigade-server --set-owner " + setupTeamRef + " --principal p_new", "Nothing was recorded"}},
+			says: []string{"is held on ", "and owned by someone else", "the server's operator can name its owner", "This machine is a member of the team there", "brigade-server --set-owner " + setupTeamRef + " --principal p_new", "Nothing was recorded"}},
 		{name: "a server that answers another team", confirm: true, args: plain, taken: true,
 			setup: func(r *moveToRig) {
 				r.f.rec.on("team take-in", okAnswer(strings.Replace(r.takenIn(true, true), setupTeamRef, "t_8", 1)))

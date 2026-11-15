@@ -864,7 +864,7 @@ func (inv Invocation) takeIn(m *serverMove) (*protocol.TeamTakeInResult, error) 
 		return nil, &protocol.Error{
 			Code: protocol.CodeConflict,
 			Message: m.team() + " is held on " + m.toHost() + " and owned by someone else, so its move is not yours to open there: the server's operator can name its owner. " +
-				"This machine joined the team there as a member just now, and `brigade-server --set-owner " + sanitizeID(m.file.TeamRef) + " --principal " + sanitizeID(taken.PrincipalRef) +
+				"This machine is a member of the team there, and `brigade-server --set-owner " + sanitizeID(m.file.TeamRef) + " --principal " + sanitizeID(taken.PrincipalRef) +
 				"` names it the owner (docs/project-owner/server/name-the-owner.md in the Brigade repository); then run this again. Nothing was recorded, and " + teamfile.FileName + " is unchanged",
 			Details: map[string]string{"reason": reasonNotOwnerThere},
 		}
