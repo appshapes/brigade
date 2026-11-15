@@ -55,6 +55,22 @@ const lockTimeout = 10 * time.Second
 // lockName is the lock file's name under the config directory.
 const lockName = "team-move.lock"
 
+// Lock takes the follow's lock for a caller that joins this machine to a
+// team by another road: a member's own `brigade team join`. A follow reads
+// the machine's membership under this lock and joins only when it finds
+// none, so a join that is made outside it, in the moment a follow is between
+// that reading and its own join, leaves the backend two memberships of one
+// machine. The caller holds the lock from its own reading of the membership
+// to its pin, and never while it waits for a person. It waits as long as a
+// follow does, and the directory is made first: a machine's first join has
+// no store yet.
+func Lock(configDir string) (*adapterkit.FileLock, error) {
+	if err := adapterkit.MkdirPrivate(configDir); err != nil {
+		return nil, err
+	}
+	return adapterkit.LockFile(filepath.Join(configDir, lockName), lockTimeout)
+}
+
 // ticketPrefix names the file the old backend's adapter writes the ticket
 // to, in the config directory, for the moment between its answer and the
 // join.

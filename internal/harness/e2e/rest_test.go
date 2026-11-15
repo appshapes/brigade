@@ -8,11 +8,13 @@ import (
 	"crypto/x509"
 	"encoding/json/v2"
 	"encoding/pem"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -45,6 +47,35 @@ type restBackend struct {
 	url         string
 	certificate string
 	dir         string
+}
+
+// servers are the built servers startServerOn started, each process by the
+// directory it was started on: a test that stops its server before it ends
+// finds the process here (stopServer). It is kept apart from restBackend,
+// whose members the tests read paths from.
+var servers sync.Map
+
+// stopServer stops the built server that was started on backend's
+// directory, with the signal an operator would send, and returns once it
+// refuses connections. The cleanup that startServerOn registered still
+// waits for the process.
+func stopServer(t *testing.T, backend restBackend) {
+	t.Helper()
+	process, ok := servers.Load(backend.dir)
+	if !ok {
+		t.Fatalf("no built server was started on %s", backend.dir)
+	}
+	if err := process.(*os.Process).Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	address := strings.TrimPrefix(backend.url, "https://")
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(t.Context(), "tcp", address)
+		if err == nil {
+			_ = conn.Close()
+		}
+		return err != nil
+	})
 }
 
 // startRestBackend starts the backend the environment asks for and stops
@@ -152,6 +183,7 @@ func startServerOn(t *testing.T, bin, dir string) restBackend {
 	testutil.Eventually(t, waitLong, pollEvery, func() bool {
 		return strings.Contains(said(), "(certificate "+pin+")")
 	})
+	servers.Store(dir, cmd.Process)
 	return restBackend{url: url, certificate: pin, dir: dir}
 }
 

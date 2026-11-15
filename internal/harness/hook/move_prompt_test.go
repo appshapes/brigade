@@ -639,30 +639,48 @@ func TestClearAfterAMoveRegistersAnew(t *testing.T) {
 // to the new backend only from a map that is this process's beyond doubt.
 // A map with no live watcher that names another conversation may be one a
 // dead process left under the same pid, and a session that starts over it
-// starts without a request.
+// starts without a request. So may a map that names no conversation at all
+// under a start whose document names none: two documents with no id are
+// not one conversation.
 func TestAMapOfAnotherProcessGivesNoRequest(t *testing.T) {
 	t.Parallel()
-	f := newMemberFixture(t)
-	seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
-	stale := f.mustMap()
-	stale.SetInboundRequest(protocol.InboundHold)
-	if err := f.store().WriteByPID(stale); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(f.pidfilePath()); err != nil { // its watcher is gone
-		t.Fatal(err)
-	}
-	f.moveTeamFile("team-1")
-	f.nativeID = "8d1f0a52-6c3b-4f7e-9a41-2b5c7d9e0f13"
-	if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
-		t.Fatalf("exit %d: %s", exit, errOut)
-	}
-	regs := seam.callsFor("session register")
-	if reg := registration(t, regs[len(regs)-1]); reg.Inbound != protocol.InboundAccept || reg.Resume != nil {
-		t.Fatalf("the registration: inbound %q, resume %v", reg.Inbound, reg.Resume)
-	}
-	if m := f.mustMap(); m.BrigadeSessionID != "brigade-sess-2" || m.InboundRequest != "" || m.Inbound != protocol.InboundAccept {
-		t.Fatalf("the map: %+v", m)
+	for _, tc := range []struct {
+		name string
+		// left is the conversation the map names, and starts the one the
+		// start's document names.
+		left, starts string
+	}{
+		{"the map names another conversation", "", "8d1f0a52-6c3b-4f7e-9a41-2b5c7d9e0f13"},
+		{"neither the map nor the start names a conversation", "none", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+			stale := f.mustMap()
+			stale.SetInboundRequest(protocol.InboundHold)
+			if tc.left == "none" {
+				stale.ClaudeSessionID = ""
+			}
+			if err := f.store().WriteByPID(stale); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(f.pidfilePath()); err != nil { // its watcher is gone
+				t.Fatal(err)
+			}
+			f.moveTeamFile("team-1")
+			f.nativeID = tc.starts
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			regs := seam.callsFor("session register")
+			if reg := registration(t, regs[len(regs)-1]); reg.Inbound != protocol.InboundAccept || reg.Resume != nil {
+				t.Fatalf("the registration: inbound %q, resume %v", reg.Inbound, reg.Resume)
+			}
+			if m := f.mustMap(); m.BrigadeSessionID != "brigade-sess-2" || m.InboundRequest != "" || m.Inbound != protocol.InboundAccept {
+				t.Fatalf("the map: %+v", m)
+			}
+		})
 	}
 }
 
@@ -1013,6 +1031,37 @@ func TestASessionMovesWithItsMembersOwnJoin(t *testing.T) {
 	}
 	if m := f.mustMap(); m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" {
 		t.Fatalf("the map: %+v", m)
+	}
+}
+
+// TestTheFollowsLineIsOfAMoveFromTheBackendTheSessionIsOn: the line of a
+// follow says that the team's administrator recorded the move on "the
+// backend you joined it on". A session says it when its checkout's pin
+// moved from the backend the session is on. A pin that moved from another
+// one, which a checkout that followed twice has while a session stayed
+// behind, tells this session nothing of the kind: it says the line of a
+// checkout that is joined to the new backend, and names no backend the
+// session never was on.
+func TestTheFollowsLineIsOfAMoveFromTheBackendTheSessionIsOn(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	seam := attachedMember(t, f, nil, nil)
+	newKey := teamstore.Key("rest", movedURL, "team-1")
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	f.memberOf("team-1")
+	const between = "https://between.example.test"
+	pins := map[string]any{"version": 1, "projects": map[string]any{f.canon(): serverPin("team-1", between)}}
+	if err := adapterkit.WriteAtomic(teamstore.PinsPath(f.configDir), mustJSON(pins)); err != nil {
+		t.Fatal(err)
+	}
+	got := f.prompted()
+	want := []string{rejoinedLine(tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+	if !slices.Equal(got, want) || strings.Contains(strings.Join(got, "\n"), "between.example.test") {
+		t.Fatalf("lines = %q\nwant %q", got, want)
+	}
+	if m := f.mustMap(); m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" || len(seam.callsFor("team moved")) != 0 {
+		t.Fatalf("the map: %+v; %d questions to the old backend", m, len(seam.callsFor("team moved")))
 	}
 }
 

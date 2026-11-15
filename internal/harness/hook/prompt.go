@@ -48,6 +48,14 @@ func (r *run) prompt() int {
 	}
 	ctx, cancel := r.hookContext(r.deps.PromptBudget)
 	defer cancel()
+	// The notice of a move goes as this hook's last act, after everything
+	// it says is out (the deferred document of a rename included): a hook
+	// that is stopped before here leaves it for the next prompt (sayMoved).
+	defer func() {
+		if r.movedSaid {
+			r.dropMovedNotice(f)
+		}
+	}()
 
 	store := sessionmap.Store{StateDir: f.stateDir}
 	m, err := store.ReadByPID(f.pid)
@@ -99,6 +107,9 @@ func (r *run) prompt() int {
 			r.log.Warn("prompt: session map not updated", log.Err(werr))
 		}
 	}
+	// A move this session's hook made and was stopped before saying: this
+	// prompt says it.
+	r.sayMoved(f, m)
 	// The team's move (move.go, work item 327): a session whose team file
 	// names another backend for its team starts the follow, or, once the
 	// checkout followed, is registered anew where the team is. A session

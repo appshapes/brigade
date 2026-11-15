@@ -7,13 +7,19 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/inbound"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
+	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
 
 // A session moves with the checkout it registered in, and no other (work
@@ -70,9 +76,16 @@ func (f *fixture) addCheckout(name string, file, pin map[string]any) (dir, canon
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	if pin == nil {
-		return dir, canon
+	if pin != nil {
+		f.addCheckoutPin(canon, pin)
 	}
+	return dir, canon
+}
+
+// addCheckoutPin writes pin as the pin of the checkout canon names in the
+// member's store, beside the pins that are there.
+func (f *fixture) addCheckoutPin(canon string, pin map[string]any) {
+	f.t.Helper()
 	data, err := os.ReadFile(teamstore.PinsPath(f.configDir))
 	if err != nil {
 		f.t.Fatal(err)
@@ -88,7 +101,6 @@ func (f *fixture) addCheckout(name string, file, pin map[string]any) (dir, canon
 	if err := adapterkit.WriteAtomic(teamstore.PinsPath(f.configDir), mustJSON(&pins)); err != nil {
 		f.t.Fatal(err)
 	}
-	return dir, canon
 }
 
 // memberOf makes this machine a member of the team ref names on the server.
@@ -211,6 +223,124 @@ func TestASessionMovesWithTheCheckoutItRegisteredInAndNoOther(t *testing.T) {
 	if n := len(seam.callsFor("session register")); n != 2 {
 		t.Fatalf("the session was registered %d times, want twice: at its start and when its own checkout moved", n)
 	}
+}
+
+// TestASessionFollowsItsOwnCheckoutWhereverItsPromptsComeFrom: a session
+// that was started in a main checkout and works in a worktree, or in
+// another repository, sends every prompt from somewhere else, and its
+// checkout is still its own. Nothing about a move is read from the
+// directory a prompt names: the file and the pin are the map's checkout's.
+// So with its own checkout's file changed the session follows in its two
+// steps from wherever its prompts come: from a checkout of the team that is
+// still on the old backend, from one that is not joined, from one of
+// another team, from a directory that is no checkout at all. The child is
+// started for the session's own checkout, the registration is resolved from
+// it, and the map still names it. After that no prompt from any of those
+// directories moves the session again.
+func TestASessionFollowsItsOwnCheckoutWhereverItsPromptsComeFrom(t *testing.T) {
+	t.Parallel()
+	elsewhere := func(t *testing.T, f *fixture) map[string]string {
+		t.Helper()
+		oldPin := f.checkoutPin()
+		f.memberOf("team-2")
+		behind, _ := f.addCheckout("behind", fileOf(oldPin), pinDoc(oldPin))
+		unjoined, _ := f.addCheckout("unjoined", serverFile("team-1"), nil)
+		other, _ := f.addCheckout("other-team", serverFile("team-2"), serverPin("team-2", ""))
+		bare := filepath.Join(t.TempDir(), "no-checkout")
+		if err := os.MkdirAll(bare, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return map[string]string{
+			"a checkout still on the old backend": behind,
+			"a checkout that is not joined":       unjoined,
+			"a checkout of another team":          other,
+			"a directory that is no checkout":     bare,
+		}
+	}
+	// from sends one prompt of the session from dir.
+	from := func(f *fixture, dir string) []string {
+		home := f.cwd
+		f.cwd = dir
+		defer func() { f.cwd = home }()
+		return f.prompted()
+	}
+	for _, where := range []string{
+		"a checkout still on the old backend", "a checkout that is not joined", "a checkout of another team", "a directory that is no checkout",
+	} {
+		t.Run(where, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+			seam := registerSeam(t, f)
+			startMember(t, f)
+			own, oldPin, newKey := f.canon(), f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
+			dirs := elsewhere(t, f)
+			dir := dirs[where]
+			// The session's own checkout gets the changed file; the session is
+			// working elsewhere.
+			f.moveTeamFile("team-1")
+			tf := f.movedFile()
+			if got := from(f, dir); !slices.Equal(got, []string{movedLine}) {
+				t.Fatalf("the first prompt from %s: %q", where, got)
+			}
+			follows := f.spawner.followed()
+			if len(follows) != 1 || !slices.Contains(follows[0].Args, own) {
+				t.Fatalf("the follow that was started: %d of them, %v: want one, for the session's own checkout", len(follows), follows)
+			}
+			if pin := f.checkoutPin(); !pin.Matches(tf) {
+				t.Fatalf("the session's own checkout did not follow: %+v", pin)
+			}
+			got := from(f, dir)
+			want := []string{followedLine(tf, &oldPin, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+			if !slices.Equal(got, want) {
+				t.Fatalf("the second prompt from %s:\n%q\nwant\n%q", where, got, want)
+			}
+			m := f.mustMap()
+			if m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" || m.Checkout != own {
+				t.Fatalf("the map after the move: key %q, session %q, checkout %q", m.TeamKey, m.BrigadeSessionID, m.Checkout)
+			}
+			// The registration was resolved from the session's own checkout, not
+			// from the directory the prompt named.
+			regs := seam.callsFor("session register")
+			if reg := registration(t, regs[len(regs)-1]); reg.WorkspaceLabel == nil || *reg.WorkspaceLabel != filepath.Base(own) {
+				t.Fatalf("the move's registration carries the workspace label %v, want the session's own checkout's, %q", reg.WorkspaceLabel, filepath.Base(own))
+			}
+			// It does not move again, wherever its prompts come from.
+			for name, d := range dirs {
+				f.untouched(seam, d, "a prompt from "+name+" after the move")
+			}
+			f.untouched(seam, f.cwd, "a prompt from its own checkout after the move")
+			if n := len(seam.callsFor("session register")); n != 2 {
+				t.Fatalf("the session was registered %d times, want twice", n)
+			}
+		})
+	}
+
+	// The same for a member who joined the new backend in the session's
+	// checkout with a command of their own: the pin is their consent, and the
+	// session moves at its next prompt, sent from another checkout.
+	t.Run("the member's own join, and a prompt from another checkout", func(t *testing.T) {
+		t.Parallel()
+		f := newMemberFixture(t)
+		seam := registerSeam(t, f)
+		startMember(t, f)
+		own, newKey := f.canon(), teamstore.Key("rest", movedURL, "team-1")
+		dirs := elsewhere(t, f)
+		f.moveTeamFile("team-1")
+		tf := f.movedFile()
+		f.memberOf("team-1")
+		// The pins file as it is, with the session's own checkout joined to
+		// the server by a pin that moved from nowhere.
+		f.addCheckoutPin(own, serverPin("team-1", ""))
+		got := from(f, dirs["a checkout still on the old backend"])
+		want := []string{rejoinedLine(tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+		if !slices.Equal(got, want) || len(f.spawner.followed()) != 0 {
+			t.Fatalf("the prompt after the member's own join:\n%q\nwant\n%q; %d follows", got, want, len(f.spawner.followed()))
+		}
+		if m := f.mustMap(); m.TeamKey != newKey || m.Checkout != own || len(seam.callsFor("session register")) != 2 {
+			t.Fatalf("the map after the move: key %q, checkout %q, %d registrations", m.TeamKey, m.Checkout, len(seam.callsFor("session register")))
+		}
+	})
 }
 
 // TestAMapWithNoCheckoutIsGivenTheFirstOneOfItsTeam: a session that was
@@ -440,11 +570,165 @@ func TestAStartFromAnotherCheckoutMovesNobody(t *testing.T) {
 	is("after a /clear from its own checkout", newKey, "brigade-sess-2", 2)
 }
 
-// TestASessionRegisteredAgainKeepsItsCheckout: a running session whose
-// watcher died is registered again by its next start, on the backend it is
-// on. That is the same session of the same process, so it is still the
-// checkout's it registered in, though this start's directory is in another
-// checkout of the team. A map that names no checkout takes the start's.
+// TestAStartGivesAMapWithNoCheckoutTheOneItComesFrom: a session that was
+// running when its plugin was updated has a map that names no checkout, and
+// a `/clear` reaches it before any prompt does. The start gives it the
+// checkout it comes from, as a prompt would: on the backend the session is
+// on it continues there and is that checkout's; from a checkout that is on
+// the server it moves there, once, and is that checkout's from then on.
+// Such a start is never taken for one from another checkout, which would
+// keep the session where it is for as long as its map named none.
+func TestAStartGivesAMapWithNoCheckoutTheOneItComesFrom(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a checkout on the backend the session is on", func(t *testing.T) {
+		t.Parallel()
+		f := newMemberFixture(t)
+		seam := registerSeam(t, f)
+		startMember(t, f)
+		behind, behindCanon := f.addCheckout("behind", fileOf(f.checkoutPin()), pinDoc(f.checkoutPin()))
+		f.withoutCheckout()
+		f.nativeID, f.cwd = otherConversation, behind
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+		if exit != 0 || !slices.Equal(lines(out), []string{startLine("payments-api", "brigade-sess-1", teamName, "accept")}) {
+			t.Fatalf("exit %d, lines %q: %s", exit, lines(out), errOut)
+		}
+		if m := f.mustMap(); m.Checkout != behindCanon || m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || len(seam.callsFor("session register")) != 1 {
+			t.Fatalf("the map after the start: checkout %q, want %q; key %q, session %q, %d registrations", m.Checkout, behindCanon, m.TeamKey, m.BrigadeSessionID, len(seam.callsFor("session register")))
+		}
+	})
+
+	t.Run("a checkout that is on the server", func(t *testing.T) {
+		t.Parallel()
+		f := newMemberFixture(t)
+		f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+		seam := registerSeam(t, f)
+		startMember(t, f)
+		home, oldPin, newKey := f.cwd, f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
+		f.memberOf("team-1")
+		followed, followedCanon := f.addCheckout("followed", serverFile("team-1"), serverPin("team-1", oldPin.URL))
+		f.withoutCheckout()
+		f.nativeID, f.cwd = otherConversation, followed
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+		f.cwd = home
+		if exit != 0 || !slices.Equal(lines(out), []string{startLine("payments-api", "brigade-sess-2", teamName, "accept")}) {
+			t.Fatalf("exit %d, lines %q: %s", exit, lines(out), errOut)
+		}
+		if m := f.mustMap(); m.Checkout != followedCanon || m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" {
+			t.Fatalf("the map after the start: checkout %q, want %q; key %q, session %q", m.Checkout, followedCanon, m.TeamKey, m.BrigadeSessionID)
+		}
+		// It is that checkout's now: the one it started in, still on the old
+		// backend, does not take it back.
+		for _, dir := range []string{home, followed, home} {
+			f.untouched(seam, dir, "a prompt from "+filepath.Base(dir)+" after the one move")
+		}
+		if n := len(seam.callsFor("session register")); n != 2 {
+			t.Fatalf("the session was registered %d times, want twice", n)
+		}
+	})
+}
+
+// TestAStartOverAMapOfAnotherProcessIsOfItsOwnCheckout: the map under this
+// pid may be one a dead process left: its watcher is gone and it names
+// another conversation. It names a checkout too, and that one is the dead
+// session's. A start from another checkout is then no start "from another
+// checkout than the session's own": there is no running session to keep,
+// so it registers where its own checkout is, and its map names its own
+// checkout and not the one it found.
+func TestAStartOverAMapOfAnotherProcessIsOfItsOwnCheckout(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		server bool
+	}{
+		{"its checkout is on the backend the map names", false},
+		{"its checkout is on the server", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			seam := registerSeam(t, f)
+			startMember(t, f)
+			left, oldPin := f.canon(), f.checkoutPin()
+			other, otherCanon := f.addCheckout("other", fileOf(oldPin), pinDoc(oldPin))
+			wantKey := f.teamKey
+			if tc.server {
+				f.memberOf("team-1")
+				other, otherCanon = f.addCheckout("on-the-server", serverFile("team-1"), serverPin("team-1", oldPin.URL))
+				wantKey = teamstore.Key("rest", movedURL, "team-1")
+			}
+			if m := f.mustMap(); m.Checkout != left {
+				t.Fatalf("the map that was left names the checkout %q", m.Checkout)
+			}
+			if err := os.Remove(f.pidfilePath()); err != nil { // its watcher is gone
+				t.Fatal(err)
+			}
+			f.nativeID, f.cwd = otherConversation, other
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+			if exit != 0 || strings.Contains(out, "(brigade-sess-1)") {
+				t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+			}
+			if m := f.mustMap(); m.Checkout != otherCanon || m.TeamKey != wantKey || len(seam.callsFor("session register")) != 2 {
+				t.Fatalf("the map after the start: checkout %q, want %q; key %q, want %q; %d registrations, want 2", m.Checkout, otherCanon, m.TeamKey, wantKey, len(seam.callsFor("session register")))
+			}
+		})
+	}
+}
+
+// TestTheHooksThatRewriteAMapKeepItsCheckout: the map is rewritten by more
+// than a session's start: a `/compact`, a prompt that brings a new
+// permission mode or a new name, a prompt that decides the inbound policy
+// again. Each of them reads the map and writes it back, from wherever the
+// model is, and the checkout the map names is the session's for as long as
+// it is registered: a writer that dropped it would turn the session into
+// one that takes the next checkout a prompt comes from.
+func TestTheHooksThatRewriteAMapKeepItsCheckout(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	registerSeam(t, f)
+	startMember(t, f)
+	own, oldPin := f.canon(), f.checkoutPin()
+	// Every hook below comes from another checkout of the team.
+	other, _ := f.addCheckout("behind", fileOf(oldPin), pinDoc(oldPin))
+	f.cwd = other
+	kept := func(when string, rewritten func(before, after *sessionmap.ByPID) bool) {
+		t.Helper()
+		before := *f.mustMap()
+		f.now = f.now.Add(time.Second)
+		switch when {
+		case "a /compact":
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("compact")); exit != 0 {
+				t.Fatalf("%s: exit %d: %s", when, exit, errOut)
+			}
+		default:
+			if exit, _, errOut := f.run(SubPrompt, f.promptDoc("plan")); exit != 0 {
+				t.Fatalf("%s: exit %d: %s", when, exit, errOut)
+			}
+		}
+		after := f.mustMap()
+		if !rewritten(&before, after) {
+			t.Fatalf("%s did not rewrite the map: the test holds nothing", when)
+		}
+		if after.Checkout != own || after.BrigadeSessionID != before.BrigadeSessionID || after.TeamKey != before.TeamKey {
+			t.Fatalf("%s left a map that names the checkout %q, the session %q and the key %q", when, after.Checkout, after.BrigadeSessionID, after.TeamKey)
+		}
+	}
+	kept("a /compact", func(before, after *sessionmap.ByPID) bool { return after.UpdatedAt.After(before.UpdatedAt) })
+	kept("a prompt in another permission mode", func(before, after *sessionmap.ByPID) bool {
+		return after.PermissionMode == "plan" && before.PermissionMode != "plan"
+	})
+	f.deps.Registry = fakeregistry.New(t, map[int]string{f.pid: fakeregistry.Observed(f.pid, "renamed", "busy", f.socket)})
+	kept("a prompt after a rename", func(before, after *sessionmap.ByPID) bool {
+		return after.SessionName == "renamed" && before.SessionName != "renamed"
+	})
+}
+
+// TestASessionRegisteredAgainKeepsItsCheckout: a running session, its
+// watcher alive, whose backend no longer has it is registered again by its
+// next start, on the backend it is on. That is the same session of the same
+// process, so it is still the checkout's it registered in, though this
+// start's directory is in another checkout of the team. A map that names no
+// checkout takes the start's.
 func TestASessionRegisteredAgainKeepsItsCheckout(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -457,19 +741,20 @@ func TestASessionRegisteredAgainKeepsItsCheckout(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newMemberFixture(t)
-			seam := registerSeam(t, f)
+			// The backend answers the start's heartbeat that it has no such
+			// session.
+			seam := memberSeam(t, f, movedDoc(movedURL, movedPin), map[string][]fakeadapter.Response{
+				"session heartbeat": {errResp(protocol.CodeNotFound, "session_not_found")},
+			})
 			startMember(t, f)
 			own, oldPin := f.canon(), f.checkoutPin()
 			behind, behindCanon := f.addCheckout("behind", fileOf(oldPin), pinDoc(oldPin))
 			if tc.old {
 				f.withoutCheckout()
 			}
-			if err := os.Remove(f.pidfilePath()); err != nil { // its watcher is gone
-				t.Fatal(err)
-			}
-			// The same conversation, from the other checkout.
-			f.cwd = behind
-			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("resume")); exit != 0 {
+			// Another conversation, from the other checkout.
+			f.nativeID, f.cwd = otherConversation, behind
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("clear")); exit != 0 {
 				t.Fatalf("exit %d: %s", exit, errOut)
 			}
 			want := own
@@ -480,5 +765,75 @@ func TestASessionRegisteredAgainKeepsItsCheckout(t *testing.T) {
 				t.Fatalf("the map after the session was registered again: checkout %q, want %q; key %q; %d registrations", m.Checkout, want, m.TeamKey, len(seam.callsFor("session register")))
 			}
 		})
+	}
+}
+
+// TestAStartInAnotherCheckoutWithNoWatcherAliveRegistersThere: a start is
+// from another checkout than a running session's own only when a session
+// is running, which its live watcher shows. With no watcher alive the map
+// can still name the conversation the start names, and on Codex CLI that
+// shows nothing: a thread is keyed by its id, its map outlives its process,
+// and a thread that is resumed, in a new process, from another checkout
+// finds the map of the process before. Such a start registers where it is,
+// as it did before a map named a checkout, and its map names the checkout
+// it starts in: on the server when that checkout is there, with no resume
+// hint for an id the server never issued, and on the backend the map named
+// when the checkout is still on it. Messages that waited for the session of
+// the process before keep nobody back. A watcher is started in each case.
+func TestAStartInAnotherCheckoutWithNoWatcherAliveRegistersThere(t *testing.T) {
+	t.Parallel()
+	for _, host := range []config.Host{config.HostCodex, config.HostClaude} {
+		for _, tc := range []struct {
+			name   string
+			server bool
+			held   bool
+		}{
+			{"the checkout is on the server", true, false},
+			{"the checkout is on the server, and messages waited", true, true},
+			{"the checkout is on the backend the map names", false, false},
+		} {
+			t.Run(string(host)+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+				f := movingFixture(t, host)
+				f.noAdapterOption = true
+				seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+				oldPin := f.checkoutPin()
+				other, otherCanon := f.addCheckout("behind", fileOf(oldPin), pinDoc(oldPin))
+				wantKey := f.teamKey
+				if tc.server {
+					f.memberOf("team-1")
+					other, otherCanon = f.addCheckout("on-the-server", serverFile("team-1"), serverPin("team-1", oldPin.URL))
+					wantKey = teamstore.Key("rest", movedURL, "team-1")
+				}
+				if tc.held {
+					if err := pendingStoreOf(f).Save(inbound.PendingFile{Entries: heldEntries(1, "payments-api"), UpdatedAt: fixedTime}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				// The process ends: its watcher goes, and the map stays.
+				if err := os.Remove(f.pidfilePath()); err != nil {
+					t.Fatal(err)
+				}
+				spawns := f.spawner.count()
+				// The same conversation, started again from the other checkout.
+				f.cwd = other
+				exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("resume"))
+				if exit != 0 || strings.Contains(out, "not connected") || strings.Contains(out, "(brigade-sess-1)") {
+					t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+				}
+				m := f.mustMap()
+				if m.Checkout != otherCanon || m.TeamKey != wantKey || m.BrigadeSessionID != "brigade-sess-2" {
+					t.Fatalf("the map after the start: checkout %q, want %q; key %q, want %q; session %q", m.Checkout, otherCanon, m.TeamKey, wantKey, m.BrigadeSessionID)
+				}
+				regs := seam.callsFor("session register")
+				if len(regs) != 2 || f.spawner.count() != spawns+1 {
+					t.Fatalf("%d registrations and %d watchers started, want one of each", len(regs)-1, f.spawner.count()-spawns)
+				}
+				// An id is a hint only to the backend that issued it.
+				if reg := registration(t, regs[1]); (reg.Resume != nil) == tc.server {
+					t.Fatalf("the registration's resume hint: %v; the checkout is on the server: %v", reg.Resume, tc.server)
+				}
+			})
+		}
 	}
 }

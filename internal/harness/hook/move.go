@@ -83,6 +83,8 @@ const (
 	moveRegisterSlack = time.Second
 	// followedMarkVersion is the version of the mark a follow leaves.
 	followedMarkVersion = 1
+	// movedNoticeVersion is the version of the notice a move leaves.
+	movedNoticeVersion = 1
 )
 
 // The lines a running session hears about its team's move, each once in a
@@ -91,14 +93,14 @@ const (
 const (
 	// movedLine is said when the file comes to name another backend for the
 	// session's team and a follow was started.
-	movedLine = "Brigade: this project's .brigade.json now names another backend for this session's team. Brigade is asking the backend this session is on whether the team's administrator recorded that move there: if so, this session follows at one of its next prompts and says so; if not, it stays where it is, and `brigade team join` reviews the change."
+	movedLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. Brigade is asking the backend this session is on whether the team's administrator recorded that move there: if so, this session follows at one of its next prompts and says so; if not, it stays where it is, and `brigade team join` reviews the change."
 	// movedRetryLine is movedLine for a session that is attached to nothing:
 	// its registration retry started the follow (followMove), which may join
 	// the new backend before the session's next prompt.
 	movedRetryLine = "Brigade: this project's .brigade.json names another backend for the team you joined here. Brigade is asking the backend you joined it on whether the team's administrator recorded that move there: if so, this session connects there at one of its next prompts and says so; if not, it stays unconnected, and `brigade team join` reviews the change."
 	// movedStaysLine is said instead when the member's options keep a
 	// session from following.
-	movedStaysLine = "Brigade: this project's .brigade.json now names another backend for this session's team. This session does not follow a move by itself (the option follow_team_move is off, or the session names its adapter itself): it stays where it is until you join the team there with `brigade team join`, and moves at its next prompt after that."
+	movedStaysLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. This session does not follow a move by itself (the option follow_team_move is off, or the session names its adapter itself): it stays where it is until you join the team there with `brigade team join`, and moves at its next prompt after that."
 	// moveUnreachedLine is said when the checkout is joined to the backend
 	// the team went to and the session could not be registered there.
 	moveUnreachedLine = "Brigade: this session could not be registered on the backend its team moved to. It stays where it is and tries again at a later prompt."
@@ -274,10 +276,12 @@ func moveLogPath(stateDir string) string {
 // checkout now or within followInterval. The attempt's stamp is written
 // BEFORE the child is started, and no child is started without it: the
 // bound on how often the old backend is asked must hold even for a hook
-// that is stopped a moment later. The child gets an environment built from
-// scratch — the adapter children's allow-list, so neither the inbox socket
-// nor the messaging token nor any variable that names a session — and its
-// arguments, none of them a secret.
+// that is stopped a moment later. A child that could not be started asked
+// nobody, so its stamp is taken away again: the next prompt tries, and no
+// prompt in between says that a follow is under way. The child gets an
+// environment built from scratch — the adapter children's allow-list, so
+// neither the inbox socket nor the messaging token nor any variable that
+// names a session — and its arguments, none of them a secret.
 func (r *run) startFollow(ctx context.Context, f facts, opts config.Options, canon string) bool {
 	stamp := config.MoveAttemptStamp(f.stateDir, opts.ConfigDir, canon)
 	now := r.deps.Now()
@@ -315,6 +319,12 @@ func (r *run) startFollow(ctx context.Context, f facts, opts config.Options, can
 		LogPath: logPath,
 	})
 	if err != nil {
+		// No child runs, so nobody was asked and there is nothing to bound:
+		// the stamp goes, or the prompts of the next minute would each find
+		// it and say that the old backend is being asked.
+		if rerr := os.Remove(stamp); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+			r.log.Debug("the follow's attempt stamp was not removed", log.Err(rerr))
+		}
 		r.log.Warn("the follow of the team's move was not started", log.Err(err))
 		return false
 	}
@@ -421,15 +431,20 @@ func (r *run) leaveFollowedMark(a hookArgs, canon, teamKey string, joined bool) 
 // file, from three directories down), which is why nothing is kept to avoid
 // it.
 //
-// The checkout is the session's own, never the one a prompt happens to come
-// from. A prompt's directory follows the model (a `cd`, a worktree), and a
-// member can have two checkouts of one team on two backends while a move is
-// under way: one that has the changed file and one that has not. A session
-// that moved on whichever of them its last prompt came from would go back
-// and forth between the backends, a new session each time. So the map
-// names the checkout the session registered in (sessionmap.ByPID.Checkout),
-// and a prompt from any other changes nothing, starts no follow and says no
-// line. A map written before the member existed is given one: see ownCheckout.
+// The checkout is the session's own: the one its map names
+// (sessionmap.ByPID.Checkout), whose team file and pin its registration
+// was resolved from. Nothing about a move is read from the directory a
+// prompt names. That directory follows the model (a `cd`, a worktree,
+// another repository), and both ways of reading it were wrong. A session
+// that moved on whichever checkout its last prompt came from went back and
+// forth between two checkouts of one team on two backends, a new session
+// each time. And a session that looked at its own checkout only when a
+// prompt came from there never followed while it worked anywhere else,
+// which is where a session started in a main checkout and working in a
+// worktree spends its life. So the file and the pin that are read are the
+// map's checkout's at every prompt, wherever the prompt comes from, and
+// the registration of a move is resolved from that checkout too (reattach).
+// A map written before the member existed names none: see adoptCheckout.
 //
 // Grok Build discards what a prompt hook prints, so a session there could
 // be told neither that it followed nor the id it has afterwards: it stays
@@ -438,11 +453,22 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 	if f.host == config.HostGrok || m.TeamRef == "" || m.TeamKey == "" || m.BrigadeSessionID == "" {
 		return nil
 	}
-	path, found := teamfile.Discover(in.Cwd)
-	if !found {
-		return nil
+	checkout := m.Checkout
+	if checkout == "" {
+		// A map from before it named a checkout: the one this prompt comes
+		// from is looked at, and taken below when it is joined to the
+		// session's team.
+		path, found := teamfile.Discover(in.Cwd)
+		if !found {
+			return nil
+		}
+		canon, err := teamfile.Canonicalize(filepath.Dir(path))
+		if err != nil {
+			return nil
+		}
+		checkout = canon
 	}
-	tf, err := teamfile.Parse(path)
+	tf, err := teamfile.Parse(filepath.Join(checkout, teamfile.FileName))
 	if err != nil || tf.TeamRef != m.TeamRef {
 		return nil
 	}
@@ -456,19 +482,18 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		r.log.Warn("prompt: options unreadable; the team's move is left alone", log.Err(err))
 		return nil
 	}
-	canon, err := teamfile.Canonicalize(filepath.Dir(path))
-	if err != nil {
-		return nil
-	}
-	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, canon)
+	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, checkout)
 	if err != nil || !pinned {
 		return nil
 	}
-	if !r.ownCheckout(f, m, canon, pin) || here {
+	if m.Checkout == "" && !r.adoptCheckout(f, m, checkout, pin) {
+		return nil
+	}
+	if here {
 		return nil
 	}
 	if pin.Matches(tf) {
-		return r.reattach(ctx, f, in, m, opts, tf, canon, pin)
+		return r.reattach(ctx, f, in, m, opts, tf, checkout, pin)
 	}
 	if !teammove.Candidate(pin, tf) {
 		return nil
@@ -480,25 +505,22 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		r.tell(f, in, toldStays, movedStaysLine)
 		return nil
 	}
-	if r.startFollow(ctx, f, opts, canon) {
+	if r.startFollow(ctx, f, opts, checkout) {
 		r.tell(f, in, toldAsked, movedLine)
 	}
 	return nil
 }
 
-// ownCheckout reports whether canon, the checkout this prompt comes from,
-// is the one the session registered in. For a map that names its checkout
-// it is a comparison. A map written before the member existed (a session
-// that was running when its plugin was updated) names none: the first
-// prompt that comes from a checkout joined on this machine to the session's
-// team gives it that one, written to the map before anything is done on its
-// strength, and from then on the comparison holds. A map that cannot be
-// written moves nobody: a session whose checkout is not on record could be
-// moved again by its next prompt from another one.
-func (r *run) ownCheckout(f facts, m *sessionmap.ByPID, canon string, pin *teamstore.Pin) bool {
-	if m.Checkout != "" {
-		return m.Checkout == canon
-	}
+// adoptCheckout gives a map that names no checkout the one this prompt
+// comes from. Such a map was written before the member existed (a session
+// that was running when its plugin was updated). The first prompt that
+// comes from a checkout joined on this machine to the session's team gives
+// it that one, written to the map before anything is done on its strength,
+// and from then on the session is that checkout's wherever its prompts come
+// from. A map that cannot be written moves nobody: a session whose checkout
+// is not on record could be moved again by its next prompt from another
+// one.
+func (r *run) adoptCheckout(f facts, m *sessionmap.ByPID, canon string, pin *teamstore.Pin) bool {
 	if pin.TeamRef != m.TeamRef {
 		return false
 	}
@@ -518,12 +540,145 @@ func (r *run) ownCheckout(f facts, m *sessionmap.ByPID, canon string, pin *teams
 // is on, with how the machine joined when a follow left word of it, and the
 // line of the member's own join otherwise.
 func (r *run) arrivalLine(f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin, m *sessionmap.ByPID) string {
-	old, err := teamstore.LoadBinding(opts.ConfigDir, m.TeamKey)
+	return arrivalLineFrom(opts.ConfigDir, tf, pin, m.TeamKey, r.joinedByFollow(f, opts, tf, canon), r.commandName(f))
+}
+
+// joinedByFollow reports whether a follow left word, for the checkout, that
+// this machine joined the backend the team file names with the move's
+// ticket.
+func (r *run) joinedByFollow(f facts, opts config.Options, tf *teamfile.File, canon string) bool {
+	mark, marked := readFollowedMark(config.MoveFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
+	return marked && mark.Joined
+}
+
+// arrivalLineFrom is arrivalLine for a session that was on the backend the
+// team key from names: the follow's line when the pin moved from that
+// backend, the line of the member's own join otherwise.
+func arrivalLineFrom(configDir string, tf *teamfile.File, pin *teamstore.Pin, from string, joined bool, command string) string {
+	old, err := teamstore.LoadBinding(configDir, from)
 	if err != nil || pin.MovedFrom == "" || pin.MovedFrom != old.URL {
 		return rejoinedLine(tf)
 	}
-	mark, marked := readFollowedMark(config.MoveFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
-	return followedLine(tf, &teamstore.Pin{URL: pin.MovedFrom}, marked && mark.Joined, r.commandName(f))
+	return followedLine(tf, &teamstore.Pin{URL: pin.MovedFrom}, joined, command)
+}
+
+// A movedNotice is what the prompt that moves a session leaves before it
+// registers it (config.MovedNotice): the session and the backend the move
+// is from, and what this conversation is still owed of how the checkout
+// arrived. It holds no line and nothing of the new backend: a prompt that
+// finds it says the lines from the map and the store as they then are.
+type movedNotice struct {
+	Version int `json:"version"`
+	// Was is the id of the session that moves, and From the team key of the
+	// backend it is on: a map that still names either was not moved.
+	Was  string `json:"was"`
+	From string `json:"from"`
+	// Arrival is true when the conversation has not heard how the checkout
+	// came to be on the new backend; Joined is the follow's word, at the
+	// time, that this machine joined there with the move's ticket.
+	Arrival bool `json:"arrival,omitzero"`
+	Joined  bool `json:"joined,omitzero"`
+}
+
+// leaveMovedNotice writes the notice of a move that is about to be made,
+// and reports whether it is down. A move whose notice cannot be written is
+// not made: were its hook stopped, nothing would tell the session.
+func (r *run) leaveMovedNotice(f facts, n movedNotice) bool {
+	path := config.MovedNotice(f.stateDir, f.pid)
+	data, err := json.Marshal(n)
+	if err == nil {
+		if err = adapterkit.MkdirPrivate(filepath.Dir(path)); err == nil {
+			err = adapterkit.WriteAtomic(path, append(data, '\n'))
+		}
+	}
+	if err != nil {
+		r.log.Warn("prompt: the notice of this session's move was not written; the session is not moved", log.Err(err))
+		return false
+	}
+	return true
+}
+
+// dropMovedNotice removes the notice of a move: its lines were said and
+// the hook is ending, or the move was not made.
+func (r *run) dropMovedNotice(f facts) {
+	if err := os.Remove(config.MovedNotice(f.stateDir, f.pid)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.log.Debug("the notice of a move was not removed", log.Err(err))
+	}
+}
+
+// sayMoved says the lines of a move whose hook did not: a notice is there
+// that a prompt hook left before it registered the session, and the map
+// names another session on another backend than the notice does, so the
+// move was made and the hook was stopped before it ended. Claude Code
+// discards what a hook printed when it stops it, so nothing was said: this
+// prompt says how the checkout arrived, when the conversation was owed
+// that, and the context line of the session as it is now, with the host's
+// own line after it. A notice over a map that still names the session it
+// was left for is of a registration that was not recorded: the session is
+// where it was, and the notice goes. A notice that cannot be read goes too.
+func (r *run) sayMoved(f facts, m *sessionmap.ByPID) {
+	path := config.MovedNotice(f.stateDir, f.pid)
+	data, err := adapterkit.ReadStrict(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	var n movedNotice
+	if err != nil || json.Unmarshal(data, &n) != nil || n.Version != movedNoticeVersion || n.Was == "" || adapterkit.CheckProfileName(n.From) != nil {
+		r.log.Warn("prompt: the notice of a move is not usable; removed")
+		r.dropMovedNotice(f)
+		return
+	}
+	if n.Was == m.BrigadeSessionID || n.From == m.TeamKey {
+		r.log.Info("prompt: a move of this session was begun and not made; the session is where it was")
+		r.dropMovedNotice(f)
+		return
+	}
+	r.log.Info("prompt: the hook that moved this session was stopped before it said so; saying it now")
+	// The notice stays until this hook ends, as the one that left it meant
+	// it to: were this hook stopped too, the next would say the lines.
+	r.movedSaid = true
+	if n.Arrival {
+		if line, canon, opts, ok := r.arrivalAfter(f, m, n); ok && r.fits(line) {
+			r.say(line)
+			r.dropFollowedMark(f, opts, canon)
+		}
+	}
+	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
+	switch {
+	case f.muse():
+		r.say(armLine(r.commandName(f)))
+	case f.codex():
+		r.say(codexLine(r.commandName(f)))
+	}
+	// What the hook that moved the session left undone when it was stopped:
+	// what the conversation was told of the move is over, no retry is owed,
+	// and the doing line is asked for again, the new registration having
+	// none (leftBehind).
+	r.forgetTold(f)
+	_ = os.Remove(retryStampPath(f.stateDir, f.pid))
+	_ = os.Remove(doingStampPath(f.stateDir, f.pid))
+}
+
+// arrivalAfter is the arrival line of a move that was made, for sayMoved:
+// read again from the team file and the pin of the session's checkout,
+// with the backend and the follow's word the notice kept.
+func (r *run) arrivalAfter(f facts, m *sessionmap.ByPID, n movedNotice) (line, canon string, opts config.Options, ok bool) {
+	if m.Checkout == "" {
+		return "", "", opts, false
+	}
+	opts, err := r.options()
+	if err != nil {
+		return "", "", opts, false
+	}
+	tf, err := teamfile.Parse(filepath.Join(m.Checkout, teamfile.FileName))
+	if err != nil {
+		return "", "", opts, false
+	}
+	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, m.Checkout)
+	if err != nil || !pinned || !pin.Matches(tf) {
+		return "", "", opts, false
+	}
+	return arrivalLineFrom(opts.ConfigDir, tf, pin, n.From, n.Joined, r.commandName(f)), m.Checkout, opts, true
 }
 
 // sayArrival says line, the arrival line, once in a conversation, and
@@ -590,10 +745,27 @@ func (r *run) reattach(ctx context.Context, f facts, in input, m *sessionmap.ByP
 		}
 	}
 	r.log.Info("prompt: the team moved; registering this session on the backend it is on now")
+	// The notice is down before the session is registered: a hook that is
+	// stopped once the map names the new session has said nothing, and the
+	// next prompt says it from the notice (sayMoved).
+	if !r.leaveMovedNotice(f, movedNotice{
+		Version: movedNoticeVersion, Was: m.BrigadeSessionID, From: m.TeamKey,
+		Arrival: !slices.Contains(r.told(f, in), toldFollowed), Joined: r.joinedByFollow(f, opts, tf, canon),
+	}) {
+		return nil
+	}
+	// The registration is resolved from the session's own checkout, as its
+	// first one was: the team, the pin, the workspace label and file sync
+	// are that checkout's, wherever this prompt comes from. The hook does
+	// not wait for the new watcher's pidfile: nothing here reads it, a
+	// watcher that did not come up is started by the next prompt, and the
+	// wait was half a second of the time a move has to be said in.
+	own := in
+	own.Cwd = canon
 	var lines []string
 	cctx, cancel := moveContext(ctx)
 	r.held, r.moving = &lines, true
-	r.connect(cctx, f, in, min(r.deps.PidfileWait, promptPidfileWait))
+	r.connect(cctx, f, own, 0)
 	r.held, r.moving = nil, false
 	cancel()
 	next, err := sessionmap.Store{StateDir: f.stateDir}.ReadByPID(f.pid)
@@ -602,11 +774,14 @@ func (r *run) reattach(ctx context.Context, f facts, in input, m *sessionmap.ByP
 		// What the registration would have said is dropped, a `not connected`
 		// line being untrue of it.
 		r.log.Warn("prompt: this session was not registered on the team's new backend; it stays where it is", slog.Int("lines_dropped", len(lines)))
+		r.dropMovedNotice(f)
 		r.stampRetry(f)
 		r.sayArrival(f, in, opts, canon, line)
 		r.tell(f, in, toldUnreached, moveUnreachedLine)
 		return nil
 	}
+	// The lines are said, and the notice goes when this hook ends (prompt).
+	r.movedSaid = true
 	r.sayArrival(f, in, opts, canon, line)
 	for _, l := range lines {
 		if r.fits(l) {
@@ -644,16 +819,149 @@ func (r *run) stay(ctx context.Context, f facts, in input, res resolved, existin
 // checkout, and the start ends as one that continued does (finish): the
 // pointers, the state entry and the context line are the session's where
 // it is.
+//
+// The backend the session is on hears of the conversation that begins, as
+// it does from a start that continues (connect): the name the session has
+// now, and that a doing line of the conversation before has ended, a doing
+// line living inside one conversation (blankDoingLine). Without it the
+// roster went on showing what the cleared conversation was doing for as
+// long as the session was kept. The heartbeat goes through a client of the
+// map's own adapter and team key, never this start's: the session's id is
+// one only the backend that issued it knows. One that fails is the
+// watcher's to repeat, and a line it would have blanked stands.
 func (r *run) keep(ctx context.Context, f facts, in input, res resolved, existing *sessionmap.ByPID, now time.Time, watcherRuns bool) {
+	kept := keptMap(in, existing, res.id.name, now)
+	r.tellKept(ctx, f, in, res.id, existing)
+	if err := res.store.WriteByPID(kept); err != nil {
+		// The session is where it was, under the map it had: a start that
+		// cannot write that map again says the session's line all the same,
+		// and not that a session which is attached is `not connected`.
+		r.log.Warn("the map of the session this start keeps was not refreshed", log.Err(err))
+		r.say(startLine(existing.SessionName, existing.BrigadeSessionID, existing.TeamName, existing.Inbound))
+		return
+	}
+	r.finish(ctx, f, in, res, kept, now, watcherRuns)
+}
+
+// keptMap is the map of a session that a start keeps where it is: the map
+// it had, with what a conversation changes and nothing else.
+func keptMap(in input, existing *sessionmap.ByPID, name string, now time.Time) *sessionmap.ByPID {
 	kept := *existing
 	kept.ClaudeSessionID = in.SessionID
-	kept.SessionName = res.id.name
+	kept.SessionName = name
 	if in.PermissionMode != "" {
 		kept.PermissionMode = in.PermissionMode
 	}
 	kept.TranscriptPath = transcriptPath(in)
 	kept.UpdatedAt = now
-	r.finish(ctx, f, in, res, &kept, now, watcherRuns)
+	return &kept
+}
+
+// tellKept is the heartbeat of a start that keeps a session: to the backend
+// the map names, through the map's own adapter, with the name and the
+// activity this start resolved.
+func (r *run) tellKept(ctx context.Context, f facts, in input, id identity, existing *sessionmap.ByPID) {
+	adapter, err := config.AdapterFromArgv(existing.AdapterCommand)
+	if err != nil {
+		r.log.Warn("the map's adapter command is unusable; the backend this session is on is not told of the conversation that begins", log.Err(err))
+		return
+	}
+	where := resolved{id: id, client: r.client(adapter, existing.TeamKey, existing.ConfigDir, f.stateDir)}
+	if herr := r.heartbeat(ctx, where, existing.BrigadeSessionID, existing.Inbound, blankDoingLine(in, existing, existing.DoingMode)); herr != nil {
+		r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(herr))
+	}
+}
+
+// runningSession is the map of the session that is running in this
+// process when a session's start begins: one whose watcher is alive and
+// serves it. A start over such a map is a `/clear` of a running session,
+// wherever its document's directory is, and connect has to know that before
+// the resolution says anything. Nil for a prompt, for Grok Build, whose
+// starts are left as they are, and for a map with no live watcher, which
+// may be one a dead process left.
+func (r *run) runningSession(f facts) *sessionmap.ByPID {
+	if !r.starting || f.host == config.HostGrok {
+		return nil
+	}
+	m, err := (sessionmap.Store{StateDir: f.stateDir}).ReadByPID(f.pid)
+	if err != nil {
+		return nil
+	}
+	if v := r.checkPidfile(f); !v.Found || !v.Alive || v.Entry.BrigadeSessionID != m.BrigadeSessionID {
+		return nil
+	}
+	return m
+}
+
+// stillMember reports whether this machine is still a member of the team a
+// session is registered on, on the backend it is on: the binding under the
+// map's team key names the map's team. A member who left the team (`team
+// leave`) has a binding that names none, and a session of theirs is not one
+// to keep.
+func stillMember(m *sessionmap.ByPID) bool {
+	binding, err := teamstore.LoadBinding(m.ConfigDir, m.TeamKey)
+	return err == nil && m.TeamRef != "" && binding.TeamRef == m.TeamRef
+}
+
+// keepUnresolved ends a session's start that resolved no team where it
+// comes from, over a session that is running (runningSession) and whose
+// member is still in its team (stillMember): `/clear` in a checkout that is
+// not joined, in a directory with no team file, or over a team file with no
+// record behind it. Such a start used to return before it read the map,
+// with the line of a session that is not connected, or none. The session
+// was attached all the same, and its map went on naming the conversation
+// that ended: the doing line was not asked for in the one that began, that
+// conversation had no resume hint, and on Muse Code its shell found no
+// session. So the start keeps the session as a start that resolved another
+// backend keeps it (keep): the map takes what a conversation changes, the
+// pointers are filed for the conversation that begins, the backend the
+// session is on is told, and the line is the context line of the session
+// where it is. Nothing of what was resolved is in the map, because nothing
+// was. What the resolution said is dropped, being said of a session that
+// is not connected or not joined, but for one thing the member has to hear
+// whatever session they are in: that the team file there was refused
+// (keptFileLine).
+func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *sessionmap.ByPID) {
+	now := r.deps.Now()
+	store := sessionmap.Store{StateDir: f.stateDir}
+	id := r.identity(f, in)
+	kept := keptMap(in, existing, id.name, now)
+	r.tellKept(ctx, f, in, id, existing)
+	if err := store.WriteByPID(kept); err != nil {
+		// The session is where it was, under the map it had, and the road
+		// its shell had to it stays.
+		r.log.Warn("the map of the session this start keeps was not refreshed", log.Err(err))
+		kept = existing
+	} else {
+		r.retirePointer(f, store, existing, in)
+		r.writeByNative(store, in.SessionID, kept, now)
+		r.writeByHost(f, store, in.SessionID, kept, now)
+		if opts, oerr := r.options(); oerr == nil {
+			r.stateStart(ctx, f, opts, kept, now)
+		}
+	}
+	r.say(startLine(kept.SessionName, kept.BrigadeSessionID, kept.TeamName, kept.Inbound))
+	switch {
+	case f.muse():
+		r.say(armLine(r.commandName(f)))
+	case f.codex():
+		r.say(codexLine(r.commandName(f)))
+	}
+	if r.fileRefused != "" {
+		r.say(keptFileLine(r.fileRefused))
+	}
+	// The context line is said: a move's notice has nothing left to tell.
+	r.dropMovedNotice(f)
+}
+
+// keptFileLine is what a start that keeps a running session says of a team
+// file the resolution refused: the refusal's own words (a file that does
+// not match the team the member joined, one that holds what looks like a
+// secret, one that does not parse), without its claim that the session is
+// not connected, which it is.
+func keptFileLine(refusal string) string {
+	rest := strings.TrimPrefix(strings.TrimPrefix(refusal, "Brigade: not connected: "), "Brigade: not connected ")
+	return "Brigade: this session stays where it is. In the directory this conversation began in: " + rest
 }
 
 // heldCount is how many messages wait for the session in its pending file:

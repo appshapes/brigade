@@ -179,6 +179,28 @@ func TestInboundHoldThenAccept(t *testing.T) {
 	}
 }
 
+// TestInboundKeepsTheCheckoutTheMapNames: `brigade inbound` is the one
+// command that rewrites a session's map, and the map names the checkout the
+// session registered in (work item 327): a session moves with that checkout
+// and no other, so a rewrite that dropped the member would turn the session
+// into one whose next prompt, from whatever checkout, gave it another.
+func TestInboundKeepsTheCheckoutTheMapNames(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	const checkout = "/work/payments-api"
+	m := f.byPID()
+	m.Checkout = checkout
+	f.writeMap(t, m)
+	for _, word := range []string{"hold", "refuse", "accept"} {
+		if _, err := f.runInbound(t, false, word); err != nil {
+			t.Fatal(err)
+		}
+		if got := f.readMap(t).Checkout; got != checkout {
+			t.Fatalf("the map after `inbound %s` names the checkout %q, want %q", word, got, checkout)
+		}
+	}
+}
+
 // TestInboundRefuseRequest: `refuse` is the stronger form, with its own
 // note; `accept` lifts it the same way.
 func TestInboundRefuseRequest(t *testing.T) {

@@ -130,9 +130,10 @@ func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLev
 }
 
 // spawnWatcher starts the watcher for the session m describes and waits
-// up to pidfileWait for its pidfile (the watcher writes it, 6.6). A
-// watcher that does not appear is logged, not an error: the next prompt
-// hook respawns it. It reports whether a watcher was spawned.
+// up to pidfileWait for its pidfile (the watcher writes it, 6.6), or not at
+// all when pidfileWait is zero. A watcher that does not appear is logged,
+// not an error: the next prompt hook respawns it. It reports whether a
+// watcher was spawned.
 func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pidfileWait time.Duration) bool {
 	if !r.canInject(f) {
 		r.log.Info("no inbox socket in this session; the watcher is not started (poll_on_prompt is the fallback)")
@@ -183,7 +184,9 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 		return false
 	}
 	r.log.Info("watcher started", slog.Int("watcher_pid", pid))
-	if !r.awaitPidfile(f, pidfileWait) {
+	// A caller that passes no wait does not look for the pidfile at all: the
+	// prompt that moves a session (reattach).
+	if pidfileWait > 0 && !r.awaitPidfile(f, pidfileWait) {
 		r.log.Warn("watcher pidfile did not appear; the next prompt respawns", slog.Int("watcher_pid", pid))
 	}
 	return true

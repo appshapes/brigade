@@ -42,6 +42,21 @@ func TeamMovedStamp(stateDir string, pid int) string {
 	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".team-moved")
 }
 
+// MovedNotice is what the prompt hook that moves a running session leaves
+// before it registers the session on the backend its team went to:
+// ${stateDir}/state/<pid>.moved (work item 327, ADR 0007). A session's id
+// changes when it moves, and Claude Code discards what a prompt hook
+// printed when the hook reaches its timeout: a hook that is stopped
+// between its registration and its end has moved the session and said
+// nothing. The notice names the session and the backend the move is from,
+// and no line: the next prompt that finds it over a map that names another
+// session says the lines itself, from the map and the store. The hook that
+// left it removes it as its last act, and so does a session's start and
+// SessionEnd.
+func MovedNotice(stateDir string, pid int) string {
+	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".moved")
+}
+
 // MoveAttemptStamp is when a prompt hook last started the follow of a
 // team's move for a checkout: ${stateDir}/state/move-<digest>.attempt
 // (work item 327, ADR 0007). A follow asks the backend the checkout joined

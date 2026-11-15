@@ -600,6 +600,68 @@ func TestFollowLeavesAMemberThatLeftTheNewBackendOut(t *testing.T) {
 	}
 }
 
+// TestFollowLeavesOutAMemberThatLeftWhileItWaited: the membership is read
+// before the lock, to send a machine that left away without a question, and
+// again under it (work item 327). Between the two the member can have left
+// the new backend: another checkout's follow joined, and they ran `team
+// leave`. The follow that waited must not join the machine again on the
+// strength of what it read first: under the lock it finds the profile of a
+// member that left, asks the old backend nothing and joins nothing.
+func TestFollowLeavesOutAMemberThatLeftWhileItWaited(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	second := filepath.Join(t.TempDir(), "second")
+	if err := write.Pin(r.configDir, second, r.pin); err != nil {
+		t.Fatal(err)
+	}
+	now := func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) }
+	// While the second checkout's follow stands between reading the store
+	// and taking the lock, the first checkout's follows, and the member
+	// leaves the new backend.
+	left := false
+	leaving := func(adapter, profile string) (teammove.Caller, error) {
+		c, err := r.b.client(adapter, profile)
+		if err != nil {
+			return nil, err
+		}
+		return describing{Caller: c, before: func() {
+			if left {
+				return
+			}
+			left = true
+			out, err := teammove.Follow(t.Context(), teammove.Inputs{
+				ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin, Client: r.b.client, Now: now,
+			})
+			if err != nil || !out.Joined {
+				t.Errorf("the follow that came first: %+v, %v", out, err)
+			}
+			binding, err := teamstore.LoadBinding(r.configDir, r.newKey)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			binding.TeamRef, binding.TeamName = "", ""
+			if err := adapterkit.SaveProfile(r.configDir, r.newKey, binding); err != nil {
+				t.Error(err)
+			}
+			r.b.calls = nil
+		}}, nil
+	}
+	out, err := teammove.Follow(t.Context(), teammove.Inputs{
+		ConfigDir: r.configDir, Checkout: second, File: r.file, Pin: &r.pin, Client: leaving, Now: now,
+	})
+	if err != nil || out.Followed || out.Reason != teammove.ReasonLeft || !left {
+		t.Fatalf("the follow that waited while the member left: %+v, %v (left %v)", out, err, left)
+	}
+	// Its describe is answered from local files; no backend was asked.
+	if len(r.b.called("team moved")) != 0 || len(r.b.called("team join")) != 0 {
+		t.Fatalf("a backend was asked for a member that left: %v", r.b.verbs())
+	}
+	if pin, ok, err := teamstore.LookupPin(r.configDir, second); err != nil || !ok || pin.Adapter != "supabase" {
+		t.Fatalf("the second checkout's pin moved: %+v, %v", pin, err)
+	}
+}
+
 // TestFollowMovesAStaleServerProfileBeforeTheJoin: a profile at the new
 // backend's key that names another certificate, which a refused join or a
 // server's replaced certificate leaves, would make the adapter answer

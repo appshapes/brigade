@@ -113,6 +113,14 @@ func TestByPIDValidate(t *testing.T) {
 		{name: "empty transcript path is valid (a hook document without one)", mutate: func(m *sessionmap.ByPID) { m.TranscriptPath = "" }},
 		{name: "relative transcript path", mutate: func(m *sessionmap.ByPID) { m.TranscriptPath = evilMarker + ".jsonl" }, wantField: "transcript_path"},
 		{name: "dot-relative transcript path", mutate: func(m *sessionmap.ByPID) { m.TranscriptPath = "./" + evilMarker }, wantField: "transcript_path"},
+		// The checkout the session registered in (work item 327): a canonical
+		// directory or none. The prompt hook compares it with the canonical
+		// path of the checkout a prompt comes from, and a relative one would
+		// name whatever directory that hook happened to run in.
+		{name: "a checkout is valid", mutate: func(m *sessionmap.ByPID) { m.Checkout = "/home/u/work/repo" }},
+		{name: "no checkout is valid (a map from before it named one)", mutate: func(m *sessionmap.ByPID) { m.Checkout = "" }},
+		{name: "relative checkout", mutate: func(m *sessionmap.ByPID) { m.Checkout = "work/" + evilMarker }, wantField: "checkout"},
+		{name: "dot-relative checkout", mutate: func(m *sessionmap.ByPID) { m.Checkout = "./" + evilMarker }, wantField: "checkout"},
 		// P5-12: the frame members, brief 3.3's four rules.
 		{name: "frame level guarded is valid", mutate: func(m *sessionmap.ByPID) { m.FrameLevel = "guarded" }},
 		{name: "frame level strict is valid", mutate: func(m *sessionmap.ByPID) { m.FrameLevel = "strict" }},
