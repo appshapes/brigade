@@ -197,60 +197,107 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 // to wait for that lock: not the prompt that starts the child, and not,
 // with the pin written, the prompt that moves the session and registers it.
 //
-// Neither prompt asks for the lock at all, and that is what is held (work
-// item 336). Whoever asks for it opens its file, and makes the file where
-// there is none (adapterkit.LockFile): after each of the two prompts there
-// is none. The child's own follow, between them, is the control: it takes
-// the lock, and its file is there. A hook that asked for the lock and gave
-// up at once would fail here too, having waited for nothing; the day one
-// has a reason to, this test is the place to say what it may wait.
+// It is held twice over. With the lock held, as a follow of this machine
+// that waits on its backend holds it: the test takes the lock, each of the
+// two prompts is back while the test still has it, and only then does the
+// test let it go (for the child's own follow, between the two, which needs
+// it). A lock has no list of who waits for it, so a wait shows only on a
+// clock: each prompt has a budget of five minutes and is back in a third
+// of it, as in TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs, and a
+// hook that waits for a lock it cannot have takes the whole of what it
+// may. And with the lock free, where a wait would be no wait at all:
+// whoever asks for the lock opens its file, and makes the file where there
+// is none (adapterkit.LockFile), and after each of the two prompts there
+// is none. The child's own follow is the control of that: it takes the
+// lock, and its file is there.
 //
 // The test used to hold the lock and time each prompt against 2 s, half its
 // budget, which is how long a follow made in the hook would have waited for
 // it. A prompt that waited on nothing passed 2 s beside other work on this
 // machine: its stamps are files synced to disk, 0.25 s in one run and 2.8 s
-// in another (2026-11-14). A lock has no list of who waits for it, so with
-// the lock held a wait shows only on a clock.
-//
-// And each prompt is back in a third of a budget of five minutes, as in
-// TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs: a hook that waits on
-// anything its budget ends takes the whole of it.
+// in another (2026-11-14). Work item 336 first took the held lock out with
+// the 2 s, and left the file alone to say that nobody asked; a review put
+// the lock back, under a budget no busy machine reaches.
 func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 	t.Parallel()
 	const budget, within = promptLong, promptLong / 3
-	f := newMemberFixture(t)
-	// The registration of the move has the budget, less a second, to be
-	// answered in.
-	f.deps.PromptBudget = budget
-	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
-	f.moveTeamFile("team-1")
-	lockPath := filepath.Join(f.configDir, "team-move.lock")
-	if exists(lockPath) {
-		t.Fatal("the lock's file is there before any follow: the test would hold nothing")
-	}
+	for _, tc := range []struct {
+		name string
+		held bool
+	}{
+		{"a follow of this machine holds the lock", true},
+		{"nobody holds the lock", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			// The registration of the move has the budget, less a second,
+			// to be answered in.
+			f.deps.PromptBudget = budget
+			attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+			f.moveTeamFile("team-1")
+			lockPath := filepath.Join(f.configDir, "team-move.lock")
+			if exists(lockPath) {
+				t.Fatal("the lock's file is there before any follow: the test would hold nothing")
+			}
+			// hold takes the follow's lock, where the case has it held, and
+			// returns what lets it go: called once the prompt is back, it
+			// fails the test unless the lock was the test's until then.
+			hold := func() func() {
+				if !tc.held {
+					return func() {}
+				}
+				lock, err := adapterkit.LockFile(lockPath, pollTimeout)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = lock.Unlock() })
+				return func() {
+					t.Helper()
+					if other, err := adapterkit.LockFile(lockPath, 0); err == nil {
+						_ = other.Unlock()
+						t.Fatal("the follow's lock could be had while the test held it: the test holds nothing")
+					}
+					if err := lock.Unlock(); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			// unasked fails the test when the lock's file is there and the
+			// test did not make it.
+			unasked := func(who string) {
+				t.Helper()
+				if !tc.held && exists(lockPath) {
+					t.Fatalf("%s asked for the follow's lock", who)
+				}
+			}
 
-	if got, took := f.timed(); !slices.Equal(got, []string{movedLine}) || len(f.spawner.followed()) != 1 || took >= within {
-		t.Fatalf("the prompt that started the follow: lines %q in %v (want under %v of its %v), %d follows", got, took, within, budget, len(f.spawner.followed()))
-	}
-	if exists(lockPath) {
-		t.Fatal("the prompt that started the follow asked for the follow's lock")
-	}
-	// The child follows, under the lock: the control.
-	f.runFollow(f.spawner.followed()[0])
-	if !exists(lockPath) {
-		t.Fatal("the child's follow left no lock file: the test holds nothing of who asks for the lock")
-	}
-	if err := os.Remove(lockPath); err != nil {
-		t.Fatal(err)
-	}
-	if got, took := f.timed(); len(got) != 2 || took >= within {
-		t.Fatalf("the prompt that moved the session: lines %q in %v (want under %v of its %v)", got, took, within, budget)
-	}
-	if m := f.mustMap(); m.TeamKey != teamstore.Key("rest", movedURL, "team-1") || m.BrigadeSessionID != "brigade-sess-2" {
-		t.Fatalf("the map: %+v", m)
-	}
-	if exists(lockPath) {
-		t.Fatal("the prompt that moved the session asked for the follow's lock")
+			letGo := hold()
+			if got, took := f.timed(); !slices.Equal(got, []string{movedLine}) || len(f.spawner.followed()) != 1 || took >= within {
+				t.Fatalf("the prompt that started the follow: lines %q in %v (want under %v of its %v), %d follows", got, took, within, budget, len(f.spawner.followed()))
+			}
+			letGo()
+			unasked("the prompt that started the follow")
+			// The child follows, under the lock: the control.
+			f.runFollow(f.spawner.followed()[0])
+			if !exists(lockPath) {
+				t.Fatal("the child's follow left no lock file: the test holds nothing of who asks for the lock")
+			}
+			if !tc.held {
+				if err := os.Remove(lockPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			letGo = hold()
+			if got, took := f.timed(); len(got) != 2 || took >= within {
+				t.Fatalf("the prompt that moved the session: lines %q in %v (want under %v of its %v)", got, took, within, budget)
+			}
+			if m := f.mustMap(); m.TeamKey != teamstore.Key("rest", movedURL, "team-1") || m.BrigadeSessionID != "brigade-sess-2" {
+				t.Fatalf("the map: %+v", m)
+			}
+			letGo()
+			unasked("the prompt that moved the session")
+		})
 	}
 }
 
