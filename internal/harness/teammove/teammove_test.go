@@ -4,6 +4,7 @@ import (
 	"context"
 	json "encoding/json/v2"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -174,6 +175,8 @@ type rig struct {
 	pin       teamstore.Pin
 	file      *teamfile.File
 	b         *backends
+	// now is the clock of the rig's follows.
+	now time.Time
 }
 
 func newRig(t *testing.T) *rig {
@@ -183,6 +186,7 @@ func newRig(t *testing.T) *rig {
 		oldKey: teamstore.Key("supabase", oldURL, teamRef), newKey: teamstore.Key("rest", newURL, teamRef),
 		pin:  teamstore.Pin{Adapter: "supabase", URL: oldURL, PublishableKey: oldKeyP, TeamRef: teamRef, ConsentedAt: time.Date(2026, 9, 6, 18, 0, 0, 0, time.UTC)},
 		file: &teamfile.File{Version: 1, Adapter: "rest", URL: newURL, Certificate: newPin, TeamRef: teamRef, TeamName: teamName},
+		now:  time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC),
 	}
 	if err := adapterkit.MkdirPrivate(r.configDir); err != nil {
 		t.Fatal(err)
@@ -214,7 +218,7 @@ func (r *rig) follow() (teammove.Outcome, error) {
 	r.t.Helper()
 	return teammove.Follow(r.t.Context(), teammove.Inputs{
 		ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin, Client: r.b.client,
-		Now: func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) },
+		Now: func() time.Time { return r.now },
 	})
 }
 
@@ -1047,8 +1051,8 @@ func TestFollowLeavesOutAMemberTheNewBackendRefusesToLetBackIn(t *testing.T) {
 	r.b.newMovedErrs = []error{refused}
 	r.b.joinErr = &protocol.Error{Code: protocol.CodeUnauthorized, Message: "this principal is banned from the team"}
 	out, _ := r.follow()
-	if out.Followed || out.Reason != teammove.ReasonJoinRefused {
-		t.Fatalf("follow: %+v, want %s", out, teammove.ReasonJoinRefused)
+	if out.Followed || out.Reason != teammove.ReasonRejoinRefused {
+		t.Fatalf("follow: %+v, want %s", out, teammove.ReasonRejoinRefused)
 	}
 	if joins := r.b.called("team join"); len(joins) != 1 || joins[0].profile != r.newKey {
 		t.Fatalf("the joins of a member who is refused: %v", r.b.verbs())
@@ -1062,6 +1066,102 @@ func TestFollowLeavesOutAMemberTheNewBackendRefusesToLetBackIn(t *testing.T) {
 	}
 	if pin := r.currentPin(); pin != r.pin {
 		t.Fatalf("the pin moved: %+v", pin)
+	}
+}
+
+// TestFollowPresentsNoTicketForAWhileAfterARejoinIsRefused: the backend
+// does not honour the membership the machine holds and refuses the join
+// made with the ticket under its credential. A backend counts the joins a
+// principal fails, and a follow runs at every session's start: until this
+// each one presented the ticket again, and the member's own join with the
+// right secret found the count spent. The refusal is put on record, and
+// for RejoinPause no follow presents a ticket there, in this checkout or
+// another. The first follow after that asks once more: one that is refused
+// keeps the time of the first refusal and pauses again, and one that is
+// let in, a member whose ban was lifted, follows and removes the record.
+func TestFollowPresentsNoTicketForAWhileAfterARejoinIsRefused(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.memberAtTheNewBackend()
+	r.b.newRecords = true
+	notAMember := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	r.b.newMovedErrs = []error{notAMember, notAMember, notAMember, notAMember, notAMember, notAMember}
+	r.b.joinErr = &protocol.Error{Code: protocol.CodeUnauthorized, Message: "join secret rejected"}
+	joins := func() int { return len(r.b.called("team join")) }
+	refused := func(when string, wantJoins int) *teamstore.RejoinRefusal {
+		t.Helper()
+		out, _ := r.follow()
+		if out.Followed || out.Reason != teammove.ReasonRejoinRefused || joins() != wantJoins {
+			t.Fatalf("%s: %+v, %d joins; want %s and %d joins", when, out, joins(), teammove.ReasonRejoinRefused, wantJoins)
+		}
+		if pin := r.currentPin(); pin != r.pin {
+			t.Fatalf("%s: the pin moved: %+v", when, pin)
+		}
+		record, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey)
+		if err != nil {
+			t.Fatalf("%s: the record of the refusal: %v", when, err)
+		}
+		return record
+	}
+	began := r.now
+	if record := refused("the follow that is refused", 1); !record.RefusedAt.Equal(began) || !record.FirstRefusedAt.Equal(began) {
+		t.Fatalf("the record of the first refusal: %+v", record)
+	}
+	// Inside the pause, in this checkout and in another of the team: nothing is presented.
+	r.now = began.Add(time.Minute)
+	refused("a follow a minute later", 1)
+	other := filepath.Join(t.TempDir(), "checkout-2")
+	if err := write.Pin(r.configDir, other, r.pin); err != nil {
+		t.Fatal(err)
+	}
+	r.now = began.Add(teammove.RejoinPause - time.Second)
+	out, _ := teammove.Follow(t.Context(), teammove.Inputs{
+		ConfigDir: r.configDir, Checkout: other, File: r.file, Pin: &r.pin, Client: r.b.client, Now: func() time.Time { return r.now },
+	})
+	if out.Followed || out.Reason != teammove.ReasonRejoinRefused || joins() != 1 {
+		t.Fatalf("a follow of another checkout inside the pause: %+v, %d joins", out, joins())
+	}
+	// The pause is over: one more join is asked for, refused, and the pause begins again.
+	r.now = began.Add(teammove.RejoinPause)
+	if record := refused("the first follow after the pause", 2); !record.RefusedAt.Equal(r.now) || !record.FirstRefusedAt.Equal(began) {
+		t.Fatalf("the record of the second refusal keeps no time of the first: %+v", record)
+	}
+	r.now = r.now.Add(time.Minute)
+	refused("a follow inside the second pause", 2)
+	// The ban is lifted. Inside the pause nothing is asked; after it the member is let in.
+	r.b.joinErr = nil
+	r.b.join = &protocol.TeamJoinResult{TeamRef: teamRef, TeamName: teamName, PrincipalRef: "p-before", Rejoined: true}
+	r.now = began.Add(2 * teammove.RejoinPause)
+	out, err := r.follow()
+	if err != nil || !out.Followed || !out.Joined || joins() != 3 {
+		t.Fatalf("the follow after the ban was lifted and the pause had passed: %+v, %v, %d joins", out, err, joins())
+	}
+	if _, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the record of the refusal after a join that succeeded: %v", err)
+	}
+	if binding, err := teamstore.LoadBinding(r.configDir, r.newKey); err != nil || binding.PrincipalRef != "p-before" {
+		t.Fatalf("the membership after he was let in: %+v, %v", binding, err)
+	}
+}
+
+// TestFollowForgetsARefusalOnceTheBackendHonoursTheMembership: a refusal is
+// on record, and the backend honours the membership again, as it does after
+// a join made by any other road. The follow pins the checkout on it,
+// presents nothing, and removes the record.
+func TestFollowForgetsARefusalOnceTheBackendHonoursTheMembership(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.memberAtTheNewBackend()
+	r.b.newRecords = true
+	if err := write.RejoinRefusal(r.configDir, r.newKey, r.now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.follow()
+	if err != nil || !out.Followed || out.Joined || len(r.b.called("team join")) != 0 {
+		t.Fatalf("follow: %+v, %v; calls %v", out, err, r.b.verbs())
+	}
+	if _, err := teamstore.LoadRejoinRefusal(r.configDir, r.newKey); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the record of the refusal after the backend honoured the membership: %v", err)
 	}
 }
 

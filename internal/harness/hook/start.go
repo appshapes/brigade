@@ -1257,6 +1257,11 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 			// The child found the two backends naming each other: the
 			// prompt says that in place of the drift line, as a start does.
 			r.notFollowed = teammove.ReasonEachOther
+		} else if r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
+			// A follow found that the backend the file names refuses this
+			// machine's membership and the join made under it, and the
+			// member has not been told: this prompt says so, once.
+			r.notFollowed = teammove.ReasonRejoinRefused
 		} else if reason := r.lastNotFollowed(f, opts, canon, tf); reason != "" {
 			// The last follow of the checkout, this session's start or a
 			// child, found the backend the team moved to silent, or
@@ -1285,6 +1290,12 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		}
 		r.log.Info("the team file names another backend for this team, and the move was not followed", attrs...)
 		r.notFollowed = out.Reason
+		if out.Reason == teammove.ReasonRejoinRefused && !r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
+			// The member was told of this refusal already, by this start's
+			// like or by a prompt: this one says what a team file nobody
+			// followed is told.
+			r.notFollowed = ""
+		}
 		if out.Reason != teammove.ReasonEachOther {
 			r.dropEachOtherMark(f, opts, canon)
 		}

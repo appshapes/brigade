@@ -1034,13 +1034,18 @@ const newBackendSilentLine = "Brigade: not connected: the team's administrator r
 // membershipRefusedLine is said in place of the drift line when the backend
 // the member joined recorded the move to the backend the file names, this
 // machine holds a membership there, and that backend refuses it (work item
-// 341): it answered the follow's question with a refusal that is not a
+// 341). It answered the follow's question with a refusal that is not a
 // backend out of reach (teammove.ReasonNewBackendRefused: a credential it
-// does not know, above all). The file is vouched for, and waiting mends
-// nothing: what helps is a join with the team's secret, made on the profile
+// does not know, above all); or it answered that the caller is no member
+// and then refused the join made with the move's ticket under the
+// credential the machine holds (teammove.ReasonRejoinRefused: a member who
+// was put out and whose ticket no longer admits, or one who is banned, who
+// reads the same). The file is vouched for, and waiting mends nothing:
+// what helps is a join with the team's current secret, made on the profile
 // the machine holds, and the line names that command with the flag a
-// session needs. A plain `brigade team join` there would find the machine
-// joined already. Like the drift line it names no host.
+// session needs. Like the drift line it names no host. A refused join is
+// told once, not at every start (refusalUntold): the starts after it say
+// the drift line.
 const membershipRefusedLine = "Brigade: not connected: the team's administrator recorded that the team moved to another backend, and that backend refuses the membership this machine holds there. To join the team there, run `brigade team join --secret-file <path>` with the file of the team's current join secret, which its administrator has."
 
 // notFollowedLine is the line of a follow that did not follow: the drift
@@ -1051,7 +1056,7 @@ func notFollowedLine(reason string) string {
 		return eachOtherLine
 	case teammove.ReasonNewBackendFailed:
 		return newBackendSilentLine
-	case teammove.ReasonNewBackendRefused:
+	case teammove.ReasonNewBackendRefused, teammove.ReasonRejoinRefused:
 		return membershipRefusedLine
 	}
 	return driftLine

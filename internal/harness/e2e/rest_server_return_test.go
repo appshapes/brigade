@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
@@ -929,4 +930,197 @@ func TestAServerThatRefusesIsNotToldAsOneThatDidNotAnswerThroughTheRealBinary(t 
 		t.Fatalf("the prompt after the member's own join: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+}
+
+// joinsCounted puts a front before a server that counts the joins the
+// server is asked for: every `/v1/team/join`, whoever makes it and whatever
+// the server answers.
+func joinsCounted(t *testing.T, backend restBackend) (*atomic.Int32, restBackend) {
+	t.Helper()
+	joins := &atomic.Int32{}
+	_, front := startFront(t, backend, func(req *http.Request, _ []byte) (int, string) {
+		if req.URL.Path == "/v1/team/join" {
+			joins.Add(1)
+		}
+		return 0, ""
+	}, nil)
+	return joins, front
+}
+
+// refusalOf is the path of the record a follow leaves in a member's store
+// when a server refused the join it made under the membership the machine
+// holds there.
+func (r *rig) refusalOf(configDir string, backend restBackend) string {
+	return filepath.Join(configDir, "teams", r.keyAt(backend), "rejoin-refused.json")
+}
+
+// aMinuteLater makes the minute between two follows of a checkout, and
+// between two registrations of a session, pass: it takes the two stamps
+// away.
+func (r *rig) aMinuteLater(s session, configDir, canon string) {
+	r.t.Helper()
+	for _, stamp := range []string{config.MoveAttemptStamp(r.stateDirOf(s), configDir, canon), config.RegisterRetryStamp(r.stateDirOf(s), s.pid)} {
+		if err := os.Remove(stamp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			r.t.Fatalf("a minute's stamp: %v", err)
+		}
+	}
+}
+
+// TestARefusedRejoinIsAskedForOnceAndLeavesTheMembersOwnJoinToHimThroughTheRealBinary:
+// a member followed the team to its new server, was put out of it there,
+// and the move was closed by a rotation: the ticket admits nobody. His
+// other checkout has not followed. Until this every session that started
+// there, and every minute of prompts, presented the dead ticket under the
+// membership the machine holds, and a server counts the joins a principal
+// fails: after five in fifteen minutes the member's own `brigade team join`
+// with the right secret was answered `rate_limited`.
+//
+//  1. The first start asks for one join, is refused, and says once that
+//     the server refuses the membership and which command joins.
+//  2. Four more starts and three prompts a minute apart ask for no join,
+//     and say what a team file nobody followed is told, not that line again.
+//  3. The command the line printed, run as printed with the file of the
+//     secret the server has now, joins him: he is the member he was.
+//  4. The record of the refusal is gone with that join.
+func TestARefusedRejoinIsAskedForOnceAndLeavesTheMembersOwnJoinToHimThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a := startRestBackend(t)
+	joins, b := joinsCounted(t, startRestBackend(t))
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	second, canon := r.anotherCheckout(r.configDirB, "checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	onB := r.principalOf(r.configDirB, b)
+	// The administrator puts him out of B and closes the move with a new secret.
+	if res := r.runIn(r.checkout, term, "", "team", "revoke-member", "--principal", onB); res.exit != 0 {
+		t.Fatalf("the revocation on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	rotated := filepath.Join(r.dirs.Root, "b-rotated.secret")
+	if res := r.runIn(r.checkout, term, "", "team", "rotate-secret", "--secret-file", rotated); res.exit != 0 {
+		t.Fatalf("the rotation on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	const refusedWords, join = "refuses the membership this machine holds there", "brigade team join --secret-file <path>"
+	asked := joins.Load()
+
+	// --- 1. the first start: one join, refused, and the line that helps -----------------------------------
+	s := r.newSession("bob", bobName, "", "", "")
+	s.cwd = second
+	first := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if r.mapExists(s) || !strings.Contains(first.stdout, refusedWords) || !strings.Contains(first.stdout, "`"+join+"`") || strings.Contains(first.stdout, "does not match") {
+		t.Fatalf("the first start after the refusal: stdout %q\nstderr %s", first.stdout, first.stderr)
+	}
+	if got := joins.Load() - asked; got != 1 {
+		t.Fatalf("the first start asked the server for %d joins, want one", got)
+	}
+	if _, err := os.Stat(r.refusalOf(r.configDirB, b)); err != nil {
+		t.Fatalf("the refusal left no record in the member's store: %v", err)
+	}
+
+	// --- 2. four more starts and three prompts a minute apart: no join, and the line is not said again ------
+	for i := range 4 {
+		if res, key := r.startsIn("bob", bobName, second); key != "" || strings.Contains(res.stdout, refusedWords) || !strings.Contains(res.stdout, "not connected") {
+			t.Fatalf("start %d after the refusal: attached to %q\nstdout %q\nstderr %s", i+2, key, res.stdout, res.stderr)
+		}
+	}
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	for i := range 3 {
+		r.aMinuteLater(s, r.configDirB, canon)
+		if res := r.restPrompt(s); r.mapExists(s) || strings.Contains(res.stdout, refusedWords) {
+			t.Fatalf("prompt %d after the refusal: stdout %q\nstderr %s", i+1, res.stdout, res.stderr)
+		}
+		// The follow the prompt started has ended before the next one.
+		testutil.Eventually(t, waitLong, pollEvery, func() bool {
+			return logLines(moveLog, "the team file names another backend for this team, and the move was not followed") == i+1
+		})
+	}
+	if got := joins.Load() - asked; got != 1 {
+		t.Fatalf("five starts and three prompts asked the server for %d joins in all, want one", got)
+	}
+
+	// --- 3. the command the line printed, with the file of the secret the server has now --------------------
+	line := strings.Replace(printed(t, first.stdout, "brigade team join "), "<path>", rotated, 1)
+	res := r.runIn(second, r.restEnv(s), "", strings.Fields(line)[1:]...)
+	if res.exit != 0 || !strings.Contains(res.stdout, "joined team") || strings.Contains(res.stderr, "rate_limited") {
+		t.Fatalf("the member's own join, %q: exit %d\nstdout: %s\nstderr: %s", line, res.exit, res.stdout, res.stderr)
+	}
+	if res := r.restPrompt(s); !r.mapExists(s) || r.mustMap(s).TeamKey != r.keyAt(b) {
+		t.Fatalf("the prompt after the member's own join: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	if listed := r.principalsAt(b)[bobLabel]; len(listed) != 1 || listed[0] != onB {
+		t.Fatalf("he came back to B as %v; he was %q", listed, onB)
+	}
+
+	// --- 4. the record of the refusal went with the join -----------------------------------------------------
+	if _, err := os.Stat(r.refusalOf(r.configDirB, b)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the record of the refusal after the member's own join: %v", err)
+	}
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+}
+
+// TestALiftedBanBringsTheMemberBackWhenTheRefusalIsFifteenMinutesOldThroughTheRealBinary:
+// a member is banned on the server the team moved to, and a session of his
+// in a checkout that has not followed is refused. The ban is lifted. For
+// fifteen minutes after the refusal no session presents the ticket again;
+// the first to start after that asks once more and is let in, as the
+// member he was, with no command of his.
+func TestALiftedBanBringsTheMemberBackWhenTheRefusalIsFifteenMinutesOldThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a := startRestBackend(t)
+	joins, b := joinsCounted(t, startRestBackend(t))
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	second, _ := r.anotherCheckout(r.configDirB, "checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	onB := r.principalOf(r.configDirB, b)
+	if res := r.runIn(r.checkout, term, "", "team", "revoke-member", "--principal", onB, "--ban"); res.exit != 0 {
+		t.Fatalf("the ban on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	asked := joins.Load()
+	if res, key := r.startsIn("bob", bobName, second); key != "" || !strings.Contains(res.stdout, "not connected") {
+		t.Fatalf("a banned member's start: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	// The ban is lifted: he is revoked, and the move is open.
+	if res := r.runIn(r.checkout, term, "", "team", "revoke-member", "--principal", onB); res.exit != 0 {
+		t.Fatalf("the lifting of the ban: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	// Within the fifteen minutes nothing is asked of the server's join.
+	if res, key := r.startsIn("bob", bobName, second); key != "" || joins.Load()-asked != 1 {
+		t.Fatalf("a start inside the fifteen minutes: attached to %q, %d joins asked for\nstdout %q", key, joins.Load()-asked, res.stdout)
+	}
+	// Fifteen minutes pass: the record of the refusal is made that old.
+	record := r.refusalOf(r.configDirB, b)
+	text, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("the record of the refusal: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(text, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["refused_at"] = time.Now().Add(-15*time.Minute - time.Second).UTC().Format(time.RFC3339Nano)
+	aged, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record, aged, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, key := r.startsIn("bob", bobName, second)
+	if key != r.keyAt(b) || !strings.Contains(res.stdout, "with the move's ticket") || joins.Load()-asked != 2 {
+		t.Fatalf("the start fifteen minutes after the refusal: attached to %q, %d joins asked for\nstdout %q\nstderr %s", key, joins.Load()-asked, res.stdout, res.stderr)
+	}
+	if listed := r.principalsAt(b)[bobLabel]; len(listed) != 1 || listed[0] != onB {
+		t.Fatalf("he came back to B as %v; he was %q", listed, onB)
+	}
+	if _, err := os.Stat(record); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the record of the refusal after he was let in: %v", err)
+	}
 }

@@ -23,9 +23,10 @@
 // This is the one writer of the team store that a hook reaches. The hook
 // package itself still may not import teamstore/write (the depguard rule
 // hook-reads-the-store): what it calls is Follow, which writes a pin only
-// behind the comparison above. A session's start calls it in its own run;
-// a prompt, which has no time for it, through the child it starts,
-// `brigade hook follow` (work item 327, ADR 0008).
+// behind the comparison above, and beside the pin only the record of a
+// join the new backend refused (RejoinPause). A session's start calls it
+// in its own run; a prompt, which has no time for it, through the child it
+// starts, `brigade hook follow` (work item 327, ADR 0008).
 package teammove
 
 import (
@@ -58,6 +59,19 @@ const lockTimeout = 10 * time.Second
 
 // lockName is the lock file's name under the config directory.
 const lockName = "team-move.lock"
+
+// RejoinPause is how long a follow presents no ticket to a backend that
+// refused the join it made under the membership this machine holds there
+// (work item 341). A backend counts the joins a principal fails and stops
+// hearing it after a few, the right secret included: the Brigade server
+// after five in fifteen minutes. A follow runs at every session's start and
+// once a minute while a session is prompted, so without the pause a member
+// who was put out of a backend, and whose ticket no longer admits, spent
+// that count without a command of theirs and was then refused their own
+// `brigade team join` with the right secret. With it a follow fails one
+// join in the backend's window, and the member's own join is heard. The
+// pause ends early when a join there succeeds.
+const RejoinPause = 15 * time.Minute
 
 // Lock waits for the follow's lock for a caller that joins this machine to
 // a team by another road: a member's own `brigade team join`. A follow
@@ -124,6 +138,13 @@ const (
 	// data answers a member who joined since. Nothing is changed. Waiting
 	// mends nothing here: the member joins there with the team's secret.
 	ReasonNewBackendRefused = "new_backend_refused"
+	// ReasonRejoinRefused: the backend the team file names does not honour
+	// the membership this machine holds there, and refused the join made
+	// with the move's ticket under that membership's credential: this follow
+	// was refused, or one was within RejoinPause, and this one presented
+	// nothing. Nothing is changed. What helps is the member's own join with
+	// the team's current secret.
+	ReasonRejoinRefused = "rejoin_refused"
 	// ReasonEachOther: the backend the team file names itself records that
 	// the team moved to the backend the checkout is pinned to. The two name
 	// each other, and a session follows neither (work item 341).
@@ -487,6 +508,11 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 	// again. One that answered any other refusal, a credential it does not
 	// know above all, is not one to wait for: nothing is changed either, and
 	// the caller tells the member to join there (ReasonNewBackendRefused).
+	//
+	// And where the backend refuses the join itself, the refusal is put on
+	// record and no follow presents a ticket there for RejoinPause: the
+	// backend counts the joins a principal fails, and the member's own join
+	// with the right secret must still be heard (ReasonRejoinRefused).
 	held := berr == nil && teamstore.VerifyBinding(existing, in.File) == nil
 	rejoin := false
 	if held {
@@ -500,10 +526,20 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 			return Outcome{Reason: ReasonNewBackendRefused}, aerr
 		case namesBack(theirs, in.Pin, in.File.TeamRef):
 			return Outcome{Reason: ReasonEachOther}, nil
+		default:
+			// The backend honours the membership: a refusal on record is over.
+			forgetRefusal(in, newKey)
 		}
 	}
 	joined := false
 	if !held || rejoin {
+		// A join this machine made there under the membership it holds was
+		// refused a short while ago: no ticket is presented to that backend
+		// for this team until RejoinPause has passed, whichever checkout or
+		// session asks. The backend counts every join a principal fails.
+		if refusedLately(in, newKey) {
+			return Outcome{Reason: ReasonRejoinRefused}, nil
+		}
 		// This machine holds no membership at the new backend that the file
 		// describes, or one the backend does not honour: it joins with the
 		// ticket, under the label the member had.
@@ -522,8 +558,19 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 			}
 		}
 		if reason, jerr := join(ctx, in, newClient, newKey, ticket, old.HumanLabel); reason != "" {
+			if rejoin && unauthorized(jerr) {
+				// The backend refused the principal this machine is there: a
+				// member who is banned, or one who was revoked and whose
+				// ticket no longer admits. It is on record, so that the next
+				// follows present nothing (RejoinPause).
+				if werr := write.RejoinRefusal(in.ConfigDir, newKey, in.Now().UTC()); werr != nil && in.Log != nil {
+					in.Log.Warn("the record of a refused join was not written; the next follow presents the ticket again", slog.String("error", werr.Error()))
+				}
+				return Outcome{Reason: ReasonRejoinRefused}, jerr
+			}
 			return Outcome{Reason: reason}, jerr
 		}
+		forgetRefusal(in, newKey)
 		CarryLabelOrigin(in.ConfigDir, oldKey, newKey, old.HumanLabel, in.Now().UTC(), in.Log)
 		joined = true
 		// Now that this machine may ask: what the new backend itself records
@@ -543,6 +590,29 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		return Outcome{Reason: ReasonStore}, err
 	}
 	return Outcome{Followed: true, Joined: joined}, nil
+}
+
+// refusedLately reports whether a join this machine made at the backend key
+// names, under the membership it holds there, was refused within
+// RejoinPause. A record from the future is a clock that was set back, and
+// bounds nothing.
+func refusedLately(in Inputs, key string) bool {
+	refusal, err := teamstore.LoadRejoinRefusal(in.ConfigDir, key)
+	if err != nil {
+		return false
+	}
+	since := in.Now().Sub(refusal.RefusedAt)
+	return since >= 0 && since < RejoinPause
+}
+
+// forgetRefusal removes the record of a refused join at the backend key
+// names: a join there succeeded, or the backend honours the membership.
+// Best effort: a record that stays keeps a follow from presenting a ticket
+// for at most RejoinPause more.
+func forgetRefusal(in Inputs, key string) {
+	if err := write.ClearRejoinRefusal(in.ConfigDir, key); err != nil && in.Log != nil {
+		in.Log.Debug("the record of a refused join was not removed", slog.String("error", err.Error()))
+	}
 }
 
 // readTicket reads the move's ticket from the file the old backend's

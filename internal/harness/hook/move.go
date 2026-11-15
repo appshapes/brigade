@@ -106,6 +106,12 @@ const (
 	// file names itself records that the team moved back to the backend the
 	// session is on (work item 341): the session follows neither.
 	movedEachOtherLine = "Brigade: the .brigade.json of the checkout this session was started in names another backend for this session's team, and that backend and the one this session is on each record that the team moved to the other. This session follows neither and stays where it is. The team's administrator clears the record that is out of date: `brigade team move --show --from <host>` reads one, and `brigade team move --clear --from <host>` clears it."
+	// movedRefusedLine is said, once on a machine for one refusal
+	// (refusalUntold), when the backend the file names refused the join a
+	// follow made there under the membership this machine holds (work item
+	// 341): the session stays, and its member is told the command that
+	// helps.
+	movedRefusedLine = "Brigade: the .brigade.json of the checkout this session was started in names another backend for this session's team, and that backend refuses the membership this machine holds there. This session stays where it is. To join the team there, run `brigade team join --secret-file <path>` with the file of the team's current join secret, which its administrator has; this session moves at its next prompt after that."
 	// moveUnreachedLine is said when the checkout is joined to the backend
 	// the team went to and the session could not be registered there.
 	moveUnreachedLine = "Brigade: this session could not be registered on the backend its team moved to. It stays where it is and tries again at a later prompt."
@@ -491,6 +497,37 @@ func (r *run) lastNotFollowed(f facts, opts config.Options, canon string, tf *te
 	return mark.Reason
 }
 
+// refusalUntold reports whether the member has yet to be told that the
+// backend teamKey names refused the join a follow made there under the
+// membership this machine holds (teamstore.RejoinRefusal), and records that
+// they now are: the caller says the line. A member is told of a refusal
+// once, whichever session or checkout of theirs comes to it first, and not
+// at every start: the refusals since a join there last succeeded are one
+// refusal. The record is in the member's store, where a follow that ran
+// beside a prompt left it with nobody to tell; what was told is in the
+// state directory. A state directory that cannot be written costs the
+// member the line and never earns it at every start.
+func (r *run) refusalUntold(f facts, opts config.Options, teamKey string) bool {
+	refusal, err := teamstore.LoadRejoinRefusal(opts.ConfigDir, teamKey)
+	if err != nil {
+		return false
+	}
+	which := refusal.FirstRefusedAt.UTC().Format(time.RFC3339Nano)
+	path := config.MoveRefusalToldMark(f.stateDir, opts.ConfigDir, teamKey)
+	if told, rerr := adapterkit.ReadStrict(path); rerr == nil && strings.TrimSpace(string(told)) == which {
+		return false
+	}
+	if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {
+		r.log.Debug("state directory not created; no line about the refused join", log.Err(err))
+		return false
+	}
+	if err := adapterkit.WriteAtomic(path, []byte(which+"\n")); err != nil {
+		r.log.Debug("the mark of a refused join that was told was not written; no line about it", log.Err(err))
+		return false
+	}
+	return true
+}
+
 // dropEachOtherMark removes the checkout's mark of two backends that named
 // each other: a follow of the checkout has since ended another way.
 func (r *run) dropEachOtherMark(f facts, opts config.Options, canon string) {
@@ -621,6 +658,12 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		// The follow a prompt before this one started found the two
 		// backends naming each other: the session stays, and says why once.
 		r.tell(f, in, toldEachOther, movedEachOtherLine)
+	}
+	if r.fits(movedRefusedLine) && r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
+		// A follow found that the backend the file names refuses this
+		// machine's membership and the join made under it: the session
+		// stays, and its member is told what helps, once.
+		r.say(movedRefusedLine)
 	}
 	if r.startFollow(ctx, f, opts, checkout) {
 		r.tell(f, in, toldAsked, movedLine)

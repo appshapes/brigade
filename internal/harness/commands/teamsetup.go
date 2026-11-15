@@ -771,6 +771,13 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 		return err
 	}
 	inv.recordLabelOrigin(t.configDir, t.profile, label)
+	// A join there succeeded: what a follow of this machine recorded of a
+	// join the backend refused under the membership it held is over, and
+	// the next follow presents the move's ticket again where it has to
+	// (teammove.RejoinPause).
+	if err := write.ClearRejoinRefusal(t.configDir, t.profile); err != nil {
+		inv.logger().Debug("the record of a refused join was not removed", adapterlog.Err(err))
+	}
 	return inv.writePinAndReport(t, canon, f, "joined")
 }
 

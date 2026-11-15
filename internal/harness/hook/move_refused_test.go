@@ -8,8 +8,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -138,5 +140,116 @@ func TestTheLineOfAServerThatRefusesNamesTheJoinThatHelps(t *testing.T) {
 	}
 	if notFollowedLine("new_backend_refused") != membershipRefusedLine || notFollowedLine("new_backend_failed") != newBackendSilentLine || notFollowedLine("join_refused") != driftLine {
 		t.Fatalf("the lines of a follow that did not follow are not the ones their reasons have")
+	}
+}
+
+// refusing has the server refuse the membership this machine holds, and
+// the join made under it for as long as banned is true; a join that is let
+// in ends the refusals. It counts the joins the server was asked for.
+func refusing(f *fixture, banned *atomic.Bool) *atomic.Int32 {
+	f.t.Helper()
+	var in atomic.Bool
+	return serverSays(f, func(verb string) *protocol.ErrorObject {
+		switch {
+		case in.Load():
+		case verb == "team moved":
+			return &protocol.ErrorObject{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+		case banned.Load():
+			return &protocol.ErrorObject{Code: protocol.CodeUnauthorized, Message: "join secret rejected"}
+		default:
+			in.Store(true)
+		}
+		return nil
+	})
+}
+
+// TestARefusedRejoinIsAskedForOnceAndToldOnce: the server the team moved to
+// does not honour the membership this machine holds and refuses the join
+// made with the ticket under it, as it refuses a member who is banned and
+// one whose ticket no longer admits. A server counts the joins a principal
+// fails. Until this every start and every minute of prompts asked for the
+// join again, and each start said the same thing.
+//
+// Five starts and three prompts a minute apart ask the server for one join
+// in all. The first start says that the server refuses the membership and
+// which command joins; the others say what a team file nobody followed is
+// told. The refusal is lifted: nothing is asked inside the fifteen minutes,
+// and the first start after them asks once more and follows.
+func TestARefusedRejoinIsAskedForOnceAndToldOnce(t *testing.T) {
+	t.Parallel()
+	f := memberOfTheServer(t)
+	var banned atomic.Bool
+	banned.Store(true)
+	joins := refusing(f, &banned)
+	before, tf, began := f.checkoutPin(), f.movedFile(), f.now
+	start := func() []string {
+		t.Helper()
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+		if exit != 0 {
+			t.Fatalf("session-start: exit %d: %s", exit, errOut)
+		}
+		return lines(out)
+	}
+	if got := start(); !slices.Equal(got, []string{membershipRefusedLine}) || joins.Load() != 1 || f.mapExists() {
+		t.Fatalf("the start that is refused: lines %q, %d joins", got, joins.Load())
+	}
+	for i := range 4 {
+		if got := start(); !slices.Equal(got, []string{driftLine}) || joins.Load() != 1 {
+			t.Fatalf("start %d after the refusal: lines %q, %d joins", i+2, got, joins.Load())
+		}
+	}
+	for i, want := range [][]string{{movedRetryLine, driftLine}, {driftLine}, {driftLine}} {
+		if got := f.prompted(); !slices.Equal(got, want) || len(f.spawner.followed()) != i+1 || joins.Load() != 1 {
+			t.Fatalf("prompt %d after the refusal: lines %q, %d follows, %d joins", i+1, got, len(f.spawner.followed()), joins.Load())
+		}
+		f.now = f.now.Add(registerRetryInterval)
+	}
+	if pin := f.checkoutPin(); pin != before {
+		t.Fatalf("the pin moved: %+v", pin)
+	}
+	// The ban is lifted. Inside the fifteen minutes no join is asked for.
+	banned.Store(false)
+	f.now = began.Add(teammove.RejoinPause - time.Second)
+	if got := start(); !slices.Equal(got, []string{driftLine}) || joins.Load() != 1 {
+		t.Fatalf("a start inside the fifteen minutes: lines %q, %d joins", got, joins.Load())
+	}
+	// After them the next start asks once more, and the member is back.
+	f.now = began.Add(teammove.RejoinPause)
+	got := start()
+	if len(got) < 2 || got[0] != followedLine(tf, &before, true, "brigade") || joins.Load() != 2 || !f.mapExists() {
+		t.Fatalf("the first start after the fifteen minutes: lines %q, %d joins", got, joins.Load())
+	}
+	if _, err := teamstore.LoadRejoinRefusal(f.configDir, teamstore.Key("rest", movedURL, "team-1")); err == nil {
+		t.Fatalf("the record of the refusal is still there after the member was let in")
+	}
+}
+
+// TestARunningSessionIsToldOnceThatTheServerRefusesTheMembership: a session
+// that is running on the backend the team left, whose checkout comes to
+// name the server. The follow its prompt starts is refused there. The
+// session stays where it is, its next prompt says so once, with the
+// command that joins, and the prompts after it say nothing and ask the
+// server for no join.
+func TestARunningSessionIsToldOnceThatTheServerRefusesTheMembership(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	f.memberOf("team-1")
+	var banned atomic.Bool
+	banned.Store(true)
+	joins := refusing(f, &banned)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	f.moveTeamFile("team-1")
+	for i, want := range [][]string{{movedLine}, {movedRefusedLine}, nil, nil} {
+		if got := f.prompted(); !slices.Equal(got, want) || joins.Load() != 1 {
+			t.Fatalf("prompt %d: lines %q, %d joins; want %q and one join", i+1, got, joins.Load(), want)
+		}
+		f.now = f.now.Add(followInterval)
+	}
+	if m := f.mustMap(); m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" {
+		t.Fatalf("the session moved: %+v", m)
+	}
+	if !strings.Contains(movedRefusedLine, "`brigade team join --secret-file <path>`") || !strings.Contains(movedRefusedLine, "stays where it is") {
+		t.Fatalf("the line: %q", movedRefusedLine)
 	}
 }

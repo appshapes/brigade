@@ -178,6 +178,47 @@ func LabelOrigin(configDir, key string, o teamstore.LabelOrigin) error {
 	return adapterkit.WriteAtomic(path, append(data, '\n'))
 }
 
+// RejoinRefusal records in `teams/<key>/rejoin-refused.json` that the
+// backend refused, at the time given, a join made there under the
+// membership this machine holds (teamstore.RejoinRefusal), 0600 through
+// WriteAtomic. A record that is there keeps the time of its first refusal:
+// the refusals since a join there last succeeded are one refusal to a
+// member, who is told of it once. The credential directory must already
+// exist, as for the label's record: the join was made under the profile in
+// it.
+func RejoinRefusal(configDir, key string, at time.Time) error {
+	path, err := teamstore.RejoinRefusalPath(configDir, key)
+	if err != nil {
+		return err
+	}
+	if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
+		return errors.New("teamstore: no credential directory for the record of a refused join")
+	}
+	r := teamstore.RejoinRefusal{Version: teamstore.RejoinRefusalVersion, RefusedAt: at.UTC(), FirstRefusedAt: at.UTC()}
+	if earlier, lerr := teamstore.LoadRejoinRefusal(configDir, key); lerr == nil {
+		r.FirstRefusedAt = earlier.FirstRefusedAt
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Errorf("teamstore: marshal the record of a refused join: %w", err)
+	}
+	return adapterkit.WriteAtomic(path, append(data, '\n'))
+}
+
+// ClearRejoinRefusal removes the record of a refused join for a team key:
+// a join there succeeded, or the backend honours the membership again. A
+// record that is not there is nothing to remove.
+func ClearRejoinRefusal(configDir, key string) error {
+	path, err := teamstore.RejoinRefusalPath(configDir, key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("teamstore: remove the record of a refused join: %w", err)
+	}
+	return nil
+}
+
 // missingBinding matches both spellings of "no binding yet": the raw
 // fs.ErrNotExist and the kit's profile_missing config refusal.
 func missingBinding(err error) bool {
