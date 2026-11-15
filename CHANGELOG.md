@@ -211,15 +211,19 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   the contract's rule and repeated that half in a refusal got it printed
   on stdout and stderr. `team join` and `team take-in` now register the
   half of what they present before they send it, the team's join secret
-  or the ticket of its move, and `team rotate-secret` and `team
-  open-move` the half of the secret in the server's answer before they
-  do anything else with it. The names a success carries go through the
-  redactor as well, the team's name and the principal's reference: a
-  server that put the half there had it printed in the command's result
-  and kept in `team.json`, and now has a marker in its place. A half
-  shorter than sixteen characters is not registered: no backend mints
-  one, and a short text would be cut out of every line that holds those
-  characters.
+  or the ticket of its move, and `team create`, `team rotate-secret` and
+  `team open-move` the half of the secret in the server's answer before
+  they do anything else with it. The half is taken out of the names a
+  success carries as well, the team's name and the principal's
+  reference, and so is the credential that `team create`, `team join`
+  and `team take-in` are answered: a server that put either there had it
+  printed in the command's result and kept in `team.json`, and now has a
+  marker in its place. Nothing else of a name is touched, because it is
+  the team's own text: a team named "Standard Bearer ops" keeps its
+  name, though the redactor's rule for an Authorization header would cut
+  it in a log line. A half shorter than sixteen characters is not
+  registered: no backend mints one, and a short text would be cut out of
+  every line that holds those characters.
 - **`/clear` after a team moved registers the session on the backend the
   team is on** (work item 327). `/clear` runs the session's start again in
   the same process, and that start followed the team and then sent a

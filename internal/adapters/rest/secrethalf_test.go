@@ -174,6 +174,12 @@ func TestAServerThatPutsTheSecretHalfInASuccessCannotMakeTheAdapterPrintOrKeepIt
 			path: pathTeamJoin, half: presented, input: `{"join_secret":"` + secret + `"}`, args: []string{"team", "join"},
 			answer: `{` + named + presented + `","principal_ref":"p-` + presented + `","rejoined":false` + issued + `}`,
 		},
+		"team create": {
+			path: pathTeamCreate, half: learned, input: `{"team_name":"ops"}`, args: []string{"team", "create", "--secret-file"}, file: "created.secret",
+			// The credential beside the secret holds nothing of the secret's half.
+			answer: `{` + named + learned + `","principal_ref":"p-` + learned + `","join_secret":"` + secretOf(elsewhereRef, learned) +
+				`","credential":"fedcba9876543210fedcba9876543210fedcba9876543210"}`,
+		},
 		"team rotate-secret": {
 			path: pathTeamRotateSecret, half: learned, args: []string{"team", "rotate-secret", "--secret-file"}, owned: true, file: "rotated.secret",
 			answer: `{` + named + learned + `","secret_version":2,"rotated_at":"2026-11-14T10:00:00Z","join_secret":"` + secretOf(elsewhereRef, learned) + `"}`,
@@ -190,6 +196,8 @@ func TestAServerThatPutsTheSecretHalfInASuccessCannotMakeTheAdapterPrintOrKeepIt
 			args := tc.args
 			if tc.owned {
 				r.takeIn(secret, "ops")
+			}
+			if tc.file != "" {
 				args = append(append([]string{}, args...), filepath.Join(t.TempDir(), tc.file))
 			}
 			b.answerWith(only(tc.path, http.StatusOK, okEnvelope(tc.answer)))
@@ -228,6 +236,122 @@ func TestAServerThatPutsTheSecretHalfInASuccessCannotMakeTheAdapterPrintOrKeepIt
 			if tc.file != "" {
 				if written := secretIn(t, args[len(args)-1]); half(written) != tc.half {
 					t.Errorf("the file the command wrote does not hold the secret the answer carried")
+				}
+			}
+		})
+	}
+}
+
+// TestAServerThatPutsTheCredentialItIssuesInANameCannotMakeTheAdapterPrintOrKeepIt:
+// the three commands that are answered a credential register it before
+// they look at the names of the answer. A server that repeats the
+// credential in the team's name and in the principal's reference gets it
+// on no stream and not in team.json: a marker stands where it stood. The
+// credential itself is kept, in credential.json and nowhere else.
+func TestAServerThatPutsTheCredentialItIssuesInANameCannotMakeTheAdapterPrintOrKeepIt(t *testing.T) {
+	t.Parallel()
+	const issued = "0123456789abcdef0123456789abcdef0123456789abcdef"
+	secret := secretOf(elsewhereRef, "kept-from-the-other-backend")
+	named := `"team_ref":"` + elsewhereRef + `","team_name":"ops ` + issued + `","principal_ref":"p-` + issued + `","credential":"` + issued + `"`
+	for name, tc := range map[string]struct {
+		path, input, answer string
+		args                []string
+	}{
+		"team create": {
+			path: pathTeamCreate, input: `{"team_name":"ops"}`, args: []string{"team", "create", "--secret-file", filepath.Join(t.TempDir(), "created.secret")},
+			answer: `{` + named + `,"join_secret":"` + secretOf(elsewhereRef, "0123456789abcdef-a-new-secret") + `"}`,
+		},
+		"team join": {
+			path: pathTeamJoin, input: `{"join_secret":"` + secret + `"}`, args: []string{"team", "join"},
+			answer: `{` + named + `,"rejoined":false}`,
+		},
+		"team take-in": {
+			path: pathTeamTakeIn, input: takeInDocument(secret, "ops", ""), args: []string{"team", "take-in"},
+			answer: `{` + named + `,"taken_in":true,"owner":true}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend(t)
+			r := newRig(t, b.url())
+			b.answerWith(only(tc.path, http.StatusOK, okEnvelope(tc.answer)))
+			got := r.exec(tc.input, tc.args...)
+			if got.code != 0 {
+				t.Fatalf("exit %d: %s%s", got.code, got.stdout, got.stderr)
+			}
+			if strings.Contains(got.stdout+got.stderr, issued) {
+				t.Errorf("the credential a success carried in its names reached stdout or stderr:\n%s%s", got.stdout, got.stderr)
+			}
+			result, _ := decode(t, got.stdout)["result"].(map[string]any)
+			if result["team_name"] != "ops "+adapterlog.Redacted || result["principal_ref"] != "p-"+adapterlog.Redacted {
+				t.Errorf("the result names the team %q and the principal %q, want the server's names with the credential replaced", result["team_name"], result["principal_ref"])
+			}
+			profile, err := os.ReadFile(r.profilePath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(profile), issued) {
+				t.Errorf("team.json holds the credential a success carried in its names")
+			}
+			if status := r.exec("", "profile", "status"); strings.Contains(status.stdout+status.stderr, issued) {
+				t.Errorf("profile status shows the credential a success carried in its names: %s", status.stdout)
+			}
+			// Positive control: the credential is kept where one belongs, once.
+			if r.storedCredential() != issued {
+				t.Errorf("credential.json does not hold the credential the answer carried")
+			}
+			kept, err := os.ReadFile(r.credentialPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Count(string(kept), issued) != 1 {
+				t.Errorf("credential.json holds the credential %d times, want once: the principal's reference is hidden there too", strings.Count(string(kept), issued))
+			}
+		})
+	}
+}
+
+// TestANameInASuccessIsKeptAsThePersonWroteIt: the names of a success go
+// through the redactor for what the command registered, and for nothing a
+// format pattern takes for a secret. A team's name is a person's own text:
+// the word "bearer" before another reads as an Authorization header to the
+// redactor's bearer rule, and a name that begins like a key as that key.
+// Through the four commands that hide a name, against the stand-in server,
+// each such team is named in the result, in `profile status` and in
+// team.json as it was taken in.
+func TestANameInASuccessIsKeptAsThePersonWroteIt(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"Standard Bearer ops", "the bearer of news", "sb_secret_santa", "ops eyJhbGciOi.e30.x"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			// Positive control: the redactor's patterns cut this name.
+			if adapterlog.NewRedactor().Redact(name) == name {
+				t.Fatalf("no pattern of the redactor cuts %q", name)
+			}
+			b := newBackend(t)
+			secret := secretOf(elsewhereRef, "kept-from-the-other-backend")
+			owner, member := newRig(t, b.url()), newRig(t, b.url())
+			named := map[string]any{
+				"team take-in":       owner.takeIn(secret, name)["team_name"],
+				"team join":          member.join(secret, "bob@example.com")["team_name"],
+				"team open-move":     owner.ok("", "team", "open-move", "--ticket-file", filepath.Join(t.TempDir(), "ops.ticket"))["team_name"],
+				"team rotate-secret": owner.ok("", "team", "rotate-secret", "--secret-file", filepath.Join(t.TempDir(), "rotated.secret"))["team_name"],
+			}
+			for command, got := range named {
+				if got != name {
+					t.Errorf("%s names the team %q, want %q", command, got, name)
+				}
+			}
+			for who, r := range map[string]*rig{"the owner": owner, "the member": member} {
+				if got := r.ok("", "profile", "status")["team_name"]; got != name {
+					t.Errorf("profile status of %s names the team %q, want %q", who, got, name)
+				}
+				data, err := os.ReadFile(r.profilePath())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(data), `"`+name+`"`) || strings.Contains(string(data), adapterlog.Redacted) {
+					t.Errorf("team.json of %s does not hold the team's name as it is: %s", who, data)
 				}
 			}
 		})
