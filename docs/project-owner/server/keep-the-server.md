@@ -109,6 +109,34 @@ one for a monitor. An answer with status 200 says the server is up and answering
 curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' https://<host>/v1/info
 ```
 
+## Watch its certificate
+
+A certificate from a public authority ends, whether a proxy in front of the server holds it or you gave it with
+`--tls-cert`. Caddy renews its own when a third of its life is left; one you gave the server is yours to renew,
+with a restart after. A renewal that fails or is forgotten says nothing: on the day the certificate ends, every
+member's session stops connecting. So the second machine, the one that tells you of a failed copy, asks the name
+on a timer and posts to the same Slack webhook:
+
+- when the name stops answering `POST /v1/info`, and when it answers again, each once;
+- once a day while the certificate has less than a sixth of its life left. Caddy's renewal has failed for days
+  by then, and days are left to act.
+
+It reads the certificate's two dates at the name and the port a member reaches, and compares what is left with
+the whole:
+
+```sh
+echo | openssl s_client -connect <host>:<port> -servername <host> 2>/dev/null |
+	openssl x509 -noout -startdate -enddate -dateopt iso_8601
+```
+
+Four things keep it honest. It asks more than once before it calls the name down, because a nightly copy stops
+the server for some seconds. It keeps a line it could not post and posts it at its next run: a second machine
+that shares the server's connection hears of that connection's outage only when it is over. It says so when the
+name answers and the dates cannot be read, because a watch that sees nothing and reports nothing looks like good
+news. And you run it once with the threshold above what is left, so that you have seen its line arrive.
+
+A certificate made by `--tls-self-signed` is pinned, and its dates are not consulted: there is nothing to watch.
+
 ## What it writes
 
 The server writes lines to its standard error, which a service's journal keeps: its start and where it

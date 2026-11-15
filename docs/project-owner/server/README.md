@@ -72,6 +72,8 @@ Details: [Hand over the values](hand-over-the-values.md).
 4. A monitor asks `POST /v1/info`, which needs no credential.
 5. Pull the copies to a second machine and let a failed pull post to a Slack webhook from there: nobody else
    tells you that a copy failed.
+6. With a certificate from a public authority, let that machine also ask the name on a timer and read the
+   certificate's end: a renewal that fails says nothing until the day every session stops connecting.
 
 Details: [Keep the server](keep-the-server.md).
 

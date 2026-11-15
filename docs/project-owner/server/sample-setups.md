@@ -27,7 +27,7 @@ brigade-server --data <dir> --listen 127.0.0.1:8750 --create-token-file <file> -
 | Files | one directory, `~/brigade-server`: `bin/`, `data/`, `Caddyfile`, `gateways.json`, `create.token`, and `secrets/` (mode 0700) for the gateways' secret files |
 | Network | the name's address record is the router's public address. The router forwards TCP 443 to this machine's 8743 and nothing else: the certificate arrives over that port. |
 | Nightly copy | a timer runs a script: stop the server, archive `data` and the configuration, start it, keep the newest 14 |
-| Second machine | pulls the copies each night with a key that may only read that folder. A pull that fails posts to Slack. |
+| Second machine | pulls the copies each night with a key that may only read that folder. A pull that fails posts to Slack. Every fifteen minutes it asks `POST /v1/info` at the name and reads the certificate's end, and posts to Slack when the name stops answering, when it answers again, and while under a sixth of the certificate's life is left. |
 
 `~/.config/systemd/user/brigade-server.service`. Caddy's unit has the same shape, with
 `caddy run --config <the Caddyfile> --adapter caddyfile` as its `ExecStart`:
