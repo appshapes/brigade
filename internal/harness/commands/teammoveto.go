@@ -257,8 +257,15 @@ func (inv Invocation) checkMove(flags moveFlags) (*serverMove, error) {
 			return nil, err
 		}
 	}
-	if tokenFile != "" && fileOutside(tokenFile, top) != "" {
-		return nil, usage("--create-token-file must be a plainly spelled path outside this project: a creation token must never live under the repository")
+	if tokenFile != "" {
+		if fileOutside(tokenFile, top) != "" {
+			return nil, tokenInside()
+		}
+		// As for the secret's file: a path outside the checkout that is a
+		// link to a file inside it is inside it.
+		if resolved, rerr := filepath.EvalSymlinks(tokenFile); rerr == nil && fileOutside(resolved, top) != "" {
+			return nil, tokenInside()
+		}
 	}
 	path, ok := teamfile.Discover(inv.mustGetwd())
 	if !ok {
@@ -395,6 +402,12 @@ func checkMoveDestination(to, certificate string) error {
 		return usage("--to is longer than the record of a move can hold: " + strconv.Itoa(protocol.MaxMoveURLChars) + " characters at most")
 	}
 	return nil
+}
+
+// tokenInside refuses a creation token's file that is, or is a link to, a
+// file under the checkout.
+func tokenInside() *protocol.Error {
+	return usage("--create-token-file must be a plainly spelled path outside this project: a creation token must never live under the repository")
 }
 
 // rewritable tries step e's rewrite of the team file on the file as it is,

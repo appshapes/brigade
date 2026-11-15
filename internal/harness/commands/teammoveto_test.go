@@ -580,6 +580,7 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 		"a creation token file inside the checkout":           "--create-token-file must be a plainly spelled path outside this project",
 		"the secret of another team":                          "name the file `team create` wrote for this team",
 		"a url longer than a record holds":                    "--to is longer than the record of a move can hold",
+		"a creation token file linked into the checkout":      "--create-token-file must be a plainly spelled path outside this project",
 		"a team file too large to name the server as well":    "cannot be rewritten to name the server",
 		"a url that a team file may not carry":                "cannot be rewritten to name that server",
 	}
@@ -650,6 +651,17 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 		{"a relative creation token file", func(r *moveToRig) []string { return r.args("--create-token-file", "create.token") }, protocol.CodeUsage, ""},
 		{"a creation token file inside the checkout", func(r *moveToRig) []string {
 			return r.args("--create-token-file", filepath.Join(r.top, "create.token"))
+		}, protocol.CodeUsage, ""},
+		{"a creation token file linked into the checkout", func(r *moveToRig) []string {
+			inside := filepath.Join(r.top, "create.token")
+			if err := os.WriteFile(inside, []byte("a-token-in-the-checkout\n"), 0o600); err != nil {
+				r.t.Fatal(err)
+			}
+			link := filepath.Join(r.f.dirs.Root, "linked.token")
+			if err := os.Symlink(inside, link); err != nil {
+				r.t.Fatal(err)
+			}
+			return r.args("--create-token-file", link)
 		}, protocol.CodeUsage, ""},
 		{"a creation token file that is not there", func(r *moveToRig) []string {
 			return r.args("--create-token-file", filepath.Join(r.f.dirs.Root, "no-such.token"))
