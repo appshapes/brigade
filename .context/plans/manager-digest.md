@@ -156,7 +156,7 @@ Each is a row in the command table, so `make docs-generate` and a persona page n
 
 | Gate | Checked how | Asks for |
 | --- | --- | --- |
-| The turn made a commit and no note followed | HEAD moved since the entry's last commit | a note |
+| A commit was made in the checkout during the turn and no note followed | one of the entry's commits is marked made in the checkout (HEAD's reflog) and its time is after the turn's prompt (work item 319, ADR 0005; until 0.55.0 the entry's newest commit, whoever made it and whenever) | a note |
 | The doing line is older than ten minutes and the turn ran longer than a minute | stamps in the by-pid map | a refreshed doing line |
 | A manager is configured for the team | `reports.json` present with `manager` | a decision, if the model is waiting on one |
 

@@ -12,6 +12,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0002. Close a decision's ask from the asker's side, with the ruling as its outcome](0002-close-a-decisions-ask-from-the-askers-side.md)
 - [0003. Follow a team that moved, on the old backend's record and a move ticket](0003-follow-a-team-that-moved-on-the-old-backends-record.md)
 - [0004. Bound one principal on a server with the reference backend's numbers](0004-bound-one-principal-on-a-server-with-the-reference-backends-numbers.md)
+- [0005. Ask for a note only for a commit made in the checkout during the turn, and say what git shows](0005-ask-for-a-note-only-for-a-commit-of-the-turn.md)
 - [0006. Take a team in and open its move by request, and let whoever takes it in own it](0006-take-a-team-in-and-open-its-move-by-request.md)
 - [0007. Let a session move a team, behind an option that is on by default](0007-let-a-session-move-a-team.md)
 - [0008. Follow a move from a running session at its next prompts](0008-follow-a-move-from-a-running-session-at-its-next-prompts.md)
