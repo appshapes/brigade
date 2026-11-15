@@ -1097,16 +1097,15 @@ func (m *serverMove) cannotRecord(err error) error {
 			Details: map[string]string{"reason": reasonServerLacksMove},
 		}
 	case perr.Code == protocol.CodeUnauthorized:
-		who, whose, where := "the member who created this team on "+m.fromHost(), "administrator's", "administrator's machine"
 		if m.source.Adapter == config.BundledRestName {
 			// A team on a server has an owner, which a transfer and the
 			// server's operator can change: the creator is not always it.
-			who, whose, where = "the owner of this team on "+m.fromHost(), "owner's", "owner's machine, or have the owner transfer the team to you first"
+			return onlyTheOwner(m.fromHost(), "move it", "Nothing was changed")
 		}
 		return &protocol.Error{
 			Code: protocol.CodeUnauthorized,
-			Message: "only " + who + " can move it: where a team went is its " + whose + " to record there. " +
-				"Run this on the " + where + ". Nothing was changed",
+			Message: "only the member who created this team on " + m.fromHost() + " can move it: where a team went is its administrator's to record there. " +
+				"Run this on the administrator's machine. Nothing was changed",
 			Details: map[string]string{"reason": reasonNotTheCreator},
 		}
 	}

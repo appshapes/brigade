@@ -584,7 +584,19 @@ func (inv Invocation) ownerOnly(t *target, source *adapterkit.Profile, err error
 	if _, keeps, rerr := inv.recordOn(t); rerr != nil || !keeps {
 		return err
 	}
-	message := "only the owner of this team on " + attrLine(hostOf(source.URL)) + " can " + does + ": where a team went is its owner's to record there. " +
+	return onlyTheOwner(attrLine(hostOf(source.URL)), does, undone)
+}
+
+// onlyTheOwner is the refusal of a member of a team on a Brigade server
+// who does not own it there and asked for what only its owner may: to move
+// the team, or to record or clear where it went. It is the one place the
+// sentence is written (work item 341): the one command says it of a move
+// (cannotRecord), and the record's own forms of a record and of its clear
+// (ownerOnly). host is the server as a line names it, does what was asked,
+// in the words that follow "can", and undone the sentence that says what
+// came of it, "" for none.
+func onlyTheOwner(host, does, undone string) *protocol.Error {
+	message := "only the owner of this team on " + host + " can " + does + ": where a team went is its owner's to record there. " +
 		"Run this on the owner's machine, or have the owner transfer the team to you first"
 	if undone != "" {
 		message += ". " + undone

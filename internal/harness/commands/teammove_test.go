@@ -928,3 +928,23 @@ func TestAClearThatIsToldToWaitIsNotToldAsRefused(t *testing.T) {
 		t.Errorf("a clear that was told to wait is told as refused: %s", perr.Message)
 	}
 }
+
+// TestTheOwnerOnlyRefusalIsOneSentence (work item 341): the refusal of a
+// member who does not own the team on a server is written once, with the
+// verb and the closing sentence its callers give it: the one command's
+// words for a move, and the record's own forms' for a record and its
+// clear.
+func TestTheOwnerOnlyRefusalIsOneSentence(t *testing.T) {
+	t.Parallel()
+	const rest = ": where a team went is its owner's to record there. Run this on the owner's machine, or have the owner transfer the team to you first"
+	for _, tc := range []struct{ does, undone, want string }{
+		{"move it", "Nothing was changed", "only the owner of this team on h.example.test can move it" + rest + ". Nothing was changed"},
+		{"clear the record of where it went", "Nothing was changed", "only the owner of this team on h.example.test can clear the record of where it went" + rest + ". Nothing was changed"},
+		{"record where it went", "", "only the owner of this team on h.example.test can record where it went" + rest},
+	} {
+		got := onlyTheOwner("h.example.test", tc.does, tc.undone)
+		if got.Message != tc.want || got.Code != protocol.CodeUnauthorized || got.Details["reason"] != reasonNotTheCreator {
+			t.Errorf("onlyTheOwner(%q, %q): %+v, want %q", tc.does, tc.undone, got, tc.want)
+		}
+	}
+}
