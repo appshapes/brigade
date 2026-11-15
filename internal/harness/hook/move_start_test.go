@@ -398,3 +398,47 @@ func TestTheRetryOfASessionAttachedToNothingSaysThatBrigadeIsAsking(t *testing.T
 		}
 	})
 }
+
+// TestAStartKeepsTheShellsRoadToAMuseSessionThatStays: on Muse Code a
+// command in the model's shell finds its session through a pointer filed
+// under the native session id, and a start whose document names another id
+// retires the pointer of the one before. A start that keeps the session
+// where it is (messages wait for it) therefore has to file the pointer of
+// the conversation that begins, to the same session: without it the shell
+// of a session that is attached would find none. The arming line follows
+// the context line, as at every start there.
+func TestAStartKeepsTheShellsRoadToAMuseSessionThatStays(t *testing.T) {
+	t.Parallel()
+	f := movingFixture(t, config.HostMuse)
+	f.noAdapterOption = true
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	f.moveTeamFile("team-1")
+	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+		t.Fatalf("lines = %q", got)
+	}
+	entries := heldEntries(1, "payments-api")
+	if err := pendingStoreOf(f).Save(inbound.PendingFile{Entries: entries, UpdatedAt: fixedTime}); err != nil {
+		t.Fatal(err)
+	}
+	first, registers := f.nativeID, len(seam.callsFor("session register"))
+	f.nativeID = otherConversation
+	exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("startup"))
+	if exit != 0 || strings.Contains(out, "not connected") {
+		t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+	}
+	got := lines(out)
+	if len(got) != 4 || !strings.Contains(got[0], "followed team") || got[1] != moveWaitsLine(1) || !strings.Contains(got[2], "(brigade-sess-1)") || got[3] != armLine(f.pluginBin) {
+		t.Fatalf("the start's lines: %q", got)
+	}
+	m := f.mustMap()
+	if m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || m.ClaudeSessionID != otherConversation || len(seam.callsFor("session register")) != registers {
+		t.Fatalf("the map after the start: %+v", m)
+	}
+	if p, err := f.store().ReadByHost(string(config.HostMuse), otherConversation); err != nil || p.BrigadeSessionID != "brigade-sess-1" || p.HostPID != f.key() {
+		t.Fatalf("the pointer of the conversation that began: %+v, %v", p, err)
+	}
+	if _, err := f.store().ReadByHost(string(config.HostMuse), first); err == nil {
+		t.Fatalf("the pointer of the conversation that ended is still there")
+	}
+}
