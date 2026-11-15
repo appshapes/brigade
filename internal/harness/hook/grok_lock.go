@@ -68,6 +68,9 @@ func (r *run) lockGrokHook() (func(), error) {
 				release()
 				return nil, err
 			}
+			if r.deps.GrokLockHeld != nil {
+				r.deps.GrokLockHeld()
+			}
 			if !time.Now().Before(deadline) {
 				release()
 				return nil, errors.New("grok receiver transaction is busy; hook deferred")

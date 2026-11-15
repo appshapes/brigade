@@ -279,6 +279,12 @@ type Deps struct {
 	// busy machine to decide, by how long git took to answer (work item
 	// 336).
 	GitBudget time.Duration
+	// GrokLockHeld, when set, is called by a Grok hook each time it finds
+	// the receiver's lock held by another hook (grok_lock.go), before it
+	// tries again or gives up. nil in production, which tells nobody. A
+	// test waits on it for the moment a second hook contends, where it
+	// would otherwise sleep and hope (work item 336).
+	GrokLockHeld func()
 	// FollowBudget bounds the whole follow of `brigade hook follow`, the
 	// child a prompt hook starts (move.go, work item 327); zero means
 	// followBudget. Only a test lowers it, to see a follow whose backend
