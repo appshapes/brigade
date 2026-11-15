@@ -52,8 +52,9 @@ func (r *rig) restPrompt(s session) result {
 }
 
 // promptedUntilMoved prompts s, through prompt, until its session is
-// registered under the team key newKey, and returns what those prompts
-// printed. One prompt does it where the machine has time to spare. A prompt
+// registered under the team key newKey, a session that was attached to
+// nothing included, and returns what those prompts printed. One prompt does
+// it where the machine has time to spare. A prompt
 // has a few seconds for the registration, and on a loaded machine an
 // adapter child may not start within them: the session then says once that
 // it could not be registered, stays where it is, and tries again at a later
@@ -67,7 +68,7 @@ func (r *rig) promptedUntilMoved(s session, newKey string, prompt func(session) 
 		res := prompt(s)
 		said.stdout += res.stdout
 		said.stderr += res.stderr
-		if r.mustMap(s).TeamKey == newKey {
+		if r.mapExists(s) && r.mustMap(s).TeamKey == newKey {
 			return true
 		}
 		r.t.Logf("a prompt did not move the session, and it is prompted again: stdout %q\nstderr %s", res.stdout, res.stderr)

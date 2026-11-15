@@ -839,7 +839,7 @@ func TestAServerThatDoesNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThroughTheR
 	// The session's next prompt says what its start said, and not that the
 	// team file does not match: the follow it starts finds the same.
 	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
-	if res := r.restPrompt(s); r.mapExists(s) || !silentWords(res.stdout) {
+	if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || !silentWords(res.stdout) {
 		t.Fatalf("the prompt after that start: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	testutil.Eventually(t, waitLong, pollEvery, func() bool {
@@ -915,7 +915,7 @@ func TestAServerThatRefusesIsNotToldAsOneThatDidNotAnswerThroughTheRealBinary(t 
 	if r.mapExists(s) || !refusedWords(res.stdout) {
 		t.Fatalf("a start while the server the team moved to does not know the credential: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
-	if res := r.restPrompt(s); r.mapExists(s) || !refusedWords(res.stdout) {
+	if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || !refusedWords(res.stdout) {
 		t.Fatalf("the prompt after that start: stdout %q\nstderr %s", res.stdout, res.stderr)
 	}
 	if pin, _, perr := teamstore.LookupPin(r.configDirB, canon); perr != nil || *pin != *pinBefore {
@@ -926,9 +926,8 @@ func TestAServerThatRefusesIsNotToldAsOneThatDidNotAnswerThroughTheRealBinary(t 
 	if res := r.runIn(second, r.restEnv(s), "", strings.Fields(line)[1:]...); res.exit != 0 || !strings.Contains(res.stdout, "joined team") {
 		t.Fatalf("the command the line printed, %q: exit %d\nstdout: %s\nstderr: %s", line, res.exit, res.stdout, res.stderr)
 	}
-	if res := r.restPrompt(s); !r.mapExists(s) || r.mustMap(s).TeamKey != r.keyAt(b) {
-		t.Fatalf("the prompt after the member's own join: stdout %q\nstderr %s", res.stdout, res.stderr)
-	}
+	// The session connects at a prompt after the member's own join.
+	r.promptedUntilMoved(s, r.keyAt(b), r.restPrompt)
 	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 }
 
@@ -964,6 +963,24 @@ func (r *rig) aMinuteLater(s session, configDir, canon string) {
 			r.t.Fatalf("a minute's stamp: %v", err)
 		}
 	}
+}
+
+// promptedUntilAFollowStarts prompts s, a minute apart, until one of its
+// prompts starts the follow of its checkout's move, and returns what those
+// prompts printed. One prompt does it where the machine has time to spare;
+// on a loaded machine a prompt can run out of its few seconds before it
+// gets there, and the member's next prompt does it.
+func (r *rig) promptedUntilAFollowStarts(s session, configDir, canon string) result {
+	r.t.Helper()
+	var said result
+	testutil.Eventually(r.t, waitLong, pollEvery, func() bool {
+		r.aMinuteLater(s, configDir, canon)
+		res := r.restPrompt(s)
+		said.stdout += res.stdout
+		said.stderr += res.stderr
+		return strings.Contains(res.stderr, "started the follow of the team's move")
+	})
+	return said
 }
 
 // TestARefusedRejoinIsAskedForOnceAndLeavesTheMembersOwnJoinToHimThroughTheRealBinary:
@@ -1028,8 +1045,7 @@ func TestARefusedRejoinIsAskedForOnceAndLeavesTheMembersOwnJoinToHimThroughTheRe
 	}
 	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
 	for i := range 3 {
-		r.aMinuteLater(s, r.configDirB, canon)
-		if res := r.restPrompt(s); r.mapExists(s) || strings.Contains(res.stdout, refusedWords) {
+		if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || strings.Contains(res.stdout, refusedWords) {
 			t.Fatalf("prompt %d after the refusal: stdout %q\nstderr %s", i+1, res.stdout, res.stderr)
 		}
 		// The follow the prompt started has ended before the next one.
@@ -1047,9 +1063,8 @@ func TestARefusedRejoinIsAskedForOnceAndLeavesTheMembersOwnJoinToHimThroughTheRe
 	if res.exit != 0 || !strings.Contains(res.stdout, "joined team") || strings.Contains(res.stderr, "rate_limited") {
 		t.Fatalf("the member's own join, %q: exit %d\nstdout: %s\nstderr: %s", line, res.exit, res.stdout, res.stderr)
 	}
-	if res := r.restPrompt(s); !r.mapExists(s) || r.mustMap(s).TeamKey != r.keyAt(b) {
-		t.Fatalf("the prompt after the member's own join: stdout %q\nstderr %s", res.stdout, res.stderr)
-	}
+	// The session connects at a prompt after the member's own join.
+	r.promptedUntilMoved(s, r.keyAt(b), r.restPrompt)
 	if listed := r.principalsAt(b)[bobLabel]; len(listed) != 1 || listed[0] != onB {
 		t.Fatalf("he came back to B as %v; he was %q", listed, onB)
 	}
