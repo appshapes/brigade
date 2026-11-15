@@ -4,6 +4,7 @@ package hook
 
 import (
 	"context"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -822,5 +823,118 @@ func TestABackendThatSaysToWaitTakesNothingBack(t *testing.T) {
 	}
 	if pin := f.checkoutPin(); pin != before {
 		t.Fatalf("the pin moved: %+v", pin)
+	}
+}
+
+// TestWhatAFollowLeftSpeaksForFifteenMinutes (work item 341): a follow
+// found the server the team moved to silent, and left that for the
+// checkout's prompts. The backend the member joined then goes away for
+// good, which is how a migration ends: every later follow learns nothing
+// and leaves the mark as it is. Until this every start and every prompt
+// then said, for ever, that the server did not answer and that a session
+// tries again, and no line named the join that is the only way in. What a
+// follow left speaks only for notFollowedSpeaksFor, by the hook's clock,
+// from when a follow that learned something last wrote it: to the
+// nanosecond before it a start says the mark's line, and from it on what a
+// start says where no follow left anything. The mark stays on disk, its
+// time as it was, until a follow that learns something writes it anew.
+func TestWhatAFollowLeftSpeaksForFifteenMinutes(t *testing.T) {
+	t.Parallel()
+	if notFollowedSpeaksFor != 15*time.Minute {
+		t.Fatalf("what a follow left speaks for %s, want fifteen minutes", notFollowedSpeaksFor)
+	}
+	f := memberOfTheServer(t)
+	serverSays(f, func(verb string) *protocol.ErrorObject {
+		if verb != "team moved" {
+			return nil
+		}
+		return &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "the backend could not be reached", Retryable: true}
+	})
+	began, before := f.now, f.checkoutPin()
+	start := func() []string {
+		t.Helper()
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+		if exit != 0 || f.mapExists() {
+			t.Fatalf("session-start: exit %d, a map is there: %v: %s", exit, f.mapExists(), errOut)
+		}
+		return lines(out)
+	}
+	if got := start(); !slices.Equal(got, []string{newBackendSilentLine}) {
+		t.Fatalf("the start that reached the server: %q", got)
+	}
+	mark := config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+	left, err := os.ReadFile(mark) //nolint:gosec // the fixture's own state directory
+	if err != nil {
+		t.Fatalf("the start left no mark: %v", err)
+	}
+	// From here the backend the member joined does not answer.
+	reaches := f.deps.Spawn
+	joinedBackendSilent(f)
+	for _, step := range []struct {
+		at   time.Duration
+		want string
+	}{
+		{time.Minute, newBackendSilentLine},
+		{notFollowedSpeaksFor - time.Nanosecond, newBackendSilentLine}, // the last instant it speaks
+		{notFollowedSpeaksFor, driftLine},                              // and the first it does not
+		{2 * notFollowedSpeaksFor, driftLine},
+		{-time.Hour, driftLine}, // a clock set back: a mark from the future speaks of nothing
+	} {
+		f.now = began.Add(step.at)
+		if got := start(); !slices.Equal(got, []string{step.want}) {
+			t.Errorf("a start that could not ask, %v after the mark was written: %q, want %q", step.at, got, step.want)
+		}
+		if now, err := os.ReadFile(mark); err != nil || string(now) != string(left) { //nolint:gosec // as above
+			t.Fatalf("%v after: the mark is %q, %v; a follow that learned nothing leaves it and its time as they were: %q", step.at, now, err, left)
+		}
+	}
+	// A prompt reads it by the same clock.
+	f.now = began.Add(notFollowedSpeaksFor)
+	if got := f.prompted(); !slices.Equal(got, []string{movedRetryLine, driftLine}) {
+		t.Errorf("a prompt once the mark no longer speaks: %q", got)
+	}
+	// A follow that learns something writes it anew, with its own time.
+	f.deps.Spawn = reaches
+	f.now = began.Add(2 * notFollowedSpeaksFor)
+	if got := start(); !slices.Equal(got, []string{newBackendSilentLine}) {
+		t.Fatalf("the start that reached the server again: %q", got)
+	}
+	var written followedMark
+	if now, err := os.ReadFile(mark); err != nil || json.Unmarshal(now, &written) != nil || !written.FollowedAt.Equal(f.now) { //nolint:gosec // as above
+		t.Fatalf("the mark after a follow that learned something: %+v, %v, want its time %s", written, err, f.now)
+	}
+	if pin := f.checkoutPin(); pin != before {
+		t.Fatalf("the pin moved: %+v", pin)
+	}
+}
+
+// TestARunningSessionIsNotToldWhatAFollowLeftLongAgo (work item 341): the
+// same clock holds what a running session says of two backends that name
+// each other. Its prompt says so from the mark, before the follow it
+// starts has asked anything; a mark older than notFollowedSpeaksFor is of
+// a follow whose answers nothing has confirmed since, and is not said.
+func TestARunningSessionIsNotToldWhatAFollowLeftLongAgo(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		age  time.Duration
+		want []string
+	}{
+		"the last instant it speaks": {notFollowedSpeaksFor - time.Nanosecond, []string{movedEachOtherLine, movedLine}},
+		"the first it does not":      {notFollowedSpeaksFor, []string{movedLine}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+			f.moveTeamFile("team-1")
+			mark := config.MoveNotFollowedMark(f.stateDir, f.configDir, f.canon())
+			left := append(mustJSON(followedMark{Version: followedMarkVersion, TeamKey: teamstore.Key("rest", movedURL, "team-1"), FollowedAt: f.now.Add(-tc.age), Reason: teammove.ReasonEachOther}), '\n')
+			if err := adapterkit.WriteAtomic(mark, left); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.prompted(); !slices.Equal(got, tc.want) {
+				t.Fatalf("the prompt over a mark %v old: %q, want %q", tc.age, got, tc.want)
+			}
+		})
 	}
 }

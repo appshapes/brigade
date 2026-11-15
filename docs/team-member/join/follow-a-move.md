@@ -94,9 +94,11 @@ same in every case and names no cause, because the file is not to be trusted unt
 A session that could not ask, because the backend you joined did not answer or another session of yours held
 it up, says something else where an earlier session of the checkout did ask and was told that the backend the
 team moved to did not answer, that it refuses the membership, or that the two backends name each other: it says
-that again, because that is the last thing known. A backend you joined that no longer counts you a member is
-not such a case. It answered, so what an earlier session was told is taken back, and the session says that the
-file does not match.
+that again, because that is the last thing known, for fifteen minutes from when a session last asked and was
+told so. After that it says that the file does not match, until a session can ask again: where the backend you
+joined is gone for good, none can, and the join that line names is the way in. A backend you joined that no
+longer counts you a member is not such a case. It answered, so what an earlier session was told is taken back,
+and the session says that the file does not match.
 
 A plugin older than 0.55.0 does not follow either, though the move is recorded, and neither does one older than
 0.57.0 when the team left a Brigade server: update it ([Update](../update/README.md)) and start a new session, or
@@ -127,10 +129,12 @@ asks once more.
 the right one; the new backend could not be reached, did not answer in time, or said to wait, when the session
 asked it about the membership your machine holds there or, where it holds none, joined it with the move's
 ticket. Your checkout stays joined where it was, and nothing is yours to do: the next session follows when it
-starts, and this one at one of its next prompts. Until then a prompt says the same. Where a join was sent, two
-things may have changed all the same: Brigade's files hold a directory for that backend from then on, and the
-backend may have carried the join out though its answer never arrived. The next session joins again; where
-the first join was carried out, your machine is then on that backend's roster twice.
+starts, and this one at one of its next prompts. Until then a prompt says the same, as long as a session asked
+within the last fifteen minutes; a prompt that comes later says that the file does not match, and the one
+after it this line again, once the session has asked. Where a join was sent, two things may have changed all
+the same: Brigade's files hold a directory for that backend from then on, and the backend may have carried the
+join out though its answer never arrived. The next session joins again; where the first join was carried out,
+your machine is then on that backend's roster twice.
 
 **If the session says that the backend refuses the membership this machine holds there.** The move is recorded
 and the file is the right one, and the backend the team moved to answered: it does not know the credential your

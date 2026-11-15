@@ -70,6 +70,11 @@ const (
 	// and a team file that names a backend nobody recorded would otherwise
 	// have it asked at every prompt.
 	followInterval = time.Minute
+	// notFollowedSpeaksFor is how long what a follow left for the checkout's
+	// hooks (config.MoveNotFollowedMark) is said by a hook that could not ask
+	// for itself, counted from when a follow that learned something wrote it
+	// (lastNotFollowed).
+	notFollowedSpeaksFor = 15 * time.Minute
 	// moveLogLimit is the size at which the child's log is set aside for a
 	// fresh one, one generation kept.
 	moveLogLimit = 1 << 20
@@ -535,10 +540,26 @@ func (r *run) dropNotFollowedMark(stateDir, configDir, canon string) {
 
 // lastNotFollowed is why the last follow of the checkout did not follow,
 // where it left a mark for the backend the team file names now
-// (markNotFollowed), and "" otherwise.
+// (markNotFollowed) and the mark still speaks, and "" otherwise.
+//
+// A mark speaks for notFollowedSpeaksFor from when a follow that learned
+// something wrote it, by the hook's clock. A follow that learns nothing
+// leaves the mark and its time as they are, so where every follow learns
+// nothing the mark grows old: the backend the member joined is gone for
+// good, a server shut down or a project deleted, which is how a migration
+// ends. Until this the mark was then said with no end, "that backend did
+// not answer … a session tries again", and no line named the join that is
+// the only way in (work item 341). Past that time a hook says what it says
+// where no follow left anything. The mark itself stays on disk until a
+// follow that learns something takes it back or writes it anew. A mark
+// from the future is a clock that was set back, and speaks of nothing, as
+// a refusal's record from the future pauses nothing (teammove.RejoinPause).
 func (r *run) lastNotFollowed(f facts, opts config.Options, canon string, tf *teamfile.File) string {
 	mark, marked := readFollowedMark(config.MoveNotFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef))
 	if !marked {
+		return ""
+	}
+	if age := r.deps.Now().Sub(mark.FollowedAt); age < 0 || age >= notFollowedSpeaksFor {
 		return ""
 	}
 	return mark.Reason

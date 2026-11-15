@@ -123,13 +123,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   backend it joined does not answer or another follow of the machine
   holds the lock, says what the last follow that asked left, as its
   prompts do; where none left anything it says, as it did, that the
-  file does not match. A backend the member joined that refuses the
-  question, as it refuses a member it has put out, has answered: what an
-  earlier follow left is taken back, and the session says that the file
-  does not match, which names the join that helps. A server the team
-  moved to that answers another refusal, a credential it does not know
-  above all, is told as a server that refuses the membership, with the
-  same command, and not as one to wait for.
+  file does not match. What a follow left is said for fifteen minutes
+  from when a follow last asked: past that a session says that the file
+  does not match, so a member whose old backend is gone for good is
+  told the join and not to wait. A backend the member joined that
+  refuses the question, as it refuses a member it has put out, has
+  answered: what an earlier follow left is taken back, and the session
+  says that the file does not match, which names the join that helps. A
+  server the team moved to that answers another refusal, a credential it
+  does not know above all, is told as a server that refuses the
+  membership, with the same command, and not as one to wait for.
 - **`team rotate-secret` and `team revoke-member` say which backend they
   act on, and take `--on <url or host>`.** After a move a checkout is
   joined to the server the team went to, and a team command goes there

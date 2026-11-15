@@ -219,6 +219,16 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			need:  []string{"or that says to wait (`rate_limited`"},
 		},
 		{
+			why:   "what a follow left is said for fifteen minutes and no longer: a member whose old backend is gone for good is told the join, where a session said with no end that the backend the team moved to did not answer",
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			need:  []string{"for fifteen minutes from when a session last asked", "After that it says that the file does not match"},
+		},
+		{
+			why:   "the changelog says the same of how long what a follow left is said",
+			files: []string{"CHANGELOG.md"},
+			need:  []string{"What a follow left is said for fifteen minutes"},
+		},
+		{
 			why:   "a join that was not answered has left a directory for the backend in the member's store, and the backend may have carried it out: the page does not say that nothing was changed",
 			files: []string{"docs/team-member/join/follow-a-move.md"},
 			gone:  []string{"Nothing was changed, and nothing is yours to do"},

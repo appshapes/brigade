@@ -2218,3 +2218,108 @@ func TestAServerThatSaysToWaitIsNotToldAsOneThatRefusesThroughTheRealBinary(t *t
 		t.Fatalf("the start after both answered: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
 	}
 }
+
+// markedAt makes what a follow left for a checkout's hooks d old, by the
+// one clock the built binary has: the mark's own time against the
+// machine's. It returns the bytes it wrote.
+func markedAt(t *testing.T, mark string, d time.Duration) string {
+	t.Helper()
+	text, err := os.ReadFile(mark) //nolint:gosec // G304: a file under the test's own state directory
+	if err != nil {
+		t.Fatalf("what the follow left: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(text, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["followed_at"] = time.Now().Add(-d).UTC().Format(time.RFC3339Nano)
+	aged, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mark, append(aged, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return string(aged) + "\n"
+}
+
+// TestWhatAFollowLeftIsSaidForFifteenMinutesThroughTheRealBinary: a
+// follow finds the server the team moved to down and leaves that for the
+// checkout's hooks. The server the member joined then goes away for good,
+// which is how a migration ends. Every later follow learns nothing, and
+// until this every start and every prompt said, with no end, that the
+// server the team moved to did not answer and that a session tries again:
+// no line named the join that is the only way in. What a follow left is
+// said for fifteen minutes from when a follow that learned something wrote
+// it, and after that a session says what it says where nothing was left.
+//
+//  1. Ten seconds short of the fifteen minutes, a start that cannot ask
+//     says that the server did not answer.
+//  2. A second past them, a start says that the file does not match and to
+//     run `brigade team join`, and so does a session's prompt. The mark is
+//     on disk as it was.
+//  3. The server the member joined answers again: the next start reaches
+//     the server the team moved to, and writes the mark anew.
+func TestWhatAFollowLeftIsSaidForFifteenMinutesThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	downA, downB := &silent{}, &silent{}
+	_, a := startFront(t, startRestBackend(t), downA.before, nil)
+	_, b := startFront(t, startRestBackend(t), downB.before, nil)
+	r := teamOnAServer(t, a)
+	second, canon := r.anotherCheckout(r.configDirB, "checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
+	downB.on.Store(true)
+	if res, key := r.startsIn("bob", bobName, second); key != "" || !strings.Contains(res.stdout, "did not answer") {
+		t.Fatalf("the start while the server the team moved to is down: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	// The server the member joined goes away.
+	downA.on.Store(true)
+	same := func(when, left string) {
+		t.Helper()
+		if now, err := os.ReadFile(mark); err != nil || string(now) != left { //nolint:gosec // G304: a file under the test's own state directory
+			t.Fatalf("%s: the mark is %q, %v; it was %q", when, now, err, left)
+		}
+	}
+
+	// --- 1. inside the fifteen minutes ------------------------------------------------------------------------
+	left := markedAt(t, mark, 15*time.Minute-10*time.Second)
+	res, key := r.startsIn("bob", bobName, second)
+	if key != "" || !strings.Contains(res.stdout, "did not answer") || strings.Contains(res.stdout, "does not match") || !strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
+		t.Fatalf("a start that cannot ask, ten seconds short of fifteen minutes after the mark: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	same("a start inside the fifteen minutes", left)
+
+	// --- 2. past them -----------------------------------------------------------------------------------------
+	left = markedAt(t, mark, 15*time.Minute+time.Second)
+	res, key = r.startsIn("bob", bobName, second)
+	if key != "" || !strings.Contains(res.stdout, "does not match") || !strings.Contains(res.stdout, "run `brigade team join`") || strings.Contains(res.stdout, "did not answer") {
+		t.Fatalf("a start that cannot ask, a second past fifteen minutes after the mark: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	same("a start past the fifteen minutes", left)
+	s := r.newSession("bob", bobName, "", "", "")
+	s.cwd = second
+	r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	moveLog := filepath.Join(r.stateDir, "logs", "team-move.log")
+	if res := r.promptedUntilAFollowStarts(s, r.configDirB, canon); r.mapExists(s) || !strings.Contains(res.stdout, "does not match") || strings.Contains(res.stdout, "did not answer") {
+		t.Fatalf("a prompt past the fifteen minutes: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool {
+		return logLines(moveLog, "the team file names another backend for this team, and the move was not followed") == 1
+	})
+	same("a prompt's follow that could not ask", left)
+	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+
+	// --- 3. the server the member joined answers again: a follow that learns something writes the mark anew ---
+	downA.on.Store(false)
+	if res, key := r.startsIn("bob", bobName, second); key != "" || !strings.Contains(res.stdout, "did not answer") {
+		t.Fatalf("the start that reached the server the team moved to again: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if now, err := os.ReadFile(mark); err != nil || string(now) == left { //nolint:gosec // G304: as above
+		t.Fatalf("a follow that learned something left the mark's time as it was: %q, %v", now, err)
+	}
+}
