@@ -74,9 +74,10 @@ about to do and proceeds: running it is the consent, and the user asked you to.
 - If it stopped **after** the team was taken in, it says `Run the same command again`: do that once the cause is
   gone. Every step is safe to repeat.
 - If it says that this machine has joined the team on more than one other backend, the team moved before and
-  nothing in this checkout says which backend it is leaving now. The refusal names them and prints the command
-  once for each, with its `--from`. Ask the user which backend the team is on, and run that one: that is their
-  answer, not a second try of yours.
+  which backend it is leaving now is not settled: nothing in this checkout says it, or the backend this checkout
+  was joined to is not the only one that records a move to the server. The refusal names them and prints the
+  command once for each, with its `--from`. Ask the user which backend the team is on, and run that one: that
+  is their answer, not a second try of yours.
 - If it says that the address is the server this team is on, relay it and stop: a team is not moved onto its
   own server, and a server's new certificate is a change of `.brigade.json` and a join, which the message says.
 - If it says that the server is the same server under another address, or a copy of its data, relay it and

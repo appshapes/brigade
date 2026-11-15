@@ -1415,7 +1415,11 @@ func TestALiftedBanBringsTheMemberBackWhenTheRefusalIsFifteenMinutesOldThroughTh
 //     candidate is the checkout's: it refuses, names both, and prints the
 //     command for each with its --from.
 //  2. In a checkout of hers that followed from B at a session's start, the
-//     pin says where it came from, B records the move, and B it is.
+//     pin says where it came from and B records the move. While A's record
+//     of the first move still names C beside it, that is what a checkout
+//     left behind on A shows too, so it refuses and writes nothing
+//     (TestARerunDoesNotTakeTheCheckoutsBackendWhereAnotherRecordsTheMoveTooThroughTheRealBinary).
+//  3. With A's record cleared, B alone records the move, and B it is.
 func TestARecordAloneDoesNotChooseTheBackendARerunLeavesThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	a, b, c := startRestBackend(t), startRestBackend(t), startRestBackend(t)
@@ -1452,12 +1456,153 @@ func TestARecordAloneDoesNotChooseTheBackendARerunLeavesThroughTheRealBinary(t *
 	if res, key := r.startsIn("alice", aliceName, second); key != r.keyAt(c) || !strings.Contains(res.stdout, "followed team") {
 		t.Fatalf("the administrator's second checkout: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
 	}
+	onB := r.recordOn(r.configDir, b)
+	res = r.runIn(second, term, "y\n", moveArgs(c, r.secretFile)...)
+	if res.exit == 0 || !strings.Contains(res.stderr, "--from "+hostOf(a)) || !strings.Contains(res.stderr, "--from "+hostOf(b)) ||
+		!strings.Contains(res.stderr, "this checkout was joined to "+hostOf(b)+", which records a move to "+hostOf(c)+", and so does "+hostOf(a)) ||
+		!strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stderr, "[y/N]") {
+		t.Fatalf("the same command in a checkout that followed from B, while A records a move to the server too: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if nowA, nowB := r.recordOn(r.configDir, a), r.recordOn(r.configDir, b); !nowA.RecordedAt.Equal(onA.RecordedAt) || !nowB.RecordedAt.Equal(onB.RecordedAt) {
+		t.Fatalf("a record was written again: A %+v, was %+v; B %+v, was %+v", nowA, onA, nowB, onB)
+	}
+
+	// --- 3. A's record of the first move is cleared: B alone records the move -----------------------------
+	if res := r.runIn(r.checkout, term, "", "team", "move", "--clear", "--from", hostOf(a)); res.exit != 0 {
+		t.Fatalf("the clear on A: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
 	res = r.runIn(second, term, "y\n", moveArgs(c, r.secretFile)...)
 	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") {
 		t.Fatalf("the same command in a checkout that followed from B: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
-	if now := r.recordOn(r.configDir, a); !now.RecordedAt.Equal(onA.RecordedAt) {
-		t.Fatalf("A's record was written again: %+v, was %+v", now, onA)
+	if now := r.recordOn(r.configDir, a); now.Moved {
+		t.Fatalf("A records a move again: %+v", now)
+	}
+}
+
+// TestARerunDoesNotTakeTheCheckoutsBackendWhereAnotherRecordsTheMoveTooThroughTheRealBinary:
+// a team went from A to C, from C to B and from B to C, so A and B both
+// record a move to C: A's record is of the first move, which nothing
+// cleared, and B's of the one the team is making. One checkout of the
+// administrator's was left pinned to A. Until this the same command run
+// again there took A for the backend the team is leaving, because the
+// checkout names it and it records the move: it opened the move again,
+// which replaced the ticket B's record hands out, and recorded on A, and a
+// member on B who had not followed was refused until the owner ran it
+// again with `--from B`. The checkout's backend is taken only where no
+// other backend records the move too.
+//
+//  1. In the checkout left on A it refuses, says that both record the
+//     move, prints the command for each and changes nothing: both records
+//     are as they were, and a member on B who never was on C follows.
+//  2. In a checkout pinned to B it refuses in the same way: nothing on
+//     this machine tells it from the one that was left behind.
+//  3. With B's record cleared, the pin on B and only A recording the move,
+//     it refuses, as it did.
+//  4. With A's record cleared too, the pin on B and no record, it finds B,
+//     as it did.
+//  5. With the pin on B and only B recording the move, it finds B, as it
+//     did.
+func TestARerunDoesNotTakeTheCheckoutsBackendWhereAnotherRecordsTheMoveTooThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b, c := startRestBackend(t), startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	// A checkout of the administrator's that stays pinned to A.
+	leftOnA, _ := r.anotherCheckout(r.configDir, "admin-left-on-a")
+	r.movedTo(c, r.secretFile)
+	r.movedTo(b, r.secretFile)
+	// One that is pinned to B, as a run that stopped before its pin leaves it.
+	onB, canonB := r.anotherCheckout(r.configDir, "admin-on-b")
+	pinOnB, _, err := teamstore.LookupPin(r.configDir, canonB)
+	if err != nil || pinOnB.URL != b.url {
+		t.Fatalf("the pin of the checkout joined on B: %+v %v", pinOnB, err)
+	}
+	// A member joins the team on B, where it is, and starts no session until
+	// the team has moved on: she never was on C.
+	carolDir := filepath.Join(r.dirs.Root, "config-carol")
+	if err := os.MkdirAll(carolDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	carol := func() session {
+		s := r.newSession("carol", "carol-session", "", "", "")
+		s.extraEnv = []string{"CLAUDE_PLUGIN_OPTION_CONFIG_DIR=" + carolDir}
+		return s
+	}
+	joining := carol()
+	r.restHook(joining, "session-start", joining.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if res := r.runIn(r.checkout, r.restEnv(joining), "", "team", "join", "--secret-file", r.secretFile, "--label", "carol@example.com"); res.exit != 0 {
+		t.Fatalf("the member's join on B: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	r.restHook(joining, "session-end", joining.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+	r.movedTo(c, r.secretFile)
+	for _, dir := range []string{leftOnA, onB} {
+		r.putFileIn(dir, r.teamFile())
+	}
+	onRecordA, onRecordB := r.recordOn(r.configDir, a), r.recordOn(r.configDir, b)
+	if !onRecordA.Moved || onRecordA.URL != c.url || !onRecordB.Moved || onRecordB.URL != c.url {
+		t.Fatalf("the records before the rerun: A %+v, B %+v", onRecordA, onRecordB)
+	}
+	// refused runs the same command in a checkout and holds it to a refusal
+	// that asks nobody, prints the command for each backend, says why, and
+	// leaves both records as they were.
+	refused := func(what, dir, why string) {
+		t.Helper()
+		res := r.runIn(dir, term, "y\n", moveArgs(c, r.secretFile)...)
+		if res.exit == 0 || !strings.Contains(res.stderr, "--from "+hostOf(a)) || !strings.Contains(res.stderr, "--from "+hostOf(b)) ||
+			!strings.Contains(res.stderr, why) || !strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stderr, "[y/N]") {
+			t.Fatalf("%s: exit %d, want a refusal that says %q\nstdout: %s\nstderr: %s", what, res.exit, why, res.stdout, res.stderr)
+		}
+		if nowA, nowB := r.recordOn(r.configDir, a), r.recordOn(r.configDir, b); !nowA.RecordedAt.Equal(onRecordA.RecordedAt) || !nowB.RecordedAt.Equal(onRecordB.RecordedAt) {
+			t.Fatalf("%s: a record was written: A %+v, was %+v; B %+v, was %+v", what, nowA, onRecordA, nowB, onRecordB)
+		}
+	}
+	found := func(what string) {
+		t.Helper()
+		res := r.runIn(onB, term, "y\n", moveArgs(c, r.secretFile)...)
+		if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(b)+":") || !strings.Contains(res.stderr, "from "+hostOf(b)+" to "+hostOf(c)) {
+			t.Fatalf("%s: exit %d\nstdout: %s\nstderr: %s", what, res.exit, res.stdout, res.stderr)
+		}
+	}
+	cleared := func(backend restBackend) {
+		t.Helper()
+		if res := r.runIn(r.checkout, term, "", "team", "move", "--clear", "--from", hostOf(backend)); res.exit != 0 {
+			t.Fatalf("the clear on %s: exit %d\n%s\n%s", hostOf(backend), res.exit, res.stdout, res.stderr)
+		}
+	}
+
+	// --- 1. the checkout left on A, where A and B both record the move ------------------------------------
+	refused("the same command in a checkout left pinned to A", leftOnA,
+		"this checkout was joined to "+hostOf(a)+", which records a move to "+hostOf(c)+", and so does "+hostOf(b))
+	// B's record still hands out a ticket that admits: the member on B follows.
+	following := carol()
+	res := r.restHook(following, "session-start", following.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if !r.mapExists(following) || r.mustMap(following).TeamKey != r.keyAt(c) || !strings.Contains(res.stdout, "with the move's ticket") {
+		t.Fatalf("the member on B after the refused rerun: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	r.restHook(following, "session-end", following.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+
+	// --- 2. a checkout pinned to B, where A and B both record the move -------------------------------------
+	refused("the same command in a checkout pinned to B", onB,
+		"this checkout was joined to "+hostOf(b)+", which records a move to "+hostOf(c)+", and so does "+hostOf(a))
+
+	// --- 3. the pin on B, and only A records the move ------------------------------------------------------
+	cleared(b)
+	onRecordB = r.recordOn(r.configDir, b)
+	refused("the same command where the pin names B and only A records the move", onB,
+		"this checkout was joined to "+hostOf(b)+", and it is "+hostOf(a)+" that records a move to "+hostOf(c))
+
+	// --- 4. the pin on B, and no record --------------------------------------------------------------------
+	cleared(a)
+	found("the same command where the pin names B and nothing records the move")
+
+	// --- 5. the pin on B, and only B records the move ------------------------------------------------------
+	if err := write.Pin(r.configDir, canonB, *pinOnB); err != nil {
+		t.Fatal(err)
+	}
+	found("the same command where the pin names B and only B records the move")
+	if now := r.recordOn(r.configDir, a); now.Moved {
+		t.Fatalf("A records a move again: %+v", now)
 	}
 }
 

@@ -629,16 +629,20 @@ func onThatServerAlready(to, has, typed string) *protocol.Error {
 // backend its pin still names, which a run that was stopped after it wrote
 // the team file and before it wrote the pin leaves, or the backend its pin
 // says it followed from (MovedFrom, which a session's follow writes). That
-// candidate is taken when its own record names the server, or when no
+// candidate is taken when it alone records a move to the server, or when no
 // candidate's record does (a record that was cleared). A record alone
 // never chooses: a backend the team left long ago for this very server
 // still says so, and it would be taken for the one that counts, the
 // command recording there while the sessions on the backend the team is
-// really on are told nothing. Where the checkout says nothing, as in the
-// checkout the command itself pinned to the server, or says one thing
-// while a record says another, nothing is chosen: the command changes
-// nothing, names the candidates, and prints itself for each with its
-// --from.
+// really on are told nothing. And the checkout does not choose alone
+// either, where another candidate records the move beside its own: a
+// checkout that was left behind at an earlier move is pinned to exactly
+// such a backend, and nothing on this machine tells it from the checkout
+// the team is leaving (rerunStandOf). Where the checkout says nothing, as
+// in the checkout the command itself pinned to the server, or says one
+// thing while a record says another, or names one of two that both record
+// the move, nothing is chosen: the command changes nothing, names the
+// candidates, and prints itself for each with its --from.
 //
 // A candidate whose record cannot be read is not one that holds none: it
 // may be the very backend the team is leaving. So nothing is chosen while
@@ -719,14 +723,24 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 			}
 		}
 	}
-	if own >= 0 && (slices.Contains(recorded, own) || len(recorded) == 0) {
+	stand := rerunStandOf(own, recorded)
+	if stand == rerunOwn {
 		return bindings[own], keys[own], nil
 	}
 	why := "none of them records a move to " + m.toHost() + ", and nothing in this checkout says which one it was joined to before"
-	switch {
-	case own >= 0:
+	switch stand {
+	case rerunOwn, rerunNothing:
+		// rerunOwn returned above, and rerunNothing is the words above.
+	case rerunOwnAndAnother:
+		others, so := slices.DeleteFunc(slices.Clone(recorded), func(i int) bool { return i == own }), "so does "
+		if len(others) > 1 {
+			so = "so do "
+		}
+		why = "this checkout was joined to " + hostOfCandidate(own) + ", which records a move to " + m.toHost() + ", and " + so + hostsOf(others) +
+			": a record says that the team once left a backend for this server and not that it is leaving it now, and a checkout that was left behind at an earlier move is joined to such a backend"
+	case rerunAnother:
 		why = "this checkout was joined to " + hostOfCandidate(own) + ", and it is " + hostsOf(recorded) + " that records a move to " + m.toHost()
-	case len(recorded) > 0:
+	case rerunRecordAlone:
 		why = hostsOf(recorded) + " records a move to " + m.toHost() + ", which says that the team once left it for this server and not that it is leaving it now, and nothing in this checkout says which one it was joined to before"
 	}
 	return nil, "", &protocol.Error{
@@ -735,6 +749,47 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 			", so which one the team is leaving is not known. Run the same command with the backend it leaves named: " + reruns() + ". Nothing was changed",
 		Details: map[string]string{"reason": "team_ambiguous"},
 	}
+}
+
+// A rerunStand is how the backends a rerun may be leaving stand to the
+// checkout it is run in and to the records they hold (sourceOfRerun).
+type rerunStand int
+
+const (
+	// rerunOwn: the checkout names one of them, and it is taken.
+	rerunOwn rerunStand = iota
+	// rerunOwnAndAnother: the checkout names one, which records the move,
+	// and another records it too.
+	rerunOwnAndAnother
+	// rerunAnother: the checkout names one, and only others record the move.
+	rerunAnother
+	// rerunRecordAlone: the checkout names none, and one or more record the
+	// move.
+	rerunRecordAlone
+	// rerunNothing: the checkout names none, and none records the move.
+	rerunNothing
+)
+
+// rerunStandOf is the whole choice of sourceOfRerun: own is the candidate
+// the checkout names, -1 when it names none, and recorded are the
+// candidates whose record names the server. The checkout's candidate is
+// taken only where it alone records the move, or where none does. Where
+// another records it too, the checkout may be one that was left behind at
+// an earlier move, pinned to a backend the team left long ago for this
+// very server: until this it was taken all the same, and the command
+// opened the move again and recorded on that backend (work item 341).
+func rerunStandOf(own int, recorded []int) rerunStand {
+	switch {
+	case own >= 0 && (len(recorded) == 0 || (len(recorded) == 1 && recorded[0] == own)):
+		return rerunOwn
+	case own >= 0 && slices.Contains(recorded, own):
+		return rerunOwnAndAnother
+	case own >= 0:
+		return rerunAnother
+	case len(recorded) > 0:
+		return rerunRecordAlone
+	}
+	return rerunNothing
 }
 
 // recordOn asks a backend what it records of where the team went, under

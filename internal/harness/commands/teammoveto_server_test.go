@@ -518,3 +518,44 @@ func TestTeamMoveToRefusesTheServerTheTeamIsOnWhateverTheCertificate(t *testing.
 		})
 	}
 }
+
+// TestARerunTakesTheCheckoutsBackendOnlyWhereNoOtherRecordsTheMove (work
+// item 341): the choice a command that is run again makes among the
+// backends this machine has joined the team on before, from the one the
+// checkout names and the ones whose record names the server. A team went
+// from A to C, from C to B and from B to C: A and B both record a move to
+// C. Until this the checkout's backend was taken whenever its own record
+// named the server, so in a checkout left pinned to A the command took A
+// for the backend the team is leaving: it opened the move again, which
+// replaced the ticket B's record hands out, and recorded on A, and a member
+// on B was refused until the owner ran it again with `--from B`. The
+// checkout's backend is taken only where it alone records the move, or
+// where none does. Where another records it too, nothing on this machine
+// tells the checkout the team is leaving from one left behind: the command
+// refuses, as it does where the checkout says one thing and only a record
+// another.
+func TestARerunTakesTheCheckoutsBackendOnlyWhereNoOtherRecordsTheMove(t *testing.T) {
+	t.Parallel()
+	const a, b, c = 0, 1, 2
+	for _, tc := range []struct {
+		name     string
+		own      int
+		recorded []int
+		want     rerunStand
+	}{
+		{"the pin names B and only B records the move", b, []int{b}, rerunOwn},
+		{"the pin names B and nothing records the move", b, nil, rerunOwn},
+		{"the pin names B and only A records the move", b, []int{a}, rerunAnother},
+		{"the pin names A, left behind, and A and B both record the move", a, []int{a, b}, rerunOwnAndAnother},
+		{"the pin names B, and A and B both record the move", b, []int{a, b}, rerunOwnAndAnother},
+		{"the pin names A, and all three record the move", a, []int{a, b, c}, rerunOwnAndAnother},
+		{"the pin names C, and A and B record the move", c, []int{a, b}, rerunAnother},
+		{"the checkout names none and one records the move", -1, []int{a}, rerunRecordAlone},
+		{"the checkout names none and two record the move", -1, []int{a, b}, rerunRecordAlone},
+		{"the checkout names none and nothing records the move", -1, nil, rerunNothing},
+	} {
+		if got := rerunStandOf(tc.own, tc.recorded); got != tc.want {
+			t.Errorf("%s: %d, want %d (%d is the checkout's backend taken)", tc.name, got, tc.want, rerunOwn)
+		}
+	}
+}

@@ -145,12 +145,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   checkout says which it is: the backend its pin still names, after a
   run that was stopped before it wrote the pin, or the one a session
   there followed from. A record alone does not choose, because a backend
-  the team left long ago for the same server still says so. Where the
-  checkout says nothing, as in the one the command itself joined to the
-  server, it changes nothing, names the backends and prints itself for
-  each with its `--from`; and where one of those backends does not
-  answer what it records, it chooses none either, and says to run it
-  again when it answers.
+  the team left long ago for the same server still says so; and for the
+  same reason the checkout does not choose alone where another backend
+  records a move to the server beside its own, which is what a checkout
+  left behind at an earlier move shows. Where the checkout says nothing,
+  as in the one the command itself joined to the server, or names one of
+  two backends that both record the move, it changes nothing, names the
+  backends and prints itself for each with its `--from`; and where one of
+  those backends does not answer what it records, it chooses none
+  either, and says to run it again when it answers.
   The line either refusal prints is the whole command: it carries
   `--certificate sha256:…` for a server that made its own certificate,
   as does the address the command prints for a move back to an earlier
