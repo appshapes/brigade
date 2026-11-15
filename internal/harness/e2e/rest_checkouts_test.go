@@ -48,11 +48,12 @@ import (
 //     team has two members.
 //  5. The session attached to nothing registers at its next prompt, in the
 //     checkout the retry resolved.
-//  6. A session is its own checkout's at a start as at a prompt. Cleared
-//     from a checkout that is still on the old backend, the session that
-//     moved stays on the server; cleared from a checkout that is on the
-//     server, the session of a checkout that has not followed stays on the
-//     old backend. Each says the context line of the session where it is.
+//  6. A session is its own checkout's wherever it works. A session whose
+//     checkout followed moves at a prompt sent from another checkout, one
+//     that is still on the old backend. Cleared from that checkout it
+//     stays on the server; and the session of that checkout, cleared and
+//     prompted from one that is on the server, stays on the old backend.
+//     Each says the context line of the session where it is.
 //  7. The server stops. `/clear` in a session that has not moved yet keeps
 //     it where it is, on the backend that still serves it: it says that it
 //     could not be registered, never that it is not connected, and the
@@ -394,23 +395,24 @@ func TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary(t *testing.T) {
 	where(orphan, "the session that was attached to nothing", newKey, orphanMap.BrigadeSessionID, canon)
 
 	// --- 6. a session is its own checkout's at a start as at a prompt ------------------------------------------
-	// Bob's first session is still on the old backend, and its checkout has followed. A prompt of it that comes
-	// from elsewhere moves nothing and says nothing, as the decision has it: from the checkout that is still on
-	// the old backend, and from a directory that is no checkout at all.
-	for _, dir := range []string{behind, r.dirs.Home} {
-		elsewhere := first
-		elsewhere.cwd = dir
-		if res := r.restPrompt(elsewhere); strings.Contains(res.stdout, "followed team") || strings.Contains(res.stdout, "this session is") {
-			t.Fatalf("a prompt from %s of a session whose own checkout followed: stdout %q", dir, res.stdout)
-		}
-		where(first, "after a prompt from "+dir, oldKey, old[first.pid], canon)
-	}
-	// It moves with its own checkout, at its next prompt there.
-	res = r.restPrompt(first)
+	// Bob's first session is still on the old backend, its checkout has followed, and it is working elsewhere:
+	// its prompt comes from the checkout that never got the changed file. Nothing about a move is read from
+	// the directory a prompt names, so the session moves with its own checkout all the same, and its map still
+	// names that checkout.
+	working := first
+	working.cwd = behind
+	res = r.restPrompt(working)
 	firstMap := r.mustMap(first)
 	if firstMap.TeamKey != newKey || firstMap.BrigadeSessionID == old[first.pid] || !strings.Contains(res.stdout, `this session is "`+bobName+`" (`+firstMap.BrigadeSessionID+`)`) {
-		t.Fatalf("the first session after its prompt: stdout %q\nmap %+v", res.stdout, firstMap)
+		t.Fatalf("the first session after a prompt from another checkout: stdout %q\nmap %+v", res.stdout, firstMap)
 	}
+	where(first, "after a prompt from a checkout still on the old backend", newKey, firstMap.BrigadeSessionID, canon)
+	// A prompt from a directory that is no checkout at all has nothing more to say.
+	working.cwd = r.dirs.Home
+	if res := r.restPrompt(working); strings.Contains(res.stdout, "followed team") || strings.Contains(res.stdout, "this session is") {
+		t.Fatalf("a prompt from a directory that is no checkout, after the move: stdout %q", res.stdout)
+	}
+	where(first, "after a prompt from a directory that is no checkout", newKey, firstMap.BrigadeSessionID, canon)
 	testutil.Eventually(t, waitLong, pollEvery, func() bool {
 		return r.liveWatcher(first).BrigadeSessionID == firstMap.BrigadeSessionID && !alive(watcher[first.pid])
 	})

@@ -91,14 +91,14 @@ const (
 const (
 	// movedLine is said when the file comes to name another backend for the
 	// session's team and a follow was started.
-	movedLine = "Brigade: this project's .brigade.json now names another backend for this session's team. Brigade is asking the backend this session is on whether the team's administrator recorded that move there: if so, this session follows at one of its next prompts and says so; if not, it stays where it is, and `brigade team join` reviews the change."
+	movedLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. Brigade is asking the backend this session is on whether the team's administrator recorded that move there: if so, this session follows at one of its next prompts and says so; if not, it stays where it is, and `brigade team join` reviews the change."
 	// movedRetryLine is movedLine for a session that is attached to nothing:
 	// its registration retry started the follow (followMove), which may join
 	// the new backend before the session's next prompt.
 	movedRetryLine = "Brigade: this project's .brigade.json names another backend for the team you joined here. Brigade is asking the backend you joined it on whether the team's administrator recorded that move there: if so, this session connects there at one of its next prompts and says so; if not, it stays unconnected, and `brigade team join` reviews the change."
 	// movedStaysLine is said instead when the member's options keep a
 	// session from following.
-	movedStaysLine = "Brigade: this project's .brigade.json now names another backend for this session's team. This session does not follow a move by itself (the option follow_team_move is off, or the session names its adapter itself): it stays where it is until you join the team there with `brigade team join`, and moves at its next prompt after that."
+	movedStaysLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. This session does not follow a move by itself (the option follow_team_move is off, or the session names its adapter itself): it stays where it is until you join the team there with `brigade team join`, and moves at its next prompt after that."
 	// moveUnreachedLine is said when the checkout is joined to the backend
 	// the team went to and the session could not be registered there.
 	moveUnreachedLine = "Brigade: this session could not be registered on the backend its team moved to. It stays where it is and tries again at a later prompt."
@@ -429,15 +429,20 @@ func (r *run) leaveFollowedMark(a hookArgs, canon, teamKey string, joined bool) 
 // file, from three directories down), which is why nothing is kept to avoid
 // it.
 //
-// The checkout is the session's own, never the one a prompt happens to come
-// from. A prompt's directory follows the model (a `cd`, a worktree), and a
-// member can have two checkouts of one team on two backends while a move is
-// under way: one that has the changed file and one that has not. A session
-// that moved on whichever of them its last prompt came from would go back
-// and forth between the backends, a new session each time. So the map
-// names the checkout the session registered in (sessionmap.ByPID.Checkout),
-// and a prompt from any other changes nothing, starts no follow and says no
-// line. A map written before the member existed is given one: see ownCheckout.
+// The checkout is the session's own: the one its map names
+// (sessionmap.ByPID.Checkout), whose team file and pin its registration
+// was resolved from. Nothing about a move is read from the directory a
+// prompt names. That directory follows the model (a `cd`, a worktree,
+// another repository), and both ways of reading it were wrong. A session
+// that moved on whichever checkout its last prompt came from went back and
+// forth between two checkouts of one team on two backends, a new session
+// each time. And a session that looked at its own checkout only when a
+// prompt came from there never followed while it worked anywhere else,
+// which is where a session started in a main checkout and working in a
+// worktree spends its life. So the file and the pin that are read are the
+// map's checkout's at every prompt, wherever the prompt comes from, and
+// the registration of a move is resolved from that checkout too (reattach).
+// A map written before the member existed names none: see adoptCheckout.
 //
 // Grok Build discards what a prompt hook prints, so a session there could
 // be told neither that it followed nor the id it has afterwards: it stays
@@ -446,11 +451,22 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 	if f.host == config.HostGrok || m.TeamRef == "" || m.TeamKey == "" || m.BrigadeSessionID == "" {
 		return nil
 	}
-	path, found := teamfile.Discover(in.Cwd)
-	if !found {
-		return nil
+	checkout := m.Checkout
+	if checkout == "" {
+		// A map from before it named a checkout: the one this prompt comes
+		// from is looked at, and taken below when it is joined to the
+		// session's team.
+		path, found := teamfile.Discover(in.Cwd)
+		if !found {
+			return nil
+		}
+		canon, err := teamfile.Canonicalize(filepath.Dir(path))
+		if err != nil {
+			return nil
+		}
+		checkout = canon
 	}
-	tf, err := teamfile.Parse(path)
+	tf, err := teamfile.Parse(filepath.Join(checkout, teamfile.FileName))
 	if err != nil || tf.TeamRef != m.TeamRef {
 		return nil
 	}
@@ -464,19 +480,18 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		r.log.Warn("prompt: options unreadable; the team's move is left alone", log.Err(err))
 		return nil
 	}
-	canon, err := teamfile.Canonicalize(filepath.Dir(path))
-	if err != nil {
-		return nil
-	}
-	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, canon)
+	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, checkout)
 	if err != nil || !pinned {
 		return nil
 	}
-	if !r.ownCheckout(f, m, canon, pin) || here {
+	if m.Checkout == "" && !r.adoptCheckout(f, m, checkout, pin) {
+		return nil
+	}
+	if here {
 		return nil
 	}
 	if pin.Matches(tf) {
-		return r.reattach(ctx, f, in, m, opts, tf, canon, pin)
+		return r.reattach(ctx, f, in, m, opts, tf, checkout, pin)
 	}
 	if !teammove.Candidate(pin, tf) {
 		return nil
@@ -488,25 +503,22 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		r.tell(f, in, toldStays, movedStaysLine)
 		return nil
 	}
-	if r.startFollow(ctx, f, opts, canon) {
+	if r.startFollow(ctx, f, opts, checkout) {
 		r.tell(f, in, toldAsked, movedLine)
 	}
 	return nil
 }
 
-// ownCheckout reports whether canon, the checkout this prompt comes from,
-// is the one the session registered in. For a map that names its checkout
-// it is a comparison. A map written before the member existed (a session
-// that was running when its plugin was updated) names none: the first
-// prompt that comes from a checkout joined on this machine to the session's
-// team gives it that one, written to the map before anything is done on its
-// strength, and from then on the comparison holds. A map that cannot be
-// written moves nobody: a session whose checkout is not on record could be
-// moved again by its next prompt from another one.
-func (r *run) ownCheckout(f facts, m *sessionmap.ByPID, canon string, pin *teamstore.Pin) bool {
-	if m.Checkout != "" {
-		return m.Checkout == canon
-	}
+// adoptCheckout gives a map that names no checkout the one this prompt
+// comes from. Such a map was written before the member existed (a session
+// that was running when its plugin was updated). The first prompt that
+// comes from a checkout joined on this machine to the session's team gives
+// it that one, written to the map before anything is done on its strength,
+// and from then on the session is that checkout's wherever its prompts come
+// from. A map that cannot be written moves nobody: a session whose checkout
+// is not on record could be moved again by its next prompt from another
+// one.
+func (r *run) adoptCheckout(f facts, m *sessionmap.ByPID, canon string, pin *teamstore.Pin) bool {
 	if pin.TeamRef != m.TeamRef {
 		return false
 	}
@@ -598,10 +610,15 @@ func (r *run) reattach(ctx context.Context, f facts, in input, m *sessionmap.ByP
 		}
 	}
 	r.log.Info("prompt: the team moved; registering this session on the backend it is on now")
+	// The registration is resolved from the session's own checkout, as its
+	// first one was: the team, the pin, the workspace label and file sync
+	// are that checkout's, wherever this prompt comes from.
+	own := in
+	own.Cwd = canon
 	var lines []string
 	cctx, cancel := moveContext(ctx)
 	r.held, r.moving = &lines, true
-	r.connect(cctx, f, in, min(r.deps.PidfileWait, promptPidfileWait))
+	r.connect(cctx, f, own, min(r.deps.PidfileWait, promptPidfileWait))
 	r.held, r.moving = nil, false
 	cancel()
 	next, err := sessionmap.Store{StateDir: f.stateDir}.ReadByPID(f.pid)
