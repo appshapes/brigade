@@ -63,8 +63,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   stop after the record was cleared says that it is gone, and a clear
   whose answer did not arrive says that the record may be cleared and
   that `brigade team move --show --from <host>` reads it, in either form
-  of the command. A server that answers the clear with a wait is one
-  that did not answer it, and not one that refused.
+  of the command.
 - **A team is not moved onto the server it is on.** `brigade team move
   --to` with the address `.brigade.json` already names, under another
   `--certificate` or none, is refused before anything is asked: it used

@@ -907,25 +907,25 @@ func TestACommandPrintedForTheOwnersMachineCarriesTheWholeAddress(t *testing.T) 
 	}
 }
 
-// TestAClearThatIsToldToWaitIsNotToldAsRefused (work item 341): the
+// TestAClearThatIsToldToWaitIsToldAsARecordThatStands (work item 341): the
 // record's own form clears the record a server holds of the team's
-// leaving. A server that answers the clear with a wait was told as one
-// that refused it: "that record could not be cleared", with the owner sent
-// to clear it by hand. It is a clear that was not answered, and the stop
-// says to run the command again.
-func TestAClearThatIsToldToWaitIsNotToldAsRefused(t *testing.T) {
+// leaving. A server that answers the clear with a wait has answered, and
+// the record stands: the stop says so, with the server's words as its
+// cause, and does not say that the answer did not arrive or that the
+// record may be cleared all the same.
+func TestAClearThatIsToldToWaitIsToldAsARecordThatStands(t *testing.T) {
 	t.Parallel()
 	r := newMoveRig(t, true)
 	left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"supabase","url":"` + r.oldURL + `","recorded_at":"2026-11-10T12:00:00Z"}`
 	r.there.on("team moved", okAnswer(left)).on("team move", failAnswer(protocol.CodeRateLimited, "slow down"))
-	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeRateLimited, reasonBackendsNameEachOther)
-	for _, need := range []string{"the answer to the clear of that record did not arrive", "The cause: slow down", "run this again"} {
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeConflict, reasonBackendsNameEachOther)
+	for _, need := range []string{r.newHost + " records that this team left it for " + r.oldHost, "that record could not be cleared (slow down)", "Nothing was recorded"} {
 		if !strings.Contains(perr.Message, need) {
 			t.Errorf("the stop of a clear that was told to wait lacks %q: %s", need, perr.Message)
 		}
 	}
-	if strings.Contains(perr.Message, "could not be cleared") || strings.Contains(perr.Message, "clears it, in a checkout of the team") {
-		t.Errorf("a clear that was told to wait is told as refused: %s", perr.Message)
+	if strings.Contains(perr.Message, "did not arrive") || strings.Contains(perr.Message, "may be cleared all the same") {
+		t.Errorf("a clear that was answered with a wait is told as one that was not answered: %s", perr.Message)
 	}
 }
 

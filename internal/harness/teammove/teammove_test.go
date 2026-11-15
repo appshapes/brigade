@@ -1326,21 +1326,22 @@ func (c clearing) Call(context.Context, string, string, []string, any) (*protoco
 	return &protocol.Envelope{OK: true, ProtocolVersion: protocol.ProtocolVersion, Result: raw}, nil
 }
 
-// TestAClearAnsweredWithAWaitIsAClearThatWasNotAnswered (work item 341):
-// what became of a clear is read by the one reading a follow has of a
-// backend's answer. A backend that says to wait, which the protocol's
-// table calls retryable, has not refused the clear: it was told as a
-// refusal, a record known to stand, and the owner was sent to clear it by
-// hand. It is a clear that was not answered, as one that could not be
-// reached is. A refusal that is an answer stays a refusal.
-func TestAClearAnsweredWithAWaitIsAClearThatWasNotAnswered(t *testing.T) {
+// TestAClearAnsweredWithAWaitIsARefusal (work item 341): what became of a
+// clear. A backend that answers the clear with a wait has answered, and
+// the record stands: it is a refusal, as it is of any answer that is not a
+// failure of the backend. Told as a clear that was not answered, the
+// command said that the answer did not arrive and that the record may be
+// cleared all the same, which is untrue. Only a clear that could not be
+// reached, a failure of the backend and an answer that is no envelope
+// leave it unknown whether the record stands.
+func TestAClearAnsweredWithAWaitIsARefusal(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
 		err  error
 		want teammove.ClearOutcome
 	}{
 		"cleared":                   {nil, teammove.Cleared},
-		"it says to wait":           {&protocol.Error{Code: protocol.CodeRateLimited, Message: "slow down", RetryAfterMS: 1000}, teammove.ClearUnanswered},
+		"it says to wait":           {&protocol.Error{Code: protocol.CodeRateLimited, Message: "slow down", RetryAfterMS: 1000}, teammove.ClearRefused},
 		"it could not be reached":   {&protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend could not be reached"}, teammove.ClearUnanswered},
 		"its answer is no envelope": {&protocol.Error{Code: protocol.CodeInternal, Message: "the backend answered with something that is not a result envelope"}, teammove.ClearUnanswered},
 		"the caller's time ran out": {context.DeadlineExceeded, teammove.ClearUnanswered},

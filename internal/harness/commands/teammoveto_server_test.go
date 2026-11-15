@@ -862,12 +862,12 @@ func TestARerunSaysOfABackendThatRefusesTheReadThatItRefuses(t *testing.T) {
 	refused(r, []string{earlier + " did not answer what it records of this team", "Run the same command again when it answers, or with the backend it leaves named: "}, []string{"refuses to say"})
 }
 
-// TestTeamMoveToTellsAClearThatIsToldToWaitAsOneThatWasNotAnswered (work
-// item 341): the same for the one command, which clears the record a
-// server holds of the team's leaving when the team comes back to it. A
-// clear answered with a wait was told as a record that stands and could
-// not be cleared. It is a clear that was not answered.
-func TestTeamMoveToTellsAClearThatIsToldToWaitAsOneThatWasNotAnswered(t *testing.T) {
+// TestTeamMoveToTellsAClearThatIsToldToWaitAsARecordThatStands (work item
+// 341): the same for the one command, which clears the record a server
+// holds of the team's leaving when the team comes back to it. A clear
+// answered with a wait was answered, and the record stands: the stop says
+// that, and not that the answer did not arrive.
+func TestTeamMoveToTellsAClearThatIsToldToWaitAsARecordThatStands(t *testing.T) {
 	t.Parallel()
 	r := newMoveToRig(t)
 	r.fromAServer()
@@ -875,12 +875,12 @@ func TestTeamMoveToTellsAClearThatIsToldToWaitAsOneThatWasNotAnswered(t *testing
 	r.there.on("team moved", okAnswer(left))
 	r.there.on("team move", failAnswer(protocol.CodeRateLimited, "slow down"))
 	perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeRateLimited, reasonReturnNotCleared)
-	for _, need := range []string{"the answer to the clear of that record did not arrive, so the record may be cleared all the same", "The cause: slow down", "Run the same command again to finish the move"} {
+	for _, need := range []string{" still records that the team left it for ", "that record could not be cleared", "The cause: slow down", "Run the same command again to finish the move"} {
 		if !strings.Contains(perr.Message, need) {
 			t.Errorf("the stop of a clear that was told to wait lacks %q: %s", need, perr.Message)
 		}
 	}
-	if strings.Contains(perr.Message, " still records that the team left it for ") {
-		t.Errorf("a clear that was told to wait is told as a record that stands: %s", perr.Message)
+	if strings.Contains(perr.Message, "did not arrive") || strings.Contains(perr.Message, "may be cleared all the same") {
+		t.Errorf("a clear that was answered with a wait is told as one that was not answered: %s", perr.Message)
 	}
 }

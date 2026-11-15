@@ -748,12 +748,14 @@ func ClearRecord(ctx context.Context, client Caller) (ClearOutcome, error) {
 	env, err := client.Call(ctx, "team", "move", []string{"--clear"}, nil)
 	if err != nil {
 		// A clear the backend refused before it acted leaves a record that is
-		// known to stand. One that was not answered does not (unanswered: a
-		// backend out of reach and one that says to wait, which until this
-		// was told as a refusal, work item 341), and neither does a failure
-		// of the backend or an answer that is no envelope.
+		// known to stand, and an answer that says to wait is such a refusal:
+		// the backend answered, and cleared nothing. This is not the follow's
+		// reading of a question (unanswered), where a wait says nothing about
+		// the member: here it says what became of the record. Only a backend
+		// that could not be reached, one that failed, and an answer that is no
+		// envelope leave that unknown.
 		var perr *protocol.Error
-		if !unanswered(err) && errors.As(err, &perr) && perr.Code != protocol.CodeInternal && perr.Code != protocol.CodeProtocolMismatch {
+		if errors.As(err, &perr) && perr.Code != protocol.CodeUnavailable && perr.Code != protocol.CodeInternal && perr.Code != protocol.CodeProtocolMismatch {
 			return ClearRefused, err
 		}
 		return ClearUnanswered, err
