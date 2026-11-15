@@ -118,6 +118,10 @@ type Deps struct {
 	// status` instead of the one foldersync resolves from the map; a test
 	// points it at `/bin/sh <fixture script>`.
 	SyncCommand []string
+	// FollowLockWait is how long `team join` waits for a follow of a team's
+	// move that holds this machine's lock before it goes on without it
+	// (work item 327); zero is the ten seconds a follow waits.
+	FollowLockWait time.Duration
 }
 
 // RetryPause is the pause before the single retry of `message send` on

@@ -778,3 +778,115 @@ func TestOlderThanFollow(t *testing.T) {
 		t.Errorf("FollowsFromVersion %q is not the first version that follows", teammove.FollowsFromVersion)
 	}
 }
+
+// asking is a Caller whose `team moved` first runs before: the question to
+// the old backend is the one call of a follow that can hang, and it is
+// asked under the follow's lock, so what before does happens while the
+// follow that called it holds the lock and waits for its backend.
+type asking struct {
+	teammove.Caller
+	before func()
+}
+
+func (a asking) Call(ctx context.Context, group, verb string, flags []string, stdin any) (*protocol.Envelope, error) {
+	if group+" "+verb == "team moved" {
+		a.before()
+	}
+	return a.Caller.Call(ctx, group, verb, flags, stdin)
+}
+
+// TestAFollowSeesTheJoinThatWentAheadWhileItsBackendHung: a member's own
+// `brigade team join` waits ten seconds for the follow's lock and then goes
+// on without it (work item 327): a join is the member's command and is not
+// refused because a follow's old backend is slow. So a follow can come back
+// from its question to find that the machine joined meanwhile. It read the
+// machine's membership when it took the lock, before the question; it reads
+// it again once the backend has answered, just before it would join, and
+// sends no join of its own. When the member joined in another checkout, the
+// follow writes this checkout's pin and leaves word that the machine had
+// joined already. When the member joined in this very checkout, the pin is
+// theirs: the follow writes nothing and leaves no word.
+func TestAFollowSeesTheJoinThatWentAheadWhileItsBackendHung(t *testing.T) {
+	t.Parallel()
+	joinedBy := func(r *rig) {
+		r.t.Helper()
+		key := teamstore.Key(r.file.Adapter, r.file.URL, r.file.TeamRef)
+		if err := write.EnsureBinding(r.configDir, key, r.file.Adapter, r.file.URL, r.file.PublishableKey, r.file.Certificate,
+			r.file.TeamRef, r.file.TeamName, "p_the_members_own_join"); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+	follow := func(r *rig, before func(), word *[]bool) (teammove.Outcome, error) {
+		r.t.Helper()
+		return teammove.Follow(r.t.Context(), teammove.Inputs{
+			ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin,
+			Client: func(adapter, profile string) (teammove.Caller, error) {
+				c, err := r.b.client(adapter, profile)
+				if err != nil {
+					return nil, err
+				}
+				return asking{Caller: c, before: before}, nil
+			},
+			Now:       func() time.Time { return time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC) },
+			BeforePin: func(joined bool) { *word = append(*word, joined) },
+		})
+	}
+
+	t.Run("the member joined in another checkout", func(t *testing.T) {
+		t.Parallel()
+		r := newRig(t)
+		var word []bool
+		out, err := follow(r, func() { joinedBy(r) }, &word)
+		if err != nil || !out.Followed || out.Joined {
+			t.Fatalf("the follow: %+v, %v", out, err)
+		}
+		if joins := r.b.called("team join"); len(joins) != 0 {
+			t.Fatalf("the follow sent %d join(s) for a machine its member had joined meanwhile", len(joins))
+		}
+		if pin := r.currentPin(); !pin.Matches(r.file) || pin.MovedFrom != oldURL || !slices.Equal(word, []bool{false}) {
+			t.Fatalf("the pin %+v and the word the follow left, %v", pin, word)
+		}
+	})
+
+	t.Run("the member joined in this checkout", func(t *testing.T) {
+		t.Parallel()
+		r := newRig(t)
+		consented := time.Date(2026, 11, 15, 8, 59, 0, 0, time.UTC)
+		var word []bool
+		out, err := follow(r, func() {
+			joinedBy(r)
+			if err := write.Pin(r.configDir, r.checkout, teamstore.Pin{
+				Adapter: r.file.Adapter, URL: r.file.URL, PublishableKey: r.file.PublishableKey, Certificate: r.file.Certificate,
+				TeamRef: r.file.TeamRef, ConsentedAt: consented,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}, &word)
+		if err != nil || !out.Followed || out.Joined {
+			t.Fatalf("the follow: %+v, %v", out, err)
+		}
+		if joins := r.b.called("team join"); len(joins) != 0 {
+			t.Fatalf("the follow sent %d join(s) for a machine its member had joined meanwhile", len(joins))
+		}
+		if pin := r.currentPin(); !pin.Matches(r.file) || pin.MovedFrom != "" || !pin.ConsentedAt.Equal(consented) || len(word) != 0 {
+			t.Fatalf("the member's pin after the follow: %+v; the follow left word: %v", pin, word)
+		}
+	})
+
+	t.Run("the member left the new backend meanwhile", func(t *testing.T) {
+		t.Parallel()
+		r := newRig(t)
+		var word []bool
+		out, err := follow(r, func() {
+			key := teamstore.Key(r.file.Adapter, r.file.URL, r.file.TeamRef)
+			if err := adapterkit.SaveProfile(r.configDir, key, &adapterkit.Profile{
+				Version: adapterkit.ProfileVersion, Adapter: r.file.Adapter, URL: r.file.URL, Certificate: r.file.Certificate, PrincipalRef: "p_left",
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}, &word)
+		if err != nil || out.Followed || out.Reason != teammove.ReasonLeft || len(r.b.called("team join")) != 0 || len(word) != 0 {
+			t.Fatalf("the follow of a machine that left meanwhile: %+v, %v; %d joins", out, err, len(r.b.called("team join")))
+		}
+	})
+}

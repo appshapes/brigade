@@ -728,11 +728,20 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 	// the lock; and nothing can wait in a circle: each holder waits only for
 	// its own adapter and the store, the one other lock either takes is the
 	// pin store's, inside this one, and a waiter gives up after ten seconds.
-	lock, err := teammove.Lock(t.configDir)
-	if err != nil {
-		return err
+	//
+	// Gives up waiting, not joining. The lock is one for the whole store, a
+	// follow holds it while it asks an old backend that may be slow or gone,
+	// and a new follow is started each minute for each checkout: a join that
+	// failed when its wait ran out would be refused, for this team or for
+	// any other, by a hook the member did not start. A join is the member's
+	// own command. When the lock is not had in time, or cannot be had at
+	// all, it goes on without it; the follow reads the membership again
+	// before it joins (teammove.Follow) and finds the one made here.
+	if lock, lerr := teammove.Lock(t.configDir, inv.Deps.FollowLockWait); lerr != nil {
+		inv.logger().Warn("a follow of a team's move holds this machine's lock, or the lock cannot be had; the join goes on without it", adapterlog.Err(lerr))
+	} else {
+		defer func() { _ = lock.Unlock() }()
 	}
-	defer func() { _ = lock.Unlock() }()
 	if !member {
 		if now, nerr := teamstore.LoadBinding(t.configDir, t.profile); nerr == nil && now.TeamRef == f.TeamRef && teamstore.VerifyBinding(now, f) == nil {
 			// A follow of this machine joined the team there while the member

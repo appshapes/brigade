@@ -55,20 +55,30 @@ const lockTimeout = 10 * time.Second
 // lockName is the lock file's name under the config directory.
 const lockName = "team-move.lock"
 
-// Lock takes the follow's lock for a caller that joins this machine to a
-// team by another road: a member's own `brigade team join`. A follow reads
-// the machine's membership under this lock and joins only when it finds
-// none, so a join that is made outside it, in the moment a follow is between
-// that reading and its own join, leaves the backend two memberships of one
-// machine. The caller holds the lock from its own reading of the membership
-// to its pin, and never while it waits for a person. It waits as long as a
-// follow does, and the directory is made first: a machine's first join has
-// no store yet.
-func Lock(configDir string) (*adapterkit.FileLock, error) {
+// Lock waits for the follow's lock for a caller that joins this machine to
+// a team by another road: a member's own `brigade team join`. A follow
+// reads the machine's membership under this lock and joins only when it
+// finds none, so a join made beside it, before either has a credential,
+// leaves the backend two memberships of one machine. The caller holds the
+// lock from its own reading of the membership to its pin, and never while
+// it waits for a person. It waits for wait, or as long as a follow does
+// when wait is zero, and the directory is made first: a machine's first
+// join has no store yet.
+//
+// The lock is one for the whole store, and a follow holds it across its
+// question to the old backend, which can hang for as long as that
+// backend's adapter waits. So an error here is not the caller's to fail on:
+// a join is its member's own command, for this team or any other, and goes
+// on without the lock (firstJoin). Follow reads the pin and the membership
+// again once its question is answered, and finds what such a join made.
+func Lock(configDir string, wait time.Duration) (*adapterkit.FileLock, error) {
+	if wait <= 0 {
+		wait = lockTimeout
+	}
 	if err := adapterkit.MkdirPrivate(configDir); err != nil {
 		return nil, err
 	}
-	return adapterkit.LockFile(filepath.Join(configDir, lockName), lockTimeout)
+	return adapterkit.LockFile(filepath.Join(configDir, lockName), wait)
 }
 
 // ticketPrefix names the file the old backend's adapter writes the ticket
@@ -346,6 +356,23 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 	if record.TeamRef != in.File.TeamRef || record.Adapter != in.File.Adapter ||
 		record.URL != in.File.URL || record.Certificate != in.File.Certificate {
 		return Outcome{Reason: ReasonRecordElsewhere}, nil
+	}
+
+	// The question above is the one call of a follow that can hang, and it
+	// is asked under the lock. A member's own `brigade team join` waits ten
+	// seconds for that lock and then goes on without it (Lock), so the store
+	// can have changed since it was read above: what this follow is about to
+	// act on is read again here, just before it would join. A pin that
+	// matches the file is the member's own join in this checkout, and is
+	// theirs: nothing is written over it and no word is left. A membership
+	// is the one that join made, in this checkout or in another, and this
+	// follow presents no ticket for a second one.
+	if pin, pinned, perr := teamstore.LookupPin(in.ConfigDir, in.Checkout); perr == nil && pinned && pin.Matches(in.File) {
+		return Outcome{Followed: true}, nil
+	}
+	existing, berr = teamstore.LoadBinding(in.ConfigDir, newKey)
+	if berr == nil && existing.TeamRef == "" && existing.PrincipalRef != "" {
+		return Outcome{Reason: ReasonLeft}, nil
 	}
 
 	joined := false

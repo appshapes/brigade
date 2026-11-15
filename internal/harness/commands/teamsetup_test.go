@@ -544,6 +544,74 @@ func TestTeamJoinWaitsForAFollowThatHoldsTheLock(t *testing.T) {
 	}
 }
 
+// TestTeamJoinGoesOnWithoutALockItCannotHave: the lock is one for the whole
+// store, and a follow holds it while it asks an old backend that may be slow
+// or gone, a new one each minute for each checkout. A join is the member's
+// own command and is never refused for that (work item 327). It waits for
+// the lock as long as it may; when a follow still holds it then, or when
+// the lock cannot be had at all, the join is sent without it, and the
+// binding and the pin are written as by any join. The follow that held the
+// lock reads the membership again before its own join
+// (TestAFollowSeesTheJoinThatWentAheadWhileItsBackendHung, in teammove).
+func TestTeamJoinGoesOnWithoutALockItCannotHave(t *testing.T) {
+	t.Parallel()
+	joined := func(t *testing.T, f *fixture, top string) {
+		t.Helper()
+		if n := countOf(f.rec.verbs(), "team join"); n != 1 {
+			t.Fatalf("%d joins were sent, want 1", n)
+		}
+		key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
+		if _, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key); err != nil {
+			t.Fatalf("the binding after the join: %v", err)
+		}
+		canon, _ := teamfile.Canonicalize(top)
+		if _, ok, _ := teamstore.LookupPin(f.dirs.BrigadeConfig, canon); !ok || !strings.Contains(f.out.String(), `joined team "devs"`) {
+			t.Fatalf("the pin, or the join's line: %q", f.out.String())
+		}
+	}
+
+	t.Run("a follow holds the lock for longer than the join waits", func(t *testing.T) {
+		t.Parallel()
+		f, top := joinFixture(t)
+		if err := os.MkdirAll(f.dirs.BrigadeConfig, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		lock, err := adapterkit.LockFile(filepath.Join(f.dirs.BrigadeConfig, "team-move.lock"), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = lock.Unlock() })
+		iv := joinInv(f, top, setupSecret, true, nil)
+		const wait = 150 * time.Millisecond
+		iv.Deps.FollowLockWait = wait
+		began := time.Now()
+		if err := Team(iv); err != nil {
+			t.Fatalf("a join beside a follow that holds the lock: %v", err)
+		}
+		// It waited for the follow before it went on.
+		if waited := time.Since(began); waited < wait {
+			t.Fatalf("the join went on after %v, before its wait of %v was over", waited, wait)
+		}
+		joined(t, f, top)
+		if !strings.Contains(f.errb.String(), "the join goes on without it") {
+			t.Fatalf("the join said nothing of the lock it did not have: %q", f.errb.String())
+		}
+	})
+
+	t.Run("the lock cannot be had at all", func(t *testing.T) {
+		t.Parallel()
+		f, top := joinFixture(t)
+		// A directory where the lock's file goes: no lock can be taken on it.
+		if err := os.MkdirAll(filepath.Join(f.dirs.BrigadeConfig, "team-move.lock"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := Team(joinInv(f, top, setupSecret, true, nil)); err != nil {
+			t.Fatalf("a join whose lock cannot be had: %v", err)
+		}
+		joined(t, f, top)
+	})
+}
+
 // TestTeamJoinFindsTheMembershipAFollowMade: the follow finished while the
 // member was at the join's question: under the lock the store now holds a
 // membership of the file's team that was not there when the join began. The
