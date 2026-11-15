@@ -95,6 +95,8 @@ A session that starts while it cannot ask, the second and fourth of these, says 
 even where an earlier session of the checkout did ask and was told that the backend the team moved to did not
 answer, that it refuses the membership, or that the two backends name each other; its next prompt then says
 that again, because a start says what it found itself and a prompt what the last session that asked was told.
+The sixth of these is the exception: that the backend did not take the move's ticket is said once, so the
+prompt after such a start says that the file does not match too.
 A backend you joined that no longer counts you a member is not such a case. It answered, so what an earlier
 session was told is taken back, and the prompts say that the file does not match too.
 

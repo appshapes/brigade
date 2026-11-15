@@ -225,6 +225,21 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			need:  []string{"or that says to wait (`rate_limited`"},
 		},
 		{
+			why:   "a ticket the backend did not take is said once, so the prompt after a start that could not ask does not say it again: the page names that exception",
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			need:  []string{"The sixth of these is the exception: that the backend did not take the move's ticket is said once"},
+		},
+		{
+			why:   "a command that is run again leaves no backend out, which the page said for one round: a backend that refuses the read may be the one the team is leaving",
+			files: []string{"docs/team-admin/members/move-the-team.md"},
+			gone:  []string{"and is left out", "the command goes on from that one"},
+		},
+		{
+			why:   "the changelog does not say what was taken back: that a backend which refuses the read is left out, and that a clear answered with a wait was not answered",
+			files: []string{"CHANGELOG.md"},
+			gone:  []string{"it is left out, and with one backend left", "A server that answers the clear with a wait is one that did not answer it"},
+		},
+		{
 			why:   "a join that was not answered has left a directory for the backend in the member's store, and the backend may have carried it out: the page does not say that nothing was changed",
 			files: []string{"docs/team-member/join/follow-a-move.md"},
 			gone:  []string{"Nothing was changed, and nothing is yours to do"},
