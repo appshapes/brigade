@@ -814,10 +814,14 @@ func TestARerunSaysOfABackendThatRefusesTheReadThatItRefuses(t *testing.T) {
 	}
 	// refused holds the command to a refusal that chose nothing and asked the
 	// server nothing but what a candidate was asked: no take-in, no question
-	// to the administrator, and the command printed for each backend.
-	refused := func(r *moveToRig, needs, gone []string) {
+	// to the administrator, and the command printed for each backend. Its
+	// code is `config` where every backend that could not be read refuses
+	// the read, since running the command again mends nothing and a session
+	// that reads `unavailable` retries; and `unavailable` where at least one
+	// of them did not answer.
+	refused := func(r *moveToRig, code protocol.Code, needs, gone []string) {
 		t.Helper()
-		perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, "team_ambiguous")
+		perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), code, "team_ambiguous")
 		for _, need := range append(needs, "--from "+earlier+"`", "--from "+r.oldHost+"`", "a backend that cannot be read may be the one", "Nothing was changed") {
 			if !strings.Contains(perr.Message, need) {
 				t.Errorf("the refusal lacks %q: %s", need, perr.Message)
@@ -839,14 +843,14 @@ func TestARerunSaysOfABackendThatRefusesTheReadThatItRefuses(t *testing.T) {
 	for _, refusal := range []answer{notAMember, failAnswer(protocol.CodeUnauthenticated, "the credential is not known to this server")} {
 		r := rerun()
 		r.there.on("team moved", refusal)
-		refused(r, []string{earlier + refuses, "Run the same command with the backend it leaves named: "}, []string{"did not answer", "when it answers", "when they answer"})
+		refused(r, protocol.CodeConfig, []string{earlier + refuses, "Run the same command with the backend it leaves named: "}, []string{"did not answer", "when it answers", "when they answer"})
 	}
 
 	// Both refuse.
 	r := rerun()
 	r.f.rec.on("team moved", notAMember)
 	r.there.on("team moved", notAMember)
-	refused(r, []string{earlier + " and " + r.oldHost + " refuse to say what they record of this team to this machine, which they no longer count a member", "Run the same command with the backend it leaves named: "},
+	refused(r, protocol.CodeConfig, []string{earlier + " and " + r.oldHost + " refuse to say what they record of this team to this machine, which they no longer count a member", "Run the same command with the backend it leaves named: "},
 		[]string{"did not answer", "when it answers", "when they answer"})
 
 	// One refuses and the other does not answer: each keeps its words, and
@@ -854,12 +858,12 @@ func TestARerunSaysOfABackendThatRefusesTheReadThatItRefuses(t *testing.T) {
 	r = rerun()
 	r.f.rec.on("team moved", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
 	r.there.on("team moved", notAMember)
-	refused(r, []string{r.oldHost + " did not answer what it records of this team", earlier + refuses, "Run the same command again when it answers, or with the backend it leaves named: "}, nil)
+	refused(r, protocol.CodeUnavailable, []string{r.oldHost + " did not answer what it records of this team", earlier + refuses, "Run the same command again when it answers, or with the backend it leaves named: "}, nil)
 
 	// One that answers what is no record keeps the words of one that did not answer.
 	r = rerun()
 	r.there.on("team moved", failAnswer(protocol.CodeInternal, "the backend answered with something that is not a result envelope"))
-	refused(r, []string{earlier + " did not answer what it records of this team", "Run the same command again when it answers, or with the backend it leaves named: "}, []string{"refuses to say"})
+	refused(r, protocol.CodeUnavailable, []string{earlier + " did not answer what it records of this team", "Run the same command again when it answers, or with the backend it leaves named: "}, []string{"refuses to say"})
 }
 
 // TestTeamMoveToTellsAClearThatIsToldToWaitAsARecordThatStands (work item

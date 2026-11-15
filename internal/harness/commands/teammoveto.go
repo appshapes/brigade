@@ -723,15 +723,21 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		// that had put this member out was said not to have answered, and
 		// the command said to run it again when it answers (work item 341).
 		// Either way nothing is chosen, and what helps at once is --from.
+		// The code follows the remedy. Where every backend that could not be
+		// read refuses the read, running the command again mends nothing: it
+		// is `config`, as the other refusals that choose no backend are, and
+		// a session that reads it does not try again. Where at least one did
+		// not answer, the same command may get further once it does: that is
+		// `unavailable`.
 		var could []string
-		remedy := "Run the same command with the backend it leaves named: "
+		code, remedy := protocol.CodeConfig, "Run the same command with the backend it leaves named: "
 		if len(unread) > 0 {
 			it, did := "it answers", " did not answer what it records of this team"
 			if len(unread) > 1 {
 				it, did = "they answer", " did not answer what they record of this team"
 			}
 			could = append(could, subject(unread)+did)
-			remedy = "Run the same command again when " + it + ", or with the backend it leaves named: "
+			code, remedy = protocol.CodeUnavailable, "Run the same command again when "+it+", or with the backend it leaves named: "
 		}
 		if len(refusing) > 0 {
 			refuses := " refuses to say what it records of this team to this machine, which it no longer counts a member"
@@ -741,7 +747,7 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 			could = append(could, subject(refusing)+refuses)
 		}
 		return nil, "", &protocol.Error{
-			Code: protocol.CodeUnavailable,
+			Code: code,
 			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + strings.Join(could, ", and ") +
 				", so which one the team is leaving is not known: a backend that cannot be read may be the one. " + remedy + reruns() + ". Nothing was changed",
 			Details: map[string]string{"reason": "team_ambiguous"},

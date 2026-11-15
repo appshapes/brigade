@@ -2482,6 +2482,12 @@ func TestARerunDoesNotLeaveOutAServerThatRefusesTheReadThroughTheRealBinary(t *t
 	if res.exit == 0 || strings.Contains(res.stderr, "[y/N]") || strings.Contains(res.stderr, "did not answer") || strings.Contains(res.stderr, "when it answers") {
 		t.Fatalf("the same command while the server the team is leaving refuses the read: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
+	// Running it again mends nothing: the refusal is `config`, as the other
+	// refusals that choose no backend are, and not `unavailable`, which a
+	// session that reads it takes for a thing to try again.
+	if res.exit != protocol.CodeConfig.Exit() || !strings.Contains(res.stderr, "brigade team failed (config): ") {
+		t.Fatalf("the refusal's code: exit %d, want %d and `config`\nstderr: %s", res.exit, protocol.CodeConfig.Exit(), res.stderr)
+	}
 	if nowA, nowB := r.recordOn(r.configDir, a), r.recordOn(r.configDirB, b); !nowA.RecordedAt.Equal(onA.RecordedAt) || !nowB.RecordedAt.Equal(onB.RecordedAt) {
 		t.Fatalf("a record was written: A %+v, was %+v; B %+v, was %+v", nowA, onA, nowB, onB)
 	}
