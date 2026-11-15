@@ -164,9 +164,10 @@ All on 2026-11-15, on this machine (macOS, Apple silicon), in the worktree of wo
   in both directions. From a team on the 0.7.0 it was refused with "keeps no record of where a team goes: it is
   older than 0.8.0", and the new server, behind a front that counts requests, was asked none. From a team on
   this build's server to the 0.7.0 the team moved, and its member's next session followed.
-- Not measured: a move between two servers on two machines, a team with gateways on the server it leaves, and
-  the record's older road, `brigade team move --ticket-file`, for a team that comes back: it clears no record on
-  the server the team returns to.
+- The record's older road, `brigade team move --ticket-file`, for a team that comes back: the built `brigade`
+  cleared the record on the server the team returned to before the other server recorded anything, on two
+  stand-in servers and on two built servers.
+- Not measured: a move between two servers on two machines, and a team with gateways on the server it leaves.
 
 ## Consequences
 
