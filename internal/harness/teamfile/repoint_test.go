@@ -80,6 +80,24 @@ func TestToServerKeepsEverythingElse(t *testing.T) {
 			want: `{"version":1,"certificate":"` + repointPin + `","adapter":"rest","url":"` + repointURL + `","team_ref":"t_9"}`,
 		},
 		{
+			name: "line ends as Windows writes them, and no line end after the last brace",
+			in:   "{\r\n\t\"version\": 1,\r\n\t\"adapter\": \"supabase\",\r\n\t\"url\": \"https://abc.supabase.co\",\r\n\t\"publishable_key\": \"sb_publishable_x\",\r\n\t\"team_ref\": \"t_9\"\r\n}",
+			pin:  repointPin,
+			want: "{\r\n\t\"version\": 1,\r\n\t\"adapter\": \"rest\",\r\n\t\"url\": \"" + repointURL + "\",\r\n\t\"certificate\": \"" + repointPin + "\",\r\n\t\"team_ref\": \"t_9\"\r\n}",
+		},
+		{
+			name: "white space before the first brace and after the last",
+			in:   "  \n{\"version\":1,\"adapter\":\"supabase\",\"url\":\"https://abc.supabase.co\",\"team_ref\":\"t_9\" ,\n \"publishable_key\":\"sb_publishable_x\"\n}  \n\n\t ",
+			pin:  repointPin,
+			want: "  \n{\"version\":1,\"adapter\":\"rest\",\"url\":\"" + repointURL + "\",\"certificate\":\"" + repointPin + "\",\"team_ref\":\"t_9\"\n}  \n\n\t ",
+		},
+		{
+			name: "member names spelled with escapes, and members of the same names inside another",
+			in:   `{"version":1,"\u0061dapter":"supabase","\u0075rl":"https://abc.supabase.co","publishable_ke\u0079":"k","team_ref":"t_9","sync":{"url":"x","adapter":"y","publishable_key":"z","certificate":"w"},"t\u00e9am":"d\u00e9vs \ud83d\ude00"}`,
+			pin:  repointPin,
+			want: `{"version":1,"\u0061dapter":"rest","\u0075rl":"` + repointURL + `","certificate":"` + repointPin + `","team_ref":"t_9","sync":{"url":"x","adapter":"y","publishable_key":"z","certificate":"w"},"t\u00e9am":"d\u00e9vs \ud83d\ude00"}`,
+		},
+		{
 			name: "a pin the file had goes when the server has none, with the key before it",
 			in:   `{"publishable_key":"k","certificate":"sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824","version":1,"adapter":"other","url":"https://old.example.com","team_ref":"t_9"}`,
 			want: `{"version":1,"adapter":"rest","url":"` + repointURL + `","team_ref":"t_9"}`,
@@ -123,6 +141,9 @@ func TestToServerRefusesWhatItCannotRewrite(t *testing.T) {
 		"a destination with no url":  {valid, "", ""},
 		"a secret where the url is":  {valid, "https://brg1.t_9.abababababababab", ""},
 		"a file that carries a join": {strings.Replace(valid, `"k"`, `"brg1.t_9.abababababababab"`, 1), repointURL, ""},
+		"a byte-order mark":          {"\xef\xbb\xbf" + valid, repointURL, ""},
+		"a member named twice":       {strings.Replace(valid, `"version":1`, `"url":"https://abc.supabase.co","version":1`, 1), repointURL, ""},
+		"a key named twice":          {strings.Replace(valid, `"version":1`, `"publishable_key":"k","version":1`, 1), repointURL, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

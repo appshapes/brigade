@@ -4,6 +4,7 @@ package commands
 
 import (
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -192,6 +193,67 @@ func TestTeamMoveToSaysThatTheRecordHoldsATicketThatWasReplaced(t *testing.T) {
 		perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, "")
 		if !strings.Contains(perr.Message, "did not record it") || strings.Contains(perr.Message, stale) {
 			t.Fatalf("the refusal: %s", perr.Message)
+		}
+	})
+}
+
+// TestTeamMoveToAndATeamFileThatIsNotAPlainFile: a team file that is a
+// symbolic link is no team file, to a session and to this command alike:
+// the move stops before anything is asked, and the link and the file it
+// points at are as they were. A team file its owner made read-only is a
+// team file: a rewrite replaces the file and does not write into it, so the
+// move goes on, and what replaces it has a committed team file's mode.
+func TestTeamMoveToAndATeamFileThatIsNotAPlainFile(t *testing.T) {
+	t.Parallel()
+	t.Run("a symbolic link", func(t *testing.T) {
+		t.Parallel()
+		r := newMoveToRig(t)
+		elsewhere := filepath.Join(r.f.dirs.Root, "the-team-file-elsewhere.json")
+		if err := os.Rename(r.file, elsewhere); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(elsewhere, r.file); err != nil {
+			t.Fatal(err)
+		}
+		storeBefore := storeHash(t, r.f.dirs.BrigadeConfig)
+		wantCode(t, Team(r.inv(true, r.args()...)), protocol.CodeConfig, teamfile.ReasonNotRegularFile)
+		if r.f.rec.count() != 0 || len(r.prompts) != 0 {
+			t.Fatalf("the refusal spawned %v and asked %d times", r.f.rec.verbs(), len(r.prompts))
+		}
+		if info, err := os.Lstat(r.file); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the link after the refusal: %v, %v", info, err)
+		}
+		if text, err := os.ReadFile(elsewhere); err != nil || string(text) != r.original {
+			t.Fatalf("the file the link points at was rewritten (%v):\n%s", err, text)
+		}
+		if storeHash(t, r.f.dirs.BrigadeConfig) != storeBefore {
+			t.Fatalf("the refusal wrote the store")
+		}
+	})
+	t.Run("a read-only file", func(t *testing.T) {
+		t.Parallel()
+		r := newMoveToRig(t)
+		if err := os.Chmod(r.file, 0o444); err != nil { //nolint:gosec // G302: a team file its owner made read-only
+			t.Fatal(err)
+		}
+		if err := Team(r.inv(true, r.args()...)); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.fileNow(); got != r.moved() {
+			t.Fatalf("the team file:\n%s\nwant:\n%s", got, r.moved())
+		}
+		if info, err := os.Lstat(r.file); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o644 {
+			t.Fatalf("the team file after the move: %v, %v", info, err)
+		}
+		// Nothing of the rewrite is left beside it.
+		entries, err := os.ReadDir(r.top)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if strings.Contains(e.Name(), ".tmp-") {
+				t.Fatalf("the rewrite left %s in the checkout", e.Name())
+			}
 		}
 	})
 }
