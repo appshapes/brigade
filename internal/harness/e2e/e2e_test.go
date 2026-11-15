@@ -365,8 +365,15 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	// did not end within the budget. The second alone says nothing of a
 	// close: it is written when the budget runs out, asked or not, and a
 	// watcher that never asked for the close passed this test on it until a
-	// reviewer took the request out. Where the close itself is asserted
-	// under a budget no disk decides is in the comment of
+	// reviewer took the request out.
+	//
+	// Neither line says that the child acted on the close: a watch child
+	// that ignored `close` in sink mode would write both for ever. That the
+	// fs adapter's child in sink mode ends on the close and that closed_at
+	// is then in the store is held in process, with the close's budget a
+	// dependency no disk decides (CloseWaitClean), by
+	// watch.TestASinkWatcherClosesItsSessionThroughItsChild; the socket
+	// mode's tests of the same are named in the comment of
 	// TestSessionLifecycleThroughTheRealBinary.
 	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt == nil {
 		wrote, ranOut := r.logHas(carol, "close command written"), r.logHas(carol, "watch child did not end after close; stopping it")

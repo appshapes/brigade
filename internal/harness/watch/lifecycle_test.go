@@ -95,6 +95,56 @@ func TestExitsAfterClaudeDeath(t *testing.T) {
 	}
 }
 
+// TestASinkWatcherClosesItsSessionThroughItsChild is the close that the
+// sink test of the real binary cannot hold
+// (e2e.TestWatchSinkThroughTheRealBinary), in process: a watcher in sink
+// mode writes `close` to the stdin of the fs adapter's watch child on its
+// way out, the child ends on it, and by then the store shows closed_at.
+//
+// The budget of that close is a dependency here (CloseWaitClean, the fs
+// fixture's hang catcher), where the real binary's is one second, which a
+// disk beside other suites does not keep. So the real binary's test also
+// passes on a close that was written and not answered within the second,
+// and a child that never ended on `close` in sink mode would pass it for
+// ever (work item 336). It does not pass here: the watcher says the child
+// ended after the close, never that it stopped the child, and the session
+// is closed in the store.
+func TestASinkWatcherClosesItsSessionThroughItsChild(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	fx.useFS()
+	fx.writeMap()
+	r := fx.start(fx.deps(), fx.args()...)
+	fx.waitLog("watch ready", nil)
+	// A message through the sink first: the watcher that closes is one that
+	// delivered, as the real binary's test has it.
+	id := fx.send("to the sink, before the close")
+	testutil.Await(t, waitShort, pollEvery, "the record of the message in the sink", func() bool { return len(fx.sinkRecords()) == 1 }, nil)
+	if recs := fx.sinkRecords(); recs[0].MessageID != id {
+		t.Fatalf("sink records: %+v, want the message %s", recs, id)
+	}
+	testutil.Await(t, waitShort, pollEvery, "the store to hold the message as acknowledged", func() bool { return len(fx.ackedIDs()) == 1 }, nil)
+	if s := fx.session(); s.ClosedAt != nil {
+		t.Fatalf("the session is closed before the watcher was stopped: %+v", s)
+	}
+
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if !fx.logHas("close command written", nil) {
+		t.Errorf("the watcher did not write the close command to its child: %v", fx.logLines())
+	}
+	if !fx.logHas("watch child ended after close", nil) || fx.logHas("watch child did not end after close; stopping it", nil) {
+		t.Errorf("the child did not end on the close: the watcher's log does not say it ended, or says the watcher stopped it\n%s", fx.warnings())
+	}
+	if s := fx.session(); s.ClosedAt == nil {
+		t.Errorf("the session was not closed in the store: %+v", s)
+	}
+	if _, err := os.Stat(fx.pidfilePath()); !os.IsNotExist(err) {
+		t.Errorf("pidfile still present: %v", err)
+	}
+}
+
 // TestZombieClaudeReadsAsDead: an unreaped corpse as the Claude pid is
 // still kill-alive (E0-5 defect 1) but the watcher reads the STATE and
 // exits.
