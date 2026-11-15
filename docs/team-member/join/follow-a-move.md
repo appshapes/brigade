@@ -27,13 +27,19 @@ ends. Nothing is asked of you.
    on the server under the name it had, and the line after it gives the session's new id. A reply sent to the
    id it had does not reach it.
 
+- **It moves with the checkout it was started in.** A session follows the `.brigade.json` of the checkout it
+  was started in and no other. A prompt you send while it works in another checkout of yours (after a `cd`, or
+  in a worktree) changes nothing, whatever that checkout's file names, and a `/clear` there does not move it
+  either: a session that has moved does not go back because another checkout has not pulled the change yet,
+  and one that has not moved does not go ahead of its own.
 - **A quiet session stays quiet.** `/brigade:quiet` holds on the server as it did before.
 - **Held messages keep it back.** A message that is held for your review is on the backend the team left and
   does not move. The session says so once and stays until you release it (`brigade inbox`, then `brigade inbox
-  release`, in your own terminal), and moves at its next prompt after that.
+  release`, in your own terminal), and moves at its next prompt after that. `/clear` does not move it either:
+  the conversation that begins is told the same, and the session is the one it was.
 - **If the server cannot be reached**, the session stays where it is, says so once, and tries again at a later
-  prompt, a minute later at the earliest. A prompt that tries waits for the server, for no longer than the few
-  seconds a prompt may take.
+  prompt, a minute later at the earliest; after a `/clear` too, which never says that such a session is not
+  connected. A prompt that tries waits for the server, for no longer than the few seconds a prompt may take.
 - **With no record behind the file**, the session stays where it is. The backend you joined is asked again at
   most once a minute while you prompt, and the address the file names is sent nothing.
 - **A Grok Build session** follows when it starts, not while it runs: Grok Build shows nothing a prompt hook
@@ -45,7 +51,7 @@ Set the option `follow_team_move` to `off` ([Know the options](../configure/opti
 follow_team_move to off.` From then on a session never follows. When a team of yours moves, the session says that
 `.brigade.json` does not match the team you joined, and you join the server yourself with the secret file:
 `/brigade:join ~/brigade-<team>.secret`. A session that is running says once that it stays where it is, and
-moves at its next prompt after your join.
+moves at its next prompt after you joined in the checkout it was started in.
 
 ## If the session says the file does not match
 
@@ -54,7 +60,8 @@ the file names, or the move has ended. Ask your administrator before you join an
 with no record behind it is exactly what this check is for.
 
 A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
-you prompt it asks again, at most once a minute, and follows within a prompt or two of the record being there.
+you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or
+two of the record being there.
 
 ## To leave
 

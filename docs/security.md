@@ -1432,14 +1432,18 @@ the session connects to nothing, says that the file does not match, and `team jo
   secret file, and `team move` refuses to record anything until they have. The ticket is read from a file and
   written to a file of mode 0600 inside your credential directory, which is removed as soon as the join has been
   sent; it is in no argument, no output and no log line.
-- **A session that is running follows at its next prompts**, in two steps. A prompt that finds the file naming
-  another backend for the session's team starts the same follow as a process of its own, which has no session:
-  no inbox socket, no messaging token. It asks the question above, and at most one such process a minute is
-  started for a checkout, so a file with no record behind it has the old backend asked once a minute while you
-  prompt and is sent nothing itself. When the checkout has followed, a later prompt says the line, registers the
-  session anew on the new backend under the name it has, and its watcher there replaces the old one, which
-  closes the old session. A session that asked for quiet stays quiet. A session that started before the move
-  was recorded, and is connected to nothing, follows the same way. A Grok Build session, whose prompt hook can
+- **A session that is running follows at its next prompts**, in two steps. A prompt that finds the team file of
+  the checkout the session was started in naming another backend for the session's team starts the same follow
+  as a process of its own, which has no session: no inbox socket, no messaging token. It asks the question
+  above, and at most one such process a minute is started for a checkout, so a file with no record behind it
+  has the old backend asked once a minute while you prompt and is sent nothing itself. When the checkout has
+  followed, a later prompt says the line, registers the session anew on the new backend under the name it has,
+  and its watcher there replaces the old one, which closes the old session. A session that asked for quiet
+  stays quiet. A session moves with the checkout it was started in and with no other: a prompt that comes from
+  another checkout of yours changes nothing, whatever that checkout's file names, and a `/clear` there, which
+  is a session's start in that checkout, follows for that checkout as any start does and leaves this session
+  where it is. A session that started before the move was recorded, and is connected to nothing, follows the
+  same way, and says that the backend you joined is being asked. A Grok Build session, whose prompt hook can
   say nothing, follows only when it starts.
 - **Leaving holds.** The line names the way out, `brigade team leave`. A machine that left the team at the server
   is not joined again by a session in another checkout of the team: you come back with `team join`, yourself.
@@ -1451,7 +1455,10 @@ the session connects to nothing, says that the file does not match, and `team jo
   ends, so an administrator moves a team at a quiet moment. A running session that holds messages for your
   review stays on the old backend until you release them, and says so once: a held message does not move with
   it.
-- **A session that sets `adapter_command`** names its adapter itself and never follows.
+- **A session that sets `adapter_command`** names its adapter itself and never starts a follow, and neither
+  does one with `follow_team_move` set to `off`. They keep a session from asking, not from going where you
+  joined: once the checkout a running session was started in is on the new backend, by your own `team join`
+  there or by another of your sessions that followed, that session moves at its next prompt and says so.
 - **The hook writes the store here.** Everywhere else a session's hooks only read your team store, and every
   change to it is made by a command that was run. This is the one exception: the session-start hook, and the
   process a prompt hook starts for a running session, write the new membership and the checkout's pin, in the
