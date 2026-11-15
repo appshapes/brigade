@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json/v2"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -187,7 +188,9 @@ func TestInboundHoldThenAccept(t *testing.T) {
 func TestInboundKeepsTheCheckoutTheMapNames(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	const checkout = "/work/payments-api"
+	// A directory of this machine: the map takes an absolute path only, and
+	// what is absolute differs between the platforms.
+	checkout := filepath.Join(t.TempDir(), "payments-api")
 	m := f.byPID()
 	m.Checkout = checkout
 	f.writeMap(t, m)
