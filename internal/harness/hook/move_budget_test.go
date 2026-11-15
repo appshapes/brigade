@@ -31,12 +31,13 @@ import (
 
 // hangingBackend makes every adapter call that hangs names block until its
 // context ends or the returned release is called. It reports how many calls
-// are, or were, blocked. A call that was let go, or whose context ended,
-// fails as a backend that timed out.
-func hangingBackend(f *fixture, hangs func(spec adapterkit.SpawnSpec) bool) (blocked *atomic.Int32, release func()) {
+// are, or were, blocked, and how many of those have ended: its caller
+// stopped waiting, or the call was let go. Either way the call fails as a
+// backend that timed out.
+func hangingBackend(f *fixture, hangs func(spec adapterkit.SpawnSpec) bool) (blocked, ended *atomic.Int32, release func()) {
 	f.t.Helper()
 	inner, gate, once := f.deps.Spawn, make(chan struct{}), sync.Once{}
-	blocked = &atomic.Int32{}
+	blocked, ended = &atomic.Int32{}, &atomic.Int32{}
 	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
 		if !hangs(spec) {
 			return inner(ctx, spec)
@@ -53,9 +54,10 @@ func hangingBackend(f *fixture, hangs func(spec adapterkit.SpawnSpec) bool) (blo
 		case <-ctx.Done():
 		case <-gate:
 		}
+		ended.Add(1)
 		return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the backend did not answer"}
 	}
-	return blocked, func() { once.Do(func() { close(gate) }) }
+	return blocked, ended, func() { once.Do(func() { close(gate) }) }
 }
 
 // detachedFollows has the fixture's spawner run each follow child beside
@@ -81,20 +83,27 @@ func (f *fixture) timed() ([]string, time.Duration) {
 
 // TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs: the backend the checkout
 // joined accepts the follow's question and never answers it. The prompt
-// that starts the follow returns at once, in a small part of its budget,
-// with the child still waiting; so does the prompt after it; and neither
-// asked a backend anything in its own run. The same holds for a session
-// that is attached to nothing, whose registration retry starts the child:
-// the path the review of work item 273 closed. Were the follow made in the
-// hook, each of these prompts would last its whole budget.
+// that starts the follow is back with the child still waiting; so is the
+// prompt after it; and neither asked a backend anything in its own run. The
+// same holds for a session that is attached to nothing, whose registration
+// retry starts the child: the path the review of work item 273 closed. Were
+// the follow made in the hook, each of these prompts would last its whole
+// budget: the question it had asked would end with that budget, and only
+// then would the prompt be back.
+//
+// That order is what is held, and no length of time (work item 336). A
+// prompt is back while the backend's question is unanswered, nothing having
+// ended it: no caller gave up on it and the test has not let it go. And the
+// one question on the record is the child's. Each prompt used to be held to
+// half its budget, 2 s, which a prompt that waited on nothing passed beside
+// other work on this machine: its stamps are files synced to disk, 0.25 s in
+// one run and 2.8 s in another (2026-11-14). A hook that asks the backend
+// itself still fails here, when its budget ends its question.
 func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 	t.Parallel()
+	// The budget is how long a hook that did wait would keep this test.
 	const budget = 4 * time.Second
 	movedOnly := func(spec adapterkit.SpawnSpec) bool { return verbOf(spec.Argv) == "team moved" }
-	// within is the part of the budget a prompt that waits on nothing stays
-	// far under, on a machine that is busy, and that a prompt which waited
-	// for the backend would exceed.
-	const within = budget / 2
 
 	t.Run("a session that is attached", func(t *testing.T) {
 		t.Parallel()
@@ -102,14 +111,14 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 		f.deps.PromptBudget = budget
 		seam := attachedMember(t, f, nil, nil)
 		detachedFollows(f)
-		blocked, release := hangingBackend(f, movedOnly)
+		blocked, ended, release := hangingBackend(f, movedOnly)
 		t.Cleanup(release)
 		pinBefore := f.checkoutPin()
 		f.moveTeamFile("team-1")
 
-		got, took := f.timed()
-		if !slices.Equal(got, []string{movedLine}) || took >= within {
-			t.Fatalf("the prompt that started the follow: lines %q in %v, want the one line in under %v", got, took, within)
+		got := f.prompted()
+		if !slices.Equal(got, []string{movedLine}) || ended.Load() != 0 {
+			t.Fatalf("the prompt that started the follow: lines %q, and %d questions to the backend had ended when it was back; want the one line and the question unanswered", got, ended.Load())
 		}
 		if n := len(f.spawner.followed()); n != 1 {
 			t.Fatalf("%d follow children started, want 1", n)
@@ -122,10 +131,10 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 			t.Fatalf("the child's question: %d calls", len(asks))
 		}
 		// A prompt while the child still waits: nothing said, started or asked,
-		// and no wait.
-		got, took = f.timed()
-		if len(got) != 0 || took >= within || len(f.spawner.followed()) != 1 || blocked.Load() != 1 {
-			t.Fatalf("a prompt while the child waits: lines %q in %v, %d follows, %d calls blocked", got, took, len(f.spawner.followed()), blocked.Load())
+		// and it is back with the child's question still unanswered.
+		got = f.prompted()
+		if len(got) != 0 || len(f.spawner.followed()) != 1 || blocked.Load() != 1 || ended.Load() != 0 {
+			t.Fatalf("a prompt while the child waits: lines %q, %d follows, %d calls blocked, %d of them ended", got, len(f.spawner.followed()), blocked.Load(), ended.Load())
 		}
 		if m := f.mustMap(); m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || f.checkoutPin() != pinBefore {
 			t.Fatalf("the session or its pin moved: %+v", m)
@@ -148,12 +157,12 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 		}
 		asksAtStart := len(seam.callsFor("team moved"))
 		detachedFollows(f)
-		blocked, release := hangingBackend(f, movedOnly)
+		blocked, ended, release := hangingBackend(f, movedOnly)
 		t.Cleanup(release)
 
-		got, took := f.timed()
-		if !slices.Equal(got, []string{movedRetryLine, driftLine}) || took >= within {
-			t.Fatalf("the retry that started the follow: lines %q in %v, want its two lines in under %v", got, took, within)
+		got := f.prompted()
+		if !slices.Equal(got, []string{movedRetryLine, driftLine}) || ended.Load() != 0 {
+			t.Fatalf("the retry that started the follow: lines %q, and %d questions to the backend had ended when it was back; want its two lines and the question unanswered", got, ended.Load())
 		}
 		if n := len(f.spawner.followed()); n != 1 {
 			t.Fatalf("%d follow children started, want 1", n)
@@ -162,53 +171,69 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 		if n := len(seam.callsFor("team moved")); n != asksAtStart+1 {
 			t.Fatalf("%d questions since the start, want the child's one", n-asksAtStart)
 		}
-		got, took = f.timed()
-		if len(got) != 0 || took >= within || len(f.spawner.followed()) != 1 || blocked.Load() != 1 || f.mapExists() {
-			t.Fatalf("a prompt while the child waits: lines %q in %v, %d follows, %d calls blocked", got, took, len(f.spawner.followed()), blocked.Load())
+		got = f.prompted()
+		if len(got) != 0 || len(f.spawner.followed()) != 1 || blocked.Load() != 1 || ended.Load() != 0 || f.mapExists() {
+			t.Fatalf("a prompt while the child waits: lines %q, %d follows, %d calls blocked, %d of them ended", got, len(f.spawner.followed()), blocked.Load(), ended.Load())
 		}
 		release()
 	})
 }
 
-// TestAPromptDoesNotWaitOnTheFollowsLock: another process of this machine
-// holds the lock a follow takes, as a follow that is waiting on its backend
-// does. Neither step of a running session's follow is the hook's to wait
-// for it: the prompt that starts the child returns at once, and, with the
-// pin written, the prompt that moves the session registers it while the
-// lock is still held.
+// TestAPromptDoesNotWaitOnTheFollowsLock: a follow holds a lock across its
+// question to the backend the checkout joined, for as long as that backend
+// takes to answer. Neither step of a running session's follow is the hook's
+// to wait for that lock: not the prompt that starts the child, and not,
+// with the pin written, the prompt that moves the session and registers it.
+//
+// Neither prompt asks for the lock at all, and that is what is held (work
+// item 336). Whoever asks for it opens its file, and makes the file where
+// there is none (adapterkit.LockFile): after each of the two prompts there
+// is none. The child's own follow, between them, is the control: it takes
+// the lock, and its file is there. A hook that asked for the lock and gave
+// up at once would fail here too, having waited for nothing; the day one
+// has a reason to, this test is the place to say what it may wait.
+//
+// The test used to hold the lock and time each prompt against 2 s, half its
+// budget, which is how long a follow made in the hook would have waited for
+// it. A prompt that waited on nothing passed 2 s beside other work on this
+// machine: its stamps are files synced to disk, 0.25 s in one run and 2.8 s
+// in another (2026-11-14). A lock has no list of who waits for it, so with
+// the lock held a wait shows only on a clock.
 func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 	t.Parallel()
-	const budget = 4 * time.Second
 	f := newMemberFixture(t)
-	f.deps.PromptBudget = budget
+	// A budget no busy machine reaches: the registration of the move has it,
+	// less a second, to be answered in.
+	f.deps.PromptBudget = time.Minute
 	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
 	f.moveTeamFile("team-1")
 	lockPath := filepath.Join(f.configDir, "team-move.lock")
-	lock, err := adapterkit.LockFile(lockPath, time.Second)
-	if err != nil {
-		t.Fatal(err)
+	if exists(lockPath) {
+		t.Fatal("the lock's file is there before any follow: the test would hold nothing")
 	}
-	t.Cleanup(func() { _ = lock.Unlock() })
 
-	got, took := f.timed()
-	if !slices.Equal(got, []string{movedLine}) || took >= budget/2 || len(f.spawner.followed()) != 1 {
-		t.Fatalf("the prompt that started the follow under a held lock: lines %q in %v, %d follows", got, took, len(f.spawner.followed()))
+	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) || len(f.spawner.followed()) != 1 {
+		t.Fatalf("the prompt that started the follow: lines %q, %d follows", got, len(f.spawner.followed()))
 	}
-	// The child follows once the lock is free; then the lock is held again.
-	if err := lock.Unlock(); err != nil {
-		t.Fatal(err)
+	if exists(lockPath) {
+		t.Fatal("the prompt that started the follow asked for the follow's lock")
 	}
+	// The child follows, under the lock: the control.
 	f.runFollow(f.spawner.followed()[0])
-	if lock, err = adapterkit.LockFile(lockPath, time.Second); err != nil {
+	if !exists(lockPath) {
+		t.Fatal("the child's follow left no lock file: the test holds nothing of who asks for the lock")
+	}
+	if err := os.Remove(lockPath); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = lock.Unlock() })
-	got, took = f.timed()
-	if len(got) != 2 || took >= budget/2 {
-		t.Fatalf("the prompt that moved the session under a held lock: lines %q in %v", got, took)
+	if got := f.prompted(); len(got) != 2 {
+		t.Fatalf("the prompt that moved the session: lines %q", got)
 	}
 	if m := f.mustMap(); m.TeamKey != teamstore.Key("rest", movedURL, "team-1") || m.BrigadeSessionID != "brigade-sess-2" {
 		t.Fatalf("the map: %+v", m)
+	}
+	if exists(lockPath) {
+		t.Fatal("the prompt that moved the session asked for the follow's lock")
 	}
 }
 
@@ -245,7 +270,7 @@ func TestAPromptWhoseNewBackendHangsGivesUpAtTheRegistrationsDeadline(t *testing
 	registers := func(spec adapterkit.SpawnSpec) bool {
 		return verbOf(spec.Argv) == "session register" && profileOf(adapterCall{Argv: spec.Argv}) == newKey
 	}
-	blocked, release := hangingBackend(f, registers)
+	blocked, _, release := hangingBackend(f, registers)
 	t.Cleanup(release)
 	spawns := f.spawner.count()
 
@@ -508,7 +533,7 @@ func TestAFollowWhoseBackendHangsEndsWithItsBudget(t *testing.T) {
 	f.labelOldBinding()
 	f.moveTeamFile("team-1")
 	seam := f.useMoveSeam(nil, nil)
-	blocked, release := hangingBackend(f, func(spec adapterkit.SpawnSpec) bool { return verbOf(spec.Argv) == "team moved" })
+	blocked, _, release := hangingBackend(f, func(spec adapterkit.SpawnSpec) bool { return verbOf(spec.Argv) == "team moved" })
 	t.Cleanup(release)
 	pinBefore := f.checkoutPin()
 	spec := SpawnSpec{
