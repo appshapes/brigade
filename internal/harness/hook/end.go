@@ -39,7 +39,7 @@ func (r *run) sessionEnd() int {
 		r.log.Warn("session-end: session facts", log.Err(err))
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), endBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), r.deps.EndBudget)
 	defer cancel()
 
 	store := sessionmap.Store{StateDir: f.stateDir}

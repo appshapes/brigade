@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,13 +35,41 @@ func TestRealDepsAreTheDocumentedBudgets(t *testing.T) {
 	t.Parallel()
 	for name, d := range map[string]Deps{"RealDeps": RealDeps(), "a zero Deps with its defaults": Deps{}.withDefaults()} {
 		if d.PromptBudget != 4500*time.Millisecond || d.StopBudget != 4500*time.Millisecond || d.GrokStartBudget != 12*time.Second ||
-			d.FollowBudget != 55*time.Second || d.PidfileWait != 2*time.Second {
-			t.Errorf("%s: prompt %v, Stop %v, Grok start %v, follow %v, pidfile wait %v; want 4.5s, 4.5s, 12s, 55s and 2s",
-				name, d.PromptBudget, d.StopBudget, d.GrokStartBudget, d.FollowBudget, d.PidfileWait)
+			d.EndBudget != 1400*time.Millisecond || d.FollowBudget != 55*time.Second || d.PidfileWait != 2*time.Second {
+			t.Errorf("%s: prompt %v, Stop %v, Grok start %v, end %v, follow %v, pidfile wait %v; want 4.5s, 4.5s, 12s, 1.4s, 55s and 2s",
+				name, d.PromptBudget, d.StopBudget, d.GrokStartBudget, d.EndBudget, d.FollowBudget, d.PidfileWait)
 		}
 		if d.GitBudget != 0 || d.GrokLockHeld != nil {
 			t.Errorf("%s: a git budget of %v, a GrokLockHeld that is set: %v; want each hook's own git budget and nobody told", name, d.GitBudget, d.GrokLockHeld != nil)
 		}
+	}
+}
+
+// TestAFixturesBudgetsAreHangCatchers is the other side of
+// TestRealDepsAreTheDocumentedBudgets: in a fixture every budget a hook
+// takes from its dependencies is one no busy machine reaches (unhurried;
+// the follow's is its production 55 s, which is one already). A budget a
+// fixture leaves at its production value is the machine's to decide a test
+// by. The end's 1.4 s was left so while its git call had the fixture's
+// minute, so a slow git call would have left the close nothing (work item
+// 336, a review's finding). The budgets are found by their names: one that
+// is added to Deps and not to unhurried fails here.
+func TestAFixturesBudgetsAreHangCatchers(t *testing.T) {
+	t.Parallel()
+	deps := reflect.ValueOf(newFixture(t).deps.withDefaults())
+	found := 0
+	for i := range deps.NumField() {
+		name := deps.Type().Field(i).Name
+		if !strings.HasSuffix(name, "Budget") {
+			continue
+		}
+		found++
+		if budget, ok := deps.Field(i).Interface().(time.Duration); !ok || budget < 55*time.Second {
+			t.Errorf("a fixture's %s is %v, want a hang catcher, 55 s or more", name, deps.Field(i).Interface())
+		}
+	}
+	if found < 6 {
+		t.Errorf("%d members of Deps are named as budgets, want the six it has or more: the test holds nothing of a budget it does not find", found)
 	}
 }
 

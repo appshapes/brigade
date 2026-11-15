@@ -3,11 +3,16 @@
 package hook
 
 import (
+	"context"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
@@ -114,6 +119,49 @@ func TestSessionEndCloseFailureStillExitsZero(t *testing.T) {
 	}
 	if f.mapExists() {
 		t.Fatal("the map survived a failed close")
+	}
+}
+
+// TestSessionEndGivesItsCloseWhatItsBudgetLeaves: the close is made under
+// the end's budget (Deps.EndBudget, 1.4 s in production, which
+// TestRealDepsAreTheDocumentedBudgets pins). An end whose budget is spent
+// asks for the close under a deadline that has passed, says that the close
+// did not complete, and still takes the session down on this machine. The
+// control is TestSessionEndReasons, whose ends close under the fixture's
+// budget. Every fixture has a long one (unhurried): were the end bounded
+// by anything but the dependency, by the constant it once read, a busy
+// machine would decide what the tests of an end see (work item 336).
+func TestSessionEndGivesItsCloseWhatItsBudgetLeaves(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.spawner.watcherPID = testutil.NewSleeper(t)
+	registered(t, f, map[string][]fakeadapter.Response{"session close": {okResp(closeDoc())}})
+	// The backend answers a close at once, and not one whose caller has
+	// stopped waiting: the seam itself reads no deadline.
+	var asked, spent atomic.Int64
+	inner := f.deps.Spawn
+	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if verbOf(spec.Argv) != "session close" {
+			return inner(ctx, spec)
+		}
+		asked.Add(1)
+		if ctx.Err() == nil {
+			return inner(ctx, spec)
+		}
+		spent.Add(1)
+		return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
+	}
+	f.deps.EndBudget = time.Nanosecond
+	exit, out, errOut := f.run(SubSessionEnd, f.endDoc("other"))
+	if exit != 0 || out != "" {
+		t.Fatalf("exit %d out %q err %q", exit, out, errOut)
+	}
+	if asked.Load() != 1 || spent.Load() != 1 || !strings.Contains(errOut, "close did not complete") {
+		t.Fatalf("an end with a nanosecond's budget asked for %d closes, %d of them under a deadline that had passed, want one and one, and to say the close did not complete:\n%s",
+			asked.Load(), spent.Load(), errOut)
+	}
+	if f.mapExists() {
+		t.Fatal("the map survived an end whose budget was spent")
 	}
 }
 

@@ -28,7 +28,9 @@ import (
 
 // The budgets of one git call in each hook: SessionStart has 55 s, the
 // prompt hook 4.5 s shared with the poll, SessionEnd 1.4 s shared with
-// the close. A test may set its own (Deps.GitBudget).
+// the close. A test may set its own (Deps.GitBudget), and then gives the
+// hook around it a budget to match (Deps.EndBudget for the end, whose git
+// call would otherwise leave the close nothing).
 const (
 	stateGitBudgetStart  = 1500 * time.Millisecond
 	stateGitBudgetPrompt = time.Second

@@ -726,9 +726,17 @@ type saidLines struct {
 // with `session-start: describe` or `session-start: register`, unavailable,
 // `adapter did not finish within its deadline`, and registered nothing
 // (2026-11-15); their tests failed as `by-pid map: no such file`.
+//
+// And for a session's end, which has 1.4 s for the state entry's last git
+// call and, after it, the session's close. The fixture's git budget takes
+// the end's own cap of 300 ms off that call, so under the production
+// budget a slow git call would have had all of the 1.4 s and left the
+// close none: the tests of what the end records and closes
+// (TestStateEntryFollowsTheSession, TestStateCommitsSinceStart) would
+// have had a busy machine decide both.
 func (f *fixture) unhurried() {
 	f.deps.PromptBudget, f.deps.StopBudget, f.deps.GitBudget = time.Minute, time.Minute, time.Minute
-	f.deps.GrokStartBudget = time.Minute
+	f.deps.GrokStartBudget, f.deps.EndBudget = time.Minute, time.Minute
 }
 
 // writeScript (re)writes the fake adapter script; call after editing

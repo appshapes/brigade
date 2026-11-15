@@ -95,6 +95,7 @@ const (
 	// production value.
 	grokStartBudget = 12 * time.Second
 	// endBudget keeps the session-end hook under the 1.5 s shared budget.
+	// It is Deps.EndBudget's production value.
 	endBudget = 1400 * time.Millisecond
 	// receiveTimeout is the `message receive --limit 20` cap of 6.3.
 	receiveTimeout = 4 * time.Second
@@ -288,6 +289,12 @@ type Deps struct {
 	// grokStartBudget. Only a test raises it: whether a start registered
 	// must not be for a busy machine to decide (work item 336).
 	GrokStartBudget time.Duration
+	// EndBudget bounds what the SessionEnd hook does under a deadline: the
+	// state entry's last git call, and after it the session's close; zero
+	// means endBudget. Only a test raises it: whether the end saw the last
+	// commit, and whether a slow git call left the close any time, must not
+	// be for a busy machine to decide (work item 336).
+	EndBudget time.Duration
 	// GrokLockHeld, when set, is called by a Grok hook each time it finds
 	// the receiver's lock held by another hook (grok_lock.go), before it
 	// tries again or gives up. nil in production, which tells nobody. A
@@ -320,6 +327,7 @@ func RealDeps() Deps {
 		PromptBudget:    promptBudget,
 		StopBudget:      stopBudget,
 		GrokStartBudget: grokStartBudget,
+		EndBudget:       endBudget,
 		FollowBudget:    followBudget,
 		Getppid:         os.Getppid,
 	}
@@ -366,6 +374,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.GrokStartBudget <= 0 {
 		d.GrokStartBudget = prod.GrokStartBudget
+	}
+	if d.EndBudget <= 0 {
+		d.EndBudget = prod.EndBudget
 	}
 	if d.FollowBudget <= 0 {
 		d.FollowBudget = prod.FollowBudget
