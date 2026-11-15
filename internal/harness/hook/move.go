@@ -613,10 +613,13 @@ func (r *run) dropMovedNotice(f facts) {
 // discards what a hook printed when it stops it, so nothing was said: this
 // prompt says how the checkout arrived, when the conversation was owed
 // that, and the context line of the session as it is now, with the host's
-// own line after it. A notice over a map that still names the session it
+// own line after it. It also does what that hook does after the map is
+// written and so may not have done: the roads to the session are filed for
+// the session as it is now, and the state entry of the session the move
+// left ends (endLeft). A notice over a map that still names the session it
 // was left for is of a registration that was not recorded: the session is
 // where it was, and the notice goes. A notice that cannot be read goes too.
-func (r *run) sayMoved(f facts, m *sessionmap.ByPID) {
+func (r *run) sayMoved(ctx context.Context, f facts, m *sessionmap.ByPID) {
 	path := config.MovedNotice(f.stateDir, f.pid)
 	data, err := adapterkit.ReadStrict(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -637,6 +640,18 @@ func (r *run) sayMoved(f facts, m *sessionmap.ByPID) {
 	// The notice stays until this hook ends, as the one that left it meant
 	// it to: were this hook stopped too, the next would say the lines.
 	r.movedSaid = true
+	// The roads to the session first, which that hook files after the map
+	// and so may not have filed (finish): the resume hint of the
+	// conversation the map names and, on Muse Code and Codex CLI, the pointer
+	// a command in the model's shell finds the session by. A pointer that
+	// still names the session the move left is refused beside a map that
+	// names another (config.Session), and no hook but a session's start
+	// writes one: without this every `brigade` command of the session was
+	// refused until it started again. Written again harmlessly when that
+	// hook got that far.
+	store, now := sessionmap.Store{StateDir: f.stateDir}, r.deps.Now()
+	r.writeByNative(store, m.ClaudeSessionID, m, now)
+	r.writeByHost(f, store, m.ClaudeSessionID, m, now)
 	if n.Arrival {
 		if line, canon, opts, ok := r.arrivalAfter(f, m, n); ok && r.fits(line) {
 			r.say(line)
@@ -657,6 +672,28 @@ func (r *run) sayMoved(f facts, m *sessionmap.ByPID) {
 	r.forgetTold(f)
 	_ = os.Remove(retryStampPath(f.stateDir, f.pid))
 	_ = os.Remove(doingStampPath(f.stateDir, f.pid))
+	// Last, because it may ask git: the lines are out by now.
+	r.endLeft(ctx, f, m, n.Was, now)
+}
+
+// endLeft ends the state entry of the session a move left, for the prompt
+// that makes good a hook that was stopped (sayMoved). That hook ends the
+// entry after it starts the watcher (leftBehind); one that was stopped
+// before left an entry that never ends, and the digest reports a session's
+// commits and its last note when it ends. The entry is in the state folder
+// the session's map names, under the id the notice kept. One that has its
+// end is left as it is: the hook that was stopped got that far.
+func (r *run) endLeft(ctx context.Context, f facts, m *sessionmap.ByPID, was string, now time.Time) {
+	s, ok := stateStore(f, m)
+	if !ok {
+		return
+	}
+	if e, err := s.Load(was); err != nil || !e.EndedAt.IsZero() {
+		return
+	}
+	left := *m
+	left.BrigadeSessionID = was
+	r.stateEnd(ctx, f, &left, "moved", now)
 }
 
 // arrivalAfter is the arrival line of a move that was made, for sayMoved:

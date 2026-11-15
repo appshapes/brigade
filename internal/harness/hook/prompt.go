@@ -109,7 +109,7 @@ func (r *run) prompt() int {
 	}
 	// A move this session's hook made and was stopped before saying: this
 	// prompt says it.
-	r.sayMoved(f, m)
+	r.sayMoved(ctx, f, m)
 	// The team's move (move.go, work item 327): a session whose team file
 	// names another backend for its team starts the follow, or, once the
 	// checkout followed, is registered anew where the team is. A session
