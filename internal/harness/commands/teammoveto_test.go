@@ -34,11 +34,13 @@ import (
 // profile is signed in to (accountEmail), which is the point of it.
 const moveToLabel = "ops-admin@example.org"
 
-// moveToSecret is the team's join secret, and moveToTicket the ticket the
-// server answers when the move is opened: both put together here.
+// moveToSecret is the team's join secret, moveToTicket the ticket the
+// server answers when the move is opened, and moveToRecordTicket the ticket
+// of a record the old backend holds already: all put together here.
 var (
-	moveToSecret = strings.Join([]string{"brg1", setupTeamRef, strings.Repeat("cd", 16)}, ".")
-	moveToTicket = strings.Join([]string{"brg1", setupTeamRef, strings.Repeat("ef", 16)}, ".")
+	moveToSecret       = strings.Join([]string{"brg1", setupTeamRef, strings.Repeat("cd", 16)}, ".")
+	moveToTicket       = strings.Join([]string{"brg1", setupTeamRef, strings.Repeat("ef", 16)}, ".")
+	moveToRecordTicket = strings.Join([]string{"brg1", setupTeamRef, strings.Repeat("98", 16)}, ".")
 )
 
 // moveToRig is the administrator's machine before the move.
@@ -61,6 +63,16 @@ type moveToRig struct {
 	// ticket is what the server's adapter writes to --ticket-file; a test
 	// empties it to make an adapter that writes nothing.
 	ticket string
+	// recordTicket is what the old backend's adapter writes to the
+	// --ticket-file of a `team moved` that answers a record; a test empties
+	// it to make an adapter that writes nothing. ticketsRead keeps what the
+	// file held at each `team move --ticket-file`, in order: the ticket the
+	// old backend was handed.
+	recordTicket string
+	ticketsRead  []string
+	// recordTicketFile, when it is set, is the file such an answer names in
+	// the place of the one it was told.
+	recordTicketFile string
 	// leaves makes the rig's adapter do, at each `team take-in`, what the
 	// real one does before it asks the server anything: write the profile
 	// down. With it goes a file of the adapter's own beside the profile,
@@ -92,7 +104,7 @@ func newMoveToRig(t *testing.T) *moveToRig {
 		t: t, f: f, top: mkCheckout(t, f.dirs.Root),
 		oldHost: "old" + id + ".supabase.co", newHost: "new" + id + ".example.test:8743",
 		secretFile: filepath.Join(f.dirs.Root, "ops.secret"), tokenFile: filepath.Join(f.dirs.Root, "create.token"),
-		ticket: moveToTicket,
+		ticket: moveToTicket, recordTicket: moveToRecordTicket,
 	}
 	r.oldURL, r.newURL = "https://"+r.oldHost, "https://"+r.newHost
 	r.oldKey, r.newKey = teamstore.Key("supabase", r.oldURL, setupTeamRef), teamstore.Key("rest", r.newURL, setupTeamRef)
@@ -214,8 +226,48 @@ func (r *moveToRig) sessions() string {
 
 // spawn is the rig's adapter: the recorder, and for `team open-move` what
 // the server's adapter does beside its answer, which is to write the ticket
-// to the file it was told.
+// to the file it was told. The old backend's adapter does the same for a
+// `team moved --ticket-file` that answers a record, with the record's
+// ticket, and names the file in its answer; and what a `team move` is
+// handed in its --ticket-file is kept.
 func (r *moveToRig) spawn(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+	ticketFile := ""
+	if i := slices.Index(spec.Argv, "--ticket-file"); i >= 0 && i+1 < len(spec.Argv) {
+		ticketFile = spec.Argv[i+1]
+	}
+	switch {
+	case verbKey(spec.Argv) == "team move" && ticketFile != "":
+		text, _ := os.ReadFile(ticketFile) //nolint:gosec // G304: the file the command named
+		r.ticketsRead = append(r.ticketsRead, strings.TrimSpace(string(text)))
+	case verbKey(spec.Argv) == "team moved" && ticketFile != "":
+		res, err := r.f.rec.spawn(ctx, spec)
+		if err != nil || !res.Envelope.OK {
+			return res, err
+		}
+		var answer map[string]any
+		if uerr := json.Unmarshal(res.Envelope.Result, &answer); uerr != nil {
+			r.t.Errorf("the scripted answer of team moved: %v", uerr)
+			return res, err
+		}
+		if answer["moved"] != true {
+			return res, err
+		}
+		if r.recordTicket != "" {
+			if werr := os.WriteFile(ticketFile, []byte(r.recordTicket+"\n"), 0o600); werr != nil {
+				r.t.Errorf("the record's ticket could not be written where the command named it: %v", werr)
+			}
+		}
+		answer["ticket_file"] = ticketFile
+		if r.recordTicketFile != "" {
+			answer["ticket_file"] = r.recordTicketFile
+		}
+		named, merr := json.Marshal(answer)
+		if merr != nil {
+			r.t.Fatal(merr)
+		}
+		res.Envelope.Result = named
+		return res, err
+	}
 	if verbKey(spec.Argv) == "team take-in" && r.leaves {
 		if _, err := os.Lstat(r.profileDir()); err != nil {
 			if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", r.newURL, "", moveNewPin, "", "", ""); err != nil {
@@ -349,23 +401,41 @@ func (r *moveToRig) unwritten(storeBefore string) {
 }
 
 // noSecrets fails the test when the join secret, the ticket or the
-// creation token is in anything the command said, asked or put on an
-// adapter's argv.
+// creation token is in anything the command said or asked, on an adapter's
+// argv, in an adapter's environment or in a document an adapter was handed.
+// The one place a secret travels in a document is the take-in's, which
+// carries the join secret to the server's adapter: that document may hold
+// the join secret, and holds neither the ticket nor the creation token.
 func (r *moveToRig) noSecrets() {
 	r.t.Helper()
-	var all strings.Builder
+	var all, takeIn strings.Builder
 	all.WriteString(r.f.out.String() + r.f.errb.String() + strings.Join(r.prompts, "\n"))
 	for i := range r.f.rec.count() {
-		all.WriteString("\n" + argvOf(r.f.rec.spec(r.t, i)))
+		spec := r.f.rec.spec(r.t, i)
+		all.WriteString("\n" + argvOf(spec) + "\n" + strings.Join(spec.Env, "\n") + "\n")
+		if verbKey(spec.Argv) == "team take-in" {
+			takeIn.Write(spec.Stdin)
+			continue
+		}
+		all.Write(spec.Stdin)
 	}
 	said := all.String()
 	for name, hidden := range map[string]string{
 		"the join secret": moveToSecret, "its secret part": strings.Repeat("cd", 16),
 		"the ticket": moveToTicket, "its secret part ": strings.Repeat("ef", 16),
+		"the ticket of a record that was there": moveToRecordTicket, "its secret part  ": strings.Repeat("98", 16),
 		"the creation token": "creation-token-value-MUST-NOT-LEAK",
 	} {
 		if strings.Contains(said, hidden) {
-			r.t.Errorf("%s is in an output, a question or an adapter's argv", name)
+			r.t.Errorf("%s is in an output, a question, an adapter's argv or environment, or a document that is not the take-in's", name)
+		}
+	}
+	for name, hidden := range map[string]string{
+		"the ticket": moveToTicket, "its secret part": strings.Repeat("ef", 16), "the creation token": "creation-token-value-MUST-NOT-LEAK",
+		"the ticket of a record that was there": moveToRecordTicket, "its secret part ": strings.Repeat("98", 16),
+	} {
+		if strings.Contains(takeIn.String(), hidden) {
+			r.t.Errorf("%s is in the take-in's document", name)
 		}
 	}
 }
@@ -579,6 +649,13 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 		"a relative creation token file":                      "--create-token-file must be an absolute path",
 		"a creation token file inside the checkout":           "--create-token-file must be a plainly spelled path outside this project",
 		"the secret of another team":                          "name the file `team create` wrote for this team",
+		"a url with a fragment":                               "with no credentials, query or fragment",
+		"a url with a question mark and no query":             "with no credentials, query or fragment",
+		"a url with a port and no host":                       "--to must be the server's URL",
+		"a url longer than a record holds":                    "--to is longer than the record of a move can hold",
+		"a creation token file linked into the checkout":      "--create-token-file must be a plainly spelled path outside this project",
+		"a team file too large to name the server as well":    "cannot be rewritten to name the server",
+		"a url that a team file may not carry":                "cannot be rewritten to name that server",
 	}
 	for _, tc := range []struct {
 		name   string
@@ -621,6 +698,33 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 			return []string{"--to", "https://user:pw@" + r.newHost, "--secret-file", r.secretFile}
 		}, protocol.CodeUsage, ""},
 		{"a url with no host", func(r *moveToRig) []string { return []string{"--to", "https://", "--secret-file", r.secretFile} }, protocol.CodeUsage, ""},
+		{"a url with a fragment", func(r *moveToRig) []string {
+			return []string{"--to", r.newURL + "#top", "--secret-file", r.secretFile}
+		}, protocol.CodeUsage, ""},
+		{"a url with a question mark and no query", func(r *moveToRig) []string {
+			return []string{"--to", r.newURL + "/?", "--secret-file", r.secretFile}
+		}, protocol.CodeUsage, ""},
+		{"a url with a port and no host", func(r *moveToRig) []string {
+			return []string{"--to", "https://:8743", "--secret-file", r.secretFile}
+		}, protocol.CodeUsage, ""},
+		// The record's own limit (4.4.10): the old backend would refuse it, after the server took the team in.
+		{"a url longer than a record holds", func(r *moveToRig) []string {
+			return []string{"--to", r.newURL + "/" + strings.Repeat("a", protocol.MaxMoveURLChars), "--secret-file", r.secretFile}
+		}, protocol.CodeUsage, ""},
+		// The file that would be written is tried before anything is asked: step e comes after the record.
+		{"a team file too large to name the server as well", func(r *moveToRig) []string {
+			r.writeFile(r.original + strings.Repeat(" ", teamfile.MaxBytes-len(r.original)))
+			return r.args()
+		}, protocol.CodeConfig, teamfile.ReasonTooLarge},
+		{"a url that a team file may not carry", func(r *moveToRig) []string {
+			return []string{"--to", "https://brg1." + setupTeamRef + ".abcdefgh12345678.example.test", "--secret-file", r.secretFile}
+		}, protocol.CodeConfig, "team_file_unwritable"},
+		// The file names the server under another certificate: that is no move that was stopped, and it is
+		// not finished as one. The record would name one certificate and the file another.
+		{"a file that names the server under another certificate", func(r *moveToRig) []string {
+			r.writeFile(strings.Replace(r.moved(), moveNewPin, otherPin, 1))
+			return r.args()
+		}, protocol.CodeConfig, reasonNotJoinedAtSource},
 		{"another scheme", func(r *moveToRig) []string {
 			return []string{"--to", "ftp://" + r.newHost, "--secret-file", r.secretFile}
 		}, protocol.CodeUsage, ""},
@@ -635,6 +739,17 @@ func TestTeamMoveToRefusesBeforeAnythingIsAsked(t *testing.T) {
 		{"a relative creation token file", func(r *moveToRig) []string { return r.args("--create-token-file", "create.token") }, protocol.CodeUsage, ""},
 		{"a creation token file inside the checkout", func(r *moveToRig) []string {
 			return r.args("--create-token-file", filepath.Join(r.top, "create.token"))
+		}, protocol.CodeUsage, ""},
+		{"a creation token file linked into the checkout", func(r *moveToRig) []string {
+			inside := filepath.Join(r.top, "create.token")
+			if err := os.WriteFile(inside, []byte("a-token-in-the-checkout\n"), 0o600); err != nil {
+				r.t.Fatal(err)
+			}
+			link := filepath.Join(r.f.dirs.Root, "linked.token")
+			if err := os.Symlink(inside, link); err != nil {
+				r.t.Fatal(err)
+			}
+			return r.args("--create-token-file", link)
 		}, protocol.CodeUsage, ""},
 		{"a creation token file that is not there", func(r *moveToRig) []string {
 			return r.args("--create-token-file", filepath.Join(r.f.dirs.Root, "no-such.token"))
@@ -1240,8 +1355,10 @@ func TestTeamMoveToSaysWhatIsLeft(t *testing.T) {
 	r := newMoveToRig(t)
 	r.original = strings.Replace(r.original, "  \"later\": true\n", "  \"gateway\": {\"email\": \"ops@example.com\"},\n  \"later\": true\n", 1)
 	r.writeFile(r.original)
-	r.f.rec.on("team moved", okAnswer(strings.Replace(r.recorded(), r.newURL, "https://elsewhere.example.test", 1)))
-	r.f.rec.on("team move", okAnswer(r.recorded()))
+	elsewhere := strings.Replace(r.recorded(), r.newURL, "https://elsewhere.example.test", 1)
+	r.f.rec.on("team moved", okAnswer(elsewhere))
+	// The record that is there is recorded again as it is, and then the move's own.
+	r.f.rec.on("team move", okAnswer(elsewhere), okAnswer(r.recorded()))
 	one := strings.Replace(r.sessions(), `"0.9.1"`, `"0.55.3"`, 1)
 	r.f.rec.on("session list", okAnswer(one))
 	if err := Team(r.inv(true, r.args()...)); err != nil {

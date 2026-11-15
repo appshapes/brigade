@@ -2,8 +2,12 @@ package teamfile
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 const (
@@ -76,6 +80,24 @@ func TestToServerKeepsEverythingElse(t *testing.T) {
 			want: `{"version":1,"certificate":"` + repointPin + `","adapter":"rest","url":"` + repointURL + `","team_ref":"t_9"}`,
 		},
 		{
+			name: "line ends as Windows writes them, and no line end after the last brace",
+			in:   "{\r\n\t\"version\": 1,\r\n\t\"adapter\": \"supabase\",\r\n\t\"url\": \"https://abc.supabase.co\",\r\n\t\"publishable_key\": \"sb_publishable_x\",\r\n\t\"team_ref\": \"t_9\"\r\n}",
+			pin:  repointPin,
+			want: "{\r\n\t\"version\": 1,\r\n\t\"adapter\": \"rest\",\r\n\t\"url\": \"" + repointURL + "\",\r\n\t\"certificate\": \"" + repointPin + "\",\r\n\t\"team_ref\": \"t_9\"\r\n}",
+		},
+		{
+			name: "white space before the first brace and after the last",
+			in:   "  \n{\"version\":1,\"adapter\":\"supabase\",\"url\":\"https://abc.supabase.co\",\"team_ref\":\"t_9\" ,\n \"publishable_key\":\"sb_publishable_x\"\n}  \n\n\t ",
+			pin:  repointPin,
+			want: "  \n{\"version\":1,\"adapter\":\"rest\",\"url\":\"" + repointURL + "\",\"certificate\":\"" + repointPin + "\",\"team_ref\":\"t_9\"\n}  \n\n\t ",
+		},
+		{
+			name: "member names spelled with escapes, and members of the same names inside another",
+			in:   `{"version":1,"\u0061dapter":"supabase","\u0075rl":"https://abc.supabase.co","publishable_ke\u0079":"k","team_ref":"t_9","sync":{"url":"x","adapter":"y","publishable_key":"z","certificate":"w"},"t\u00e9am":"d\u00e9vs \ud83d\ude00"}`,
+			pin:  repointPin,
+			want: `{"version":1,"\u0061dapter":"rest","\u0075rl":"` + repointURL + `","certificate":"` + repointPin + `","team_ref":"t_9","sync":{"url":"x","adapter":"y","publishable_key":"z","certificate":"w"},"t\u00e9am":"d\u00e9vs \ud83d\ude00"}`,
+		},
+		{
 			name: "a pin the file had goes when the server has none, with the key before it",
 			in:   `{"publishable_key":"k","certificate":"sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824","version":1,"adapter":"other","url":"https://old.example.com","team_ref":"t_9"}`,
 			want: `{"version":1,"adapter":"rest","url":"` + repointURL + `","team_ref":"t_9"}`,
@@ -119,6 +141,9 @@ func TestToServerRefusesWhatItCannotRewrite(t *testing.T) {
 		"a destination with no url":  {valid, "", ""},
 		"a secret where the url is":  {valid, "https://brg1.t_9.abababababababab", ""},
 		"a file that carries a join": {strings.Replace(valid, `"k"`, `"brg1.t_9.abababababababab"`, 1), repointURL, ""},
+		"a byte-order mark":          {"\xef\xbb\xbf" + valid, repointURL, ""},
+		"a member named twice":       {strings.Replace(valid, `"version":1`, `"url":"https://abc.supabase.co","version":1`, 1), repointURL, ""},
+		"a key named twice":          {strings.Replace(valid, `"version":1`, `"publishable_key":"k","version":1`, 1), repointURL, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -134,4 +159,58 @@ func TestToServerRefusesWhatItCannotRewrite(t *testing.T) {
 	if _, err := toServer([]byte(valid), "http://brigade.example.com", ""); !errors.Is(err, errRepoint) {
 		t.Fatalf("a destination the file may not name: %v, want errRepoint", err)
 	}
+}
+
+// TestToServerNeverAnswersAFileTooLargeToRead: a file that is as large as a
+// team file can be and still read grows when its url gets longer and a pin
+// is added. The result would be refused by Parse, and with it by every
+// session of the checkout, so ToServer refuses it as too large and the
+// caller writes nothing. One byte of room is enough room.
+func TestToServerNeverAnswersAFileTooLargeToRead(t *testing.T) {
+	t.Parallel()
+	doc := `{"adapter":"supabase","publishable_key":"k","team_ref":"t_9","url":"https://a.co","version":1}`
+	moved := `{"adapter":"rest","team_ref":"t_9","url":"` + repointURL + `","certificate":"` + repointPin + `","version":1}`
+	write := func(t *testing.T, text string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), FileName)
+		//nolint:gosec // G306: a committed team file is 0644
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse(path); err != nil {
+			t.Fatalf("the file before the move does not parse: %v", err)
+		}
+		return path
+	}
+	t.Run("a file at the cap", func(t *testing.T) {
+		t.Parallel()
+		path := write(t, doc+strings.Repeat(" ", MaxBytes-len(doc)))
+		got, err := ToServer(path, repointURL, repointPin)
+		var perr *protocol.Error
+		if got != nil || !errors.As(err, &perr) || perr.Code != protocol.CodeConfig || perr.Details["reason"] != ReasonTooLarge {
+			t.Fatalf("ToServer answered %d bytes and %v, want the too_large refusal", len(got), err)
+		}
+	})
+	t.Run("a file with exactly the room it needs", func(t *testing.T) {
+		t.Parallel()
+		path := write(t, doc+strings.Repeat(" ", MaxBytes-len(moved)))
+		got, err := ToServer(path, repointURL, repointPin)
+		if err != nil || len(got) != MaxBytes {
+			t.Fatalf("ToServer answered %d bytes and %v, want a file of %d", len(got), err, MaxBytes)
+		}
+		//nolint:gosec // G306: a committed team file is 0644
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if f, err := Parse(path); err != nil || f.Adapter != RestAdapter || f.URL != repointURL || f.Certificate != repointPin {
+			t.Fatalf("the file that was written parses to %+v, %v", f, err)
+		}
+	})
+	t.Run("one byte less room", func(t *testing.T) {
+		t.Parallel()
+		path := write(t, doc+strings.Repeat(" ", MaxBytes-len(moved)+1))
+		if got, err := ToServer(path, repointURL, repointPin); got != nil || err == nil {
+			t.Fatalf("ToServer answered %d bytes and %v, want a refusal", len(got), err)
+		}
+	})
 }

@@ -1478,7 +1478,8 @@ the session connects to nothing, says that the file does not match, and `team jo
   written to a file of mode 0600 inside your credential directory, which is removed as soon as the join has been
   sent; it is in no argument, no output and no log line. On the administrator's machine `team move --to` keeps
   it the same way, in a file of mode 0600 under Brigade's state directory, from the server's answer to the
-  record, and removes it.
+  record, and removes it when it ends. A command that Ctrl-C or a kill ends in between cannot: the file stays
+  until the next run of the same move, which writes over it and removes it.
 - **A session can move a team.** Until 0.56.0 `brigade team move` refused inside a session when it recorded or
   cleared a move, so the administrator ran it in a terminal. From 0.56.0 it runs inside a session, and a skill
   there asks the administrator for the server's address and the path of the join secret's file and runs the one
@@ -1486,8 +1487,10 @@ the session connects to nothing, says that the file does not match, and `team jo
   is neither `on` nor `off` is read as off, and the session says so. What this costs, stated plainly: whatever
   steers the administrator's session, a teammate's message or a file or a page the session read, can send every
   member's sessions, and the join secret, to a server of its choosing. What still stands in its way is four
-  things. Only the team's creator on the old backend can record a move there. The command needs the path of the
-  join secret's file, which is outside the repository and which the skill is told and never chooses. The
+  things. Only the team's creator on the old backend can record a move there, and the command asks that
+  before the server it was given is asked anything, whether or not a record is there already: the join secret
+  of a team its caller did not create is sent nowhere. The command needs the path of the join secret's file,
+  which is outside the repository and which the skill is told and never chooses. The
   harness's own permission prompt asks before the command runs, in a mode that asks and where nothing has
   allowed `brigade` commands already. The `move` skill allows nothing that writes, and tells the model to move
   a team only on its user's own ask, which is an instruction to a model and no boundary. But the team-messaging

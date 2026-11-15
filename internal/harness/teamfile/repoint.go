@@ -33,8 +33,11 @@ type span struct {
 // This package still writes nothing: the caller writes what is answered.
 // The result is parsed again before it is returned and must say what was
 // asked: the server, its pin, no key, and the team the file named before.
-// Anything else is a refusal that carries nothing of the file, and the
-// caller writes nothing.
+// It must also be a file Parse would read: one that grew past MaxBytes,
+// which a longer url and a pin can do to a file that was near it, is
+// refused as too large, because every session of the checkout would refuse
+// it once it was written. Anything else is a refusal that carries nothing
+// of the file, and the caller writes nothing.
 func ToServer(path, url, certificate string) ([]byte, error) {
 	data, err := readCapped(path)
 	if err != nil {
@@ -110,6 +113,9 @@ func toServer(data []byte, url, certificate string) ([]byte, error) {
 	}
 	out.Write(data[members[len(members)-1].valueEnd:])
 
+	if out.Len() > MaxBytes {
+		return nil, refusal(FileName, ReasonTooLarge, "the rewritten team file would be larger than a team file can be")
+	}
 	after, err := parseBytes(FileName, out.Bytes())
 	if err != nil || after.Adapter != RestAdapter || after.URL != url || after.Certificate != certificate ||
 		after.PublishableKey != "" || after.TeamRef != before.TeamRef || after.TeamName != before.TeamName {

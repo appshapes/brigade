@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -60,7 +61,10 @@ func parseMoveFlags(args []string) (moveFlags, error) {
 	fs.StringVar(&m.secretFile, "secret-file", "", "")
 	fs.StringVar(&m.certificate, "certificate", "", "")
 	fs.StringVar(&m.createTokenFile, "create-token-file", "", "")
-	fs.IntVar(&m.ticketDays, "ticket-days", 0, "")
+	// The days are read as text and then as a decimal number: the flag
+	// package reads a number by its prefix, so that `010` would be eight.
+	var days string
+	fs.StringVar(&days, "ticket-days", "", "")
 	const forms = "team move takes --to <server url> --secret-file <path> to move this project's team to a Brigade server " +
 		"(with --certificate <sha256:…>, --create-token-file <path> and --ticket-days <n> when the server needs them), " +
 		"--ticket-file <path> to record a move whose ticket the server's operator wrote, --clear to clear the record, or --show to read it; " +
@@ -80,6 +84,13 @@ func parseMoveFlags(args []string) (moveFlags, error) {
 	fs.Visit(func(f *flag.Flag) { m.ticketDaysSet = m.ticketDaysSet || f.Name == "ticket-days" })
 	if m.to == "" && (m.secretFile != "" || m.certificate != "" || m.createTokenFile != "" || m.ticketDaysSet) {
 		return m, usage(forms)
+	}
+	if m.ticketDaysSet {
+		n, err := strconv.Atoi(days)
+		if err != nil {
+			return m, usage("--ticket-days must be a whole number of days, in decimal digits, between 1 and " + strconv.Itoa(protocol.MoveTicketMaxDays))
+		}
+		m.ticketDays = n
 	}
 	return m, nil
 }
@@ -450,13 +461,30 @@ func (inv Invocation) callMove(t *target, verb string, flags []string, stdin any
 	})
 }
 
-// moveDestination renders where a team went for a person: the host, the
-// adapter when it is not the bundled one for a server, and the certificate
-// pin in full when there is one.
+// moveDestination renders where a team went for a person: the host, with
+// the path prefix of the address when it has one, the adapter, and the
+// certificate pin in full when there is one. The prefix is shown because
+// it is part of where every member's session is sent: two addresses on one
+// host are two servers.
 func moveDestination(adapter, url, certificate string) string {
-	out := attrLine(hostOf(url)) + " via adapter \"" + attrLine(adapter) + "\""
+	out := attrLine(hostOf(url)+pathPrefix(url)) + " via adapter \"" + attrLine(adapter) + "\""
 	if certificate != "" {
 		out += ", server certificate " + pinLine(certificate)
 	}
 	return out
+}
+
+// pathPrefix is what stands after the host in a backend's address, as it
+// was written and without the slashes at its end: "" for an address that
+// is a host alone, and for text that has no scheme.
+func pathPrefix(raw string) string {
+	_, rest, ok := strings.Cut(raw, "://")
+	if !ok {
+		return ""
+	}
+	i := strings.IndexByte(rest, '/')
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimRight(rest[i:], "/")
 }
