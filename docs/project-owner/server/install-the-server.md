@@ -3,7 +3,7 @@
 `brigade-server` is one program with no database and no other service beside it. It is released apart from the
 plugin, with its own version and its own tags, `server-v<version>`.
 
-In the examples `<version>` is the server's version, such as `0.6.0`. The newest is the highest
+In the examples `<version>` is the server's version, such as `0.7.0`. The newest is the highest
 `server-v<version>` among the repository's [releases](https://github.com/appshapes/brigade/releases); no server
 release is marked latest, which is the plugin's.
 

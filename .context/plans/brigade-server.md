@@ -738,9 +738,10 @@ came of it. Since 2026-11-14 the owner's host runs server 0.6.0 and the session 
 with work items 327 (a running session follows its team) and 328 (a team moved with one command) being built on
 branches, 329 (the second team of the thinktech project) and 330 (whether the two Supabase projects can go)
 waiting on them. That session, renamed `89-server-8-one-command-move-and-roadmap`, brought both to `master` on
-2026-11-15 (execution log P103-1): the decisions are ADRs 0006 (a team is taken in and its move opened by
-request, and whoever takes it in owns it), 0007 (a session may move a team, behind an option that is on by
-default) and 0008 (a running session follows at its next prompts), each superseding a part of ADR 0003, which
-section 4.9 stands behind, and ADR 0009 (a Status names every ADR that supersedes a part). They were released that day as server
-0.7.0 and plugin 0.56.0, and the owner's host runs 0.7.0 since then (execution log P103-2). Work item 329 is the one command's proof on a real team and waits on
-the owner naming the server; what the verifications left open is on work items 336, 337 and 339.
+2026-11-15 (execution log P103-1): the decisions are ADRs 0006 (a team is taken in and its move opened by request,
+and whoever takes it in owns it), 0007 (a session may move a team, behind an option that is on by default) and 0008
+(a running session follows at its next prompts), each superseding a part of ADR 0003, which section 4.9 stands
+behind, and ADR 0009 (a Status names every ADR that supersedes a part). They were released that day as server 0.7.0
+and plugin 0.56.0, and the owner's host and the thinktech team's server run 0.7.0 since then (execution log P103-2
+and P103-3). Work item 329 is the one command's proof on a real team and waits on the owner naming the server; what
+the verifications left open is on work items 336, 337 and 339.
