@@ -5,8 +5,10 @@ package hook
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
@@ -37,12 +39,13 @@ func TestAMoveWhoseHookWasStoppedLeavesTheShellsRoadToTheSession(t *testing.T) {
 			f.noAdapterOption = true
 			f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
 			attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
-			newKey := teamstore.Key("rest", movedURL, "team-1")
+			before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
 			shell := []string{"HOME=" + f.dirs.Home, host.NativeIDVar() + "=" + f.nativeID}
 			if m, err := config.SessionIn(shell, f.store()); err != nil || m.BrigadeSessionID != "brigade-sess-1" {
 				t.Fatalf("the shell's road to the session before the move: %v", err)
 			}
 			f.moveTeamFile("team-1")
+			tf := f.movedFile()
 			f.prompted()
 			held := stoppedAtTheWatcher{watchers: f.spawner, reached: make(chan struct{}), release: make(chan struct{}), once: &sync.Once{}}
 			stopped := *f
@@ -51,8 +54,16 @@ func TestAMoveWhoseHookWasStoppedLeavesTheShellsRoadToTheSession(t *testing.T) {
 			if m := f.mustMap(); m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" {
 				t.Fatalf("the hook stands at the watcher with the map %q, %q", m.TeamKey, m.BrigadeSessionID)
 			}
-			// The next prompt says the move, and a command of the session finds it.
-			f.prompted()
+			// The next prompt says the move, with the host's own line after the
+			// context line, and a command of the session finds it.
+			own := armLine(f.pluginBin)
+			if host == config.HostCodex {
+				own = codexLine(f.pluginBin)
+			}
+			want := []string{followedLine(tf, &before, true, f.pluginBin), startLine(f.mustMap().SessionName, "brigade-sess-2", teamName, "accept"), own}
+			if got := f.prompted(); !slices.Equal(got, want) {
+				t.Fatalf("the prompt after the hook that was stopped:\n%q\nwant\n%q", got, want)
+			}
 			m, err := config.SessionIn(shell, f.store())
 			if err != nil || m.BrigadeSessionID != "brigade-sess-2" || m.TeamKey != newKey {
 				t.Fatalf("a command in the session's shell after the prompt that said the move: %v", err)
@@ -87,7 +98,22 @@ func TestAMoveWhoseHookWasStoppedBeforeItsWatcherIsServedByTheNextPrompt(t *test
 	if entry, err := pidfile.Read(f.pidfilePath()); err != nil || entry.BrigadeSessionID != "brigade-sess-1" || f.mustMap().BrigadeSessionID != "brigade-sess-2" {
 		t.Fatalf("the hook stands at the watcher beside the watcher %+v, %v", entry, err)
 	}
+	// What that hook removes at its end is still there: the stamp of a
+	// registration that failed earlier, the doing reminder's of the session
+	// the move left, and the word the follow left for the checkout.
+	mark := config.MoveFollowedMark(f.stateDir, f.configDir, f.canon())
+	retry := retryStampPath(f.stateDir, f.key())
+	if err := os.WriteFile(retry, []byte(f.now.Add(-time.Hour).Format(time.RFC3339Nano)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.plantDoingStamp(t, f.now, f.nativeID)
+	if !exists(mark) {
+		t.Fatalf("the follow left no mark for the checkout")
+	}
 	f.prompted()
+	if exists(retry) || exists(f.doingStamp()) || exists(mark) {
+		t.Fatalf("after the prompt that said the move: the retry stamp is there: %v; the doing stamp: %v; the follow's mark: %v", exists(retry), exists(f.doingStamp()), exists(mark))
+	}
 	if f.spawner.count() != spawns+1 {
 		t.Fatalf("the prompt after the hook that was stopped started %d watcher(s), want the session's own", f.spawner.count()-spawns)
 	}
