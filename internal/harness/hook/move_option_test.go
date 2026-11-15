@@ -16,7 +16,7 @@ import (
 )
 
 // TestStartFactsCarryTheTeamMoveOptionFromEveryHostsSource: the option that
-// keeps `brigade team move` out of a session (work item 328, ADR 0006)
+// keeps `brigade team move` out of a session (work item 328, ADR 0007)
 // reaches the start facts from each harness's own source of options: the
 // plugin option in Claude Code, and the host's options file in Muse Code,
 // Codex CLI and Grok Build. In each of them `on`, an empty value and no

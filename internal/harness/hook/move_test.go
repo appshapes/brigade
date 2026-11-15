@@ -431,7 +431,7 @@ func TestHookSaysAnUnusableFollowOptionAtAnOrdinaryStart(t *testing.T) {
 
 // TestHookSaysAnUnusableTeamMoveOptionAtAnOrdinaryStart: the same for the
 // option that keeps `brigade team move` out of a session (work item 328,
-// ADR 0006). A value that is neither word is said at the start, in the
+// ADR 0007). A value that is neither word is said at the start, in the
 // option's own words, and the session attaches as usual; on and off say
 // nothing.
 func TestHookSaysAnUnusableTeamMoveOptionAtAnOrdinaryStart(t *testing.T) {

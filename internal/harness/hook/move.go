@@ -1,5 +1,5 @@
 // move.go is a running session's part in its team's move to another
-// backend (work item 327, ADR 0007; the follow itself is work item 273,
+// backend (work item 327, ADR 0008; the follow itself is work item 273,
 // ADR 0003, in internal/harness/teammove).
 //
 // A session's start follows a move in its own run, which has 55 seconds. A
@@ -1029,7 +1029,7 @@ func keptFileLine(refusal string) string {
 
 // keptSettingLine is what a start that keeps a running session says when
 // what its resolution refused was the member's own settings and not the
-// team (work item 327, ADR 0007): what could not be used, the refusal's own
+// team (work item 327, ADR 0008): what could not be used, the refusal's own
 // reason (a fixed word, never a value or a path), what is in force instead,
 // and the remedy. The refusal's own line says `not connected` and, for most
 // options, `run brigade team join`: neither is true of a session that is

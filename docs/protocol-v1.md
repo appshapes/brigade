@@ -821,7 +821,7 @@ An adapter whose backend cannot say whether the team moved answers `moved: false
 does for a team that did not move. What a harness does with a record is its own to decide; the protocol says only
 what the record is.
 
-**Taking a team in** (capability `team.take_in`; added 2026-11-14, work item 328, ADR 0005). `team move` and
+**Taking a team in** (capability `team.take_in`; added 2026-11-14, work item 328, ADR 0006). `team move` and
 `team moved` above are commands of the backend a team leaves. These three are commands of the backend it goes to: the
 holder of the team's join secret takes the team in there, and the team's owner opens and closes the move whose ticket
 `team move` records. An adapter may carry either capability, both or neither.

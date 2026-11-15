@@ -22,7 +22,7 @@ import (
 )
 
 // The prompt hook's budget, with backends that never answer (work item 327,
-// ADR 0007; the review of work item 273 took the follow out of the prompt
+// ADR 0008; the review of work item 273 took the follow out of the prompt
 // hook because it could outlast it). The tests above this file answer every
 // adapter call at once, so none of them could tell a hook that asks a
 // backend from one that does not wait for it. Here a call that is named

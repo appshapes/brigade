@@ -29,7 +29,7 @@ import (
 )
 
 // TestAMoveAcrossAMembersCheckoutsThroughTheRealBinary is a team's move as
-// a member with several checkouts lives it (work item 327, ADR 0007),
+// a member with several checkouts lives it (work item 327, ADR 0008),
 // through the built `brigade`, the fs adapter for the backend the team
 // leaves and the built server it goes to: what the second review of the
 // work held against real processes where its proof was a unit seam. It

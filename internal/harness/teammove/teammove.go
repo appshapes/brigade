@@ -1,5 +1,5 @@
 // Package teammove follows a team that moved to another backend (work
-// item 273, part 2; ADR 0003; work item 327, ADR 0007; docs/security.md).
+// item 273, part 2; ADR 0003; work item 327, ADR 0008; docs/security.md).
 //
 // A checkout's pin is its member's consent to one team at one backend. When
 // the project's team file names another backend for the same team, the pin
@@ -22,7 +22,7 @@
 // hook-reads-the-store): what it calls is Follow, which writes a pin only
 // behind the comparison above. A session's start calls it in its own run;
 // a prompt, which has no time for it, through the child it starts,
-// `brigade hook follow` (work item 327, ADR 0007).
+// `brigade hook follow` (work item 327, ADR 0008).
 package teammove
 
 import (

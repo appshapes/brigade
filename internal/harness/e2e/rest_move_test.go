@@ -36,8 +36,8 @@ import (
 )
 
 // A team's move to a Brigade server by ONE command, `brigade team move --to
-// <server url> --secret-file <path>` (work item 328; ADR 0005 and ADR
-// 0006), through the built `brigade`, a real adapter for the backend the
+// <server url> --secret-file <path>` (work item 328; ADR 0006 and ADR
+// 0007), through the built `brigade`, a real adapter for the backend the
 // team leaves and a real server for the one it goes to. Until this command
 // the move was the server operator's two commands on a stopped server, a
 // ticket handed back as a file, a team file edited by hand, a join and a
@@ -866,7 +866,7 @@ func teamMovesByOneCommand(t *testing.T, m *movingTeam, fsBackend bool) {
 	}
 
 	// --- 4. a team that someone else already owns on the server -----------------------------------------
-	// Whoever holds the join secret and may create a team on a server can take the team in there (ADR 0005).
+	// Whoever holds the join secret and may create a team on a server can take the team in there (ADR 0006).
 	// A stranger did, on a server of its own for this step, before the administrator moved the team.
 	taken := startRestBackend(t)
 	stranger := filepath.Join(r.dirs.Root, "config-stranger")
@@ -1159,7 +1159,7 @@ func TestATeamIsMovedFromInsideASessionThroughTheRealBinary(t *testing.T) {
 // server takes the team in and its answer never arrives. The one command
 // stops, having recorded and written nothing, and it leaves the profile the
 // server's adapter wrote for the request where it is: that directory holds
-// the retry key the adapter minted (ADR 0005), which is what the next run of
+// the retry key the adapter minted (ADR 0006), which is what the next run of
 // the command is the same caller with, so nothing of it may be cleaned away,
 // as it is after a refusal.
 //

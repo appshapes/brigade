@@ -32,7 +32,7 @@ func DoingNudgeStamp(stateDir string, pid int) string {
 
 // TeamMovedStamp records what the prompt hook has told a running session
 // about its team's move to another backend: ${stateDir}/state/<pid>.team-moved
-// (work items 273 and 327, ADR 0007). Each line about a move is said once
+// (work items 273 and 327, ADR 0008). Each line about a move is said once
 // in a conversation, so the file holds the native id of the conversation
 // that was told and one word for each line it has heard. A stamp that a
 // dead session left under the same process id names another conversation
@@ -44,7 +44,7 @@ func TeamMovedStamp(stateDir string, pid int) string {
 
 // MovedNotice is what the prompt hook that moves a running session leaves
 // before it registers the session on the backend its team went to:
-// ${stateDir}/state/<pid>.moved (work item 327, ADR 0007). A session's id
+// ${stateDir}/state/<pid>.moved (work item 327, ADR 0008). A session's id
 // changes when it moves, and Claude Code discards what a prompt hook
 // printed when the hook reaches its timeout: a hook that is stopped
 // between its registration and its end has moved the session and said
@@ -59,7 +59,7 @@ func MovedNotice(stateDir string, pid int) string {
 
 // MoveAttemptStamp is when a prompt hook last started the follow of a
 // team's move for a checkout: ${stateDir}/state/move-<digest>.attempt
-// (work item 327, ADR 0007). A follow asks the backend the checkout joined
+// (work item 327, ADR 0008). A follow asks the backend the checkout joined
 // one question, and this file is what keeps that question from being asked
 // at every prompt: at most one follow a minute is started for a checkout,
 // whichever of its sessions is prompted. The digest is of the member's
@@ -70,7 +70,7 @@ func MoveAttemptStamp(stateDir, configDir, checkout string) string {
 
 // MoveFollowedMark is what a follow that ran outside a session's start
 // leaves for the checkout it followed in: ${stateDir}/state/
-// move-<digest>.followed (work item 327, ADR 0007). The follow has nobody
+// move-<digest>.followed (work item 327, ADR 0008). The follow has nobody
 // to tell, so the next hook of a session in that checkout says the
 // follow's line and removes the file: the session that asked, or, when it
 // ended first, the next one to start there.

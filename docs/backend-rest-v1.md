@@ -144,7 +144,7 @@ Added on 2026-11-12 (work item 274). A server may leave these three endpoints ou
 
 ## 3b. Taking a team in, and moving its members
 
-Added on 2026-11-14 (work item 328, [ADR 0005](decisions/0005-take-a-team-in-and-open-its-move-by-request.md)). A
+Added on 2026-11-14 (work item 328, [ADR 0006](decisions/0006-take-a-team-in-and-open-its-move-by-request.md)). A
 server may leave these three endpoints out (§5).
 
 - **`/v1/team/take-in`** takes in a team that exists on another backend, for a caller that presents the join

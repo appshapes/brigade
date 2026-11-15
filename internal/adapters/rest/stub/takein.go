@@ -17,7 +17,7 @@ import (
 
 // A team that is taken in by request, and the move of its members: the
 // three endpoints of the contract's section 3b, behind the capability
-// `team.take_in`, which a server may leave out (work item 328, ADR 0005).
+// `team.take_in`, which a server may leave out (work item 328, ADR 0006).
 //
 //   - `/v1/team/take-in`. The caller presents the join secret a team has
 //     on another backend. A team the stub does not hold is taken in under

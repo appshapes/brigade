@@ -20,7 +20,7 @@ import (
 
 // RefusalMoveInSession is the whole message of the `usage` refusal of
 // `team move`'s writing forms inside a session whose member set the option
-// `team_move_in_session` to `off` (work item 328, ADR 0006). Until that
+// `team_move_in_session` to `off` (work item 328, ADR 0007). Until that
 // decision the refusal was unconditional (work item 273, ADR 0003): a move
 // sends every member's sessions to another backend, whose operator reads
 // what they send. It is now a member's choice, on by default, because the
@@ -122,7 +122,7 @@ func parseMoveFlags(args []string) (moveFlags, error) {
 // before anything is asked, and is never an argument and never printed.
 //
 // Inside a session the three writing forms run unless the member set the
-// option `team_move_in_session` to `off` (ADR 0006). Nobody is there to
+// option `team_move_in_session` to `off` (ADR 0007). Nobody is there to
 // answer a question, so what a terminal would ask is printed as a
 // statement, as a join's is, and the command proceeds.
 func (inv Invocation) teamMove(rest []string) error {

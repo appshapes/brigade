@@ -931,7 +931,7 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 			// where it is (nothing to do), to this team on the backend it
 			// left, or to another team. The prompt hook moves a session to
 			// the backend its own team went to once the checkout is joined
-			// there, which it now is (work item 327, ADR 0007); a Grok Build
+			// there, which it now is (work item 327, ADR 0008); a Grok Build
 			// session, whose prompt hook can say nothing, is not moved, and
 			// neither is a session that registered in another checkout: a
 			// session moves with its own checkout and no other. A

@@ -269,7 +269,7 @@ func TestTeamMoveRefusesBeforeAnythingIsAsked(t *testing.T) {
 // nothing; inside a session whose member set the option
 // team_move_in_session to off, the two writing forms are refused with the
 // one in-session shape, before the team file is even read (work item 328,
-// ADR 0006: until then the refusal was unconditional). What a session does
+// ADR 0007: until then the refusal was unconditional). What a session does
 // with the option on is TestTeamMoveInsideASessionFollowsTheOption's.
 func TestTeamMoveDeclinedAndRefusedInASession(t *testing.T) {
 	t.Parallel()

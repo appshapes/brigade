@@ -28,7 +28,7 @@ import (
 	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
 
-// A running session follows its team (work item 327, ADR 0007): the
+// A running session follows its team (work item 327, ADR 0008): the
 // fixture's session is attached on the team's first backend, by name, and
 // the team file is then rewritten to name a Brigade server for the same
 // team. A prompt starts the follow as a child; the tests run that child in

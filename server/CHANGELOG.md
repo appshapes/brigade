@@ -8,7 +8,7 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
 ### Added
 
-- **A running server takes a team in by request** (work item 328, ADR 0005). Until now a team that lives on
+- **A running server takes a team in by request** (work item 328, ADR 0006). Until now a team that lives on
   another backend was taken in by the operator alone, with `--import-team` on a stopped server. Now
   `/v1/team/take-in` does it on a server that runs: the caller presents the join secret the team has on the
   backend it leaves, a name and, when it has one, a label. It needs no credential, as a creation needs none,

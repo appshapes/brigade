@@ -19,7 +19,7 @@ import (
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
 
-// A session that moves is always told (work item 327, ADR 0007, Decision
+// A session that moves is always told (work item 327, ADR 0008, Decision
 // 3). Its id changes when its map is written, and Claude Code discards
 // what a prompt hook printed when it stops the hook at its timeout: a hook
 // that is stopped between the registration and its end has moved the

@@ -18,10 +18,10 @@ import (
 )
 
 // TestRunningSessionsFollowAMoveMadeByOneCommandThroughTheRealBinary is the
-// two works in one tree: the move by one command (work item 328, ADR 0006)
+// two works in one tree: the move by one command (work item 328, ADR 0007)
 // made from a running session of the administrator's, and the sessions that
 // are running at the time, hers and a member's, moving at their next prompts
-// (work item 327, ADR 0007). The command rewrites the team file and the
+// (work item 327, ADR 0008). The command rewrites the team file and the
 // checkout's pin under sessions that are still attached to the backend the
 // team left; what each of them then does and says is held here, through the
 // built `brigade`, the fs adapter for the backend the team leaves and a real

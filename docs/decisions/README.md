@@ -12,10 +12,10 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0002. Close a decision's ask from the asker's side, with the ruling as its outcome](0002-close-a-decisions-ask-from-the-askers-side.md)
 - [0003. Follow a team that moved, on the old backend's record and a move ticket](0003-follow-a-team-that-moved-on-the-old-backends-record.md)
 - [0004. Bound one principal on a server with the reference backend's numbers](0004-bound-one-principal-on-a-server-with-the-reference-backends-numbers.md)
-- [0005. Take a team in and open its move by request, and let whoever takes it in own it](0005-take-a-team-in-and-open-its-move-by-request.md)
-- [0006. Let a session move a team, behind an option that is on by default](0006-let-a-session-move-a-team.md)
-- [0007. Follow a move from a running session at its next prompts](0007-follow-a-move-from-a-running-session-at-its-next-prompts.md)
-- [0008. Name every ADR that supersedes a part in the Status line](0008-name-every-adr-that-supersedes-a-part-in-the-status-line.md)
+- [0006. Take a team in and open its move by request, and let whoever takes it in own it](0006-take-a-team-in-and-open-its-move-by-request.md)
+- [0007. Let a session move a team, behind an option that is on by default](0007-let-a-session-move-a-team.md)
+- [0008. Follow a move from a running session at its next prompts](0008-follow-a-move-from-a-running-session-at-its-next-prompts.md)
+- [0009. Name every ADR that supersedes a part in the Status line](0009-name-every-adr-that-supersedes-a-part-in-the-status-line.md)
 
 ## Record a decision
 
@@ -45,7 +45,7 @@ An ADR keeps its text. What can still change:
 
 - **Its Status line**, when a later ADR supersedes it: `Superseded by NNNN`, or `Accepted; superseded in part by
   NNNN` when only part of it is replaced. When more than one ADR has replaced a part, the line names each once,
-  the lowest number first: `by 0002 and 0008`, `by 0005, 0006 and 0007` (ADR 0008). A change of mind is always a
+  the lowest number first: `by 0002 and 0009`, `by 0006, 0007 and 0008` (ADR 0009). A change of mind is always a
   new ADR.
 - **A fact that was wrong when it was written** (a date, a count, a citation, who decided something): correct it
   in place and add one entry to the header, after the Supersedes line and any earlier entry:

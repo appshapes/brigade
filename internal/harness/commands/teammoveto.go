@@ -25,7 +25,7 @@ import (
 )
 
 // `brigade team move --to <server url> --secret-file <path>` (work item
-// 328, ADR 0005 and ADR 0006) is a team's whole move to a Brigade server
+// 328, ADR 0006 and ADR 0007) is a team's whole move to a Brigade server
 // in one command, run by the team's administrator in a checkout of the
 // team. Until it, the move was six steps by two people: the server's
 // operator took the team in and opened its move with the server stopped
@@ -619,7 +619,7 @@ func (inv Invocation) checkOldBackend(m *serverMove) error {
 // names by the command only the team's creator is answered. The creator's
 // record keeps its destination and its ticket, and gets a new date. Anyone
 // else is refused here as where there is no record, with nothing changed,
-// and before the server is asked anything (ADR 0006): until this check a
+// and before the server is asked anything (ADR 0007): until this check a
 // record that was there left the question to step d, by which time the
 // server had been sent the join secret and had taken the team in.
 //

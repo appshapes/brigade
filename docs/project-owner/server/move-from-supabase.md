@@ -49,7 +49,7 @@ the file the way a join secret is given: never in chat.
 | 3 | In one checkout, point `.brigade.json` at the server: `adapter` becomes `rest`, `url` the server's, `publishable_key` goes, `certificate` is added when the server made its own, `team_ref` stays. Do not commit yet. Join there: `/brigade:join <the secret file>`. | Team Admin | [With an older server](../../team-admin/members/move-the-team.md#with-an-older-server) |
 | 4 | In that checkout: `brigade team move --ticket-file <path>`, and answer `y`. | Team Admin | the same page |
 | 5 | Commit and push `.brigade.json`, in every repository of the team. | Team Admin | the same page |
-| 6 | Pull, as on any day. The next session in a checkout that has the changed file follows, and says so in one line. A session that is running there follows at its next prompts, on a plugin later than 0.55.0. | each member | [When your team moves](../../team-member/join/follow-a-move.md) |
+| 6 | Pull, as on any day. The next session in a checkout that has the changed file follows, and says so in one line. A session that is running there follows at its next prompts, on plugin 0.56.0 or later. | each member | [When your team moves](../../team-member/join/follow-a-move.md) |
 
 Here the Team Admin joins before recording the move: the first member to join a team its operator took in owns
 it there, and a member that the ticket lets in never does.
@@ -62,7 +62,7 @@ it there, and a member that the ticket lets in never does.
   prompts of a session that is running in it. The journal does not show a checkout that has not followed yet.
 - **A running session that has not moved** holds messages for its member's review and moves once they are
   released, or it was started in a checkout that does not have the changed file yet, or it runs in Grok Build or
-  on plugin 0.55.0 and follows when it starts.
+  on a plugin older than 0.56.0 and follows when it starts.
 - **A member who did not follow** joins with the secret file they already have, as before the move
   ([what a member sees](../../team-admin/members/move-the-team.md#what-a-member-sees-and-when-they-do-not-follow)).
 - **The gateways.** Configure them on the server with the team's secret file, and point the Slack app's two

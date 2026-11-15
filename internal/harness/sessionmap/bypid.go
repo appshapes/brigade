@@ -163,7 +163,7 @@ type ByPID struct {
 	ConfigDir string `json:"config_dir"`
 	// Checkout is the canonical directory of the checkout the session
 	// registered in: the one whose team file and pin its registration was
-	// resolved from (work item 327, ADR 0007). A team's move is followed
+	// resolved from (work item 327, ADR 0008). A team's move is followed
 	// for this checkout and no other: a prompt whose directory is in
 	// another checkout of the member's changes nothing about where the
 	// session is attached. Absent (omitzero) in a map written before the

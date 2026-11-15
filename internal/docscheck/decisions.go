@@ -73,7 +73,7 @@ var (
 	// adrStatusRe is the Status line of an ADR file. There is no Proposed:
 	// a decision that still waits on someone is a work item on the board.
 	// An ADR that is superseded in part names every ADR that supersedes a
-	// part of it (ADR 0008): `0005`, `0005 and 0007`, `0005, 0006 and 0007`.
+	// part of it (ADR 0009): `0006`, `0006 and 0008`, `0006, 0007 and 0008`.
 	adrStatusRe = regexp.MustCompile(`^- \*\*Status:\*\* (?:Accepted|Accepted; superseded in part by (\d{4}(?:(?:, \d{4})* and \d{4})?)|Superseded by (\d{4})|Rejected)$`)
 	// adrNumberRe is one ADR's number in a Status line's list.
 	adrNumberRe = regexp.MustCompile(`\d{4}`)

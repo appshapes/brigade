@@ -26,7 +26,7 @@ import (
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
-// What the one command of a team's move (work item 328, ADR 0006) leaves
+// What the one command of a team's move (work item 328, ADR 0007) leaves
 // when it is run where a move already stands and when it is killed, through
 // the built `brigade`, the fs adapter for the backend the team leaves and a
 // real server: the stand-in under `make test`, the built server over TLS

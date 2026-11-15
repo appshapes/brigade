@@ -15,7 +15,7 @@ import (
 )
 
 // take-in-key.json: the retry key of a `team take-in` whose answer is not
-// kept yet (the contract's section 3b; work item 328, ADR 0005).
+// kept yet (the contract's section 3b; work item 328, ADR 0006).
 //
 // A take-in needs no credential: the server makes a principal, makes it the
 // team's owner, and its credential rides the answer. An answer that is lost

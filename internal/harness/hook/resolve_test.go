@@ -133,7 +133,7 @@ func TestHookStartFactsCarryTheLabelOption(t *testing.T) {
 
 // TestHookStartFactsCarryTheTeamMoveOption is the same acceptance for the
 // option that keeps `brigade team move` out of a session (work item 328,
-// ADR 0006): the command runs in the Bash tool, so the start facts are
+// ADR 0007): the command runs in the Bash tool, so the start facts are
 // where it reads the option. On, which is the default, writes nothing, so
 // facts written before the option existed read the same; off, and a value
 // that is neither word, write the one word the command refuses on.

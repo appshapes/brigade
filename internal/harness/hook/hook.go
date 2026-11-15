@@ -507,7 +507,7 @@ type run struct {
 	// every other: a session's start follows a team that moved itself (work
 	// item 273, ADR 0003), and a prompt hook, whose few seconds are not a
 	// follow's to spend, starts a child that does (move.go, work item 327,
-	// ADR 0007).
+	// ADR 0008).
 	starting bool
 	// moving is true while a prompt hook registers a running session anew
 	// on the backend its team moved to (move.go): the registration then
@@ -1015,7 +1015,7 @@ func followedLine(tf *teamfile.File, pin *teamstore.Pin, joined bool, command st
 // registration retry of a session attached to nothing, resolve the checkout
 // their document's directory is in: "this checkout". A prompt of a session
 // that is running speaks of the session's own checkout, the one its map
-// names, from wherever the prompt comes (work item 327, ADR 0007): sent
+// names, from wherever the prompt comes (work item 327, ADR 0008): sent
 // from another checkout, or from a repository of another team, "this
 // checkout" would be said of a directory that followed nothing.
 const (

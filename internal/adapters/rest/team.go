@@ -759,7 +759,7 @@ func (c *command) teamTransfer() (any, error) {
 
 // ---- taking a team in (4.4.10, capability team.take_in) ----
 //
-// Three commands of the backend a team moves to (work item 328, ADR 0005),
+// Three commands of the backend a team moves to (work item 328, ADR 0006),
 // each one request to an endpoint a server may leave out. `team take-in`
 // is a binding command like `team join`: it needs no credential, and the
 // server issues one with the result for a profile that holds none. `team

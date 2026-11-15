@@ -27,7 +27,7 @@ import (
 )
 
 // The races and half-states of a running session's follow that the tests of
-// move_prompt_test.go leave out (work item 327, ADR 0007): two sessions of
+// move_prompt_test.go leave out (work item 327, ADR 0008): two sessions of
 // one checkout, a session start beside a child, /clear between the two
 // steps, and the stamp that bounds how often the old backend is asked.
 

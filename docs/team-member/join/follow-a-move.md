@@ -17,7 +17,7 @@ server under the label you had. Nothing you hold for the old backend was sent to
 
 ## A session that was already running
 
-It follows at its next prompts, from the plugin release after 0.55.0; on 0.55.0 it stays where it is until it
+It follows at its next prompts, from plugin 0.56.0; on 0.55.0 and 0.55.1 it stays where it is until it
 ends. Nothing is asked of you.
 
 1. The first prompt after the team file changed says once that the file names another backend, and starts the

@@ -23,7 +23,7 @@ import (
 )
 
 // A session moves with the checkout it registered in, and no other (work
-// item 327, ADR 0007, Decision 8). A prompt's directory follows the model:
+// item 327, ADR 0008, Decision 8). A prompt's directory follows the model:
 // a `cd`, a worktree. While a team's move is under way a member can have
 // two checkouts of the team on two backends, one with the changed file and
 // one without, and a session that moved on whichever its last prompt came

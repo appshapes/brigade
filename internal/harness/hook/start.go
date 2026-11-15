@@ -239,7 +239,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 
 	// A map that names another team key is a session registered on another
 	// backend: the team moved, and this run resolved the backend it is on
-	// now (work item 327, ADR 0007). That session does not continue here.
+	// now (work item 327, ADR 0008). That session does not continue here.
 	// The backend this run talks to has never heard of its id, so the id is
 	// neither heartbeated there nor offered as a resume hint: before this
 	// rule a /clear after a move did both, and any answer to the heartbeat
@@ -597,7 +597,7 @@ func respawnReason(e pidfile.Entry, f facts) string {
 // word: the one path that transmits a secret or writes the store is the
 // follow of a move, in followMove or in the child a prompt starts
 // (move.go), which acts only on the record of the backend the member
-// consented to (work item 273, ADR 0003; work item 327, ADR 0007), and the
+// consented to (work item 273, ADR 0003; work item 327, ADR 0008), and the
 // refusal lines echo nothing from a mismatched file.
 func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 	opts, err := r.options()
@@ -792,7 +792,7 @@ const doingCapability = "session.description"
 // so this file never carries a member's email. Through sessionmap (the
 // state directory), never the team store: the hook still cannot join.
 // The `team_move_in_session` option rides along too (work item 328, ADR
-// 0006), as the one word a command reads: "off" when the member turned it
+// 0007), as the one word a command reads: "off" when the member turned it
 // off, nothing when it is on.
 func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 	store := sessionmap.Store{StateDir: f.stateDir}
@@ -1211,7 +1211,7 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 // asks two. A session's start follows here, in its own run. The prompt
 // hook's registration retry, which runs the same resolution in a few
 // seconds, does not: it starts the follow as a child (startFollow, work
-// item 327, ADR 0007), says once that the backend the member joined is
+// item 327, ADR 0008), says once that the backend the member joined is
 // being asked, reports the pin as it is, and a later prompt finds the pin
 // the child wrote. Every other outcome is silence here and the
 // drift line in the caller, with the reason in the log and never in a
@@ -1660,7 +1660,7 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 		warnings = append(warnings, res.opts.FollowTeamMoveWarning)
 	}
 	// The same for the option that keeps `team move` out of a session
-	// (work item 328, ADR 0006).
+	// (work item 328, ADR 0007).
 	if res.opts.TeamMoveInSessionWarning != "" {
 		warnings = append(warnings, res.opts.TeamMoveInSessionWarning)
 	}

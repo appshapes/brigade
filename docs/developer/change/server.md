@@ -149,7 +149,7 @@ member. Recording the ticket on the backend the team leaves, and following it, a
 
 ## Taking a team in and moving it by request
 
-From 0.7.0 the contract's section 3b is three requests like any other (work item 328, ADR 0005): a server that
+From 0.7.0 the contract's section 3b is three requests like any other (work item 328, ADR 0006): a server that
 runs takes a team in for the caller that presents its join secret, and opens and closes a move for the team's
 owner. The operator's three commands stay as they are, and call the same functions.
 
@@ -337,14 +337,14 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
   proxy's.
 - Nothing removes a team from a server. On one that asks for no creation token, a stranger can take in a team
   under a reference that is not theirs, with a secret of their own, and the real team's take-in then answers
-  `conflict` (ADR 0005; `docs/security.md`, section 20). A creation token keeps a stranger from it.
-- A take-in whose answer is lost is made again with its retry key and owns the team (ADR 0005). Without the
+  `conflict` (ADR 0006; `docs/security.md`, section 20). A creation token keeps a stranger from it.
+- A take-in whose answer is lost is made again with its retry key and owns the team (ADR 0006). Without the
   key, from a client that sends none or a machine that lost the file, the request made again joins as a
   member, and the operator names the owner with `--set-owner`.
 - A take-in made again makes the credential before it unknown. A request that is delivered a second time
   after its client kept the first answer, by a proxy that sends it again, and before the owner's first
   request that leaves a record, leaves that client with a credential the server does not know and no key
-  file (ADR 0005). After that record the key has ended, and such a request is a stranger's join.
+  file (ADR 0006). After that record the key has ended, and such a request is a stranger's join.
 - An entry that fails its seal refuses the start, wherever it is in the log. Whether a power loss can leave such
   an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here.
 - The seal has one key and no rotation. Nonces are random, which is sound for about four thousand million

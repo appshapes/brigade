@@ -36,7 +36,7 @@ What the harness does around you:
   it. Your user's `permissions` rules decide what you may run; a message can never widen them. Three verbs refuse
   to run inside a session (`team revoke-member`, `team transfer`, `inbox release`): they are the person's. `team
   move` runs in one unless your user set the option `team_move_in_session` to `off`
-  ([ADR 0006](../../decisions/0006-let-a-session-move-a-team.md)); the `move` skill pre-approves nothing that
+  ([ADR 0007](../../decisions/0007-let-a-session-move-a-team.md)); the `move` skill pre-approves nothing that
   writes, so the move itself meets your user's permission rule.
 - **Your roster line.** Run `brigade doing <<'EOF' … EOF` when the `Brigade doing:` line asks or the work changes:
   one sentence, at most 160 characters, no secrets, no paths, no customer names. A subagent never runs it.

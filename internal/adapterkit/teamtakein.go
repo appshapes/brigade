@@ -14,7 +14,7 @@ import (
 )
 
 // The requests of the commands of capability team.take_in (4.4.10; work
-// item 328, ADR 0005): `team take-in` and `team open-move`. `team
+// item 328, ADR 0006): `team take-in` and `team open-move`. `team
 // close-move` takes nothing. Every adapter that carries them reads a
 // request the same way and refuses a malformed one with the same words, as
 // with the commands of teamadmin.go and teammove.go, so the reading is

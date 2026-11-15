@@ -19,7 +19,7 @@ import (
 )
 
 // What a hook that moved a session and was stopped left undone is the next
-// prompt's to do (work item 327, ADR 0007, Decision 3): the lines, and the
+// prompt's to do (work item 327, ADR 0008, Decision 3): the lines, and the
 // roads to the session that the hook had still to file.
 
 // TestAMoveWhoseHookWasStoppedLeavesTheShellsRoadToTheSession: on Muse Code

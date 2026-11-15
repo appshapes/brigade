@@ -401,7 +401,7 @@ func (r *TeamMoveResult) Validate() error {
 }
 
 // Taking a team in (4.4.10, capability team.take_in; added 2026-11-14, work
-// item 328, ADR 0005): `team take-in`, `team open-move` and `team
+// item 328, ADR 0006): `team take-in`, `team open-move` and `team
 // close-move`. They are the other end of a team's move, at the backend the
 // team goes to: whoever holds the team's join secret takes the team in
 // there and owns it, and the owner opens and closes the move, whose ticket

@@ -1,4 +1,4 @@
-# 0007. Follow a move from a running session at its next prompts
+# 0008. Follow a move from a running session at its next prompts
 
 - **Status:** Accepted
 - **Date:** 2026-11-14

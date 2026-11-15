@@ -95,7 +95,7 @@ func checkDecisionFinding(t *testing.T, name string, got []string, want string) 
 	t.Errorf("%s: the gate reported %v; want a finding that says %q", name, got, want)
 }
 
-// partly is the planted ADR with a Status that names the ADRs that supersede a part of it (ADR 0008). The
+// partly is the planted ADR with a Status that names the ADRs that supersede a part of it (ADR 0009). The
 // repository's own ADRs 0001 to 0003 are the ones a case names.
 func partly(t *testing.T, text, by string) string {
 	t.Helper()

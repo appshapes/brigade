@@ -1409,7 +1409,7 @@ its new one by each member's own command. The Supabase adapter and the fs adapte
 out, because a record is kept by the backend a team leaves.
 
 A third optional capability is `team.take_in`, the other end of that move: the three commands of a backend that
-teams may move *to* (4.4.10, 4.7; added 2026-11-14, work item 328, ADR 0005). `team take-in` presents the join
+teams may move *to* (4.4.10, 4.7; added 2026-11-14, work item 328, ADR 0006). `team take-in` presents the join
 secret a team has on the backend it comes from, with a name: a backend that does not hold the team takes it in
 under the `team_ref` inside the secret and makes the caller its owner in the same step; one that holds it under
 that secret joins the caller; one that holds that `team_ref` under another secret answers `conflict` with

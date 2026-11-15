@@ -1,10 +1,10 @@
-# 0006. Let a session move a team, behind an option that is on by default
+# 0007. Let a session move a team, behind an option that is on by default
 
 - **Status:** Accepted
 - **Date:** 2026-11-14
 - **Supersedes:** ADR 0003, in part: in its Decision point 2, the words "refuses inside a session"; and, for the
   one command `brigade team move --to` alone, that the destination "is never typed" (the same point, and its
-  alternative "A typed destination for `team move`"). The rest of ADR 0003 stands, as ADR 0005 left it.
+  alternative "A typed destination for `team move`"). The rest of ADR 0003 stands, as ADR 0006 left it.
 
 ## Context
 
@@ -20,7 +20,7 @@ file, `.brigade.json` edited by hand, a join, and `brigade team move --ticket-fi
 the command refused inside a session. The terminal named no Claude profile, so his label was sent from the
 wrong one (work item 326). He then asked for one command, started from a coding session in which the agent asks
 the administrator for what it needs: "Whatever api keys, tokens, etc. you require, the admin will provide you"
-(work item 328). [ADR 0005](0005-take-a-team-in-and-open-its-move-by-request.md) gave the server the requests
+(work item 328). [ADR 0006](0006-take-a-team-in-and-open-its-move-by-request.md) gave the server the requests
 that needs.
 
 Three facts, read on 2026-11-14:
@@ -151,7 +151,7 @@ no hosted project was asked.
   is, because that directory is what the next run is the same caller with. After a refusal, where the server
   holds nothing new, the same profile is removed (`TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary`,
   and the two tests of the profile in `internal/harness/commands`). What the next run is answered is the
-  adapter's and the server's part, in the work of ADR 0005.
+  adapter's and the server's part, in the work of ADR 0006.
 - Mutation: 92 one-line changes to the new rules, in the command, the option, the start facts, the hook, the
   version rule and the team file's rewrite. 91 are caught by a test; three of them needed a test added, a
   secret file's path inside the checkout that names no file, the roster read without its offline sessions, and
@@ -211,7 +211,7 @@ no hosted project was asked.
 ## References
 
 Work item 328; work item 326; [ADR 0003](0003-follow-a-team-that-moved-on-the-old-backends-record.md),
-which this supersedes in part, and [ADR 0005](0005-take-a-team-in-and-open-its-move-by-request.md);
+which this supersedes in part, and [ADR 0006](0006-take-a-team-in-and-open-its-move-by-request.md);
 `docs/security.md` sections 5 and 21; `docs/team-admin/members/move-the-team.md`;
 `internal/harness/commands/teammove.go` and `teammoveto.go`; `internal/harness/config/options.go`; the `move`
 skill of each package; ADR 0001.

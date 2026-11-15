@@ -41,7 +41,7 @@ level's sentence and nothing else.
   The path is never printed.
 - A session that is already running is not disconnected by such a file, or by a `frame` level that is none of the
   three: its `/clear` keeps it connected, and team messages go on reaching it under the frame it had, which may
-  be a weaker one than you meant to set. From the plugin release after 0.55.0 it says so after its context line,
+  be a weaker one than you meant to set. From plugin 0.56.0 it says so after its context line,
   where it used to say the line above:
 
   ```text

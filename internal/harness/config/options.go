@@ -110,7 +110,7 @@ const (
 	// stays where it is and says so.
 	WarnFollowTeamMoveInvalid = `Brigade: follow_team_move must be "on" or "off"; the value set is neither, so this session does not follow a team that moved.`
 	// WarnTeamMoveInSessionInvalid: the team_move_in_session option is
-	// neither on nor off (work item 328, ADR 0006). An unexpected spelling
+	// neither on nor off (work item 328, ADR 0007). An unexpected spelling
 	// restores the refusal: the member who set the option wanted `team
 	// move` kept out of their sessions, so it stays out and the session
 	// says so.
@@ -160,7 +160,7 @@ func ParseSync(raw string) (bool, string) {
 // anything else → false with WarnFollowTeamMoveInvalid. The grammar is
 // ParseSync's, and there is no BRIGADE_* fallback: only a session's hooks
 // follow (its start, and the child a prompt starts, work item 327, ADR
-// 0007), and a terminal's `team join` is the member's own word.
+// 0008), and a terminal's `team join` is the member's own word.
 func ParseFollowTeamMove(raw string) (bool, string) {
 	switch strings.TrimSpace(raw) {
 	case "", SyncOn:
@@ -174,7 +174,7 @@ func ParseFollowTeamMove(raw string) (bool, string) {
 
 // ParseTeamMoveInSession maps a team_move_in_session value to whether
 // `brigade team move` may move a team, record where one went or clear that
-// record from inside a session (work item 328, ADR 0006): "" (unset — the
+// record from inside a session (work item 328, ADR 0007): "" (unset — the
 // default is on) or "on" → true; "off" → false; anything else → false with
 // WarnTeamMoveInSessionInvalid. The grammar is ParseSync's, and there is no
 // BRIGADE_* fallback: at a terminal the command runs whatever the option
@@ -460,7 +460,7 @@ type Options struct {
 	FollowTeamMove        bool
 	FollowTeamMoveWarning string
 	// TeamMoveInSession is on unless the option says off (work item 328,
-	// ADR 0006): `brigade team move` may then move a team, record where one
+	// ADR 0007): `brigade team move` may then move a team, record where one
 	// went and clear that record from inside this member's sessions. The
 	// hook freezes it into the start facts, because the command runs in the
 	// Bash tool and never sees CLAUDE_PLUGIN_OPTION_*.

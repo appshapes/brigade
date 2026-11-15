@@ -14,7 +14,7 @@ import (
 
 // TestAClearBesideARefusedFrameKeepsTheFrameTheSessionHadThroughTheRealBinary
 // is what a running session's watcher applies after a `/clear` whose start
-// refused the member's settings (work item 327, ADR 0007, Decision 8),
+// refused the member's settings (work item 327, ADR 0008, Decision 8),
 // through the built `brigade`, its watcher and a server: the line such a
 // start says claims that the frame the session had still holds, and this is
 // the frame a message is delivered under.

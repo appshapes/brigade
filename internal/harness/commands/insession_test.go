@@ -667,7 +667,7 @@ func TestTeamJoinInSessionSaysASessionWhereTheTeamIsIsAlreadyAttached(t *testing
 }
 
 // TestTeamJoinInSessionSaysASessionOfAnotherCheckoutStays: a session moves
-// with the checkout it registered in and no other (work item 327, ADR 0007,
+// with the checkout it registered in and no other (work item 327, ADR 0008,
 // Decision 8). A join made from its shell in ANOTHER checkout of the team
 // puts that checkout on the new backend, and the prompt hook will not move
 // this session for it: the join says so, and leaves the session's

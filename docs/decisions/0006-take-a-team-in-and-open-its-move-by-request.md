@@ -1,4 +1,4 @@
-# 0005. Take a team in and open its move by request, and let whoever takes it in own it
+# 0006. Take a team in and open its move by request, and let whoever takes it in own it
 
 - **Status:** Accepted
 - **Date:** 2026-11-14

@@ -75,7 +75,7 @@ func (r *rig) serverRoster(s session) map[string]struct{ name, inbound string } 
 
 // TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary is a
 // team's move as the sessions that are running at the time live it (work
-// item 327, ADR 0007), through the built `brigade`, a real adapter for the
+// item 327, ADR 0008), through the built `brigade`, a real adapter for the
 // backend the team leaves (the fs adapter, which carries team.move as the
 // Supabase adapter does) and the built server it goes to. It needs the
 // server itself, so it runs only where `make server-test` names one.

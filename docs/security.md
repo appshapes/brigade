@@ -1373,7 +1373,7 @@ what differs. The server is experimental in its 0.1.0.
 - **A team taken in.** A team can move to a server from another backend with its join secret: the operator, with
   the secret in a file, runs a command on the server's data directory while the server is stopped. From 0.7.0 a
   request does it too, on a server that runs, for whoever presents the secret and may create a team there (work
-  item 328; [ADR 0005](decisions/0005-take-a-team-in-and-open-its-move-by-request.md)).
+  item 328; [ADR 0006](decisions/0006-take-a-team-in-and-open-its-move-by-request.md)).
   Either way the secret is not kept: the server stores its hash, as for a team it created. The secret is
   as strong after the move as before it, and whoever held it can join the team on the server. From 0.5.0 its
   members can follow it there with no command of their own: section 21 says on whose word, and what that opens.
@@ -1429,18 +1429,18 @@ Until 0.55.0 nothing could point your sessions at another backend without a comm
 `.brigade.json` that named one stopped matching what you had joined, your next session connected to nothing, and
 `team join` asked for the secret file. From 0.55.0 one thing can, and this section states it plainly (work item
 273; the owner's ruling of 2026-11-13 is on work item 315, and the decision is
-[ADR 0003](decisions/0003-follow-a-team-that-moved-on-the-old-backends-record.md)). From the release after 0.55.0
+[ADR 0003](decisions/0003-follow-a-team-that-moved-on-the-old-backends-record.md)). From plugin 0.56.0
 a session that is already running follows too, at its next prompts (work item 327,
-[ADR 0007](decisions/0007-follow-a-move-from-a-running-session-at-its-next-prompts.md)).
+[ADR 0008](decisions/0008-follow-a-move-from-a-running-session-at-its-next-prompts.md)).
 
 **What happens.** When a team moves from a Supabase project to a Brigade server, its administrator records the
 move on the project the team is leaving: the server's address, its certificate fingerprint when the team file
 pins one, and a move ticket that the server made, for its operator or, from server 0.7.0, for the team's owner
-there by request ([ADR 0005](decisions/0005-take-a-team-in-and-open-its-move-by-request.md)).
+there by request ([ADR 0006](decisions/0006-take-a-team-in-and-open-its-move-by-request.md)).
 From 0.56.0 one command of the administrator's does all of it, `brigade team move --to`: the server takes the
 team in with the administrator as its owner, the move is opened and recorded, and only then is `.brigade.json`
 rewritten, from the one address the administrator typed (work item 328;
-[ADR 0006](decisions/0006-let-a-session-move-a-team.md)).
+[ADR 0007](decisions/0007-let-a-session-move-a-team.md)).
 When your next session starts in a checkout whose
 `.brigade.json` names a new backend for the team you joined there, the session asks the backend you joined
 whether that team moved. If the record names exactly what the file names — the adapter, the address, the

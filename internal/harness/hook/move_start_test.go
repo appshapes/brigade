@@ -28,7 +28,7 @@ import (
 )
 
 // A session's start in a process whose session is running where its team
-// left it (work item 327, ADR 0007): `/clear` fires the start again, and
+// left it (work item 327, ADR 0008): `/clear` fires the start again, and
 // what keeps a prompt from moving the session keeps a start from it too.
 // The session stays where it is, is told what a prompt would tell it, and
 // is never told that it is `not connected`.

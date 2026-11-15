@@ -12,7 +12,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 ### Added
 
 - **A team moves to a Brigade server with one command, from a terminal or a
-  session** (work item 328, ADR 0006). Until now a move was six steps by two
+  session** (work item 328, ADR 0007). Until now a move was six steps by two
   people: the server's operator took the team in and opened its move with
   the server stopped and handed a ticket back as a file, and the team's
   administrator edited `.brigade.json` by hand, joined the server and ran
@@ -100,7 +100,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   Supabase](docs/project-owner/server/move-from-supabase.md).
 
 - **The adapter protocol can ask a backend to take a team in and to open
-  and close its move** (work item 328, ADR 0005). BAP/1 gets the
+  and close its move** (work item 328, ADR 0006). BAP/1 gets the
   capability `team.take_in` and three commands (4.4.10). `team take-in`
   presents the join secret a team has on the backend it leaves, with a
   name: a backend that does not hold the team takes it in under the
@@ -120,7 +120,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   stay. `brigade team move --to`, the entry above, is the command that
   makes the three requests.
 - **A `team take-in` whose answer was lost is run again, and owns the
-  team** (work item 328, ADR 0005). The server makes the team's owner
+  team** (work item 328, ADR 0006). The server makes the team's owner
   and puts its credential in the answer, and an answer that never
   arrives (the command's deadline, a proxy's 502, an interrupt) left a
   team owned by a member nobody could be: the command run again joined
@@ -148,7 +148,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 ### Changed
 
 - **A session that is already running follows its team when the team
-  moves** (work item 327, ADR 0007). Until now only a session's start
+  moves** (work item 327, ADR 0008). Until now only a session's start
   followed a team to another backend: a session that was running stayed
   on the backend the team left until it ended, and in a real move the
   new server had no member session for hours. Now a running session
@@ -200,7 +200,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   section 21, says what this changes, and the page is
   [When your team moves](docs/team-member/join/follow-a-move.md).
 - **`brigade team move --ticket-file` and `brigade team move --clear` run
-  inside a session** (work item 328, ADR 0006, which supersedes ADR 0003 in
+  inside a session** (work item 328, ADR 0007, which supersedes ADR 0003 in
   part). They refused there since 0.55.0. The refusal read "inside a
   session" from the environment, so a command run with those variables
   removed passed it; it is now a member's choice, the option

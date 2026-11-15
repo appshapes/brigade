@@ -176,7 +176,7 @@ func TestParseFollowTeamMove(t *testing.T) {
 // TestParseTeamMoveInSession: the option that lets `brigade team move` run
 // inside a session is on unless it says off, and a value that is neither
 // word restores the refusal and is said, without the value (work item 328,
-// ADR 0006). A terminal's BRIGADE_* has no say in it, and the options file
+// ADR 0007). A terminal's BRIGADE_* has no say in it, and the options file
 // of a host that has one sets it as it sets the others.
 func TestParseTeamMoveInSession(t *testing.T) {
 	t.Parallel()
