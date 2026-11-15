@@ -49,6 +49,7 @@ import (
 // The Stop hook's budgets and thresholds.
 const (
 	// stopBudget keeps the hook under the 5 s timeout hooks.json declares.
+	// It is Deps.StopBudget's production value.
 	stopBudget = promptBudget
 	// stopAskInterval is the floor between two asks in one conversation.
 	stopAskInterval = 10 * time.Minute
@@ -164,7 +165,7 @@ func (r *run) stop() int {
 		r.log.Warn("stop: session facts", log.Err(err))
 		return 0
 	}
-	ctx, cancel := r.hookContext(stopBudget)
+	ctx, cancel := r.hookContext(r.deps.StopBudget)
 	defer cancel()
 	m, err := sessionmap.Store{StateDir: f.stateDir}.ReadByPID(f.pid)
 	if err != nil {

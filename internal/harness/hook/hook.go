@@ -268,6 +268,11 @@ type Deps struct {
 	// promptBudget. Only a test lowers it, to reach the doing reminder's
 	// budget guard (plan 5.4) without a real 3.5 s stall.
 	PromptBudget time.Duration
+	// StopBudget bounds the whole Stop-hook run; zero means stopBudget. Only
+	// a test raises it: the ask is made only while stopMinBudget of the
+	// budget is left, and a test of what the ask says must not have a busy
+	// machine decide whether it is said (work item 336).
+	StopBudget time.Duration
 	// FollowBudget bounds the whole follow of `brigade hook follow`, the
 	// child a prompt hook starts (move.go, work item 327); zero means
 	// followBudget. Only a test lowers it, to see a follow whose backend
@@ -292,6 +297,7 @@ func RealDeps() Deps {
 		Notifier:     notifier,
 		PidfileWait:  DefaultPidfileWait,
 		PromptBudget: promptBudget,
+		StopBudget:   stopBudget,
 		FollowBudget: followBudget,
 		Getppid:      os.Getppid,
 	}
@@ -332,6 +338,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.PromptBudget <= 0 {
 		d.PromptBudget = prod.PromptBudget
+	}
+	if d.StopBudget <= 0 {
+		d.StopBudget = prod.StopBudget
 	}
 	if d.FollowBudget <= 0 {
 		d.FollowBudget = prod.FollowBudget

@@ -65,11 +65,27 @@ func feedbackContext(t *testing.T, out string) string {
 	return specific["additionalContext"]
 }
 
+// unhurried gives the fixture's prompt and Stop hooks budgets no busy
+// machine reaches (work item 336). The ask is made only while a second of
+// the hook's budget is left (stopMinBudget), and the production budget is
+// 4.5 s of real time: a hook whose files, each synced to disk, took longer
+// than 3.5 s to write beside other suites said nothing, and a test of what
+// the ask says failed on an empty answer (TestGrokStopCarriesTheAsk on
+// 2026-11-14; measured on 2026-11-15, the Stops that said nothing took
+// 3.6 s and 4.2 s and logged `stop: too little budget left for the ask`).
+// The gate itself is held under a budget made short
+// (TestStopAsksNothingWithoutASecondOfItsBudget).
+func (f *fixture) unhurried() {
+	f.deps.PromptBudget, f.deps.StopBudget = time.Minute, time.Minute
+}
+
 // stateSession is a registered session in a project with a state folder,
 // a doing mode that may print (quiet), and the entry written by one
-// prompt at fixedTime in the given permission mode.
+// prompt at fixedTime in the given permission mode. Its hooks are
+// unhurried.
 func stateSession(t *testing.T, f *fixture, mode string) state.Store {
 	t.Helper()
+	f.unhurried()
 	f.spawner.watcherPID = testutil.NewSleeper(t)
 	f.writeTeamFile(stateMember)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
@@ -363,6 +379,7 @@ func TestStopNoteAskIsForACommitOfTheTurn(t *testing.T) {
 func TestPromptNoteAskIsForACommitSinceThePreviousPrompt(t *testing.T) {
 	t.Parallel()
 	f := newMuseFixture(t)
+	f.unhurried()
 	f.initCheckout(fixedTime.Add(-time.Hour))
 	f.writeTeamFile(stateMember)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
@@ -445,6 +462,32 @@ func TestStopAsksAfterALongTurn(t *testing.T) {
 	_, out, _ = f.run(SubStop, f.stopDoc("bypassPermissions", false))
 	if got := feedbackContext(t, out); got != stopAskOpen+stopAskDecision+stopAskClose {
 		t.Fatalf("reason = %q", got)
+	}
+}
+
+// TestStopAsksNothingWithoutASecondOfItsBudget: the ask is stamped and
+// written only while stopMinBudget of the hook's budget is left, so that a
+// hook its host stops before the answer is out has stamped nothing and the
+// next Stop asks (the P5-18 shape, as the doing reminder's). It is the gate
+// that left a test of what the ask says with an empty answer on a busy
+// machine (work item 336, unhurried); here the budget is made short, and
+// the control is the same Stop with its budget back.
+func TestStopAsksNothingWithoutASecondOfItsBudget(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	stateSession(t, f, "bypassPermissions")
+	f.now = fixedTime.Add(12 * time.Minute)
+	f.deps.StopBudget = 500 * time.Millisecond
+	if exit, out, errOut := f.run(SubStop, f.stopDoc("bypassPermissions", false)); exit != 0 || out != "" {
+		t.Fatalf("a Stop with half a second of budget: exit %d, out %q\n%s", exit, out, errOut)
+	}
+	if got := f.stopStamp(t); got != "" {
+		t.Fatalf("a stamp was written with no budget to answer in: %q", got)
+	}
+	f.unhurried()
+	_, out, errOut := f.run(SubStop, f.stopDoc("bypassPermissions", false))
+	if got := feedbackContext(t, out); got != stopAskOpen+stopAskDoing+stopAskClose {
+		t.Fatalf("the same Stop with its budget back: %q\n%s", got, errOut)
 	}
 }
 
@@ -561,6 +604,7 @@ func TestStopAllowedModePrintsInDefault(t *testing.T) {
 func TestPromptCarriesTheAskOnAPointedHost(t *testing.T) {
 	t.Parallel()
 	f := newMuseFixture(t)
+	f.unhurried()
 	f.writeTeamFile(stateMember)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 	seam.describe = describeWithDescription()
@@ -601,6 +645,7 @@ func TestPromptCarriesTheAskOnAPointedHost(t *testing.T) {
 func TestGrokStopCarriesTheAsk(t *testing.T) {
 	t.Parallel()
 	f := grokFixture(t)
+	f.unhurried()
 	f.writeTeamFile(stateMember)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 	seam.describe = describeWithDescription()
@@ -624,18 +669,25 @@ func TestGrokStopCarriesTheAsk(t *testing.T) {
 	// 2.1.259, a Claude Code that takes the feedback answer.
 	// The first completed turn arms the monitor; the state ask yields.
 	f.now = fixedTime.Add(12 * time.Minute)
-	_, out, _ := grokRun(f, SubStop, grokDoc(f, "stop", "", map[string]any{"permissionMode": "bypassPermissions"}))
+	_, out, errOut := grokRun(f, SubStop, grokDoc(f, "stop", "", map[string]any{"permissionMode": "bypassPermissions"}))
 	if reason := blockReason(t, out); !strings.Contains(reason, "Arm this session's Brigade inbox") || strings.Contains(reason, stopAskOpen) {
-		t.Fatalf("the first Stop's reason: %q", reason)
+		t.Fatalf("the first Stop's reason: %q\n%s", reason, errOut)
 	}
 	if got := f.stopStamp(t); got != "" {
 		t.Fatalf("the arming Stop wrote a state stamp: %q", got)
 	}
-	// Armed: the next Stop, a long turn on, is the state ask.
+	// Armed: the next Stop, a long turn on, is the state ask. It is not made
+	// with under a second of the hook's budget left, here as on Claude Code
+	// (TestStopAsksNothingWithoutASecondOfItsBudget), and nothing is stamped.
 	f.now = fixedTime.Add(13 * time.Minute)
-	_, out, _ = grokRun(f, SubStop, grokDoc(f, "stop", "", map[string]any{"permissionMode": "bypassPermissions"}))
+	f.deps.StopBudget = 500 * time.Millisecond
+	if _, out, errOut = grokRun(f, SubStop, grokDoc(f, "stop", "", map[string]any{"permissionMode": "bypassPermissions"})); out != "" || f.stopStamp(t) != "" {
+		t.Fatalf("a Stop with half a second of budget: out %q, stamp %q\n%s", out, f.stopStamp(t), errOut)
+	}
+	f.unhurried()
+	_, out, errOut = grokRun(f, SubStop, grokDoc(f, "stop", "", map[string]any{"permissionMode": "bypassPermissions"}))
 	if got := blockReason(t, out); got != stopAskOpen+stopAskDoing+stopAskClose {
-		t.Fatalf("the second Stop's reason: %q", got)
+		t.Fatalf("the second Stop's reason: %q\n%s", got, errOut)
 	}
 	// And stop_hook_active in Grok's spelling asks nothing.
 	f.now = fixedTime.Add(14 * time.Minute)

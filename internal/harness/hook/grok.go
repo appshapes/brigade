@@ -247,7 +247,7 @@ func (r *run) grokStop() int {
 	}
 	// Nothing to arm: the end-of-turn state ask of card 162 (stop.go),
 	// the same gates as Claude Code's.
-	ctx, cancel := r.hookContext(stopBudget)
+	ctx, cancel := r.hookContext(r.deps.StopBudget)
 	defer cancel()
 	if in.PermissionMode != "" {
 		m.PermissionMode = in.PermissionMode
