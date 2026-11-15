@@ -223,31 +223,31 @@ start follows on.
   of a machine that other agents were loading: 999 ms fails it.
 - On 2026-11-14 and 2026-11-15 a fourth session verified what was built last: the notice, the starts that keep a
   session, a session that follows from wherever it works, and the join's lock. It found four things, each fixed
-  with a test that failed first (`move_stopped_test.go`, `move_checkout_test.go`). Three were left by a hook
-  that was stopped after it moved a session, and the prompt that said the move did not make them good. On Muse
-  Code and Codex CLI the pointer a command in the model's shell finds the session by went on naming the session
-  the move left, which is refused beside a map that names another: every `brigade` command of the session failed
-  until its next start. The watcher of the session as it is now was started only by a prompt after the one that
-  said the move, because the watcher the session had was still alive and stood for one: through the built binary
-  and the built server (`rest_checkouts_test.go`) no watcher served the session a minute after that prompt, and
-  the prompt now starts it. And the state entry of the session the move left never ended. The fourth was a line:
-  sent from another checkout, or from a repository of another team, the prompt that moved a session said that
-  `this checkout` followed, of a directory that had followed nothing. Through the built binary and the built
-  server, a message sent to the session's new id between the hook that was killed and the next prompt was
-  delivered once, by the watcher that prompt started. Of 68 one-line changes of its own to these rules, twelve
-  passed the tests as they were: the follow's mark, the two stamps and Codex CLI's line left by a move said from
-  its notice, a team file the pin no longer matches echoed by that prompt, a dead watcher's pidfile taken for a
-  running session, a kept start writing no state entry and saying no Codex line, a join spared by a membership
-  the team file does not describe, Grok Build not left out of the starts that keep a session, and two that
-  change nothing a session can show. The tests added since catch nine; the one left that matters is Grok
-  Build's, where a start that resolved no team ended the same with the rule taken out. It found three things
-  more, which it did not change. A start that keeps a session drops what its resolution said also when what was
-  refused was the member's own settings and not the team (an option that cannot be read, a `frame_file` that
-  fails a check, an adapter that is not resolved), where such a start said why before, though of a session it
-  called not connected. A session with no watcher, which takes its messages at its prompts (`poll_on_prompt`),
-  moves without a last poll of the backend it leaves, and what was sent to it there since its last prompt stays
-  there. And a quiet session whose move was cut short before its watcher started loses its request for quiet at
-  a `/clear` that comes before its next prompt, as any session with no watcher alive does.
+  with a test that fails without the fix (`move_stopped_test.go`, `move_checkout_test.go`). Three were left by a
+  hook that was stopped after it moved a session, and the prompt that said the move did not make them good. On
+  Muse Code and Codex CLI the pointer a command in the model's shell finds the session by went on naming the
+  session the move left, which is refused beside a map that names another: every `brigade` command of the
+  session failed until its next start. The watcher of the session as it is now was started only by a prompt
+  after the one that said the move, because the watcher the session had was still alive and stood for one:
+  through the built binary and the built server (`rest_checkouts_test.go`) no watcher served the session a
+  minute after that prompt, and the prompt now starts it. And the state entry of the session the move left never
+  ended. The fourth was a line: sent from another checkout, or from a repository of another team, the prompt
+  that moved a session said that `this checkout` followed, of a directory that had followed nothing. Through the
+  built binary and the built server, a message sent to the session's new id between the hook that was killed and
+  the next prompt was delivered once, by the watcher that prompt started. Of 68 one-line changes of its own to
+  these rules, twelve passed the tests as they were: the follow's mark, the two stamps and Codex CLI's line left
+  by a move said from its notice, a team file the pin no longer matches echoed by that prompt, a dead watcher's
+  pidfile taken for a running session, a kept start writing no state entry and saying no Codex line, a join
+  spared by a membership the team file does not describe, Grok Build not left out of the starts that keep a
+  session, and two that change nothing a session can show. The tests added since catch nine; the one left that
+  matters is Grok Build's, where a start that resolved no team ended the same with the rule taken out. It found
+  three things more, which it did not change. A start that keeps a session drops what its resolution said also
+  when what was refused was the member's own settings and not the team (an option that cannot be read, a
+  `frame_file` that fails a check, an adapter that is not resolved), where such a start said why before, though
+  of a session it called not connected. A session with no watcher, which takes its messages at its prompts
+  (`poll_on_prompt`), moves without a last poll of the backend it leaves, and what was sent to it there since
+  its last prompt stays there. And a quiet session whose move was cut short before its watcher started loses its
+  request for quiet at a `/clear` that comes before its next prompt, as any session with no watcher alive does.
 - The same day, 35 one-line changes to the rules above, in the hook, the follow and the join's last line, were
   each caught by a test. One of them, the map of another backend treated as a session that continues, was also
   run through the built binary: the test failed, and the hook's log showed the server answering `not_found` to
