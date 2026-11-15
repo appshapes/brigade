@@ -409,7 +409,7 @@ fn the_transport_is_the_contracts() {
     );
     assert_eq!(
         info["result"]["capabilities"],
-        json!(["team.admin", "team.take_in"])
+        json!(["team.admin", "team.take_in", "team.move"])
     );
 
     // An unknown path is 404 whatever the method; a known one that is not a POST is refused.
@@ -2509,6 +2509,185 @@ fn a_team_taken_in_by_request_stays_owned_across_a_kill_on_the_cavalry_feed() {
     a_team_taken_in_by_request_stays_owned("cavalry");
 }
 
+/// The format a snapshot names in its header line.
+fn format_of(snapshot: &str) -> u64 {
+    let header: Value = serde_json::from_str(snapshot.lines().next().unwrap()).unwrap();
+    header["format"].as_u64().unwrap()
+}
+
+/// The record of where a team went (work item 341, ADR 0010; the contract's section 3c): its owner
+/// records it, every active member reads it and is handed the ticket when it asks, and it is there after a
+/// kill right behind the answer and after a stop and a start from a snapshot. The server keeps the ticket
+/// whole, in its snapshot, which then names format 4; no line it says holds any of it. The team is left as
+/// it is: nothing is refused for the record. The operator's `--take-back` clears it, and the snapshot of a
+/// state that holds no record is format 3 again, which a server before 0.8.0 reads.
+fn where_a_team_went_is_kept(log: &str) {
+    const SECRET_PART: &str = "the-secret-part-of-the-ticket";
+    let scratch = Scratch::new(&format!("moved-to-{log}"));
+    let arguments = log_arguments(log, &scratch);
+    let server = Server::start(&scratch, &arguments);
+    let (alice, bob, secret) = team_of_two(&server);
+    let team_ref = alice.team_ref.clone();
+    let team = json!({"team_ref": team_ref});
+    let ticket = format!("brg1.{team_ref}.{SECRET_PART}");
+    let none = json!({"team_ref": team_ref, "moved": false});
+    let with_ticket = json!({"team_ref": team_ref, "with_ticket": true});
+    let mut said = String::new();
+
+    // No move recorded, and a member that is not the owner records none: it reads the one refusal a
+    // stranger to a team that does not exist reads, for a record and for a clear.
+    assert_eq!(server.ok(&bob.credential, "/v1/team/moved", &with_ticket), none);
+    let record = json!({
+        "team_ref": team_ref, "adapter": "rest", "url": "https://brigade.example.com:8743",
+        "certificate": "sha256:00ff", "ticket": ticket,
+    });
+    let clear = json!({"team_ref": team_ref, "clear": true});
+    let uniform = refused(
+        &server,
+        Some(&bob.credential),
+        "/v1/team/moved",
+        &json!({"team_ref": "no-such-team"}),
+    );
+    assert_eq!(uniform.0, 403);
+    for body in [&record, &clear] {
+        assert_eq!(
+            refused(&server, Some(&bob.credential), "/v1/team/move", body),
+            uniform
+        );
+    }
+    let (status, _) = refused(&server, None, "/v1/team/move", &record);
+    assert_eq!(status, 401);
+    // A ticket of another team is refused by the name of its member, in words that hold none of it.
+    let mut foreign = record.clone();
+    foreign["ticket"] = json!(format!("brg1.another-team.{SECRET_PART}"));
+    let (status, error) = refused(&server, Some(&alice.credential), "/v1/team/move", &foreign);
+    assert_eq!(
+        (status, text(&error["details"], "field").as_str()),
+        (400, "ticket")
+    );
+    assert!(!error.to_string().contains(SECRET_PART), "{error}");
+
+    // A stop and a start before any record: the snapshot the stop wrote is of the format a server
+    // before 0.8.0 reads, and holds nothing of a move.
+    server.stop();
+    said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
+    let written = snapshots(&scratch);
+    assert_eq!(format_of(written.last().unwrap()), 3);
+    assert!(written.iter().all(|snapshot| !snapshot.contains("moved_to")));
+    let server = Server::start(&scratch, &arguments);
+
+    // The owner records where the team went. The answer is the last thing the server does before it is
+    // killed, and the record is there when it starts again: the answer was sent after the log held it.
+    let recorded = server.ok(&alice.credential, "/v1/team/move", &record);
+    assert_eq!(
+        (
+            &recorded["team_ref"],
+            &recorded["moved"],
+            &recorded["adapter"],
+            &recorded["url"],
+            &recorded["certificate"],
+        ),
+        (
+            &json!(team_ref),
+            &json!(true),
+            &json!("rest"),
+            &json!("https://brigade.example.com:8743"),
+            &json!("sha256:00ff")
+        )
+    );
+    assert!(recorded.get("ticket").is_none(), "{recorded}");
+    assert!(recorded["recorded_at"].is_string(), "{recorded}");
+    server.kill();
+    said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
+    let server = Server::start(&scratch, &arguments);
+    // Every active member reads it, and is handed the ticket only when it asks for it.
+    assert_eq!(server.ok(&bob.credential, "/v1/team/moved", &team), recorded);
+    let read = server.ok(&bob.credential, "/v1/team/moved", &with_ticket);
+    assert_eq!(read["ticket"], json!(ticket));
+    let mut without = read.clone();
+    without.as_object_mut().unwrap().remove("ticket");
+    assert_eq!(without, recorded);
+    // The team is as it was: a member registers a session, a message is delivered, the secret joins.
+    let beta = register(&server, &bob.credential, &team_ref, "beta-after");
+    let bob_now = Member {
+        credential: bob.credential.clone(),
+        team_ref: team_ref.clone(),
+        session: beta,
+    };
+    send(&server, &alice, &bob_now, "after the record", "k-after");
+    let (carol, _) = join(&server, &secret, "carol");
+    assert_eq!(server.ok(&carol, "/v1/team/moved", &team), recorded);
+
+    // A stop: the snapshot holds the record, the ticket whole, and names format 4, which a server
+    // before 0.8.0 passes over. A start from it has the record.
+    server.stop();
+    said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
+    let written = snapshots(&scratch);
+    let newest = written.last().unwrap();
+    assert_eq!(format_of(newest), 4);
+    assert!(
+        newest.contains(&ticket),
+        "the newest snapshot does not hold the record's ticket"
+    );
+    let server = Server::start(&scratch, &arguments);
+    assert_eq!(
+        server.ok(&bob.credential, "/v1/team/moved", &with_ticket)["ticket"],
+        json!(ticket)
+    );
+    // The owner clears it and records it again, as often as it likes.
+    assert_eq!(server.ok(&alice.credential, "/v1/team/move", &clear), none);
+    assert_eq!(server.ok(&bob.credential, "/v1/team/moved", &with_ticket), none);
+    server.ok(&alice.credential, "/v1/team/move", &record);
+    server.stop();
+    said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
+
+    // What the server said of it: who recorded where the team went, and where, and who cleared it. No
+    // line holds the ticket, whole or in part.
+    let moved = format!(
+        "recorded that team ops ({team_ref}) moved to https://brigade.example.com:8743 (adapter rest, \
+         certificate sha256:00ff): its members' sessions follow it there, and the team stays here as it is"
+    );
+    assert!(said.contains(&moved), "{said}");
+    assert!(
+        said.contains(&format!("cleared the record of where team ops ({team_ref}) went")),
+        "{said}"
+    );
+    assert!(!said.contains(SECRET_PART), "{said}");
+
+    // The operator takes the team back, with the server stopped: the record is cleared with it, and the
+    // command says so. Whoever joins with the new secret reads no move, and the snapshot of that state
+    // is format 3 again and holds no ticket.
+    let secret_file = scratch.path("ops.secret");
+    let (status, wrote) = take_back(&scratch, &arguments, &team_ref, &secret_file);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(wrote.contains("cleared the record of where it went"), "{wrote}");
+    assert!(!wrote.contains(SECRET_PART), "{wrote}");
+    let new_secret = std::fs::read_to_string(&secret_file).unwrap().trim().to_owned();
+    let server = Server::start(&scratch, &arguments);
+    let (status, _) = refused(&server, Some(&bob.credential), "/v1/team/moved", &team);
+    assert_eq!(status, 403);
+    let (dave, _) = join(&server, &new_secret, "dave");
+    assert_eq!(server.ok(&dave, "/v1/team/moved", &with_ticket), none);
+    let journal = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    assert!(!journal.contains(SECRET_PART), "{journal}");
+    server.stop();
+    let written = snapshots(&scratch);
+    let newest = written.last().unwrap();
+    assert_eq!(format_of(newest), 3);
+    assert!(!newest.contains(SECRET_PART) && !newest.contains("moved_to"));
+}
+
+#[test]
+fn where_a_team_went_is_kept_across_a_kill_on_the_file_log() {
+    where_a_team_went_is_kept("file");
+}
+
+#[cfg(feature = "cavalry")]
+#[test]
+fn where_a_team_went_is_kept_across_a_kill_on_the_cavalry_feed() {
+    where_a_team_went_is_kept("cavalry");
+}
+
 /// A retry key as a client mints one: 32 random bytes in base64url, here the same in every run. No file
 /// of the repository holds a real one.
 const RETRY_KEY: &str = "Zm9yLXRoZS10YWtlLWluLW9mLXRoZS10ZXN0LW9ubHk";
@@ -3068,15 +3247,18 @@ fn conformance(log: &str, slow: bool) {
     );
     println!("{report}");
     assert!(output.status.success(), "{report}");
-    // Two cases are skipped on either log: C-51 and C-52, the record of where a team went, which the `rest`
-    // adapter does not offer, because a record is kept by the backend a team leaves. The third is the slow
-    // one.
+    // No case is skipped but the slow one, on the log that is not run with `--slow`. From server 0.8.0
+    // that holds C-51 and C-52 too, the record of where a team went (the contract's section 3c): they
+    // are named here, so that a suite which came to skip them again would not pass for one that ran them.
     let skipped = if slow {
-        " 0 failed, 2 skipped"
+        " 0 failed, 0 skipped"
     } else {
-        " 0 failed, 3 skipped"
+        " 0 failed, 1 skipped"
     };
     assert!(report.contains(skipped), "{report}");
+    for case in ["C-51   PASS", "C-52   PASS"] {
+        assert!(report.contains(case), "{case} is not in the report:\n{report}");
+    }
     server.stop();
 }
 

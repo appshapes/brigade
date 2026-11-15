@@ -32,15 +32,27 @@ import (
 // and handed a ticket back as a file, and the administrator edited the
 // team file by hand, joined the server and recorded the move.
 //
+// The backend the team leaves is whichever keeps the record of where a team
+// went: a Supabase project, the filesystem store, and from 0.57.0 another
+// Brigade server, of 0.8.0 or later (work item 341, ADR 0010).
+//
 // The order is the design's, and each step is one a second run repeats
 // without harm:
 //
 //	a. check, changing nothing but the date of a record that is there (checkMove)
 //	b. take the team in on the server, as its owner (takeIn)
+//	b'. clear what the server itself records of the team having left it (clearReturn)
 //	c. open the move; the ticket goes to a private file (openMove)
 //	d. record the move on the backend the team leaves (recordMoveTo)
 //	e. only then rewrite the team file, the binding and the pin (writeMove)
 //	f. say what was done and what is left (reportMove)
+//
+// Step b' is for a team that comes back (A to B, then B to A): the server
+// it returns to still says that the team went away. That record is cleared
+// before the backend the team leaves records anything, so that the two
+// never name each other: a session that follows one record is not sent
+// back by the other. A clear that fails stops the move there, with nothing
+// recorded on the backend the team leaves.
 //
 // A repeated take-in is a join that still owns, a second open replaces the
 // ticket, a second record replaces the first, and the files are written
@@ -85,11 +97,17 @@ const (
 	reasonNoTeamTakeIn      = "no_team_take_in"
 	reasonServerLacksTakeIn = "server_lacks_team_take_in"
 	reasonMigrationDrift    = "migration_drift"
-	reasonOtherJoinSecret   = "other_join_secret" //nolint:gosec // G101: a details.reason token, not a credential
-	reasonNotTheCreator     = "not_the_teams_creator"
-	reasonNotOwnerThere     = "not_owner_at_destination"
-	reasonCreateToken       = "create_token" //nolint:gosec // G101: a details.reason token, not a credential
-	reasonTeamNameUnknown   = "team_name_unknown"
+	// reasonServerLacksMove is the `rest` adapter's own word for a server
+	// that keeps no record of where a team went: one older than 0.8.0.
+	reasonServerLacksMove = "server_lacks_team_move"
+	// reasonReturnNotCleared: the server the team moves to records that the
+	// team left it, and that record could not be cleared.
+	reasonReturnNotCleared = "destination_record_not_cleared"
+	reasonOtherJoinSecret  = "other_join_secret" //nolint:gosec // G101: a details.reason token, not a credential
+	reasonNotTheCreator    = "not_the_teams_creator"
+	reasonNotOwnerThere    = "not_owner_at_destination"
+	reasonCreateToken      = "create_token" //nolint:gosec // G101: a details.reason token, not a credential
+	reasonTeamNameUnknown  = "team_name_unknown"
 	// reasonTeamFileUnwritable: the team file as it is cannot be rewritten
 	// to name the server.
 	reasonTeamFileUnwritable = "team_file_unwritable"
@@ -117,17 +135,20 @@ type moveEnd struct {
 
 // moveToResult is the --json result of `team move --to`.
 type moveToResult struct {
-	TeamRef        string         `json:"team_ref"`
-	TeamName       string         `json:"team_name"`
-	From           moveEnd        `json:"from"`
-	To             moveEnd        `json:"to"`
-	TakenIn        bool           `json:"taken_in"`
-	PrincipalRef   string         `json:"principal_ref"`
-	MoveEndsAt     time.Time      `json:"move_ends_at"`
-	TicketReplaced bool           `json:"ticket_replaced"`
-	RecordedAt     time.Time      `json:"recorded_at"`
-	TeamFile       string         `json:"team_file"`
-	OlderSessions  []olderSession `json:"older_sessions"`
+	TeamRef        string    `json:"team_ref"`
+	TeamName       string    `json:"team_name"`
+	From           moveEnd   `json:"from"`
+	To             moveEnd   `json:"to"`
+	TakenIn        bool      `json:"taken_in"`
+	PrincipalRef   string    `json:"principal_ref"`
+	MoveEndsAt     time.Time `json:"move_ends_at"`
+	TicketReplaced bool      `json:"ticket_replaced"`
+	RecordedAt     time.Time `json:"recorded_at"`
+	// ReturnCleared says that the server the team moved to held a record of
+	// the team having left it, which this run cleared.
+	ReturnCleared bool           `json:"destination_record_cleared"`
+	TeamFile      string         `json:"team_file"`
+	OlderSessions []olderSession `json:"older_sessions"`
 	// RosterTruncated says that older_sessions was read from a roster the
 	// backend cut short, and may lack sessions.
 	RosterTruncated bool `json:"roster_truncated"`
@@ -176,6 +197,12 @@ type serverMove struct {
 	rosterCut bool
 	replaces  *protocol.TeamMoveResult
 	recorded  bool
+	// memberThere says that this machine holds a membership of the team on
+	// the server already: the team was there before, or a run before this
+	// one took it in. returned is the record the server itself held of the
+	// team having left it, which step b' cleared; nil when it held none.
+	memberThere bool
+	returned    *protocol.TeamMoveResult
 }
 
 // moveTo runs the move.
@@ -189,6 +216,9 @@ func (inv Invocation) moveTo(flags moveFlags) error {
 	}
 	taken, err := inv.takeIn(m)
 	if err != nil {
+		return err
+	}
+	if err := inv.clearReturn(m); err != nil {
 		return err
 	}
 	ticketFile, err := m.ticketFile()
@@ -374,6 +404,9 @@ func (inv Invocation) checkMove(flags moveFlags) (*serverMove, error) {
 	}
 	if err := requireTakeIn(m.to); err != nil {
 		return nil, err
+	}
+	if there, berr := teamstore.LoadBinding(configDir, m.destKey); berr == nil && there.TeamRef == f.TeamRef {
+		m.memberThere = true
 	}
 	if err := inv.checkOldBackend(m); err != nil {
 		return nil, err
@@ -599,7 +632,10 @@ func (inv Invocation) checkOldBackend(m *serverMove) error {
 	m.rosterCut = list.Truncated
 	for i := range list.Sessions {
 		s := &list.Sessions[i]
-		if s.BrigadeVersion == nil || !teammove.OlderThanFollow(*s.BrigadeVersion) {
+		// From a Brigade server a session follows from a later plugin than
+		// from any other backend: the one whose `rest` adapter reads a
+		// server's record.
+		if s.BrigadeVersion == nil || !teammove.OlderThanFollowFrom(m.source.Adapter, *s.BrigadeVersion) {
 			continue
 		}
 		m.older = append(m.older, olderSession{
@@ -726,11 +762,25 @@ func (m *serverMove) cannotRecord(err error) error {
 				". The project's owner applies it with `make backend-install project=" + project + "` in a checkout of the Brigade repository; then run this again. Nothing was changed",
 			Details: map[string]string{"reason": reasonMigrationDrift},
 		}
+	case perr.Details["reason"] == reasonServerLacksMove:
+		return &protocol.Error{
+			Code: protocol.CodeConfig,
+			Message: "the server this team is on (" + m.fromHost() + ") keeps no record of where a team goes: it is older than 0.8.0. " +
+				"Its operator updates it to 0.8.0 or later; then run this again. Until then a team on it is moved by pointing " + teamfile.FileName +
+				" at the new server, and each member joins there with the secret file. Nothing was changed",
+			Details: map[string]string{"reason": reasonServerLacksMove},
+		}
 	case perr.Code == protocol.CodeUnauthorized:
+		who, whose, where := "the member who created this team on "+m.fromHost(), "administrator's", "administrator's machine"
+		if m.source.Adapter == config.BundledRestName {
+			// A team on a server has an owner, which a transfer and the
+			// server's operator can change: the creator is not always it.
+			who, whose, where = "the owner of this team on "+m.fromHost(), "owner's", "owner's machine, or have the owner transfer the team to you first"
+		}
 		return &protocol.Error{
 			Code: protocol.CodeUnauthorized,
-			Message: "only the member who created this team on " + m.fromHost() + " can move it: where a team went is its administrator's to record there. " +
-				"Run this on the administrator's machine. Nothing was changed",
+			Message: "only " + who + " can move it: where a team went is its " + whose + " to record there. " +
+				"Run this on the " + where + ". Nothing was changed",
 			Details: map[string]string{"reason": reasonNotTheCreator},
 		}
 	}
@@ -761,25 +811,32 @@ func (m *serverMove) consequence() string {
 		out += " This replaces the record " + m.fromHost() + " holds of a move to " +
 			moveDestination(m.replaces.Adapter, m.replaces.URL, m.replaces.Certificate) + "."
 	}
-	if older := olderLine(m.older, m.rosterCut); older != "" {
+	if m.memberThere {
+		// The server is asked nothing before the answer, so whether it
+		// holds such a record is not known yet: what is done about one is.
+		out += " This machine has joined the team on " + m.toHost() + " before: if " + m.toHost() +
+			" records that the team left it, that record is cleared first, because the team is there again."
+	}
+	if older := olderLine(m.older, m.rosterCut, teammove.FollowsFrom(m.source.Adapter)); older != "" {
 		out += " " + older + "."
 	}
 	return out
 }
 
 // olderLine names the sessions that will not follow, "" when there is
-// none. A roster the backend cut short may lack some: the line then says
+// none. follows is the first plugin version that follows a move from the
+// backend the team leaves (teammove.FollowsFrom). A roster the backend cut short may lack some: the line then says
 // that the list is not complete, and says it where no session was named.
-func olderLine(older []olderSession, cut bool) string {
+func olderLine(older []olderSession, cut bool, follows string) string {
 	const notAll = "the roster it was read from was cut short, so this list is not complete"
 	if len(older) == 0 {
 		if cut {
-			return "no session that is online was seen on a plugin older than " + teammove.FollowsFromVersion + ", but " + notAll
+			return "no session that is online was seen on a plugin older than " + follows + ", but " + notAll
 		}
 		return ""
 	}
 	if cut {
-		return olderLine(older, false) + "; " + notAll
+		return olderLine(older, false, follows) + "; " + notAll
 	}
 	names := make([]string, 0, olderShown)
 	for i, s := range older {
@@ -793,9 +850,9 @@ func olderLine(older []olderSession, cut bool) string {
 		list += " and " + strconv.Itoa(rest) + " more"
 	}
 	if len(older) == 1 {
-		return "1 session that is online runs a plugin older than " + teammove.FollowsFromVersion + " and will not follow until its member updates it: " + list
+		return "1 session that is online runs a plugin older than " + follows + " and will not follow until its member updates it: " + list
 	}
-	return strconv.Itoa(len(older)) + " sessions that are online run a plugin older than " + teammove.FollowsFromVersion +
+	return strconv.Itoa(len(older)) + " sessions that are online run a plugin older than " + follows +
 		" and will not follow until their members update it: " + list
 }
 
@@ -945,8 +1002,9 @@ func (m *serverMove) notTakenIn(err error) error {
 		}
 	case perr.Details["reason"] == reasonOtherJoinSecret:
 		return &protocol.Error{
-			Code:    protocol.CodeConflict,
-			Message: m.toHost() + " already holds a team of this reference under another join secret, so this team cannot be taken in there: tell the server's operator. " + unchanged,
+			Code: protocol.CodeConflict,
+			Message: m.toHost() + " already holds a team of this reference under another join secret, so this team cannot be taken in there: tell the server's operator. " +
+				"If the team was on " + m.toHost() + " before and its join secret was rotated since on either side, name the file of the secret it has on " + m.toHost() + ". " + unchanged,
 			Details: map[string]string{"reason": reasonOtherJoinSecret},
 		}
 	case perr.Code == protocol.CodeUnauthorized:
@@ -962,6 +1020,71 @@ func (m *serverMove) notTakenIn(err error) error {
 	}
 	out := *perr
 	out.Message = "the server at " + m.toHost() + " did not take the team in: " + perr.Message + ". " + unchanged
+	return &out
+}
+
+// clearReturn is step b': the server the team moves to is asked whether
+// it records that this team left it, and a record that is there is
+// cleared. That is a team that comes back: it moved from this server to
+// the backend it is now leaving, its owner recorded that here, and the
+// record is still here. Left as it is, the two backends would each say
+// that the team is on the other, and whichever a team file named would be
+// followed: a session could be sent back and forth by a file alone.
+//
+// It runs after the take-in, which is what makes this machine a member
+// that may read the record and says that it owns the team, and before
+// anything is recorded on the backend the team leaves. A clear that is
+// refused or fails stops the move: the team is taken in, no move is
+// opened, and the backend the team leaves holds what it held. A server
+// that keeps no such record (one before 0.8.0) answers that the team did
+// not move, and nothing is cleared.
+func (inv Invocation) clearReturn(m *serverMove) error {
+	desc, err := call(func(ctx context.Context) (*protocol.DescribeResult, error) { return m.to.client.Describe(ctx) })
+	if err != nil {
+		return m.returnNotCleared(err, nil)
+	}
+	if !slices.Contains(desc.Capabilities, teammove.Capability) {
+		return nil
+	}
+	held, err := inv.callMove(m.to, "moved", nil, nil)
+	if err != nil {
+		return m.returnNotCleared(err, nil)
+	}
+	if !held.Moved {
+		return nil
+	}
+	cleared, err := inv.callMove(m.to, "move", []string{"--clear"}, nil)
+	if err != nil {
+		return m.returnNotCleared(err, held)
+	}
+	if cleared.Moved {
+		return m.returnNotCleared(protocolMismatch("team move --clear answered a record"), held)
+	}
+	m.returned = held
+	return nil
+}
+
+// returnNotCleared says, in front of the step's own failure, which server
+// holds what when step b' stops a move: the server took the team in, it
+// still holds its record that the team left it (held, when that was read),
+// and the backend the team leaves was asked to record nothing.
+func (m *serverMove) returnNotCleared(err error, held *protocol.TeamMoveResult) error {
+	var perr *protocol.Error
+	if !errors.As(err, &perr) {
+		perr = &protocol.Error{Code: protocol.CodeInternal, Message: "the step failed on this machine"}
+	}
+	out := *perr
+	where := "the team is taken in on " + m.toHost() + ", and whether " + m.toHost() + " records that the team left it could not be read"
+	if held != nil {
+		where = "the team is taken in on " + m.toHost() + ", and " + m.toHost() + " still records that the team left it for " +
+			moveDestination(held.Adapter, held.URL, held.Certificate) + ": that record could not be cleared"
+	}
+	out.Message = where + ". Its move was not opened, and " + m.fromHost() + " was asked to record nothing: it holds what it held, and no session follows this move. " +
+		"The cause: " + perr.Message + ". Run the same command again to finish the move: every step of it is safe to repeat"
+	out.Details = map[string]string{"reason": reasonReturnNotCleared}
+	if cause := perr.Details["reason"]; cause != "" {
+		out.Details["cause"] = cause
+	}
 	return &out
 }
 
@@ -1089,6 +1212,7 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 			MoveEndsAt:      opened.EndsAt,
 			TicketReplaced:  opened.Replaced,
 			RecordedAt:      recorded.RecordedAt,
+			ReturnCleared:   m.returned != nil,
 			TeamFile:        m.filePath,
 			OlderSessions:   older,
 			RosterTruncated: m.rosterCut,
@@ -1111,18 +1235,35 @@ func (inv Invocation) reportMove(m *serverMove, taken *protocol.TeamTakeInResult
 	lines := []string{
 		took,
 		labelSent(m.label, taken.PrincipalRef),
+	}
+	if m.returned != nil {
+		lines = append(lines, "cleared the record on "+m.toHost()+" that the team had left it for "+
+			moveDestination(m.returned.Adapter, m.returned.URL, m.returned.Certificate)+": the team is on "+m.toHost()+" again")
+	}
+	lines = append(lines,
 		open,
-		"recorded on " + m.fromHost() + ": " + m.team() + " moved to " + moveDestination(m.dest.Adapter, m.dest.URL, m.dest.Certificate),
+		"recorded on "+m.fromHost()+": "+m.team()+" moved to "+moveDestination(m.dest.Adapter, m.dest.URL, m.dest.Certificate),
 		file,
 		"left to do:",
-		"  commit and push " + teamfile.FileName + " in every repository of the team: a member's next session in a checkout that has the new file follows, with no command of theirs, until " + ends,
-	}
-	if older := olderLine(m.older, m.rosterCut); older != "" {
+		"  commit and push "+teamfile.FileName+" in every repository of the team: a member's next session in a checkout that has the new file follows, with no command of theirs, until "+ends,
+	)
+	if older := olderLine(m.older, m.rosterCut, teammove.FollowsFrom(m.source.Adapter)); older != "" {
 		lines = append(lines, "  "+older)
 	}
 	if gateway {
-		lines = append(lines, "  this team's "+teamfile.FileName+" has a gateway member: the mail and Slack gateways are the server operator's to configure on "+m.toHost()+
-			" (docs/project-owner/server/gateways.md in the Brigade repository)")
+		gateways := "  this team's " + teamfile.FileName + " has a gateway member: the mail and Slack gateways are the server operator's to configure on " + m.toHost() +
+			" (docs/project-owner/server/gateways.md in the Brigade repository)"
+		if m.source.Adapter == config.BundledRestName {
+			// The server the team leaves keeps the team as it is, its
+			// gateways included: they go on answering there.
+			gateways += "; the ones on " + m.fromHost() + " go on carrying mail and Slack to the team there until its operator takes the team out of that server's gateway configuration " +
+				"(docs/project-owner/server/move-to-another-server.md)"
+		}
+		lines = append(lines, gateways)
+	}
+	if m.source.Adapter == config.BundledRestName {
+		lines = append(lines, "  "+m.fromHost()+" keeps the team as it is: nothing there was ended, and a member who has not followed still reaches it. "+
+			"Ending it there is a later step of its own (docs/team-admin/members/move-the-team.md)")
 	}
 	return writeLines(inv.Out, append(lines,
 		"to undo: `brigade team move --clear` stops "+m.fromHost()+" from saying where the team went, so no session follows from then on. "+

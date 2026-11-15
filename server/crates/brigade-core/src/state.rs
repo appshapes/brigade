@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 
 use crate::error::PROTOCOL_VERSION;
 use crate::limits;
-use crate::record::{AcceptedMessage, Entry, Event, Record, SessionChanges, SessionFacts};
+use crate::record::{AcceptedMessage, Entry, Event, KeptTicket, Record, SessionChanges, SessionFacts};
 use crate::time::Timestamp;
 
 /// How often applying records sweeps what retention has let go, in seconds of record time.
@@ -158,6 +158,13 @@ pub struct Team {
     /// snapshot holds: the way from the owner back to it is read off it ([`Principal::retry_key_in`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub take_in_retry: Option<TakeInRetry>,
+    /// Where the team went, when its owner recorded on this server that it moved to another backend
+    /// (BAP/1 4.4.10, the contract's section 3c): what an active member's session follows the team on.
+    /// A team that did not move has none. The record changes nothing else of the team. A snapshot written
+    /// before servers kept such a record reads as none; one that holds it names a format of its own,
+    /// which a build that does not know the member passes over (the server's `snapshot` module).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<MovedTo>,
     /// Every membership the team has had, by principal.
     pub members: BTreeMap<String, Member>,
     /// Every session the team still holds, by id.
@@ -173,6 +180,23 @@ pub struct MoveTicket {
     /// When the ticket stops admitting. It stays here after that, admitting nobody, until the move is
     /// closed or another is opened: the end is a time, and no record marks it.
     pub ends_at: Timestamp,
+}
+
+/// The record of where a team went: the backend its owner named, as the team's file names it there, and
+/// the move ticket that backend admits a member with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MovedTo {
+    /// The adapter of the backend the team went to.
+    pub adapter: String,
+    /// The url of that backend.
+    pub url: String,
+    /// The pin of that backend's certificate; empty when its team file carries none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub certificate: String,
+    /// The move ticket, whole: an active member is handed it. It prints as nothing of itself.
+    pub ticket: KeptTicket,
+    /// When the record was made, or made again.
+    pub recorded_at: Timestamp,
 }
 
 /// What a team keeps of the take-in that gave it its owner, for the request made again: the hash of the
@@ -639,7 +663,8 @@ impl State {
     /// from then on that principal holds a credential, and a key that could still take its place would
     /// only be a second way in. Such a record names the principal as the one who acted (a session
     /// opened, a membership left, a join without a key, its credential made unknown), or is one that
-    /// only the team's owner is answered for (a member revoked, a move its owner opened or closed), and
+    /// only the team's owner is answered for (a member revoked, a move its owner opened or closed, the
+    /// record of where the team went, made or cleared), and
     /// the principal a key is kept for is the team's owner for as long as the team keeps it: a team
     /// that gets another owner keeps none, and neither does one whose join secret is rotated. A take-in
     /// made again makes a credential unknown as well, and its join keeps the key again in the same
@@ -689,6 +714,7 @@ impl State {
                         secret_version: FIRST_SECRET_VERSION,
                         move_ticket: None,
                         take_in_retry: None,
+                        moved_to: None,
                         members: BTreeMap::new(),
                         sessions: BTreeMap::new(),
                     }
@@ -837,6 +863,34 @@ impl State {
                     if *by_owner {
                         self.end_retry_key_of_team(team_ref);
                     }
+                }
+            }
+            Event::TeamMoveRecorded {
+                team_ref,
+                adapter,
+                url,
+                certificate,
+                ticket,
+            } => {
+                if let Some(team) = self.teams.get_mut(team_ref) {
+                    // The record the team already had is gone with this one in its place.
+                    team.moved_to = Some(MovedTo {
+                        adapter: adapter.clone(),
+                        url: url.clone(),
+                        certificate: certificate.clone(),
+                        ticket: ticket.clone(),
+                        recorded_at: at,
+                    });
+                    // Only the team's owner is answered the request that records a move.
+                    self.end_retry_key_of_team(team_ref);
+                }
+            }
+            Event::TeamMoveCleared { team_ref } => {
+                if let Some(team) = self.teams.get_mut(team_ref) {
+                    team.moved_to = None;
+                    // The owner's request, or the operator's take-back, whose rotation ends the key in
+                    // the same entry.
+                    self.end_retry_key_of_team(team_ref);
                 }
             }
             Event::SessionOpened {

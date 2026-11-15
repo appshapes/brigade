@@ -59,20 +59,20 @@ func TestInfoListsTeamAdmin(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, Options{})
 	capabilities, _ := h.must("", "/v1/info", `{}`)["capabilities"].([]any)
-	if len(capabilities) != 2 || capabilities[0] != "team.admin" || capabilities[1] != "team.take_in" {
-		t.Errorf("/v1/info: capabilities %v, want [team.admin team.take_in]", capabilities)
+	if len(capabilities) != 3 || capabilities[0] != "team.admin" || capabilities[1] != "team.take_in" || capabilities[2] != "team.move" {
+		t.Errorf("/v1/info: capabilities %v, want [team.admin team.take_in team.move]", capabilities)
 	}
 
 	// A server that leaves out the administration endpoints and nothing
-	// else lists what it still carries; one that carries neither optional
-	// part has no capabilities member at all.
+	// else lists what it still carries; one that carries none of the three
+	// optional parts has no capabilities member at all.
 	without := newHarness(t, Options{WithoutTeamAdmin: true})
-	if kept, _ := without.must("", "/v1/info", `{}`)["capabilities"].([]any); len(kept) != 1 || kept[0] != "team.take_in" {
-		t.Errorf("/v1/info of a server without the administration endpoints: capabilities %v, want [team.take_in]", kept)
+	if kept, _ := without.must("", "/v1/info", `{}`)["capabilities"].([]any); len(kept) != 2 || kept[0] != "team.take_in" || kept[1] != "team.move" {
+		t.Errorf("/v1/info of a server without the administration endpoints: capabilities %v, want [team.take_in team.move]", kept)
 	}
-	bare := newHarness(t, Options{WithoutTeamAdmin: true, WithoutTakeIn: true})
+	bare := newHarness(t, Options{WithoutTeamAdmin: true, WithoutTakeIn: true, WithoutTeamMove: true})
 	if _, present := bare.must("", "/v1/info", `{}`)["capabilities"]; present {
-		t.Errorf("/v1/info of a server with neither optional part has a capabilities member")
+		t.Errorf("/v1/info of a server with none of the optional parts has a capabilities member")
 	}
 	alice := without.create("ops")
 	unknown := without.post(alice.credential, "/v1/nosuch", `{}`)

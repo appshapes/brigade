@@ -62,6 +62,29 @@ type openMoveBody struct {
 	TicketDays int    `json:"ticket_days,omitzero"`
 }
 
+// teamMoveBody is the body of `/v1/team/move` (the contract's section
+// 3c), in its two forms: the destination of 4.4.10 with the move ticket
+// the caller's file held, or `clear` alone, each beside the profile's
+// team. The ticket is the one secret this adapter sends that is not the
+// caller's own credential or a join secret it joins with: the server the
+// team leaves keeps it, and hands it to the team's active members.
+type teamMoveBody struct {
+	TeamRef     string `json:"team_ref"`
+	Adapter     string `json:"adapter,omitzero"`
+	URL         string `json:"url,omitzero"`
+	Certificate string `json:"certificate,omitzero"`
+	Ticket      string `json:"ticket,omitzero"`
+	Clear       bool   `json:"clear,omitzero"`
+}
+
+// teamMovedBody is the body of `/v1/team/moved`: the profile's team, and
+// whether the answer is to carry the ticket, which this adapter asks for
+// only when it was given a file to write it to.
+type teamMovedBody struct {
+	TeamRef    string `json:"team_ref"`
+	WithTicket bool   `json:"with_ticket,omitzero"`
+}
+
 // revokeMemberBody and transferBody are the bodies of the two
 // administration commands that take input: the request of 4.4.10 as it
 // was validated, with the profile's team beside it. Each request is
@@ -182,6 +205,37 @@ type openMoveAnswer struct {
 // Validate implements protocol.Validator.
 func (a *openMoveAnswer) Validate() error {
 	if a.TeamRef == "" || a.TeamName == "" || a.Ticket == "" || a.EndsAt.IsZero() {
+		return errMalformed
+	}
+	return nil
+}
+
+// teamMovedAnswer is the result of `/v1/team/moved`: 4.4.10's result, and
+// beside it the move ticket when the request asked for it and a move is
+// recorded. Ticket goes to the --ticket-file and to nothing else: the
+// command prints protocol.TeamMoveResult, which has no such member.
+type teamMovedAnswer struct {
+	TeamRef     string    `json:"team_ref"`
+	Moved       bool      `json:"moved"`
+	Adapter     string    `json:"adapter,omitzero"`
+	URL         string    `json:"url,omitzero"`
+	Certificate string    `json:"certificate,omitzero"`
+	RecordedAt  time.Time `json:"recorded_at,omitzero"`
+	Ticket      string    `json:"ticket,omitzero"`
+}
+
+// result is the answer as 4.4.10 has it, with no ticket.
+func (a *teamMovedAnswer) result() *protocol.TeamMoveResult {
+	return &protocol.TeamMoveResult{
+		TeamRef: a.TeamRef, Moved: a.Moved, Adapter: a.Adapter, URL: a.URL,
+		Certificate: a.Certificate, RecordedAt: a.RecordedAt,
+	}
+}
+
+// Validate implements protocol.Validator: 4.4.10's result, and no ticket
+// beside a team that did not move.
+func (a *teamMovedAnswer) Validate() error {
+	if a.result().Validate() != nil || (!a.Moved && a.Ticket != "") {
 		return errMalformed
 	}
 	return nil

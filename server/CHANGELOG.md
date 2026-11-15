@@ -4,6 +4,74 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.8.0] — 2026-11-15
+
+### Added
+
+- **A server keeps the record of where a team went** (work item 341, ADR 0010). Until now a team that lived on
+  a Brigade server could not be moved to another backend with the one command, `brigade team move --to`: a
+  member's session follows a team on a record kept by the backend the team leaves, and a server kept none. Its
+  members joined the new backend one machine at a time, with the secret file. Now the team's owner records on
+  the server where the team went, the adapter, the address and the certificate pin of the backend it went to,
+  with the move ticket that backend made, and every active member's session reads that record and follows.
+- **Two requests.** `/v1/team/move` records where the team went, or with `clear` alone clears the record, and
+  answers the team's owner only: every other caller reads what a stranger to the team reads, for a record and
+  for a clear alike, whatever else the request held. A second record takes the place of the first, and a clear
+  is safe to repeat. `/v1/team/moved` answers the record to every active member, and carries the ticket only
+  to a request that asks for it with `with_ticket`. A member that left, was revoked or was banned reads
+  nothing. A ticket that is not a join secret of that team, or is longer than 1024 code points, is
+  `invalid_input` naming `ticket`, in words that hold nothing of it.
+- **The record changes nothing else.** The team stays on the server as it is. No membership ends, no session is
+  closed, and no join, registration or message is refused for it: a member that has not followed yet still
+  reaches the team here, and that is how its session reads the record. A rotation of the join secret and a
+  transfer leave the record, and the team's next owner clears it. Nothing removes a team from a server yet.
+- **`--take-back` clears the record**, in the take-back's own entry of the log, and says so: `took back team
+  "ops" (<reference>): ended 3 memberships, cleared the record of where it went, and its new join secret is in
+  "<file>"`. The record is the owner's word, and the owner is who the team is taken from: whoever held the team
+  could have recorded a move to a server of their own, and every member that came back would have followed it.
+  A team that has no record is taken back as before, in the line it always had.
+- **The ticket is kept as it was given.** The server keeps the hash of every other secret it is handed. It
+  hands this one to the team's members, so it keeps the ticket itself: in its state, in the record of the log,
+  which is sealed under the key beside it, and in every snapshot that holds the record, which is plain text.
+  Whoever can read the data directory can read it, as they can read every message. After a clear, the entries
+  of the log and the snapshots that are still kept hold it until they are let go. No line the server writes
+  holds any of it.
+- **The server says who recorded where a team went, and who cleared it.** `member <reference> recorded that team
+  <name> (<team reference>) moved to <address> (adapter <name>, certificate <pin>): its members' sessions follow
+  it there, and the team stays here as it is`, and `member <reference> cleared the record of where team <name>
+  (<team reference>) went: no session follows it from here from now on`. The address is the owner's text, cut
+  and cleaned as a label is.
+- **The record and its clear end the retry key a team keeps for its owner**, as every record of the owner's own
+  request does (0.7.0, ADR 0006).
+- **`/v1/info` lists `team.move`** beside `team.admin` and `team.take_in`. The two requests are an addition to
+  version 1 of the contract that a server may leave out (`docs/backend-rest-v1.md`, section 3c). The bundled
+  `rest` adapter carries `team move` and `team moved` from plugin 0.57.0, and the conformance suite holds a
+  server to them with cases C-51 and C-52, which `make server-test` now runs against this server on both logs.
+
+### Changed
+
+- **Do not go back to 0.7.0 on a data directory on which a move has been recorded and not cleared.** Exactly
+  when an older binary stops being able to start:
+  - **Until a team's owner records where the team went, a 0.7.0 starts on a directory a 0.8.0 ran on, and a
+    0.8.0 on a 0.7.0's.** There is no new record in the log, and a snapshot of a state that holds no record is
+    written as format 3, in the bytes 0.7.0 writes: nothing about the directory has changed.
+  - **From the first record of a move, a server before 0.8.0 does not start on that directory.** The record is
+    of a kind it does not know, `team.move_recorded`, and the snapshot that holds it names a new format, 4,
+    which an older server passes over: it would otherwise read a team that moved as one that did not, and its
+    members would stop following with nothing to say so. A 0.7.0 writes two lines and ends with status 1:
+    `the snapshot <file> is passed over: it is of format 4, and this build reads formats 1 to 3`, and `the log
+    could not be read from the snapshot's position, <n>: not an entry: unknown variant
+    `team.move_recorded`, expected one of …`. Neither names the version to run, because 0.7.0 was released
+    before there was one: it is 0.8.0 or later.
+  - **Once every such record is cleared and the server has written a snapshot since**, which a stop does, a
+    0.7.0 starts on the directory again: the newest snapshot is format 3, and the entries before it are not
+    read. Until that snapshot is written it does not: the log still holds the record.
+  Measured on 2026-11-15 with the released 0.7.0, built from the tag `server-v0.7.0`, on directories this build
+  wrote: it started and answered on one with no record, ended with the two lines above on one that held a
+  record, and started and answered again after the record was cleared and the server stopped. 0.8.0 reads the
+  snapshots and the log of every earlier release as they are, and says of a snapshot of a format later than
+  its own which build to run.
+
 ## [0.7.0] — 2026-11-15
 
 ### Added

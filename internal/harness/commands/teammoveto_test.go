@@ -73,6 +73,16 @@ type moveToRig struct {
 	// recordTicketFile, when it is set, is the file such an answer names in
 	// the place of the one it was told.
 	recordTicketFile string
+	// there answers the two commands of a move's record when they are asked
+	// of the server the team moves to, which is asked them for one thing:
+	// whether it records that this team left it (work item 341). It is a
+	// recorder of its own, so that the answers of the backend the team
+	// leaves stay the ones a test scripted for it. order is every adapter
+	// command in the order it was asked, each with the end it was asked of
+	// in front: `old:` for the backend the team leaves, `new:` for the
+	// server.
+	there *spawnRecorder
+	order []string
 	// leaves makes the rig's adapter do, at each `team take-in`, what the
 	// real one does before it asks the server anything: write the profile
 	// down. With it goes a file of the adapter's own beside the profile,
@@ -105,7 +115,11 @@ func newMoveToRig(t *testing.T) *moveToRig {
 		oldHost: "old" + id + ".supabase.co", newHost: "new" + id + ".example.test:8743",
 		secretFile: filepath.Join(f.dirs.Root, "ops.secret"), tokenFile: filepath.Join(f.dirs.Root, "create.token"),
 		ticket: moveToTicket, recordTicket: moveToRecordTicket,
+		there: newRecorder(),
 	}
+	// The server holds no record that the team left it, unless a test says so.
+	r.there.on("team moved", okAnswer(r.notMoved()))
+	r.there.on("team move", okAnswer(r.notMoved()))
 	r.oldURL, r.newURL = "https://"+r.oldHost, "https://"+r.newHost
 	r.oldKey, r.newKey = teamstore.Key("supabase", r.oldURL, setupTeamRef), teamstore.Key("rest", r.newURL, setupTeamRef)
 	r.file = filepath.Join(r.top, teamfile.FileName)
@@ -231,6 +245,18 @@ func (r *moveToRig) sessions() string {
 // ticket, and names the file in its answer; and what a `team move` is
 // handed in its --ticket-file is kept.
 func (r *moveToRig) spawn(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+	end := "new:"
+	if i := slices.Index(spec.Argv, "--profile"); i >= 0 && i+1 < len(spec.Argv) && spec.Argv[i+1] == r.oldKey {
+		end = "old:"
+	}
+	if key := verbKey(spec.Argv); key != "describe" {
+		r.order = append(r.order, end+key)
+		// The record's two commands, asked of the server: whether it records
+		// that the team left it, and the clear of such a record.
+		if end == "new:" && (key == "team moved" || key == "team move") {
+			return r.there.spawn(ctx, spec)
+		}
+	}
 	ticketFile := ""
 	if i := slices.Index(spec.Argv, "--ticket-file"); i >= 0 && i+1 < len(spec.Argv) {
 		ticketFile = spec.Argv[i+1]

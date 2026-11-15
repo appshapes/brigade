@@ -42,12 +42,39 @@ use serde::{Deserialize, Serialize};
 /// principal back to the team is read off it when the snapshot is read, and is not written. A build before
 /// 0.7.0 drops the team's member, and it answers no take-in at all, so it has nothing to hold against it; a
 /// snapshot without it reads as a team whose take-in can be made again by nobody.
-const FORMAT: u32 = 3;
+///
+/// Format 4 is format 3 with what a team has had since server 0.8.0: the record of where it went, with
+/// the move ticket, when its owner recorded that it moved to another backend. A build before that would
+/// read the state without it, and a team that moved would be a team that did not: its members would stop
+/// following with no record that says so, and that build's own snapshot would then say the same to this
+/// one. It reads formats 1 to 3, so it passes a format 4 snapshot over, and it refuses the log's record
+/// of that move instead.
+///
+/// Format 4 is written only for a state that holds such a record ([`format_of`]). A state that holds
+/// none is format 3's state member for member, and is written as format 3: so a server 0.7.0 starts on
+/// what a server 0.8.0 wrote for as long as no team on it has recorded a move, and again once every such
+/// record is cleared and the snapshots that held one are let go.
+const FORMAT: u32 = 4;
+
+/// The format of a snapshot whose state holds no record of where a team went: what a build before 0.8.0
+/// reads.
+const FORMAT_WITHOUT_A_MOVE_RECORDED: u32 = 3;
 
 /// The oldest snapshot format this build reads. A snapshot of format 1 holds no secret version and no ban,
 /// and reads as the state it was: every team has its first secret, and nobody is banned. Neither format 1
-/// nor format 2 holds a move, and both read as the state they were: no team is moving.
+/// nor format 2 holds a move, and both read as the state they were: no team is moving. None of formats 1
+/// to 3 holds a record of where a team went, and each reads as the state it was: no team has moved.
 const OLDEST_FORMAT: u32 = 1;
+
+/// The format a snapshot of `state` names: the newest only when the state holds what that format added,
+/// the record of where a team went, and otherwise the format before it, whose state it then is.
+fn format_of(state: &State) -> u32 {
+    if state.teams.values().any(|team| team.moved_to.is_some()) {
+        FORMAT
+    } else {
+        FORMAT_WITHOUT_A_MOVE_RECORDED
+    }
+}
 
 /// What the name of a snapshot ends with while it is being written.
 const UNFINISHED: &str = ".unfinished";
@@ -96,10 +123,11 @@ fn listed(dir: &Path) -> Result<Vec<(Position, PathBuf)>, String> {
 pub fn write(dir: &Path, position: Position, state: &State) -> Result<(), String> {
     let failed = |error: std::io::Error| format!("writing a snapshot: {error}");
     let body = serde_json::to_vec(state).map_err(|error| format!("writing a snapshot: {error}"))?;
+    let format = format_of(state);
     let header = Header {
-        format: FORMAT,
+        format,
         position,
-        sha256: checksum(FORMAT, position, &body),
+        sha256: checksum(format, position, &body),
     };
     let mut bytes = serde_json::to_vec(&header).map_err(|error| format!("writing a snapshot: {error}"))?;
     bytes.push(b'\n');
@@ -174,6 +202,12 @@ pub fn tidy(dir: &Path) {
 
 /// Reads one snapshot file whole.
 fn read(path: &Path, named: Position) -> Result<(Position, State), String> {
+    read_up_to(path, named, FORMAT)
+}
+
+/// Reads one snapshot file whole, as a build whose newest format is `newest` reads it: this build's own
+/// reading with [`FORMAT`], and in a test the reading of the build before it.
+fn read_up_to(path: &Path, named: Position, newest: u32) -> Result<(Position, State), String> {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
     let end_of_header = bytes
         .iter()
@@ -181,9 +215,16 @@ fn read(path: &Path, named: Position) -> Result<(Position, State), String> {
         .ok_or("it has no header line")?;
     let header: Header = serde_json::from_slice(&bytes[..end_of_header])
         .map_err(|error| format!("its header does not read: {error}"))?;
-    if !(OLDEST_FORMAT..=FORMAT).contains(&header.format) {
+    if !(OLDEST_FORMAT..=newest).contains(&header.format) {
+        // The first clause is the sentence every build has said. The second is for whoever reads it on a
+        // machine that was taken back to an earlier build: which build to run is the one thing to know.
+        let later = if header.format > newest {
+            ": a later brigade-server wrote it, so run that version or a later one on this directory"
+        } else {
+            ""
+        };
         return Err(format!(
-            "it is of format {}, and this build reads formats {OLDEST_FORMAT} to {FORMAT}",
+            "it is of format {}, and this build reads formats {OLDEST_FORMAT} to {newest}{later}",
             header.format
         ));
     }
@@ -223,10 +264,11 @@ mod tests {
     use std::path::PathBuf;
 
     use brigade_core::hash::sha256_hex_of;
-    use brigade_core::state::{MoveTicket, Principal, State};
+    use brigade_core::record::KeptTicket;
+    use brigade_core::state::{MoveTicket, MovedTo, Principal, State};
     use brigade_core::time::Timestamp;
 
-    use super::{KEPT, name, newest, oldest, tidy, write};
+    use super::{KEPT, name, newest, oldest, read_up_to, tidy, write};
 
     fn scratch(test: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("brigade-snapshot-{test}-{}", std::process::id()));
@@ -412,6 +454,89 @@ mod tests {
             .unwrap();
         assert_eq!((position, &read), (90, &state));
         assert_eq!(read.teams["t"].move_ticket, Some(ticket));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_snapshot_names_format_4_only_when_it_holds_where_a_team_went() {
+        let dir = scratch("moved");
+        // A snapshot as server 0.7.0 wrote it: format 3, a team whose move is open and that keeps a retry
+        // key for the owner a take-in made, and no record of where a team went.
+        let body = concat!(
+            r#"{"principals":{"p1":{"created_at":5}},"credentials":{"h1":"p1"},"#,
+            r#""teams":{"t":{"team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":"p1","#,
+            r#""created_at":5,"secret_version":2,"move_ticket":{"hash":"k","ends_at":9},"#,
+            r#""take_in_retry":{"key_hash":"r","principal_ref":"p1"},"members":{"p1":{"human_label":"alice","#,
+            r#""active":true,"joined_at":5,"joined_secret_version":2,"banned":false,"sent_at":[]}},"#,
+            r#""sessions":{}}},"session_teams":{},"swept_at":0,"latest_at":5,"entries":2}"#
+        );
+        let sha256 = sha256_hex_of(format!("3\n70\n{body}").as_bytes());
+        let earlier = format!("{{\"format\":3,\"position\":70,\"sha256\":\"{sha256}\"}}\n{body}");
+        std::fs::write(dir.join(name(70)), &earlier).unwrap();
+        let (_, mut state) = newest(&dir, &mut |_, why| panic!("passed over: {why}"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.teams["t"].moved_to, None);
+
+        // What this build writes of a state that holds no such record is that build's snapshot byte for
+        // byte, header, checksum and state: format 3, which a server 0.7.0 reads. So a 0.7.0 starts on a
+        // directory a 0.8.0 ran on for as long as no team there has recorded a move.
+        write(&dir, 70, &state).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join(name(70))).unwrap(), earlier);
+        let as_0_7_0 = read_up_to(&dir.join(name(70)), 70, 3).unwrap();
+        assert_eq!(as_0_7_0, (70, state.clone()));
+
+        // A team whose owner recorded where it went is written with the record, the ticket whole, under
+        // format 4, and read back whole.
+        // The ticket is put together here: no file of the repository holds the shape of one.
+        let ticket = concat!("brg1", ".t.", "the-secret-part-of-the-ticket");
+        let moved = MovedTo {
+            adapter: "rest".to_owned(),
+            url: "https://brigade.example.com".to_owned(),
+            certificate: String::new(),
+            ticket: KeptTicket::new(ticket),
+            recorded_at: Timestamp(7),
+        };
+        state.teams.get_mut("t").unwrap().moved_to = Some(moved.clone());
+        write(&dir, 80, &state).unwrap();
+        let written = std::fs::read_to_string(dir.join(name(80))).unwrap();
+        assert!(written.starts_with(r#"{"format":4,"position":80,"#), "{written}");
+        assert!(
+            written.contains(&format!(
+                r#""moved_to":{{"adapter":"rest","url":"https://brigade.example.com","ticket":"{ticket}","recorded_at":7}}"#
+            )),
+            "{written}"
+        );
+        let (position, read) = newest(&dir, &mut |_, why| panic!("passed over: {why}"))
+            .unwrap()
+            .unwrap();
+        assert_eq!((position, &read), (80, &state));
+        assert_eq!(read.teams["t"].moved_to, Some(moved));
+        // No rendering of the state for a person holds the ticket.
+        assert!(!format!("{read:?}").contains("the-secret-part"));
+        assert!(!format!("{read:#?}").contains("the-secret-part"));
+
+        // A build that reads formats 1 to 3, which is every server before 0.8.0, refuses that snapshot by
+        // its format, in the sentence it has always said, and so never reads the state without the
+        // record. It then starts from a snapshot of its own that is still kept, where the log's record of
+        // the move stops it, or finds none. This build says of a format later than its own which build
+        // to run.
+        let refused = read_up_to(&dir.join(name(80)), 80, 3).unwrap_err();
+        assert_eq!(
+            refused,
+            "it is of format 4, and this build reads formats 1 to 3: a later brigade-server wrote it, so \
+             run that version or a later one on this directory"
+        );
+        assert!(refused.starts_with("it is of format 4, and this build reads formats 1 to 3"));
+
+        // The record cleared, the state is format 3's again, and so is its snapshot: the bytes the
+        // earlier build wrote, which it reads.
+        state.teams.get_mut("t").unwrap().moved_to = None;
+        write(&dir, 90, &state).unwrap();
+        let written = std::fs::read_to_string(dir.join(name(90))).unwrap();
+        assert_eq!(written.split_once('\n').unwrap().1, body);
+        assert!(written.starts_with(r#"{"format":3,"position":90,"#), "{written}");
+        assert!(read_up_to(&dir.join(name(90)), 90, 3).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

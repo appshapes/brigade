@@ -36,6 +36,10 @@
 //     team administration, so the stub keeps them in memory beside its
 //     credentials and ends a membership by running `team leave` for the
 //     member it revokes.
+//   - The record of where a team went, which its owner writes and clears
+//     and every active member reads, is the stub's own too (move.go): the
+//     fs adapter's own record is its creator's, and a team here has an
+//     owner that a transfer changes.
 //   - A team that is taken in by request, and the move its owner opens and
 //     closes, are the stub's own as well (takein.go): the fs adapter has
 //     no command that takes a team in, so the stub writes the team's
@@ -103,6 +107,11 @@ type Options struct {
 	// server do: its /v1/info does not list team.take_in and the three
 	// paths are unknown.
 	WithoutTakeIn bool
+	// WithoutTeamMove makes the server one that keeps no record of where a
+	// team went, as the contract lets a server do and as every server
+	// before 0.8.0 is: its /v1/info does not list team.move and the two
+	// paths are unknown.
+	WithoutTeamMove bool
 }
 
 // A Server is one stand-in backend over one directory.
@@ -114,6 +123,7 @@ type Server struct {
 	nonce       string
 	teamAdmin   bool
 	takeIn      bool
+	moves       bool
 	// now is the server's clock: what a move ticket's end is counted from
 	// and held against. A test sets it.
 	now func() time.Time
@@ -168,6 +178,7 @@ func New(dir string, o Options) (*Server, error) {
 		nonce:       hex.EncodeToString(seed[:]),
 		teamAdmin:   !o.WithoutTeamAdmin,
 		takeIn:      !o.WithoutTakeIn,
+		moves:       !o.WithoutTeamMove,
 		now:         time.Now,
 		principals:  map[[sha256.Size]byte]*principal{},
 		inboxes:     map[string]*inbox{},
@@ -196,6 +207,9 @@ type endpoint struct {
 	// takeIn endpoints are the three of a team's take-in and its move,
 	// which a server may leave out as well.
 	takeIn bool
+	// moves endpoints are the two that keep and answer the record of where
+	// a team went, which a server may leave out as well (move.go).
+	moves bool
 	// reads endpoints change nothing the server holds. A request to any
 	// other, answered for a credential the stub knows, is its principal's
 	// own and ends the retry key a team keeps for that principal
@@ -217,6 +231,8 @@ var endpoints = map[string]endpoint{
 	"/v1/team/take-in":       {open: true, takeIn: true, run: (*Server).teamTakeIn},
 	"/v1/team/open-move":     {takeIn: true, run: (*Server).teamOpenMove},
 	"/v1/team/close-move":    {takeIn: true, run: (*Server).teamCloseMove},
+	"/v1/team/move":          {moves: true, run: (*Server).teamMove},
+	"/v1/team/moved":         {moves: true, reads: true, run: (*Server).teamMoved},
 	"/v1/session/register":   {run: (*Server).sessionRegister},
 	"/v1/session/heartbeat":  {run: (*Server).sessionHeartbeat},
 	"/v1/session/list":       {reads: true, run: (*Server).sessionList},
@@ -231,7 +247,7 @@ var endpoints = map[string]endpoint{
 // the contract's section 1 pairs with it.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ep, known := endpoints[r.URL.Path]
-	if !known || (ep.admin && !s.teamAdmin) || (ep.takeIn && !s.takeIn) {
+	if !known || (ep.admin && !s.teamAdmin) || (ep.takeIn && !s.takeIn) || (ep.moves && !s.moves) {
 		writeError(w, &protocol.Error{Code: protocol.CodeNotFound, Message: "no such endpoint"})
 		return
 	}
@@ -276,9 +292,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // info answers /v1/info. A server that carries the administration
 // endpoints lists `team.admin` in `capabilities`, and one that carries the
-// endpoints of a team's take-in lists `team.take_in`; a server that leaves
-// both out has no such member (the contract's section 3a, and its section
-// on taking a team in).
+// endpoints of a team's take-in lists `team.take_in`, and one that keeps
+// the record of where a team went lists `team.move`; a server that leaves
+// all three out has no such member (the contract's sections 3a, 3b and
+// 3c).
 func (s *Server) info(*call) (any, *protocol.Error) {
 	out := map[string]any{
 		"contract_version": contractVersion,
@@ -290,6 +307,9 @@ func (s *Server) info(*call) (any, *protocol.Error) {
 	}
 	if s.takeIn {
 		capabilities = append(capabilities, capTeamTakeIn)
+	}
+	if s.moves {
+		capabilities = append(capabilities, capTeamMove)
 	}
 	if len(capabilities) > 0 {
 		out["capabilities"] = capabilities

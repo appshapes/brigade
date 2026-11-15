@@ -75,13 +75,13 @@ pub struct Shared {
 
 /// The result of `/v1/info`. `capabilities` names what the server carries beyond the contract's required
 /// surface: the three administration endpoints of its section 3a, and the three of its section 3b that
-/// take a team in and open and close its move. The adapter asks for each here before it sends a command
-/// of that kind.
+/// take a team in and open and close its move, and the two of its section 3c that record where a team
+/// went and answer that record. The adapter asks for each here before it sends a command of that kind.
 fn info() -> Value {
     json!({
         "contract_version": "1",
         "server": {"name": env!("CARGO_PKG_NAME"), "version": env!("CARGO_PKG_VERSION")},
-        "capabilities": ["team.admin", "team.take_in"],
+        "capabilities": ["team.admin", "team.take_in", "team.move"],
     })
 }
 

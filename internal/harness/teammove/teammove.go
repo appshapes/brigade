@@ -1,5 +1,8 @@
 // Package teammove follows a team that moved to another backend (work
 // item 273, part 2; ADR 0003; work item 327, ADR 0008; docs/security.md).
+// The backend a team leaves is whichever keeps the record: a Supabase
+// project, the filesystem store, and from 0.57.0 a Brigade server (work
+// item 341, ADR 0010). Nothing below asks which.
 //
 // A checkout's pin is its member's consent to one team at one backend. When
 // the project's team file names another backend for the same team, the pin
@@ -216,34 +219,49 @@ func Host(raw string) string {
 // file as before.
 const FollowsFromVersion = "0.55.0"
 
-// followsFrom is FollowsFromVersion in numbers.
-var followsFrom = [3]int{0, 55, 0}
+// FollowsFromServerVersion is the first Brigade version whose sessions
+// follow a move that a Brigade server recorded (0.57.0, work item 341, ADR
+// 0010). The record is read by the adapter of the backend a team leaves,
+// and until that version the `rest` adapter carried no such command: a
+// session of an older plugin whose team is on a server asks that server
+// nothing, says that its team file does not match, and its member joins
+// with the secret file.
+const FollowsFromServerVersion = "0.57.0"
+
+// FollowsFrom is the first Brigade version whose sessions follow a move
+// recorded on a backend of the adapter named: FollowsFromServerVersion for
+// a Brigade server, FollowsFromVersion for every other.
+func FollowsFrom(adapter string) string {
+	if adapter == config.BundledRestName {
+		return FollowsFromServerVersion
+	}
+	return FollowsFromVersion
+}
 
 // OlderThanFollow reports whether a session that reports the Brigade
-// version v is older than the first one that follows a recorded move. Only
-// a version this build can read counts: three dot-separated runs of
-// decimal digits, with whatever follows a `-` or a `+` left out (a
-// development build reports `0.55.0-dev`). Anything else, "" and
-// "unknown" included, is false: nothing is said about a session whose
-// version cannot be read.
-func OlderThanFollow(v string) bool {
-	if i := strings.IndexAny(v, "-+"); i >= 0 {
-		v = v[:i]
-	}
-	parts := strings.Split(v, ".")
-	if len(parts) != len(followsFrom) {
+// version v is older than the first one that follows a recorded move
+// (FollowsFromVersion).
+func OlderThanFollow(v string) bool { return olderThan(v, FollowsFromVersion) }
+
+// OlderThanFollowFrom is OlderThanFollow for a move recorded on a backend
+// of the adapter named: a session whose team is on a Brigade server
+// follows from FollowsFromServerVersion on.
+func OlderThanFollowFrom(adapter, v string) bool { return olderThan(v, FollowsFrom(adapter)) }
+
+// olderThan reports whether the Brigade version v is older than first,
+// which is one of the two constants above. Only a version this build can
+// read counts: three dot-separated runs of decimal digits, with whatever
+// follows a `-` or a `+` left out (a development build reports
+// `0.55.0-dev`). Anything else, "" and "unknown" included, is false:
+// nothing is said about a session whose version cannot be read.
+func olderThan(v, first string) bool {
+	followsFrom, ok := versionNumbers(first)
+	if !ok {
 		return false
 	}
-	var got [3]int
-	for i, part := range parts {
-		// Nine digits at most: a run that long is no version, and it keeps
-		// the number inside an int on every platform.
-		if part == "" || len(part) > 9 || strings.Trim(part, "0123456789") != "" {
-			return false
-		}
-		for _, digit := range part {
-			got[i] = got[i]*10 + int(digit-'0')
-		}
+	got, ok := versionNumbers(v)
+	if !ok {
+		return false
 	}
 	for i := range got {
 		if got[i] != followsFrom[i] {
@@ -251,6 +269,29 @@ func OlderThanFollow(v string) bool {
 		}
 	}
 	return false
+}
+
+// versionNumbers reads a version as its three numbers.
+func versionNumbers(v string) ([3]int, bool) {
+	var got [3]int
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) != len(got) {
+		return got, false
+	}
+	for i, part := range parts {
+		// Nine digits at most: a run that long is no version, and it keeps
+		// the number inside an int on every platform.
+		if part == "" || len(part) > 9 || strings.Trim(part, "0123456789") != "" {
+			return got, false
+		}
+		for _, digit := range part {
+			got[i] = got[i]*10 + int(digit-'0')
+		}
+	}
+	return got, true
 }
 
 // Follow follows the move in.File names, when the backend in.Pin names

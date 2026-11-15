@@ -890,3 +890,42 @@ func TestAFollowSeesTheJoinThatWentAheadWhileItsBackendHung(t *testing.T) {
 		}
 	})
 }
+
+// TestFollowsFromTheBackendATeamLeaves: a session follows a move that a
+// Brigade server recorded from a later plugin than a move any other
+// backend recorded, because the record is read by the adapter of the
+// backend a team leaves and the `rest` adapter reads one from 0.57.0 on
+// (work item 341, ADR 0010).
+func TestFollowsFromTheBackendATeamLeaves(t *testing.T) {
+	t.Parallel()
+	if got := teammove.FollowsFrom("rest"); got != "0.57.0" {
+		t.Errorf("FollowsFrom(rest) = %q, want %q", got, "0.57.0")
+	}
+	if teammove.FollowsFromServerVersion != "0.57.0" {
+		t.Errorf("FollowsFromServerVersion = %q, want the release that carries the server's record, 0.57.0", teammove.FollowsFromServerVersion)
+	}
+	for _, adapter := range []string{"supabase", "fs", "", "an-adapter-of-their-own"} {
+		if got := teammove.FollowsFrom(adapter); got != teammove.FollowsFromVersion {
+			t.Errorf("FollowsFrom(%q) = %q, want %q", adapter, got, teammove.FollowsFromVersion)
+		}
+	}
+	for v, want := range map[string]struct{ server, other bool }{
+		"0.54.9":     {true, true},
+		"0.55.0":     {true, false},
+		"0.56.0":     {true, false},
+		"0.56.9-dev": {true, false},
+		"0.57.0":     {false, false},
+		"0.57.0-dev": {false, false},
+		"1.0.0":      {false, false},
+		"unknown":    {false, false},
+		"":           {false, false},
+		"0.57":       {false, false},
+	} {
+		if got := teammove.OlderThanFollowFrom("rest", v); got != want.server {
+			t.Errorf("OlderThanFollowFrom(rest, %q) = %v, want %v", v, got, want.server)
+		}
+		if got := teammove.OlderThanFollowFrom("supabase", v); got != want.other || got != teammove.OlderThanFollow(v) {
+			t.Errorf("OlderThanFollowFrom(supabase, %q) = %v, want %v", v, got, want.other)
+		}
+	}
+}

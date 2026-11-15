@@ -348,9 +348,17 @@ fn take_back(taken: &TakeBack) -> Result<(), String> {
             1 => "1 membership".to_owned(),
             count => format!("{count} memberships"),
         };
+        // A team that is taken back says nothing of a move any more: the record of where it went was its
+        // owner's word, and the owner is who it is taken from.
+        let cleared = if result["move_cleared"].as_bool().unwrap_or_default() {
+            ", cleared the record of where it went"
+        } else {
+            ""
+        };
         // The name and the path are written as quoted strings, so that neither writes a second line.
         Ok(format!(
-            "took back team {team_name:?} ({team_ref}): ended {ended}, and its new join secret is in {:?}",
+            "took back team {team_name:?} ({team_ref}): ended {ended}{cleared}, and its new join secret is \
+             in {:?}",
             taken.secret_file
         ))
     })

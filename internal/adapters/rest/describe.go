@@ -18,18 +18,28 @@ const capTeamAdmin = "team.admin"
 // `/v1/info` when it carries their endpoints.
 const capTeamTakeIn = "team.take_in"
 
+// capTeamMove is the capability of the two commands that keep and read
+// the record of where a team went (4.7; work item 341, ADR 0010), and the
+// name a server lists in `/v1/info` when it carries their endpoints (the
+// contract's section 3c).
+const capTeamMove = "team.move"
+
 // capabilities is the 4.7 registry entries this adapter advertises: what
 // the contract's section 5 requires of every version 1 server (the three
 // team conventions and the nine session members), `message.receive`, the
 // two the adapter earns itself (`message.watch.push`, because a waiting
 // receive answers within a second of an acceptance, section 4, and
-// `message.watch.stdin_commands`), and the two a server may leave out:
-// `team.admin`, the administration endpoints of section 3a, and
+// `message.watch.stdin_commands`), and the three a server may leave out:
+// `team.admin`, the administration endpoints of section 3a,
 // `team.take_in`, the endpoints that take a team in and open and close its
-// move. The list is fixed, because describe never asks the server
+// move, and `team.move`, the two that keep the record of where a team
+// went. The list is fixed, because describe never asks the server
 // anything: whether this profile's server carries those endpoints is asked
 // before each command that needs them, which answers `config` when it
-// does not (requireTeamAdmin, requireTeamTakeIn).
+// does not (requireTeamAdmin, requireTeamTakeIn, requireTeamMove). The one
+// command that answers otherwise is `team moved` at a server that keeps no
+// such record: it answers that the team did not move, as 4.4.10 has it for
+// a backend that cannot say (teamMoved).
 func capabilities() []string {
 	return []string{
 		"team.create",
@@ -37,6 +47,7 @@ func capabilities() []string {
 		"team.roster",
 		capTeamAdmin,
 		capTeamTakeIn,
+		capTeamMove,
 		"message.receive",
 		"message.watch.push",
 		"message.watch.stdin_commands",

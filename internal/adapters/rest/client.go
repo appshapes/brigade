@@ -53,6 +53,8 @@ const (
 	pathTeamTakeIn       = "/v1/team/take-in"
 	pathTeamOpenMove     = "/v1/team/open-move"
 	pathTeamCloseMove    = "/v1/team/close-move"
+	pathTeamMove         = "/v1/team/move"
+	pathTeamMoved        = "/v1/team/moved"
 	pathSessionRegister  = "/v1/session/register"
 	pathSessionHeartbeat = "/v1/session/heartbeat"
 	pathSessionList      = "/v1/session/list"

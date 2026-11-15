@@ -60,6 +60,10 @@ func (c *command) teamCommand() (any, error) {
 		return c.teamOpenMove()
 	case "close-move":
 		return c.teamCloseMove()
+	case "move":
+		return c.teamMove()
+	case "moved":
+		return c.teamMoved()
 	default:
 		return nil, errUsage("unknown team verb")
 	}
@@ -965,4 +969,146 @@ func (c *command) teamCloseMove() (any, error) {
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
 	}
 	return out, nil
+}
+
+// ---- the record of where a team went (4.4.10, capability team.move) ----
+//
+// Two commands of the backend a team LEAVES (work item 341, ADR 0010; the
+// contract's section 3c), each one request to an endpoint a server may
+// leave out. Until them a team on a Brigade server could not be moved with
+// the one command, because a server kept no record of where a team went:
+// only the Supabase adapter and the fs adapter carried the capability (ADR
+// 0003). `team move` answers the team's owner only, like the administration
+// commands, and follows their order: argv and the ticket's file first, then
+// the ladder, then the question whether this server carries the endpoints,
+// then the request. `team moved` answers every active member.
+//
+// The ticket is a secret. It is read from the file the caller names and
+// sent in the request's body, and it comes back, to a member that asked
+// for it, in an answer's body, from where it goes to the file the caller
+// names and to nothing else. Its secret half is registered on the redactor
+// before either, so no log line, no refusal and no result holds it.
+
+// requireTeamMove asks the server whether it keeps the record of where a
+// team went, as requireTeamAdmin asks about the administration endpoints:
+// a server that leaves the two endpoints out would answer the request
+// `not_found`.
+func (c *command) requireTeamMove() error {
+	return c.requireCapability(capTeamMove,
+		"the server this team is on keeps no record of where a team goes (team move, team moved): it is older than 0.8.0, and its operator needs to update it",
+		reasonServerLacksTeamMove)
+}
+
+// teamMove implements `team move` (4.4.10, C-51): /v1/team/move records,
+// at the profile's server, where the profile's team went, with the ticket
+// from --ticket-file, or clears that record with --clear. The request is
+// read by adapterkit, as every adapter that carries the command reads it,
+// and the ticket is held against the profile's team before anything is
+// sent: one of another team would admit nobody at the backend the team
+// went to. The server is the authority on who the owner is: every refusal
+// of that is its one uniform `unauthorized`, passed on as it is. A server
+// that keeps no such record is `config`, server_lacks_team_move.
+func (c *command) teamMove() (any, error) {
+	fs := newFlags()
+	flags := adapterkit.NewTeamMoveFlags(fs)
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	move, err := flags.Request(c.stdin)
+	if err != nil {
+		return nil, err
+	}
+	// The ticket is a join secret in form, which the redactor replaces
+	// wherever it finds one. Its secret half is not of that form, and is
+	// registered before anything is sent or said.
+	c.hideSecretHalf(move.Ticket)
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	teamRef := c.profile.TeamRef
+	body := &teamMoveBody{TeamRef: teamRef, Clear: move.Clear}
+	if !move.Clear {
+		if err := adapterkit.CheckMoveTicket(move.Ticket, teamRef); err != nil {
+			return nil, err
+		}
+		body.Adapter, body.URL, body.Certificate = move.Destination.Adapter, move.Destination.URL, move.Destination.Certificate
+		body.Ticket = move.Ticket
+	}
+	if err := c.requireTeamMove(); err != nil {
+		return nil, err
+	}
+	out := &protocol.TeamMoveResult{}
+	if err := c.call(pathTeamMove, body, out); err != nil {
+		return nil, err
+	}
+	if out.TeamRef != teamRef || out.TicketFile != "" {
+		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
+	}
+	if move.Clear {
+		if out.Moved {
+			return nil, errUnexpectedResponse("the backend did not confirm that the move is cleared")
+		}
+		return out, nil
+	}
+	if !out.Moved || out.Adapter != body.Adapter || out.URL != body.URL || out.Certificate != body.Certificate {
+		return nil, errUnexpectedResponse("the backend answered a record other than the one it was given")
+	}
+	return out, nil
+}
+
+// teamMoved implements `team moved [--ticket-file <path>]` (4.4.10,
+// C-52): /v1/team/moved answers every active member of the profile's team
+// whether its owner recorded that the team went to another backend, and
+// where. With --ticket-file the request asks for the ticket of a recorded
+// move as well, which is written to that path for its owner alone (0600)
+// and is in no output. The path is checked before any request.
+//
+// A server that keeps no such record cannot say that a team moved, so it
+// is answered as a team that did not (4.4.10): the member's harness then
+// does what it does for a team that did not move, and nothing is lost that
+// the record does not add. That is every server before 0.8.0, and it is
+// asked `/v1/info` and nothing else.
+func (c *command) teamMoved() (any, error) {
+	fs := newFlags()
+	ticketFile := fs.String("ticket-file", "", "write the move ticket to this path (0600)")
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	if err := adapterkit.CheckTicketFileTarget(*ticketFile); err != nil {
+		return nil, err
+	}
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	teamRef := c.profile.TeamRef
+	var info serverInfo
+	if err := c.call(pathInfo, nil, &info); err != nil {
+		return nil, err
+	}
+	if !slices.Contains(info.Capabilities, capTeamMove) {
+		c.log.Debug("the server keeps no record of where a team goes (it is older than 0.8.0); answering that the team has not moved")
+		return &protocol.TeamMoveResult{TeamRef: teamRef}, nil
+	}
+	var answer teamMovedAnswer
+	if err := c.call(pathTeamMoved, &teamMovedBody{TeamRef: teamRef, WithTicket: *ticketFile != ""}, &answer); err != nil {
+		return nil, err
+	}
+	// Nothing after this line writes any part of the answer but the result,
+	// which has no ticket member, and the file.
+	c.hideSecretHalf(answer.Ticket)
+	if answer.TeamRef != teamRef {
+		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
+	}
+	result := answer.result()
+	if !answer.Moved || *ticketFile == "" {
+		return result, nil
+	}
+	if adapterkit.CheckMoveTicket(answer.Ticket, teamRef) != nil {
+		return nil, errUnexpectedResponse("the backend answered a move ticket this adapter cannot use")
+	}
+	if err := adapterkit.WriteTicketFile(*ticketFile, answer.Ticket); err != nil {
+		return nil, err
+	}
+	result.TicketFile = *ticketFile
+	return result, nil
 }
