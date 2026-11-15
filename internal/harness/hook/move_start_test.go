@@ -3,6 +3,7 @@
 package hook
 
 import (
+	"context"
 	json "encoding/json/v2"
 	"os"
 	"slices"
@@ -379,6 +380,55 @@ func TestAStartThatCannotReachTheNewBackendKeepsTheSession(t *testing.T) {
 			t.Fatalf("the start's lines: %q", got)
 		}
 	})
+}
+
+// TestAStartWhoseNewAdapterCannotDescribeKeepsTheSession: a registration
+// begins with the adapter's describe, and that can fail before the backend
+// is asked anything: a profile the adapter cannot read, an adapter that
+// does not start. It is the same start of the same running session, so it
+// ends the same way as one whose backend could not be reached: the session
+// is kept where it is and told that it could not be registered, never that
+// it is `not connected`, and the attempt is stamped.
+func TestAStartWhoseNewAdapterCannotDescribeKeepsTheSession(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+		t.Fatalf("lines = %q", got)
+	}
+	// The new backend's adapter has not been described yet in this process:
+	// the follow asks the old one alone.
+	if on := newBackendCalls(seam, newKey); slices.Contains(on, "describe") {
+		t.Fatalf("the follow described the new backend's adapter: %v", on)
+	}
+	inner := f.deps.Spawn
+	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if verbOf(spec.Argv) == "describe" && profileOf(adapterCall{Argv: spec.Argv}) == newKey {
+			return nil, &protocol.Error{Code: protocol.CodeConfig, Message: "the profile cannot be read"}
+		}
+		return inner(ctx, spec)
+	}
+	registers, spawns := len(seam.callsFor("session register")), f.spawner.count()
+	f.nativeID = otherConversation
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+	if exit != 0 || strings.Contains(out, "not connected") {
+		t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
+	}
+	want := []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine, startLine("payments-api", "brigade-sess-1", teamName, "accept")}
+	if got := lines(out); !slices.Equal(got, want) {
+		t.Fatalf("the start's lines:\n%q\nwant\n%q", got, want)
+	}
+	if n := len(seam.callsFor("session register")); n != registers || f.spawner.count() != spawns {
+		t.Fatalf("%d registrations and %d watchers started, want none", n-registers, f.spawner.count()-spawns)
+	}
+	f.keptWhereItWas("after the start")
+	if !exists(retryStampPath(f.stateDir, f.pid)) {
+		t.Fatalf("the attempt that failed left no stamp")
+	}
 }
 
 // TestTheRetryOfASessionAttachedToNothingSaysThatBrigadeIsAsking: a

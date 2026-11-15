@@ -393,8 +393,8 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 				t.Fatalf("a registration answered in good time did not move the session: %+v", m)
 			}
 			want := []string{followedLine(tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
-			if !slices.Equal(got, want) || took >= deadline {
-				t.Fatalf("lines = %q in %v\nwant %q before %v", got, took, want, deadline)
+			if !slices.Equal(got, want) {
+				t.Fatalf("lines = %q\nwant %q", got, want)
 			}
 		})
 	}

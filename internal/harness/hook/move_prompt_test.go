@@ -1034,6 +1034,37 @@ func TestASessionMovesWithItsMembersOwnJoin(t *testing.T) {
 	}
 }
 
+// TestTheFollowsLineIsOfAMoveFromTheBackendTheSessionIsOn: the line of a
+// follow says that the team's administrator recorded the move on "the
+// backend you joined it on". A session says it when its checkout's pin
+// moved from the backend the session is on. A pin that moved from another
+// one, which a checkout that followed twice has while a session stayed
+// behind, tells this session nothing of the kind: it says the line of a
+// checkout that is joined to the new backend, and names no backend the
+// session never was on.
+func TestTheFollowsLineIsOfAMoveFromTheBackendTheSessionIsOn(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	seam := attachedMember(t, f, nil, nil)
+	newKey := teamstore.Key("rest", movedURL, "team-1")
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	f.memberOf("team-1")
+	const between = "https://between.example.test"
+	pins := map[string]any{"version": 1, "projects": map[string]any{f.canon(): serverPin("team-1", between)}}
+	if err := adapterkit.WriteAtomic(teamstore.PinsPath(f.configDir), mustJSON(pins)); err != nil {
+		t.Fatal(err)
+	}
+	got := f.prompted()
+	want := []string{rejoinedLine(tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+	if !slices.Equal(got, want) || strings.Contains(strings.Join(got, "\n"), "between.example.test") {
+		t.Fatalf("lines = %q\nwant %q", got, want)
+	}
+	if m := f.mustMap(); m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" || len(seam.callsFor("team moved")) != 0 {
+		t.Fatalf("the map: %+v; %d questions to the old backend", m, len(seam.callsFor("team moved")))
+	}
+}
+
 // TestASessionStaysWhenItsCheckoutIsOfAnotherTeam: a team file that names
 // ANOTHER team is not a move, whatever backend it names: a prompt says
 // nothing and starts nothing. And a member who joins that other team in
