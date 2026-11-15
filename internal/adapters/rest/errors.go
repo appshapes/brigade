@@ -45,6 +45,12 @@ const (
 	// reasonServerLacksTeamAdmin: the profile's server does not list
 	// team.admin in /v1/info (the contract's section 5).
 	reasonServerLacksTeamAdmin = "server_lacks_team_admin"
+	// reasonServerLacksTeamTakeIn: the profile's server does not list
+	// team.take_in in /v1/info (the contract's sections 3b and 5).
+	reasonServerLacksTeamTakeIn = "server_lacks_team_take_in"
+	// reasonTicketFile: the move ticket could not be written to the file
+	// --ticket-file names, after the server opened the move.
+	reasonTicketFile = "ticket_file_unwritable"
 )
 
 // errUsage refuses argv. The offending argument is never echoed: it could

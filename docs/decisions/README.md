@@ -13,6 +13,10 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0003. Follow a team that moved, on the old backend's record and a move ticket](0003-follow-a-team-that-moved-on-the-old-backends-record.md)
 - [0004. Bound one principal on a server with the reference backend's numbers](0004-bound-one-principal-on-a-server-with-the-reference-backends-numbers.md)
 - [0005. Ask for a note only for a commit made in the checkout during the turn, and say what git shows](0005-ask-for-a-note-only-for-a-commit-of-the-turn.md)
+- [0006. Take a team in and open its move by request, and let whoever takes it in own it](0006-take-a-team-in-and-open-its-move-by-request.md)
+- [0007. Let a session move a team, behind an option that is on by default](0007-let-a-session-move-a-team.md)
+- [0008. Follow a move from a running session at its next prompts](0008-follow-a-move-from-a-running-session-at-its-next-prompts.md)
+- [0009. Name every ADR that supersedes a part in the Status line](0009-name-every-adr-that-supersedes-a-part-in-the-status-line.md)
 
 ## Record a decision
 
@@ -41,7 +45,9 @@ item's change.
 An ADR keeps its text. What can still change:
 
 - **Its Status line**, when a later ADR supersedes it: `Superseded by NNNN`, or `Accepted; superseded in part by
-  NNNN` when only part of it is replaced. A change of mind is always a new ADR.
+  NNNN` when only part of it is replaced. When more than one ADR has replaced a part, the line names each once,
+  the lowest number first: `by 0002 and 0009`, `by 0006, 0007 and 0008` (ADR 0009). A change of mind is always a
+  new ADR.
 - **A fact that was wrong when it was written** (a date, a count, a citation, who decided something): correct it
   in place and add one entry to the header, after the Supersedes line and any earlier entry:
   `- **Corrected:** YYYY-MM-DD: <what was wrong, and what the ADR says now>`, continued on lines indented two
@@ -56,7 +62,7 @@ in its file name and its title line, with nothing else changed.
 
 `make docs-check` (the `decisions` rule) fails when an ADR is not named `NNNN-short-title.md`, reuses a number,
 does not start `# NNNN. `, has no valid Status or no `## Decision` section, names a superseding ADR that does not
-exist, is not listed under "The decisions" above, or carries a Corrected entry that is misspelt or outside the
+exist or names the ADRs that supersede a part out of order, is not listed under "The decisions" above, or carries a Corrected entry that is misspelt or outside the
 header. Where the tree is a git repository it also compares each ADR with its text on `master` as the tree has
 it, and fails when a landed ADR has changed beyond what the section above allows, or is gone from the tree: in
 the working tree, in a commit that is not on `master` yet, or in a pull request. Putting the landed text back

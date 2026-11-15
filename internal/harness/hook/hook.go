@@ -69,12 +69,15 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// Hook subcommands (6.3, hooks.json), including Grok Stop.
+// Hook subcommands (6.3, hooks.json), including Grok Stop. SubFollow is
+// not in any hooks.json: it is the child a prompt hook starts to follow a
+// team's move off its own budget (move.go, work item 327).
 const (
 	SubStop         = "stop"
 	SubSessionStart = "session-start"
 	SubPrompt       = "prompt"
 	SubSessionEnd   = "session-end"
+	SubFollow       = "follow"
 )
 
 // The hook's budgets. The per-call adapter budgets are adapterclient's 4.1
@@ -265,6 +268,11 @@ type Deps struct {
 	// promptBudget. Only a test lowers it, to reach the doing reminder's
 	// budget guard (plan 5.4) without a real 3.5 s stall.
 	PromptBudget time.Duration
+	// FollowBudget bounds the whole follow of `brigade hook follow`, the
+	// child a prompt hook starts (move.go, work item 327); zero means
+	// followBudget. Only a test lowers it, to see a follow whose backend
+	// never answers end, and let go of its lock, without a real 55 s wait.
+	FollowBudget time.Duration
 	// Getppid answers this process's parent pid, which on Muse Code is the
 	// Muse process the hook serves (card 88; hooks are the host's direct
 	// children there); nil means os.Getppid. A test injects a sleeper's
@@ -284,6 +292,7 @@ func RealDeps() Deps {
 		Notifier:     notifier,
 		PidfileWait:  DefaultPidfileWait,
 		PromptBudget: promptBudget,
+		FollowBudget: followBudget,
 		Getppid:      os.Getppid,
 	}
 }
@@ -324,6 +333,9 @@ func (d Deps) withDefaults() Deps {
 	if d.PromptBudget <= 0 {
 		d.PromptBudget = prod.PromptBudget
 	}
+	if d.FollowBudget <= 0 {
+		d.FollowBudget = prod.FollowBudget
+	}
 	if d.Getppid == nil {
 		d.Getppid = prod.Getppid
 	}
@@ -350,6 +362,9 @@ func Run(args []string, streams cli.Streams, environ []string, deps Deps) int {
 		return cli.Usage(cmd, args, streams, perr)
 	}
 	r := newRun(streams, environ, deps.withDefaults(), a)
+	if a.sub == SubFollow {
+		return r.follow()
+	}
 	if a.host == config.HostGrok || config.HostOf(environ) == config.HostGrok {
 		return r.runGrok()
 	}
@@ -378,6 +393,17 @@ type hookArgs struct {
 	// that exports no plugin-root variable to its hooks (Codex CLI). "" when
 	// absent or relative: the map then carries no plugin_bin.
 	pluginRoot string
+	// The arguments of `hook follow` (move.go, work item 327): the
+	// checkout whose pin is followed, the member's store, the state
+	// directory, and the key of the session whose prompt started it. The
+	// child is started with no session in its environment, and a Muse Code
+	// or Codex CLI hook finds its session through its parent process, which
+	// the child does not have: so everything it needs is here, and none of
+	// it is a secret.
+	checkout  string
+	configDir string
+	stateDir  string
+	key       int
 }
 
 // parseArgs picks the subcommand and the optional flags. The message is
@@ -388,13 +414,16 @@ func parseArgs(args []string) (hookArgs, string) {
 		return a, "hook needs one of session-start, prompt, stop, session-end"
 	}
 	a.sub = args[0]
-	if a.sub != SubSessionStart && a.sub != SubPrompt && a.sub != SubSessionEnd && a.sub != SubStop {
+	if a.sub != SubSessionStart && a.sub != SubPrompt && a.sub != SubSessionEnd && a.sub != SubStop && a.sub != SubFollow {
 		return a, "unknown hook; the hooks are session-start, prompt, stop and session-end"
 	}
 	rest := args[1:]
 	for i := 0; i < len(rest); i++ {
 		name, value, has := strings.Cut(rest[i], "=")
-		if name != "--log-level" && name != "--host" && name != "--plugin-root" {
+		if a.sub == SubFollow && name != "--log-level" && !followFlag(name) {
+			return a, "unknown flag; hook follow takes --checkout, --config-dir, --state-dir, --key and --log-level"
+		}
+		if a.sub != SubFollow && name != "--log-level" && name != "--host" && name != "--plugin-root" {
 			return a, "unknown hook flag; the flags are --log-level, --host and --plugin-root"
 		}
 		if !has {
@@ -419,9 +448,39 @@ func parseArgs(args []string) (hookArgs, string) {
 			if filepath.IsAbs(value) {
 				a.pluginRoot = filepath.Clean(value)
 			}
+		case "--checkout", "--config-dir", "--state-dir":
+			// Each is taken as the prompt hook resolved it, never cleaned
+			// here: the two processes name the checkout's stamps by these
+			// very strings.
+			if !filepath.IsAbs(value) {
+				return a, name + " must be an absolute path"
+			}
+			switch name {
+			case "--checkout":
+				a.checkout = value
+			case "--config-dir":
+				a.configDir = value
+			default:
+				a.stateDir = value
+			}
+		case "--key":
+			key, err := strconv.Atoi(value)
+			if err != nil || key <= 0 {
+				return a, "--key must be a session's key, a positive number"
+			}
+			a.key = key
 		}
 	}
+	if a.sub == SubFollow && (a.checkout == "" || a.configDir == "" || a.stateDir == "") {
+		return a, "hook follow needs --checkout, --config-dir and --state-dir"
+	}
 	return a, ""
+}
+
+// followFlag reports whether name is one of the flags only `hook follow`
+// takes.
+func followFlag(name string) bool {
+	return name == "--checkout" || name == "--config-dir" || name == "--state-dir" || name == "--key"
 }
 
 // A run is one hook invocation.
@@ -444,14 +503,60 @@ type run struct {
 	// ends with, as additionalContext. The caps count them all the same.
 	collecting bool
 	collected  []string
+	// starting is true for the run of a SessionStart hook and false for
+	// every other: a session's start follows a team that moved itself (work
+	// item 273, ADR 0003), and a prompt hook, whose few seconds are not a
+	// follow's to spend, starts a child that does (move.go, work item 327,
+	// ADR 0008).
+	starting bool
+	// moving is true while a prompt hook registers a running session anew
+	// on the backend its team moved to (move.go): the registration then
+	// keeps the name the session has, and what there is to say about the
+	// move is the caller's to say. held, when not nil, takes the lines say
+	// would write: a registration that fails must leave an attached session
+	// with no `not connected` line, so its lines are kept until it is known
+	// to have succeeded.
+	moving bool
+	held   *[]string
+	// saidFollowed is true once this run has said the line of a follow (a
+	// start that followed, or one that found a child's mark): a start that
+	// then keeps the session where it is (stay) records the line as heard
+	// by this conversation and does not say it twice.
+	saidFollowed bool
+	// followLine is that line as it was said, and followCheckout the
+	// checkout that followed. A start over a running session holds what
+	// its resolution says and drops it when it keeps the session
+	// (keepUnresolved); the follow's line is not the resolution's to drop.
+	// The follow was made, or its mark was taken away, whatever the start
+	// does next, and nothing but this line tells the member that the
+	// machine joined the new backend with the move's ticket: the start
+	// that keeps the session says it from here.
+	followLine     string
+	followCheckout string
+	// movedSaid is true once this prompt has said the lines of a move, its
+	// own or one whose hook was stopped (sayMoved): the move's notice is
+	// removed when the hook ends, and not before.
+	movedSaid bool
+	// fileRefused is the line this run's resolution said of the team file
+	// it found: that it cannot be used, or that it does not match what the
+	// member joined (resolveTeam). A start that keeps a running session
+	// where it is drops what the resolution said of a session that is not
+	// connected, and says this one, in the words of a session that is
+	// (keepUnresolved): a team file that holds a secret, or that was pointed
+	// elsewhere, is the member's to hear of in any case.
+	fileRefused string
+	// settingRefused is the line a start that keeps a running session says
+	// when what its resolution refused was the member's own settings and not
+	// the team: an option that cannot be read, a frame text that fails a
+	// check, an adapter that cannot be resolved (resolve). It is written in
+	// the words of a session that stays connected (keptSettingLine), where
+	// the refusal itself says `not connected`: the kept session goes on
+	// with what it had, and the member has to hear that what they set is
+	// not in force.
+	settingRefused string
 	// optionsEnv is the environment ParseOptions reads: environ itself on
 	// Claude Code; on a host with an options file (Muse Code, Codex CLI)
 	// environ plus the entries the file supplies (config.OptionsEnviron),
-	// starting is true for the run of a SessionStart hook and false for
-	// every other: a session follows a team that moved only when it starts
-	// (work item 273, ADR 0003), never from the prompt hook's registration
-	// retry, whose few seconds are not a follow's to spend.
-	starting bool
 	// resolved once per run by options(). optionsWarning is the file's one
 	// warning, printed once at SessionStart.
 	optionsEnv     []string
@@ -722,6 +827,10 @@ func (r *run) readInput() (input, error) {
 // say writes one context line to stdout and counts it against OutputCap
 // (code points) and, where one applies, byteCap (bytes).
 func (r *run) say(line string) {
+	if r.held != nil {
+		*r.held = append(*r.held, line)
+		return
+	}
 	if r.streams.Out == nil {
 		return
 	}
@@ -909,6 +1018,23 @@ const driftLine = "Brigade: not connected: .brigade.json does not match the team
 // input; it is sanitised all the same. The label the machine joined under
 // is not in the line: it is often an address.
 func followedLine(tf *teamfile.File, pin *teamstore.Pin, joined bool, command string) string {
+	return followedLineOf(thisCheckout, tf, pin, joined, command)
+}
+
+// The two ways a line names the checkout that followed. A start, and the
+// registration retry of a session attached to nothing, resolve the checkout
+// their document's directory is in: "this checkout". A prompt of a session
+// that is running speaks of the session's own checkout, the one its map
+// names, from wherever the prompt comes (work item 327, ADR 0008): sent
+// from another checkout, or from a repository of another team, "this
+// checkout" would be said of a directory that followed nothing.
+const (
+	thisCheckout    = "this checkout"
+	startedCheckout = "the checkout this session was started in"
+)
+
+// followedLineOf is followedLine with the words that name the checkout.
+func followedLineOf(checkout string, tf *teamfile.File, pin *teamstore.Pin, joined bool, command string) string {
 	where := attr(teammove.Host(tf.URL))
 	if tf.Certificate != "" {
 		where += ", trusting the server certificate " + certLine(tf.Certificate)
@@ -917,7 +1043,7 @@ func followedLine(tf *teamfile.File, pin *teamstore.Pin, joined bool, command st
 	if !joined {
 		how = "this machine had joined it there already"
 	}
-	return "Brigade: this checkout followed team \"" + attr(tf.TeamName) + "\" to " + where +
+	return "Brigade: " + checkout + " followed team \"" + attr(tf.TeamName) + "\" to " + where +
 		": the team's administrator recorded that move on " + attr(teammove.Host(pin.URL)) +
 		", the backend you joined it on, and " + how + ". To leave the team run `" + command +
 		" team leave`; to stay put until you join a moved team yourself, set the option follow_team_move to off."
@@ -932,12 +1058,6 @@ func certLine(pin string) string {
 	}
 	return attr(pin)
 }
-
-// movedLine is what a session that is already attached is told, once, when
-// its project's team file comes to name another backend for its team (work
-// item 273): it stays where it is, and what a new session does. It echoes
-// nothing from the file, which nobody has consented to yet.
-const movedLine = "Brigade: this project's .brigade.json now names another backend for this session's team. This session stays where it is until it ends: start a new session, or exit and resume this one, and it follows the team if the team's administrator recorded the move, or tells you how to join."
 
 // teamFileLine renders a team-file refusal: one fixed line per token of
 // the parser's closed list, with the two secret findings taking their

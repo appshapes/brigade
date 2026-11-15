@@ -4,7 +4,9 @@
 // other is adapterclient/spawn.go, the `message watch` adapter child).
 // The detached start and the stop are the platform's through procutil:
 // Setsid and SIGTERM on unix, a detached windowless process and the stop
-// event on Windows (card 133).
+// event on Windows (card 133). The same spawner starts the one other
+// child a hook detaches, `brigade hook follow` (move.go, work item 327):
+// this executable again, with an environment built from scratch.
 
 package hook
 
@@ -31,15 +33,18 @@ import (
 // an option must never be able to name the program the hook detaches.
 type SpawnSpec struct {
 	// Args is the argv after the program name: "watch", plus "--sink
-	// <file>" when Deps.Sink is set.
+	// <file>" when Deps.Sink is set; or "hook follow" and its arguments.
 	Args []string
-	// Env is the child's whole environment, built from scratch by
-	// watcherEnviron. The messaging token is in here and nowhere else.
+	// Env is the child's whole environment, built from scratch: by
+	// watcherEnviron for the watcher, where the messaging token is and
+	// nowhere else, and by adapterkit.ChildEnv alone for a follow, which
+	// carries neither the token nor the socket.
 	Env []string
 	// Dir is the child's working directory (the user's HOME).
 	Dir string
 	// LogPath is the 0600 append-mode file both of the child's output
-	// streams go to: ${stateDir}/logs/watcher-<claude_pid>.log.
+	// streams go to: ${stateDir}/logs/watcher-<claude_pid>.log, and
+	// ${stateDir}/logs/team-move.log for a follow.
 	LogPath string
 }
 
@@ -125,9 +130,10 @@ func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLev
 }
 
 // spawnWatcher starts the watcher for the session m describes and waits
-// up to pidfileWait for its pidfile (the watcher writes it, 6.6). A
-// watcher that does not appear is logged, not an error: the next prompt
-// hook respawns it. It reports whether a watcher was spawned.
+// up to pidfileWait for its pidfile (the watcher writes it, 6.6), or not at
+// all when pidfileWait is zero. A watcher that does not appear is logged,
+// not an error: the next prompt hook respawns it. It reports whether a
+// watcher was spawned.
 func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pidfileWait time.Duration) bool {
 	if !r.canInject(f) {
 		r.log.Info("no inbox socket in this session; the watcher is not started (poll_on_prompt is the fallback)")
@@ -178,7 +184,9 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 		return false
 	}
 	r.log.Info("watcher started", slog.Int("watcher_pid", pid))
-	if !r.awaitPidfile(f, pidfileWait) {
+	// A caller that passes no wait does not look for the pidfile at all: the
+	// prompt that moves a session (reattach).
+	if pidfileWait > 0 && !r.awaitPidfile(f, pidfileWait) {
 		r.log.Warn("watcher pidfile did not appear; the next prompt respawns", slog.Int("watcher_pid", pid))
 	}
 	return true

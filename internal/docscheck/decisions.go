@@ -72,7 +72,11 @@ var (
 	adrNameRe = regexp.MustCompile(`^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$`)
 	// adrStatusRe is the Status line of an ADR file. There is no Proposed:
 	// a decision that still waits on someone is a work item on the board.
-	adrStatusRe = regexp.MustCompile(`^- \*\*Status:\*\* (?:Accepted|Accepted; superseded in part by (\d{4})|Superseded by (\d{4})|Rejected)$`)
+	// An ADR that is superseded in part names every ADR that supersedes a
+	// part of it (ADR 0009): `0006`, `0006 and 0008`, `0006, 0007 and 0008`.
+	adrStatusRe = regexp.MustCompile(`^- \*\*Status:\*\* (?:Accepted|Accepted; superseded in part by (\d{4}(?:(?:, \d{4})* and \d{4})?)|Superseded by (\d{4})|Rejected)$`)
+	// adrNumberRe is one ADR's number in a Status line's list.
+	adrNumberRe = regexp.MustCompile(`\d{4}`)
 	// adrCorrectedRe is the first line of a correction's header entry.
 	adrCorrectedRe = regexp.MustCompile(`^- \*\*Corrected:\*\* (\d{4}-\d{2}-\d{2}): \S`)
 	// The loose forms find a header line that means to be one, so that a
@@ -292,13 +296,20 @@ func (c *checker) decisions() {
 		}
 		m := adrStatusRe.FindStringSubmatch(a.statuses[0])
 		if m == nil {
-			c.find("decisions", rel, "the Status is `Accepted`, `Accepted; superseded in part by NNNN`, `Superseded by NNNN` or `Rejected`, never Proposed: a decision that still waits is a work item tagged `decision`")
+			c.find("decisions", rel, "the Status is `Accepted`, `Accepted; superseded in part by NNNN` (every ADR that supersedes a part of it, as `NNNN and NNNN` or `NNNN, NNNN and NNNN`), `Superseded by NNNN` or `Rejected`, never Proposed: a decision that still waits is a work item tagged `decision`")
 			continue
 		}
-		for _, by := range m[1:] {
-			if by != "" && byNumber[by] == "" {
+		// m[1] is the list of a partial supersession, m[2] the one ADR of a
+		// whole one; at most one of the two is there.
+		last := ""
+		for _, by := range adrNumberRe.FindAllString(m[1]+m[2], -1) {
+			if byNumber[by] == "" {
 				c.find("decisions", rel, "its Status names ADR %s, which is not in %s", by, DecisionsDir)
 			}
+			if by <= last {
+				c.find("decisions", rel, "its Status names ADR %s after ADR %s: name each ADR that supersedes a part once, the lowest number first", by, last)
+			}
+			last = by
 		}
 	}
 	c.sum.Decisions = len(rels)

@@ -690,6 +690,11 @@ func (inv Invocation) confirmGate(f *teamfile.File, action string) error {
 func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label labelChoice, secretFile string) error {
 	var secret string
 	var err error
+	// Whether this machine held a membership of the file's team when the
+	// join began: one that appears while the member is asked was made by a
+	// follow of this machine (below).
+	before, berr := teamstore.LoadBinding(t.configDir, t.profile)
+	member := berr == nil && before.TeamRef == f.TeamRef
 	if inv.inSession() {
 		// Inside a session the secret file is read AND checked — shape and
 		// team — before the consent line is printed, so a refusal leaves
@@ -713,6 +718,36 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 		}
 		if err := checkJoinSecret(secret, f); err != nil {
 			return err
+		}
+	}
+	// From here to the pin the join holds the lock a follow holds (work item
+	// 327): a session's hook can be following this team's move at this very
+	// moment, and a join sent beside the follow's, before either has a
+	// credential, leaves the backend two memberships of this machine. The
+	// person has answered everything by now, so nobody is waited for under
+	// the lock; and nothing can wait in a circle: each holder waits only for
+	// its own adapter and the store, the one other lock either takes is the
+	// pin store's, inside this one, and a waiter gives up after ten seconds.
+	//
+	// Gives up waiting, not joining. The lock is one for the whole store, a
+	// follow holds it while it asks an old backend that may be slow or gone,
+	// and a new follow is started each minute for each checkout: a join that
+	// failed when its wait ran out would be refused, for this team or for
+	// any other, by a hook the member did not start. A join is the member's
+	// own command. When the lock is not had in time, or cannot be had at
+	// all, it goes on without it; the follow reads the membership again
+	// before it joins (teammove.Follow) and finds the one made here.
+	if lock, lerr := teammove.Lock(t.configDir, inv.Deps.FollowLockWait); lerr != nil {
+		inv.logger().Warn("a follow of a team's move holds this machine's lock, or the lock cannot be had; the join goes on without it", adapterlog.Err(lerr))
+	} else {
+		defer func() { _ = lock.Unlock() }()
+	}
+	if !member {
+		if now, nerr := teamstore.LoadBinding(t.configDir, t.profile); nerr == nil && now.TeamRef == f.TeamRef && teamstore.VerifyBinding(now, f) == nil {
+			// A follow of this machine joined the team there while the member
+			// was asked: the machine is a member the file describes, and the
+			// secret is not presented for a second membership.
+			return inv.writePinAndReport(t, canon, f, "joined")
 		}
 	}
 	if err := inv.alignRestBackend(t, f); err != nil {
@@ -901,18 +936,35 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 		head := did + " team \"" + name + "\" (" + sanitizeID(f.TeamRef) + ")"
 		pid, perr := config.StateKey(inv.Environ, sessionmap.Store{StateDir: t.stateDir})
 		if perr == nil {
-			// A session that already has a map is attached — to this team
-			// (nothing to do) or to another. The prompt hook only registers
-			// an UNmapped session, and a SessionStart that fires again in
+			// A session that already has a map is attached: to this team
+			// where it is (nothing to do), to this team on the backend it
+			// left, or to another team. The prompt hook moves a session to
+			// the backend its own team went to once the checkout is joined
+			// there, which it now is (work item 327, ADR 0008); a Grok Build
+			// session, whose prompt hook can say nothing, is not moved, and
+			// neither is a session that registered in another checkout: a
+			// session moves with its own checkout and no other. A
+			// session on ANOTHER team stays: the prompt hook only registers
+			// an unmapped session, and a SessionStart that fires again in
 			// the same process continues the session its map names, so
 			// only a new process moves it: a new session, or this one
 			// exited and resumed. A plugin reload is not one (work item
 			// 289: it ran no start hook in the cut-over of 2026-11-13).
 			if m, merr := config.Session(inv.Environ, t.stateDir); merr == nil {
-				if m.TeamRef == f.TeamRef {
+				switch {
+				case m.TeamRef != f.TeamRef:
+					return writeLines(inv.Out, head+"; this session stays on team \""+nameLine(m.TeamName)+"\" until you start a new session or exit and resume this one")
+				case m.TeamKey == teamstore.Key(f.Adapter, f.URL, f.TeamRef):
 					return writeLines(inv.Out, head+"; this session is already attached to it")
+				case config.HostOf(inv.Environ) == config.HostGrok:
+					return writeLines(inv.Out, head+"; this session stays on the backend the team left until you start a new session or exit and resume this one")
+				case m.Checkout != "" && m.Checkout != canon:
+					return writeLines(inv.Out, head+"; this session was started in another checkout and stays where it is: a session moves with the checkout it was started in")
 				}
-				return writeLines(inv.Out, head+"; this session stays on team \""+nameLine(m.TeamName)+"\" until you start a new session or exit and resume this one")
+				// A registration there that failed a moment ago must not hold
+				// the next prompt back.
+				_ = os.Remove(config.RegisterRetryStamp(t.stateDir, pid))
+				return writeLines(inv.Out, head+"; this session moves there at your next prompt")
 			}
 			// The prompt hook re-registers an unmapped session once a
 			// minute (P5-18); without its stamp the very next prompt

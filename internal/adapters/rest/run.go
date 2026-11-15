@@ -28,11 +28,14 @@ var errHelp = errors.New("help requested")
 const usageText = "brigade adapter rest" + ` [--profile <name>] [--log-level <l>] <group> <verb> [flags]
 
 groups:  describe | team <create|join|leave|members|rotate-secret|revoke-member|transfer>
+         team <take-in|open-move|close-move>
          session <register|heartbeat|list|close> | message <send|receive|ack|watch>
          profile <init|status|reset|revoke-credentials>
 flags:   --session <id>  --include-offline  --limit <n>  --name  --label  --prompt  --secret-file
-         team create: --create-token-file <path>;  profile init: --url <https-url> [--force]
+         team create, team take-in: --create-token-file <path>;  profile init: --url <https-url> [--force]
          team revoke-member: --principal <ref> [--ban] | --max-version <n>;  team transfer: --principal <ref>
+         team take-in: [--secret-file <path>] [--name <team_name>] [--label <label>]
+         team open-move: --ticket-file <path> [--ticket-days <n>]
 The backend is the profile's (profile init, or the backend member of team join).
 The server's side of every command is docs/backend-rest-v1.md.`
 
@@ -41,7 +44,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []str
 	c := &command{
 		stdin: stdin, stdout: stdout, stderr: stderr,
 		environ: environ, now: o.clock(), log: slog.New(discardHandler{}),
-		ctx: o.context(), timing: o.intervals(), redactor: adapterlog.NewRedactor(),
+		ctx: o.context(), timing: o.intervals(), redactor: o.redaction(),
 	}
 	if err := c.setup(args); err != nil {
 		if errors.Is(err, errHelp) {

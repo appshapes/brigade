@@ -8,7 +8,10 @@
 //! A team the operator takes in from another backend is a job too, of a kind of its own, and so are the
 //! owner the operator names for a team, the team the operator takes back, and the move of a team's members
 //! that the operator opens or closes: each changes the state through the same queue, the same append and
-//! the same sync, and is nothing a request can ask for.
+//! the same sync, and none of these kinds is reached by a request. A request has its own way to three of
+//! them, as any request has (the contract's section 3b): it takes a team in for the caller that then owns
+//! it, and opens and closes a move for the team's owner. Naming an owner and taking a team back are the
+//! operator's alone.
 //!
 //! A failed append ends the process: the state already holds what the log does not, and nothing may be
 //! answered from it.
@@ -68,15 +71,17 @@ enum Work {
     Request {
         /// The SHA-256 of the credential the request presented, when it presented one.
         caller: Option<String>,
-        /// Whether the request may create a team.
+        /// Whether the request may put a team on the server, by creating one or by taking one in.
         may_create: bool,
-        /// Whether the request's join may own a team that has no owner.
+        /// Whether the request may make its caller the owner of a team: by a join of one that has no
+        /// owner, or by taking one in.
         may_own: bool,
         path: String,
         body: Bytes,
     },
-    /// To take in a team that exists elsewhere, with the join secret it has there. It is a kind of its own
-    /// and not a request, so no path of the contract reaches it: only the operator's command line asks it.
+    /// To take in a team that exists elsewhere, with the join secret it has there, and with no owner. It is
+    /// a kind of its own and not a request, so no path of the contract reaches it: only the operator's
+    /// command line asks it. A request that takes a team in is a request like any other.
     Import {
         /// The name the team gets here.
         team_name: String,
@@ -129,9 +134,10 @@ impl Client {
     /// Has the engine answer one request. The body goes to the engine as it arrived: nothing of it is read
     /// before the engine has looked at the credential.
     ///
-    /// `may_create` says whether the request may create a team, and `may_own` whether its join may make
-    /// the caller the owner of a team that has none. A request that came over HTTP may own; one a gateway
-    /// makes inside the server never does.
+    /// `may_create` says whether the request may put a team on the server, by creating one or by taking
+    /// one in, and `may_own` whether it may make the caller the owner of a team: by a join of one that has
+    /// none, or by taking one in. A request that came over HTTP may own; one a gateway makes inside the
+    /// server never does.
     ///
     /// # Errors
     /// The failure the request is answered with; `unavailable` when the server is stopping.

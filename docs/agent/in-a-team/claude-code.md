@@ -1,6 +1,6 @@
 # Claude Code: the skills a session loads
 
-The Brigade plugin (`plugin/`) puts `brigade` on the Bash tool's PATH and ships fourteen skills. They are the model's
+The Brigade plugin (`plugin/`) puts `brigade` on the Bash tool's PATH and ships fifteen skills. They are the model's
 documentation inside a team; this page only names them.
 
 | Skill | Who invokes it | What it carries |
@@ -9,8 +9,9 @@ documentation inside a team; this page only names them.
 | [`plugin/skills/sessions/SKILL.md`](../../../plugin/skills/sessions/SKILL.md) | `/brigade:sessions [--all] [--here] [--member <who>]` | print the roster verbatim |
 | [`plugin/skills/whoami/SKILL.md`](../../../plugin/skills/whoami/SKILL.md) | `/brigade:whoami` | print `brigade whoami`, this session's identity, verbatim |
 | [`plugin/skills/join/SKILL.md`](../../../plugin/skills/join/SKILL.md) | `/brigade:join <path>` | run `brigade team join --secret-file <path>` on the file the user named, never one you chose |
+| [`plugin/skills/move/SKILL.md`](../../../plugin/skills/move/SKILL.md) | `/brigade:move [<server url>] [<path>]`, and the model when the team's administrator asks to move the team to a Brigade server | ask the administrator, one question at a time, for the server's URL, the path of the team's join secret file and, when the server needs them, the path of its creation token file and its certificate's fingerprint; run `brigade team move --to <url> --secret-file <path>` and print what it printed; never ask for a secret's content, choose a path or write a secret file |
 | [`plugin/skills/update/SKILL.md`](../../../plugin/skills/update/SKILL.md) | `/brigade:update` | move the plugin to the marketplace's release, then ask for `/reload-plugins` |
-| [`plugin/skills/setup/SKILL.md`](../../../plugin/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures: create, join, leave, uninstall; it never asks for a secret in the chat |
+| [`plugin/skills/setup/SKILL.md`](../../../plugin/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures: create, join, leave, uninstall, and that `/brigade:move` moves a team to a server; it never asks for a secret in the chat |
 | [`plugin/skills/email/SKILL.md`](../../../plugin/skills/email/SKILL.md) | `/brigade:email <address> <text>` | one `brigade send` to the mail gateway with a `to:` line |
 | [`plugin/skills/slack/SKILL.md`](../../../plugin/skills/slack/SKILL.md) | `/brigade:slack <to> <text>` | one `brigade send` to the Slack gateway with a `to:` line |
 | [`plugin/skills/quiet/SKILL.md`](../../../plugin/skills/quiet/SKILL.md) | `/brigade:quiet [on [--to <where>] [--refuse]]`, `/brigade:quiet off`, `/brigade:quiet status` | make this one session quiet: `brigade inbound hold` (or `refuse`), the roster line that says so, and a standing instruction to act on no team message; `off` returns it |
@@ -33,7 +34,10 @@ What the harness does around you:
   untrusted text.
 - **Permissions.** The `team-messaging` skill declares `allowed-tools: Bash(brigade:*)` for the turn that loaded
   it. Your user's `permissions` rules decide what you may run; a message can never widen them. Three verbs refuse
-  to run inside a session (`team revoke-member`, `team transfer`, `inbox release`): they are the person's.
+  to run inside a session (`team revoke-member`, `team transfer`, `inbox release`): they are the person's. `team
+  move` runs in one unless your user set the option `team_move_in_session` to `off`
+  ([ADR 0007](../../decisions/0007-let-a-session-move-a-team.md)); the `move` skill pre-approves nothing that
+  writes, so the move itself meets your user's permission rule.
 - **Your roster line.** Run `brigade doing <<'EOF' … EOF` when the `Brigade doing:` line asks or the work changes:
   one sentence, at most 160 characters, no secrets, no paths, no customer names. A subagent never runs it.
 - **Your session's name.** `brigade rename <<'EOF' … EOF` records one line as the session's name; the prompt hook

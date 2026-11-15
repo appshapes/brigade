@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | Server URL | `https://<host>:8743` | the name or address members reach the server by, and the port of `--listen` | everyone on the team; committed in `.brigade.json` |
 | Certificate fingerprint | `sha256:` and 64 hex digits | the server's start line, `(certificate sha256:…)` | everyone on the team; committed in `.brigade.json` |
-| Creation token | one line of your choosing | the file you gave `--create-token-file` | the Team Admins you let create teams, over a password manager |
+| Creation token | one line of your choosing | the file you gave `--create-token-file` | the Team Admins you let create a team here or move one here, over a password manager |
 | Data directory | | the server's machine | nobody; it holds every message |
 
 - **The URL** is the one members' machines can reach: a name they resolve, or an address. A member's session
@@ -17,4 +17,7 @@
 - **The creation token** exists only if you set one. Without it anyone who can reach the server can create a
   team, and there is nothing to hand over.
 
-The Team Admin's side is [Create the team on a server](../../team-admin/create/create-on-a-server.md).
+The Team Admin's side is [Create the team on a server](../../team-admin/create/create-on-a-server.md), and for a
+team that comes from a Supabase project, [Move the team to a server](../../team-admin/members/move-the-team.md):
+`brigade team move --to` takes the URL, the fingerprint (`--certificate`) and the token's file
+(`--create-token-file`).

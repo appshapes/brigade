@@ -20,16 +20,16 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
-	"github.com/appshapes/brigade/internal/harness/teamfile"
-	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // prompt is `brigade hook prompt` (6.3): refresh permission_mode and the
 // transcript path in the map, decide the inbound policy again with the
 // mode this prompt carries and the settings as they are now (card 50),
-// keep the watcher alive — replaced when the policy changed, so it runs
-// under the new one — print the watcher's notice once, remind the model of
+// follow the session's team when it moved to another backend (move.go,
+// work item 327), keep the watcher alive — replaced when the policy
+// changed, so it runs under the new one — print the watcher's notice once,
+// remind the model of
 // its doing line where Brigade may (card 25, plan 5.4), run the opt-in
 // poll through the shared inbound pipeline, and print the held notice
 // while anything is held under the `hold` policy (P5-9). It prints nothing
@@ -48,6 +48,14 @@ func (r *run) prompt() int {
 	}
 	ctx, cancel := r.hookContext(r.deps.PromptBudget)
 	defer cancel()
+	// The notice of a move goes as this hook's last act, after everything
+	// it says is out (the deferred document of a rename included): a hook
+	// that is stopped before here leaves it for the next prompt (sayMoved).
+	defer func() {
+		if r.movedSaid {
+			r.dropMovedNotice(f)
+		}
+	}()
 
 	store := sessionmap.Store{StateDir: f.stateDir}
 	m, err := store.ReadByPID(f.pid)
@@ -99,9 +107,21 @@ func (r *run) prompt() int {
 			r.log.Warn("prompt: session map not updated", log.Err(werr))
 		}
 	}
-	spawned := r.ensureWatcher(ctx, f, m, replaceWatcher)
+	// A move this session's hook made and was stopped before saying: this
+	// prompt says it.
+	r.sayMoved(ctx, f, in, m)
+	// The team's move (move.go, work item 327): a session whose team file
+	// names another backend for its team starts the follow, or, once the
+	// checkout followed, is registered anew where the team is. A session
+	// that moved has a new map and a watcher of its own; any other keeps
+	// the watcher it has.
+	var spawned bool
+	if moved := r.moveSession(ctx, f, in, m); moved != nil {
+		m, spawned = moved, true
+	} else {
+		spawned = r.ensureWatcher(ctx, f, m, replaceWatcher)
+	}
 	r.printNotice(f)
-	r.movedNotice(f, in, m)
 	// Before the poll, not last: the poll can take receiveTimeout of the
 	// budget, and the line must not land after untrusted poll frames.
 	r.doingNudge(ctx, f, in, m)
@@ -364,45 +384,6 @@ func (r *run) heldNotice(f facts, m *sessionmap.ByPID) {
 	}
 }
 
-// movedNotice tells an attached session, once, that its project's team
-// file now names another backend for the team it is attached to (work item
-// 273, ADR 0003). A session moves only when it starts: the one that was
-// running when the administrator pushed the changed file stays on the
-// backend it registered with, where its teammates' new sessions no longer
-// are, and nothing else would say so. The file is read and nothing is
-// asked of any backend: whether the move is recorded is the next
-// session's question. A file that is gone, does not parse, names another
-// team or names the backend the session is on says nothing, and so does a
-// session that has been told: the stamp holds the Brigade session that was,
-// so one a dead session left under the same process id silences nobody.
-// The read is made at every prompt of an attached session and costs about
-// 27 microseconds (measured 2026-11-13 on this repository's own team file,
-// from three directories down), which is why nothing is kept to avoid it.
-func (r *run) movedNotice(f facts, in input, m *sessionmap.ByPID) {
-	if m.TeamRef == "" || m.TeamKey == "" || m.BrigadeSessionID == "" {
-		return
-	}
-	stamp := config.TeamMovedStamp(f.stateDir, f.pid)
-	if told, err := adapterkit.ReadStrict(stamp); err == nil && strings.TrimSpace(string(told)) == m.BrigadeSessionID {
-		return
-	}
-	path, found := teamfile.Discover(in.Cwd)
-	if !found {
-		return
-	}
-	tf, err := teamfile.Parse(path)
-	if err != nil || tf.TeamRef != m.TeamRef || teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef) == m.TeamKey {
-		return
-	}
-	if !r.fits(movedLine) {
-		return
-	}
-	r.say(movedLine)
-	if err := adapterkit.WriteAtomic(stamp, []byte(m.BrigadeSessionID+"\n")); err != nil {
-		r.log.Debug("prompt: the team-moved stamp was not written; the line is said again", log.Err(err))
-	}
-}
-
 // retryConnect re-runs the registration at most once per
 // registerRetryInterval, inside the prompt budget. The stamp is written
 // only AFTER the attempt returns (P5-18): Claude Code kills a hook that
@@ -422,6 +403,11 @@ func (r *run) retryConnect(ctx context.Context, f facts, in input) {
 	}
 	r.log.Info("prompt: not registered; retrying the registration")
 	r.connect(ctx, f, in, min(r.deps.PidfileWait, promptPidfileWait))
+	if _, err := (sessionmap.Store{StateDir: f.stateDir}).ReadByPID(f.pid); err == nil {
+		// The session is attached now: what its conversation was told while
+		// it was not (that a follow was started for it, move.go) is over.
+		r.forgetTold(f)
+	}
 	if err := adapterkit.MkdirPrivate(filepath.Join(f.stateDir, "state")); err == nil {
 		if werr := adapterkit.WriteAtomic(stamp, []byte(r.deps.Now().Format(time.RFC3339Nano)+"\n")); werr != nil {
 			r.log.Debug("prompt: retry stamp not written", log.Err(werr))
@@ -517,7 +503,9 @@ func policyNowLine(p policy.Policy) string {
 // is dead here and replaced by the watcher itself. Without a socket (and
 // no sink) there is nothing to inject into and nothing is spawned. With
 // replace set, a live watcher of this version is replaced too: the inbound
-// policy it was started under has changed (card 50).
+// policy it was started under has changed (card 50). A live watcher that
+// serves another session than the map names is no watcher of this session:
+// the session's own is started beside it, and retires it (work item 327).
 func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, replace bool) bool {
 	if !r.canInject(f) {
 		r.log.Debug("prompt: no inbox socket; the watcher is not needed")
@@ -527,6 +515,18 @@ func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, r
 	switch {
 	case err != nil:
 		r.log.Warn("prompt: watcher pidfile unreadable; spawning anyway", log.Err(err))
+	case v.Found && v.Alive && v.Entry.BrigadeSessionID != m.BrigadeSessionID:
+		// A live watcher of another session than the map names: the one the
+		// session had before a hook moved it and was stopped before it
+		// started the watcher of the session it has now (reattach). That
+		// watcher ends by itself once it sees the map, after its tick and
+		// its `session close` on the backend the team left, and until then
+		// it stood for a watcher here: a prompt in that time started none,
+		// and the session waited for another prompt to be served. The
+		// watcher that is started retires it (its guard), as the one the
+		// hook that moves a session starts does, and neither is waited for.
+		r.log.Info("prompt: the live watcher serves another session; starting this session's", slog.Int("watcher_pid", v.Entry.PID))
+		return r.spawnWatcher(ctx, f, m, 0)
 	case v.Found && v.Alive && v.Entry.Version == buildinfo.String() && !replace:
 		return false
 	case v.Found && v.Alive:

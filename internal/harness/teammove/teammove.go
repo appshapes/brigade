@@ -1,5 +1,5 @@
 // Package teammove follows a team that moved to another backend (work
-// item 273, part 2; ADR 0003; docs/security.md).
+// item 273, part 2; ADR 0003; work item 327, ADR 0008; docs/security.md).
 //
 // A checkout's pin is its member's consent to one team at one backend. When
 // the project's team file names another backend for the same team, the pin
@@ -20,7 +20,9 @@
 // This is the one writer of the team store that a hook reaches. The hook
 // package itself still may not import teamstore/write (the depguard rule
 // hook-reads-the-store): what it calls is Follow, which writes a pin only
-// behind the comparison above.
+// behind the comparison above. A session's start calls it in its own run;
+// a prompt, which has no time for it, through the child it starts,
+// `brigade hook follow` (work item 327, ADR 0008).
 package teammove
 
 import (
@@ -46,11 +48,38 @@ import (
 
 // lockTimeout bounds the wait for another session of this machine that is
 // following a move at the same moment. The one that waited finds the pin
-// written and joins nothing.
+// written, or the membership another checkout's follow made, and joins
+// nothing.
 const lockTimeout = 10 * time.Second
 
 // lockName is the lock file's name under the config directory.
 const lockName = "team-move.lock"
+
+// Lock waits for the follow's lock for a caller that joins this machine to
+// a team by another road: a member's own `brigade team join`. A follow
+// reads the machine's membership under this lock and joins only when it
+// finds none, so a join made beside it, before either has a credential,
+// leaves the backend two memberships of one machine. The caller holds the
+// lock from its own reading of the membership to its pin, and never while
+// it waits for a person. It waits for wait, or as long as a follow does
+// when wait is zero, and the directory is made first: a machine's first
+// join has no store yet.
+//
+// The lock is one for the whole store, and a follow holds it across its
+// question to the old backend, which can hang for as long as that
+// backend's adapter waits. So an error here is not the caller's to fail on:
+// a join is its member's own command, for this team or any other, and goes
+// on without the lock (firstJoin). Follow reads the pin and the membership
+// again once its question is answered, and finds what such a join made.
+func Lock(configDir string, wait time.Duration) (*adapterkit.FileLock, error) {
+	if wait <= 0 {
+		wait = lockTimeout
+	}
+	if err := adapterkit.MkdirPrivate(configDir); err != nil {
+		return nil, err
+	}
+	return adapterkit.LockFile(filepath.Join(configDir, lockName), wait)
+}
 
 // ticketPrefix names the file the old backend's adapter writes the ticket
 // to, in the config directory, for the moment between its answer and the
@@ -109,6 +138,15 @@ type Inputs struct {
 	Now func() time.Time
 	// Log takes the reasons and the adapters' errors, never a secret.
 	Log *slog.Logger
+	// BeforePin, when set, is called once, when this call is about to write
+	// the checkout's pin, with whether it joined the new backend. A follow
+	// that runs with nobody to tell (the child a prompt hook starts, work
+	// item 327) leaves word for the next hook of the checkout here: the pin
+	// is what says the checkout followed, so whatever is to be found beside
+	// it is in place first. It is not called by a follow that finds the pin
+	// written: another follow of this machine got there, and the word is
+	// that one's to leave.
+	BeforePin func(joined bool)
 }
 
 // An Outcome is what Follow did.
@@ -172,6 +210,49 @@ func Host(raw string) string {
 	return raw
 }
 
+// FollowsFromVersion is the first Brigade version whose sessions follow a
+// recorded move (0.55.0, work item 273): a session of an older one says
+// that its team file does not match, and its member joins with the secret
+// file as before.
+const FollowsFromVersion = "0.55.0"
+
+// followsFrom is FollowsFromVersion in numbers.
+var followsFrom = [3]int{0, 55, 0}
+
+// OlderThanFollow reports whether a session that reports the Brigade
+// version v is older than the first one that follows a recorded move. Only
+// a version this build can read counts: three dot-separated runs of
+// decimal digits, with whatever follows a `-` or a `+` left out (a
+// development build reports `0.55.0-dev`). Anything else, "" and
+// "unknown" included, is false: nothing is said about a session whose
+// version cannot be read.
+func OlderThanFollow(v string) bool {
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) != len(followsFrom) {
+		return false
+	}
+	var got [3]int
+	for i, part := range parts {
+		// Nine digits at most: a run that long is no version, and it keeps
+		// the number inside an int on every platform.
+		if part == "" || len(part) > 9 || strings.Trim(part, "0123456789") != "" {
+			return false
+		}
+		for _, digit := range part {
+			got[i] = got[i]*10 + int(digit-'0')
+		}
+	}
+	for i := range got {
+		if got[i] != followsFrom[i] {
+			return got[i] < followsFrom[i]
+		}
+	}
+	return false
+}
+
 // Follow follows the move in.File names, when the backend in.Pin names
 // says the team's administrator recorded exactly that move. It returns
 // Followed false with a Reason whenever it did not, having changed nothing
@@ -233,6 +314,18 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 	if pin, pinned, perr := teamstore.LookupPin(in.ConfigDir, in.Checkout); perr == nil && pinned && pin.Matches(in.File) {
 		return Outcome{Followed: true}, nil
 	}
+	// And a follow of ANOTHER checkout of the team may have joined while this
+	// one waited: the pin above is that checkout's, not this one's, so the
+	// membership is what shows it. It was read before the lock, to send a
+	// machine that left away without a question; under the lock no follow is
+	// between its join and its binding, so it is read again here, and this
+	// one joins only if the machine still holds no membership the file
+	// describes. Without this, two checkouts that followed in one instant
+	// each presented the move's ticket (work item 327).
+	existing, berr = teamstore.LoadBinding(in.ConfigDir, newKey)
+	if berr == nil && existing.TeamRef == "" && existing.PrincipalRef != "" {
+		return Outcome{Reason: ReasonLeft}, nil
+	}
 	// A follow that was killed between its adapter's answer and its own end
 	// left its ticket file behind. Under the lock no other follow of this
 	// machine is in that moment, so whatever is there is such a leftover.
@@ -265,6 +358,23 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		return Outcome{Reason: ReasonRecordElsewhere}, nil
 	}
 
+	// The question above is the one call of a follow that can hang, and it
+	// is asked under the lock. A member's own `brigade team join` waits ten
+	// seconds for that lock and then goes on without it (Lock), so the store
+	// can have changed since it was read above: what this follow is about to
+	// act on is read again here, just before it would join. A pin that
+	// matches the file is the member's own join in this checkout, and is
+	// theirs: nothing is written over it and no word is left. A membership
+	// is the one that join made, in this checkout or in another, and this
+	// follow presents no ticket for a second one.
+	if pin, pinned, perr := teamstore.LookupPin(in.ConfigDir, in.Checkout); perr == nil && pinned && pin.Matches(in.File) {
+		return Outcome{Followed: true}, nil
+	}
+	existing, berr = teamstore.LoadBinding(in.ConfigDir, newKey)
+	if berr == nil && existing.TeamRef == "" && existing.PrincipalRef != "" {
+		return Outcome{Reason: ReasonLeft}, nil
+	}
+
 	joined := false
 	if berr != nil || teamstore.VerifyBinding(existing, in.File) != nil {
 		// This machine holds no membership at the new backend that the file
@@ -289,8 +399,11 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		if reason, jerr := join(ctx, in, newClient, newKey, ticket, old.HumanLabel); reason != "" {
 			return Outcome{Reason: reason}, jerr
 		}
-		carryLabelOrigin(in, oldKey, newKey, old.HumanLabel)
+		CarryLabelOrigin(in.ConfigDir, oldKey, newKey, old.HumanLabel, in.Now().UTC(), in.Log)
 		joined = true
+	}
+	if in.BeforePin != nil {
+		in.BeforePin(joined)
 	}
 	if err := write.Pin(in.ConfigDir, in.Checkout, teamstore.Pin{
 		Adapter: in.File.Adapter, URL: in.File.URL, PublishableKey: in.File.PublishableKey, Certificate: in.File.Certificate,
@@ -374,23 +487,25 @@ func join(ctx context.Context, in Inputs, client Caller, key, ticket, label stri
 	return "", nil
 }
 
-// carryLabelOrigin copies the record of where the member's label came from
+// CarryLabelOrigin copies the record of where the member's label came from
 // to the new credential directory, when the old one describes the label
 // that was just sent: the label is the same text, from the same source,
 // and `whoami` goes on saying where it came from. Best effort, as the
 // record is everywhere: without it `whoami` says the origin is unrecorded.
-func carryLabelOrigin(in Inputs, oldKey, newKey, label string) {
+// The follow calls it after its join, and `team move --to` after the
+// administrator's take-in (work item 328), which sends the same label.
+func CarryLabelOrigin(configDir, oldKey, newKey, label string, now time.Time, log *slog.Logger) {
 	if label == "" {
 		return
 	}
-	origin, err := teamstore.LoadLabelOrigin(in.ConfigDir, oldKey)
+	origin, err := teamstore.LoadLabelOrigin(configDir, oldKey)
 	if err != nil || !origin.Describes(label) {
 		return
 	}
 	carried := *origin
-	carried.SentAt = in.Now().UTC()
-	if err := write.LabelOrigin(in.ConfigDir, newKey, carried); err != nil && in.Log != nil {
-		in.Log.Debug("the label's record was not carried to the new backend's directory", slog.String("error", err.Error()))
+	carried.SentAt = now
+	if err := write.LabelOrigin(configDir, newKey, carried); err != nil && log != nil {
+		log.Debug("the label's record was not carried to the new backend's directory", slog.String("error", err.Error()))
 	}
 }
 

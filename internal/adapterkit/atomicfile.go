@@ -1,10 +1,13 @@
 package adapterkit
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -73,6 +76,76 @@ func WriteAtomicMode(path string, data []byte, mode os.FileMode) error {
 	// (fsync_unix.go; on Windows the directory cannot be flushed and the
 	// step is a no-op, fsync_windows.go.)
 	return syncDir(dir)
+}
+
+// probeBytes is how much CanWriteAtomic writes: more than the longest file
+// it stands in for, a join secret or a move ticket on one line, so a disk
+// with no room for that file has none for the probe either.
+const probeBytes = 4096
+
+// CanWriteAtomic reports whether WriteAtomic could put a file at path now,
+// by doing it beside path: it makes a file of its own in path's directory,
+// writes it by WriteAtomic itself (a temporary file, the write, the sync
+// and the rename over a name that exists) and removes it. path itself is
+// not opened, not changed and not followed, so what is there stays as it
+// is, a symbolic link included. A path that names a directory is refused:
+// the rename onto it would fail. The probe's name is as long as path's own
+// (probeName), so the temporary file WriteAtomic makes for the probe is as
+// long as the one it makes for path: a name the file system has room for
+// passes, and one it has none for is refused, as the write would be.
+//
+// A caller asks before it does something that cannot be undone and whose
+// answer it then has to write to path: the request that opens a move puts a
+// new ticket in the place of the live one, and the one that rotates a join
+// secret ends the secret before it. A directory that takes no file, a disk
+// with no room and a path that names a directory are told here, while they
+// cost nothing. It says what held a moment ago and no more: a directory
+// that is taken away afterwards still fails the write.
+func CanWriteAtomic(path string) error {
+	if info, err := os.Lstat(path); err == nil && info.IsDir() {
+		return fmt.Errorf("adapterkit: %s is a directory", path)
+	}
+	name, err := probeName(filepath.Base(path))
+	if err != nil {
+		return fmt.Errorf("adapterkit: name a probe for an atomic write: %w", err)
+	}
+	// O_EXCL: the probe is a file of this call's making, and never one that
+	// was there.
+	f, err := os.OpenFile(filepath.Join(filepath.Dir(path), name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("adapterkit: create a probe for an atomic write: %w", err)
+	}
+	probe := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(probe)
+		return fmt.Errorf("adapterkit: close the probe for an atomic write: %w", err)
+	}
+	if err := WriteAtomic(probe, make([]byte, probeBytes)); err != nil {
+		_ = os.Remove(probe)
+		return err
+	}
+	if err := os.Remove(probe); err != nil {
+		return fmt.Errorf("adapterkit: remove the probe of an atomic write: %w", err)
+	}
+	return nil
+}
+
+// probeName is a name for CanWriteAtomic's file beside one named base: 64
+// random bits after a prefix no ticket file and no secret file has, and
+// filled out to the length of base when base is longer. WriteAtomic names
+// its temporary file after the file it writes, with a suffix of its own,
+// and a file system takes a name of so many bytes and no more. A probe
+// that was named after base with a suffix more, as it once was, had a
+// longer temporary file than the write it stood in for, and was refused
+// for names the write takes; one that is shorter than base would pass for
+// names the write is refused for.
+func probeName(base string) (string, error) {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	name := ".probe-" + hex.EncodeToString(random[:])
+	return name + strings.Repeat("-", max(0, len(base)-len(name))), nil
 }
 
 // MaxStrictBytes caps what ReadStrict will read: every private file it

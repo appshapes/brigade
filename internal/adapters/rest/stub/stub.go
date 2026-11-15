@@ -36,6 +36,11 @@
 //     team administration, so the stub keeps them in memory beside its
 //     credentials and ends a membership by running `team leave` for the
 //     member it revokes.
+//   - A team that is taken in by request, and the move its owner opens and
+//     closes, are the stub's own as well (takein.go): the fs adapter has
+//     no command that takes a team in, so the stub writes the team's
+//     record through fs.TakeIn, joins the caller to it, and keeps the
+//     owner and the move ticket in memory.
 package stub
 
 import (
@@ -93,6 +98,11 @@ type Options struct {
 	// /v1/info lists no capability, the three paths are unknown, and the
 	// roster carries no joined_secret_version.
 	WithoutTeamAdmin bool
+	// WithoutTakeIn makes the server one that leaves out the three
+	// endpoints of a team's take-in and its move, as the contract lets a
+	// server do: its /v1/info does not list team.take_in and the three
+	// paths are unknown.
+	WithoutTakeIn bool
 }
 
 // A Server is one stand-in backend over one directory.
@@ -103,6 +113,10 @@ type Server struct {
 	createToken string
 	nonce       string
 	teamAdmin   bool
+	takeIn      bool
+	// now is the server's clock: what a move ticket's end is counted from
+	// and held against. A test sets it.
+	now func() time.Time
 
 	// membership makes the requests that change who is in a team, or read
 	// it to decide something, take turns: a create, a join and the three
@@ -153,6 +167,8 @@ func New(dir string, o Options) (*Server, error) {
 		createToken: o.CreateToken,
 		nonce:       hex.EncodeToString(seed[:]),
 		teamAdmin:   !o.WithoutTeamAdmin,
+		takeIn:      !o.WithoutTakeIn,
+		now:         time.Now,
 		principals:  map[[sha256.Size]byte]*principal{},
 		inboxes:     map[string]*inbox{},
 		byRef:       map[string]*principal{},
@@ -177,25 +193,36 @@ type endpoint struct {
 	// admin endpoints are the three of the contract's section 3a, which a
 	// server may leave out.
 	admin bool
+	// takeIn endpoints are the three of a team's take-in and its move,
+	// which a server may leave out as well.
+	takeIn bool
+	// reads endpoints change nothing the server holds. A request to any
+	// other, answered for a credential the stub knows, is its principal's
+	// own and ends the retry key a team keeps for that principal
+	// (takein.go).
+	reads bool
 	run   func(*Server, *call) (any, *protocol.Error)
 }
 
 // endpoints is the contract's section 2.
 var endpoints = map[string]endpoint{
-	"/v1/info":               {open: true, run: (*Server).info},
+	"/v1/info":               {open: true, reads: true, run: (*Server).info},
 	"/v1/team/create":        {open: true, run: (*Server).teamCreate},
 	"/v1/team/join":          {open: true, run: (*Server).teamJoin},
 	"/v1/team/leave":         {run: (*Server).teamLeave},
-	"/v1/team/members":       {run: (*Server).teamMembers},
+	"/v1/team/members":       {reads: true, run: (*Server).teamMembers},
 	"/v1/team/rotate-secret": {admin: true, run: (*Server).teamRotateSecret},
 	"/v1/team/revoke-member": {admin: true, run: (*Server).teamRevokeMember},
 	"/v1/team/transfer":      {admin: true, run: (*Server).teamTransfer},
+	"/v1/team/take-in":       {open: true, takeIn: true, run: (*Server).teamTakeIn},
+	"/v1/team/open-move":     {takeIn: true, run: (*Server).teamOpenMove},
+	"/v1/team/close-move":    {takeIn: true, run: (*Server).teamCloseMove},
 	"/v1/session/register":   {run: (*Server).sessionRegister},
 	"/v1/session/heartbeat":  {run: (*Server).sessionHeartbeat},
-	"/v1/session/list":       {run: (*Server).sessionList},
+	"/v1/session/list":       {reads: true, run: (*Server).sessionList},
 	"/v1/session/close":      {run: (*Server).sessionClose},
 	"/v1/message/send":       {run: (*Server).messageSend},
-	"/v1/message/receive":    {run: (*Server).messageReceive},
+	"/v1/message/receive":    {reads: true, run: (*Server).messageReceive},
 	"/v1/message/ack":        {run: (*Server).messageAck},
 	"/v1/credential/revoke":  {run: (*Server).credentialRevoke},
 }
@@ -204,7 +231,7 @@ var endpoints = map[string]endpoint{
 // the contract's section 1 pairs with it.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ep, known := endpoints[r.URL.Path]
-	if !known || (ep.admin && !s.teamAdmin) {
+	if !known || (ep.admin && !s.teamAdmin) || (ep.takeIn && !s.takeIn) {
 		writeError(w, &protocol.Error{Code: protocol.CodeNotFound, Message: "no such endpoint"})
 		return
 	}
@@ -230,10 +257,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, unknownCredential())
 		return
 	}
+	// The principal the request's own credential names, before the endpoint
+	// runs: a take-in made again is answered for a principal it carried no
+	// credential of.
+	asked := c.who
 	result, perr := ep.run(s, c)
 	if perr != nil {
 		writeError(w, perr)
 		return
+	}
+	if asked != nil && !ep.reads {
+		s.endRetryKeys(asked)
 	}
 	writeResult(w, result)
 }
@@ -241,28 +275,49 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // ---- the endpoints ----
 
 // info answers /v1/info. A server that carries the administration
-// endpoints lists `team.admin` in `capabilities`; one that leaves them out
-// has no such member (the contract's section 3a).
+// endpoints lists `team.admin` in `capabilities`, and one that carries the
+// endpoints of a team's take-in lists `team.take_in`; a server that leaves
+// both out has no such member (the contract's section 3a, and its section
+// on taking a team in).
 func (s *Server) info(*call) (any, *protocol.Error) {
 	out := map[string]any{
 		"contract_version": contractVersion,
 		"server":           map[string]string{"name": serverName, "version": buildinfo.String()},
 	}
+	var capabilities []string
 	if s.teamAdmin {
-		out["capabilities"] = []string{capTeamAdmin}
+		capabilities = append(capabilities, capTeamAdmin)
+	}
+	if s.takeIn {
+		capabilities = append(capabilities, capTeamTakeIn)
+	}
+	if len(capabilities) > 0 {
+		out["capabilities"] = capabilities
 	}
 	return out, nil
+}
+
+// mayCreate is the creation rule of the contract's section 3: a server
+// that was given a creation token answers a creation, and a take-in, which
+// puts a team on the server as a creation does, only to a request that
+// carries it.
+func (s *Server) mayCreate(c *call) *protocol.Error {
+	if s.createToken == "" {
+		return nil
+	}
+	presented := c.r.Header.Get(createTokenHeader)
+	if subtle.ConstantTimeCompare([]byte(presented), []byte(s.createToken)) != 1 {
+		return &protocol.Error{Code: protocol.CodeUnauthorized, Message: "this server does not let this caller create a team"}
+	}
+	return nil
 }
 
 // teamCreate creates a team as the caller: the principal a known
 // credential names, else a new principal whose credential rides the
 // result. A create that fails for a new principal leaves nothing behind.
 func (s *Server) teamCreate(c *call) (any, *protocol.Error) {
-	if s.createToken != "" {
-		presented := c.r.Header.Get(createTokenHeader)
-		if subtle.ConstantTimeCompare([]byte(presented), []byte(s.createToken)) != 1 {
-			return nil, &protocol.Error{Code: protocol.CodeUnauthorized, Message: "this server does not let this caller create a team"}
-		}
+	if perr := s.mayCreate(c); perr != nil {
+		return nil, perr
 	}
 	req := &protocol.TeamCreateRequest{}
 	if perr := decode(c.body, req); perr != nil {

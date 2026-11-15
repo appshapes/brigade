@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"path/filepath"
 	"strconv"
 )
@@ -28,15 +30,59 @@ func DoingNudgeStamp(stateDir string, pid int) string {
 	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".doing-nudge")
 }
 
-// TeamMovedStamp marks that the prompt hook has told a running session,
-// once, that its project's team file now names another backend for the
-// team it is attached to: ${stateDir}/state/<pid>.team-moved (work item
-// 273). The session stays where it is until it ends, so the line is said
-// once. The file holds the Brigade session that was told, so a stamp a
-// dead session left under the same process id is not this session's;
-// SessionEnd removes it.
+// TeamMovedStamp records what the prompt hook has told a running session
+// about its team's move to another backend: ${stateDir}/state/<pid>.team-moved
+// (work items 273 and 327, ADR 0008). Each line about a move is said once
+// in a conversation, so the file holds the native id of the conversation
+// that was told and one word for each line it has heard. A stamp that a
+// dead session left under the same process id names another conversation
+// and silences nobody; SessionEnd removes it, and so does the prompt that
+// moves the session.
 func TeamMovedStamp(stateDir string, pid int) string {
 	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".team-moved")
+}
+
+// MovedNotice is what the prompt hook that moves a running session leaves
+// before it registers the session on the backend its team went to:
+// ${stateDir}/state/<pid>.moved (work item 327, ADR 0008). A session's id
+// changes when it moves, and Claude Code discards what a prompt hook
+// printed when the hook reaches its timeout: a hook that is stopped
+// between its registration and its end has moved the session and said
+// nothing. The notice names the session and the backend the move is from,
+// and no line: the next prompt that finds it over a map that names another
+// session says the lines itself, from the map and the store. The hook that
+// left it removes it as its last act, and so does a session's start and
+// SessionEnd.
+func MovedNotice(stateDir string, pid int) string {
+	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".moved")
+}
+
+// MoveAttemptStamp is when a prompt hook last started the follow of a
+// team's move for a checkout: ${stateDir}/state/move-<digest>.attempt
+// (work item 327, ADR 0008). A follow asks the backend the checkout joined
+// one question, and this file is what keeps that question from being asked
+// at every prompt: at most one follow a minute is started for a checkout,
+// whichever of its sessions is prompted. The digest is of the member's
+// store and the checkout, so two members on one machine do not share it.
+func MoveAttemptStamp(stateDir, configDir, checkout string) string {
+	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".attempt")
+}
+
+// MoveFollowedMark is what a follow that ran outside a session's start
+// leaves for the checkout it followed in: ${stateDir}/state/
+// move-<digest>.followed (work item 327, ADR 0008). The follow has nobody
+// to tell, so the next hook of a session in that checkout says the
+// follow's line and removes the file: the session that asked, or, when it
+// ended first, the next one to start there.
+func MoveFollowedMark(stateDir, configDir, checkout string) string {
+	return filepath.Join(stateDir, "state", "move-"+moveDigest(configDir, checkout)+".followed")
+}
+
+// moveDigest names a checkout of one member's store in a file name: 16
+// bytes of the SHA-256 of the two paths, a zero byte between them.
+func moveDigest(configDir, checkout string) string {
+	sum := sha256.Sum256([]byte(configDir + "\x00" + checkout))
+	return hex.EncodeToString(sum[:16])
 }
 
 // MaxSessionNameChars caps the name `brigade rename` records and the

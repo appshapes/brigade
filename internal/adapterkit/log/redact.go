@@ -158,16 +158,35 @@ func (r *Redactor) Add(secrets ...string) {
 // collected as spans on the original string and merged, so overlapping
 // matches cannot split a secret and leave a fragment. Nil-safe.
 func (r *Redactor) Redact(s string) string {
+	return r.redact(s, true)
+}
+
+// RedactExact replaces every registered exact token found in s with the
+// Redacted marker and applies no format pattern. It is for a value that
+// is kept and shown as data, a name a backend answered with: a pattern
+// over-redacts, which costs a log line its legibility and such a value
+// its meaning. A team named "Standard Bearer ops" reads as a Bearer
+// header to the bearer rule, and one named after a key's prefix as that
+// key. What the caller knows to be secret it has registered, and that is
+// what is taken out, wherever it stands. Nil-safe.
+func (r *Redactor) RedactExact(s string) string {
+	return r.redact(s, false)
+}
+
+// redact is Redact, with the format patterns only when patterns is set.
+func (r *Redactor) redact(s string, patterns bool) string {
 	if s == "" {
 		return s
 	}
 	var spans [][2]int
-	forEachPrefixMatch(s, func(start, end int) bool {
-		spans = append(spans, [2]int{start, end})
-		return true
-	})
-	for _, m := range bearerPattern.FindAllStringIndex(s, -1) {
-		spans = append(spans, [2]int{m[0], m[1]})
+	if patterns {
+		forEachPrefixMatch(s, func(start, end int) bool {
+			spans = append(spans, [2]int{start, end})
+			return true
+		})
+		for _, m := range bearerPattern.FindAllStringIndex(s, -1) {
+			spans = append(spans, [2]int{m[0], m[1]})
+		}
 	}
 	if r != nil {
 		r.mu.RLock()

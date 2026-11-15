@@ -32,8 +32,8 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `conformance` | Run the conformance suite against an adapter (usage: make conformance adapter=<executable> [args="-- fixed args"]) |
 | `server-build` | Build server/target/release/brigade-server, the Brigade server (Rust; needs cargo, outside the acceptance gate) |
 | `server-check` | rustfmt and clippy on server/ with warnings denied, with and without the Cavalry feed (CI) |
-| `server-test` | The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, a team moved there with its join secret, and its members following it there with no command (CI) |
-| `test-move-live` | A team's members following it from the local Supabase stack to the built server, with no command of theirs (needs `make supabase-start supabase-env` and cargo) |
+| `server-test` | The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, a team moved there with its join secret, its members following it there with no command, and a team moved there by one command (CI) |
+| `test-move-live` | A team moved from the local Supabase stack to the built server, by the record and by the one command, and its members following it with no command of theirs (needs `make supabase-start supabase-env` and cargo) |
 | `server-tag` | Tag master's head as the server release server/VERSION names and push the tag; the server-release workflow then publishes the binaries and the image |
 | `server-deps-check` | Fail unless the server links only the crates, licences and sources server/deny.toml allows, with no known advisory (needs cargo-deny) (CI) |
 | `e2e` | Phase 4 no-LLM proof in watcher sink mode against the local stack (CI) |
@@ -45,7 +45,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `muse-digest` | Rewrite marketplace.json's digest and version from muse/brigade/ (cards 115, 114; no Muse needed): after any change under muse/brigade/, and by make release |
 | `codex-plugin-check` | Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI) |
 | `docs-check` | The documentation gate (cards 110, 112; work item 309): README and persona shapes, links and anchors, orphans, harness pages, options, the generated make-target and command pages, a page for every command, the changelog section, the ADRs and that a landed one keeps its text (CI) |
-| `grok-plugin-check` | Validate Grok native package, four hooks, fourteen skills and canonical release assets (CI) |
+| `grok-plugin-check` | Validate Grok native package, four hooks, fifteen skills and canonical release assets (CI) |
 | `docs-generate` | Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines and commands.md from internal/cli's command table (docs-check fails when either is stale) |
 | `plugin-validate` | claude plugin validate on the marketplace and the plugin root |
 | `plugin-dev-pointer` | Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; a prerequisite of plugin-dev and the manual step of docs/experiments/E3-interactive.md |

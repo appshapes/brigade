@@ -4,6 +4,7 @@
 //! before it sends, and the contract says a server never relies on that.
 
 use crate::error::Error;
+use crate::execute::{MOVE_TICKET_DEFAULT_DAYS, MOVE_TICKET_MAX_DAYS};
 use crate::json::Document;
 use crate::limits;
 
@@ -53,6 +54,49 @@ impl JoinSecret {
 impl std::fmt::Debug for JoinSecret {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{JOIN_SECRET_PREFIX}{}.[redacted]", self.team_ref)
+    }
+}
+
+/// The key a take-in may carry, so that the machine which made it can make it again when the answer was
+/// lost (the contract's section 3b). It is its client's own secret: 22 to 128 characters of the alphabet
+/// a credential has, minted from at least 128 random bits. It prints as nothing of itself.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RetryKey(String);
+
+impl RetryKey {
+    /// Reads a retry key.
+    ///
+    /// # Errors
+    /// `invalid_input` naming `retry_key`, in fixed words with no part of the input in them, when the
+    /// text is not within its length or holds a character outside a credential's alphabet.
+    pub fn parse(text: &str) -> Result<Self, Error> {
+        let length = (limits::MIN_RETRY_KEY_CHARS..=limits::MAX_RETRY_KEY_CHARS).contains(&text.len());
+        let alphabet = text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._~+/=-".contains(&byte));
+        if !(length && alphabet) {
+            return Err(Error::refused_value(
+                "retry_key",
+                &format!(
+                    "{} to {} characters from A-Z a-z 0-9 . _ ~ + / = -",
+                    limits::MIN_RETRY_KEY_CHARS,
+                    limits::MAX_RETRY_KEY_CHARS
+                ),
+            ));
+        }
+        Ok(Self(text.to_owned()))
+    }
+
+    /// The key, for the one use it has: its hash.
+    #[must_use]
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for RetryKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("[redacted]")
     }
 }
 
@@ -186,6 +230,29 @@ pub struct TeamJoin {
     pub join_secret: JoinSecret,
     /// The joiner's label; empty when the request gave none.
     pub human_label: String,
+}
+
+/// `/v1/team/take-in`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TeamTakeIn {
+    /// The join secret the team has on the backend it leaves, which it keeps here.
+    pub join_secret: JoinSecret,
+    /// The name the team gets here. It is read only when the server does not hold the team yet.
+    pub team_name: String,
+    /// The caller's label; empty when the request gave none.
+    pub human_label: String,
+    /// The key its client minted for this take-in, when the request carried one: what lets the same
+    /// machine make the request again, as the principal the first one made, when the answer was lost.
+    pub retry_key: Option<RetryKey>,
+}
+
+/// `/v1/team/open-move`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TeamOpenMove {
+    /// The team.
+    pub team_ref: String,
+    /// How many days the ticket admits for.
+    pub ticket_days: u32,
 }
 
 /// Whom a `/v1/team/revoke-member` revokes: the two forms of BAP/1 4.4.10.
@@ -354,6 +421,12 @@ pub enum Command {
     TeamRevokeMember(TeamRevoke),
     /// `/v1/team/transfer`.
     TeamTransfer(TeamTransfer),
+    /// `/v1/team/take-in`.
+    TeamTakeIn(TeamTakeIn),
+    /// `/v1/team/open-move`.
+    TeamOpenMove(TeamOpenMove),
+    /// `/v1/team/close-move`, with the team whose move is closed.
+    TeamCloseMove(String),
     /// `/v1/session/register`.
     SessionRegister(Registration),
     /// `/v1/session/heartbeat`.
@@ -404,6 +477,9 @@ impl Command {
             "/v1/team/rotate-secret" => Ok(Self::TeamRotateSecret(document.named_required_text("team_ref")?)),
             "/v1/team/revoke-member" => team_revoke_member(document),
             "/v1/team/transfer" => team_transfer(document),
+            "/v1/team/take-in" => team_take_in(document),
+            "/v1/team/open-move" => team_open_move(document),
+            "/v1/team/close-move" => Ok(Self::TeamCloseMove(document.named_required_text("team_ref")?)),
             "/v1/session/register" => session_register(document),
             "/v1/session/heartbeat" => session_heartbeat(document),
             "/v1/session/list" => session_list(document),
@@ -428,6 +504,9 @@ impl Command {
                 | "/v1/team/rotate-secret"
                 | "/v1/team/revoke-member"
                 | "/v1/team/transfer"
+                | "/v1/team/take-in"
+                | "/v1/team/open-move"
+                | "/v1/team/close-move"
                 | "/v1/session/register"
                 | "/v1/session/heartbeat"
                 | "/v1/session/list"
@@ -439,11 +518,20 @@ impl Command {
         )
     }
 
-    /// Whether the request at `path` is answered without a known credential: the two that can create a
+    /// Whether the request at `path` is answered without a known credential: the three that can create a
     /// principal.
     #[must_use]
     pub fn open_path(path: &str) -> bool {
-        matches!(path, "/v1/team/create" | "/v1/team/join")
+        matches!(path, "/v1/team/create" | "/v1/team/join" | "/v1/team/take-in")
+    }
+
+    /// Whether the request at `path` can put a team on the server that was not on it: a creation, and the
+    /// taking in of a team that exists on another backend. Both are held to the server's creation rule
+    /// (the contract's sections 3 and 3b), before anything of the request is read beyond that its body is
+    /// one JSON object.
+    #[must_use]
+    pub fn creation_path(path: &str) -> bool {
+        matches!(path, "/v1/team/create" | "/v1/team/take-in")
     }
 
     /// Whether the request at `path` names its team in a `team_ref` whose membership is checked before the
@@ -456,15 +544,19 @@ impl Command {
         )
     }
 
-    /// Whether the request at `path` is one of the three that only a team's owner is answered (the
-    /// contract's section 3a). It names its team in a `team_ref`, and that the caller owns the team is
-    /// checked before the rest of the request is read: a caller that is not the owner learns nothing from
-    /// what else the request held.
+    /// Whether the request at `path` is one of those that only a team's owner is answered: the three of
+    /// the contract's section 3a, and the two that open and close a team's move (section 3b). It names its
+    /// team in a `team_ref`, and that the caller owns the team is checked before the rest of the request is
+    /// read: a caller that is not the owner learns nothing from what else the request held.
     #[must_use]
     pub fn administration_path(path: &str) -> bool {
         matches!(
             path,
-            "/v1/team/rotate-secret" | "/v1/team/revoke-member" | "/v1/team/transfer"
+            "/v1/team/rotate-secret"
+                | "/v1/team/revoke-member"
+                | "/v1/team/transfer"
+                | "/v1/team/open-move"
+                | "/v1/team/close-move"
         )
     }
 }
@@ -535,6 +627,60 @@ fn team_transfer(document: &Document) -> Result<Command, Error> {
     Ok(Command::TeamTransfer(TeamTransfer {
         team_ref: document.named_required_text("team_ref")?,
         principal_ref: document.named_required_text("principal_ref")?,
+    }))
+}
+
+/// A take-in is read as a join is, with the name a creation carries: the secret is there, the name keeps
+/// the rule a created team's name is held to, the label is within its cap, and only then is the secret
+/// held to its format, so a request with two things wrong is told the same one by the stand-in server.
+///
+/// One thing a join does not check: the length of the team reference inside the secret. A join keeps
+/// nothing of what it presents. A take-in keeps the reference, which its caller chose, so the reference is
+/// held to a cap of the server's own ([`limits::MAX_TAKEN_IN_TEAM_REF_CHARS`]). The refusal is in fixed
+/// words, with nothing of the secret in it.
+///
+/// The retry key is read last, and only its form is held here: a key that is not one is refused whatever
+/// the server holds, so the refusal says nothing about any team. A request without the member is the
+/// request it always was.
+fn team_take_in(document: &Document) -> Result<Command, Error> {
+    let secret = document.required_text("join_secret")?;
+    let team_name = document.text("team_name")?.unwrap_or_default();
+    check_team_name(&team_name)?;
+    let human_label =
+        optional_text(document, "human_label", limits::MAX_HUMAN_LABEL_CHARS)?.unwrap_or_default();
+    let join_secret = JoinSecret::parse(&secret)?;
+    if join_secret.team_ref().chars().count() > limits::MAX_TAKEN_IN_TEAM_REF_CHARS {
+        return Err(Error::refused_value(
+            "join_secret",
+            &format!(
+                "a join secret whose team reference is at most {} code points",
+                limits::MAX_TAKEN_IN_TEAM_REF_CHARS
+            ),
+        ));
+    }
+    let retry_key = document
+        .named_text("retry_key")?
+        .map(|key| RetryKey::parse(&key))
+        .transpose()?;
+    Ok(Command::TeamTakeIn(TeamTakeIn {
+        join_secret,
+        team_name,
+        human_label,
+        retry_key,
+    }))
+}
+
+fn team_open_move(document: &Document) -> Result<Command, Error> {
+    let team_ref = document.named_required_text("team_ref")?;
+    let days = document.named_integer(
+        "ticket_days",
+        i64::from(MOVE_TICKET_DEFAULT_DAYS),
+        1,
+        i64::from(MOVE_TICKET_MAX_DAYS),
+    )?;
+    Ok(Command::TeamOpenMove(TeamOpenMove {
+        team_ref,
+        ticket_days: u32::try_from(days).unwrap_or(MOVE_TICKET_DEFAULT_DAYS),
     }))
 }
 
@@ -706,7 +852,7 @@ fn message_ack(document: &Document) -> Result<Command, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, JoinSecret, Revocation, TeamRevoke, TeamTransfer};
+    use super::{Command, JoinSecret, RetryKey, Revocation, TeamOpenMove, TeamRevoke, TeamTransfer};
     use crate::error::{Code, Error};
 
     fn refused(path: &str, body: &str) -> Error {
@@ -1016,9 +1162,10 @@ mod tests {
     }
 
     #[test]
-    fn only_create_and_join_run_without_a_credential() {
+    fn only_create_join_and_take_in_run_without_a_credential() {
         assert!(Command::open_path("/v1/team/create"));
         assert!(Command::open_path("/v1/team/join"));
+        assert!(Command::open_path("/v1/team/take-in"));
         assert!(!Command::open_path("/v1/credential/revoke"));
         assert!(Command::team_scoped_path("/v1/session/register"));
         assert!(!Command::team_scoped_path("/v1/team/leave"));
@@ -1066,6 +1213,120 @@ mod tests {
             (field(&error), reason(&error)),
             ("principal_ref", "invalid_value")
         );
+    }
+
+    #[test]
+    fn a_take_in_and_the_two_requests_of_a_move_are_read_as_the_contract_has_them() {
+        // A take-in runs without a credential, as the two other requests that can make a principal do,
+        // and is held to the creation rule with a creation. It names no team beside its secret.
+        assert!(Command::known_path("/v1/team/take-in"));
+        assert!(Command::open_path("/v1/team/take-in"));
+        assert!(Command::creation_path("/v1/team/take-in"));
+        assert!(Command::creation_path("/v1/team/create"));
+        assert!(!Command::creation_path("/v1/team/join"));
+        assert!(!Command::administration_path("/v1/team/take-in"));
+        assert!(!Command::team_scoped_path("/v1/team/take-in"));
+        let Command::TeamTakeIn(taken) = Command::parse(
+            "/v1/team/take-in",
+            br#"{"join_secret":"brg1.team.with.dots.s3cret","team_name":"ops","human_label":"alice","more":1}"#,
+        )
+        .unwrap() else {
+            panic!("not a take-in");
+        };
+        assert_eq!(taken.join_secret.team_ref(), "team.with.dots");
+        assert_eq!(
+            (taken.team_name.as_str(), taken.human_label.as_str()),
+            ("ops", "alice")
+        );
+        assert_eq!(format!("{taken:?}").matches("s3cret").count(), 0);
+        assert_eq!(taken.retry_key, None);
+        // A retry key is read with the rest, and prints as nothing of itself: a request that is logged
+        // whole shows neither its secret nor its key.
+        let key = "kept-by-the-client-that-minted-it";
+        let body = format!(r#"{{"join_secret":"brg1.t.s3cret","team_name":"ops","retry_key":"{key}"}}"#);
+        let Command::TeamTakeIn(keyed) = Command::parse("/v1/team/take-in", body.as_bytes()).unwrap() else {
+            panic!("not a take-in");
+        };
+        assert_eq!(keyed.retry_key.as_ref().map(RetryKey::expose), Some(key));
+        let printed = format!("{keyed:?}");
+        assert!(printed.contains("[redacted]"), "{printed}");
+        assert!(!printed.contains(key) && !printed.contains("s3cret"), "{printed}");
+        // A key that is no key is told by the name of its member, and the last of what is wrong.
+        for (body, named) in [
+            (
+                r#"{"join_secret":"brg1.t.s","team_name":"ops","retry_key":"short"}"#,
+                "retry_key",
+            ),
+            (
+                r#"{"join_secret":"brg1.t.s","team_name":"ops","retry_key":7}"#,
+                "retry_key",
+            ),
+            (
+                r#"{"join_secret":"brg1.t","team_name":"ops","retry_key":"short"}"#,
+                "join_secret",
+            ),
+        ] {
+            assert_eq!(field(&refused("/v1/team/take-in", body)), named, "{body}");
+        }
+        for (body, named) in [
+            (r#"{"team_name":"ops"}"#, "join_secret"),
+            (r#"{"join_secret":"brg1.t.s"}"#, "team_name"),
+            (r#"{"join_secret":"brg1.t","team_name":"ops"}"#, "join_secret"),
+            (r#"{"join_secret":"brg1.t"}"#, "team_name"),
+        ] {
+            assert_eq!(field(&refused("/v1/team/take-in", body)), named, "{body}");
+        }
+
+        // The two requests of a move are the owner's, and need a credential.
+        for path in ["/v1/team/open-move", "/v1/team/close-move"] {
+            assert!(Command::known_path(path), "{path}");
+            assert!(Command::administration_path(path), "{path}");
+            assert!(!Command::open_path(path), "{path}");
+            assert!(!Command::creation_path(path), "{path}");
+            assert_eq!(field(&refused(path, "{}")), "team_ref", "{path}");
+        }
+        assert_eq!(
+            Command::parse("/v1/team/close-move", br#"{"team_ref":"t","more":1}"#).unwrap(),
+            Command::TeamCloseMove("t".into())
+        );
+        let opened = |members: &str| {
+            let body = format!("{{\"team_ref\":\"t\"{members}}}");
+            Command::parse("/v1/team/open-move", body.as_bytes())
+        };
+        // Thirty days when no number is named, and a number from one to 365.
+        for (members, days) in [
+            ("", 30),
+            (r#","ticket_days":null"#, 30),
+            (r#","ticket_days":1"#, 1),
+            (r#","ticket_days":365"#, 365),
+        ] {
+            assert_eq!(
+                opened(members).unwrap(),
+                Command::TeamOpenMove(TeamOpenMove {
+                    team_ref: "t".into(),
+                    ticket_days: days,
+                }),
+                "{members}"
+            );
+        }
+        for members in [
+            r#","ticket_days":0"#,
+            r#","ticket_days":366"#,
+            r#","ticket_days":-1"#,
+            r#","ticket_days":"30""#,
+            r#","ticket_days":1.5"#,
+        ] {
+            let error = opened(members).unwrap_err();
+            assert_eq!(
+                (field(&error), reason(&error)),
+                ("ticket_days", "out_of_range"),
+                "{members}"
+            );
+            assert_eq!(
+                (error.details["min"].as_str(), error.details["max"].as_str()),
+                ("1", "365")
+            );
+        }
     }
 
     #[test]

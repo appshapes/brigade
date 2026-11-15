@@ -20,7 +20,10 @@ func adapterLease() protocol.Lease {
 
 // capabilities is the 4.7 registry entries this adapter implements. It
 // does NOT advertise message.watch.push: the watch polls, so its `ready`
-// event says mode "polling" (C-33).
+// event says mode "polling" (C-33). Nor does it advertise team.admin or
+// team.take_in: it has no command that administers a team, takes one in
+// or opens a move (takein.go is the stand-in REST server's door, not a
+// command).
 func capabilities() []string {
 	return []string{
 		"team.create",

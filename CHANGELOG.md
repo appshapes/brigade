@@ -9,6 +9,301 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A team moves to a Brigade server with one command, from a terminal or a
+  session** (work item 328, ADR 0007). Until now a move was six steps by two
+  people: the server's operator took the team in and opened its move with
+  the server stopped and handed a ticket back as a file, and the team's
+  administrator edited `.brigade.json` by hand, joined the server and ran
+  `brigade team move --ticket-file` in a terminal. Now the administrator
+  runs, in a checkout of the team, `brigade team move --to <server url>
+  --secret-file <path>`, with `--certificate <sha256:…>` for a server that
+  made its own certificate, `--create-token-file <path>` for one that asks
+  for a creation token and `--ticket-days <n>` to keep the move open for
+  other than 30 days. The command checks first and changes nothing: that the
+  checkout's team file names the backend the team is on and this machine is
+  joined there, that the secret file holds this team's secret, that the old
+  backend can keep a record and the caller created the team, and which
+  sessions are online on a plugin older than 0.55.0. One thing those checks
+  touch: a record of a move that the old backend already holds is recorded
+  again as it is, with the ticket it holds, because that is what only the
+  team's creator is answered; its destination and its ticket stay, and its
+  date moves. A member who did not create the team is refused there, with or
+  without a record, before the server is asked anything and so before the
+  join secret is sent to it. It shows what it is
+  about to do and asks. Then the server takes the team in with the
+  administrator as its owner, under the label they have on the old backend
+  and never one read from the terminal's Claude profile; the move is opened,
+  its ticket in a private file under Brigade's state directory that is
+  removed when the command ends (a command that Ctrl-C or a kill ends there
+  leaves the file, mode 0600, for the next run of the same move to write
+  over and remove); the old backend records where the team
+  went; and only then is `.brigade.json` rewritten, with every other member
+  and the file's own layout kept. One address, the one that was typed, goes
+  to the record and to the file, so the two cannot differ. The command ends
+  by saying what was done and what is left: the file to commit and push in
+  every repository of the team, the members on an older plugin, the gateways
+  when the team file has a `gateway` member, and how to undo it. After a
+  failure at any step the same command finishes the move.
+
+  Each thing that stops it does so before the record, the team file or the
+  checkout's pin is written, and says what to do: a Supabase project without
+  the migration `20261114120000_team_move` (its Project Owner applies it,
+  `make backend-install project=<ref>`), a member who did not create the
+  team, a secret file of another team, a server older than 0.7.0 (its
+  operator's two commands and `brigade team move --ticket-file`, which
+  stay), a server that asks for a creation token, and a team that the server
+  already holds for another owner (the server's operator names its owner).
+  A team file that could not be rewritten to name the server, an address
+  longer than a move's record can hold, and a secret file or a creation
+  token file that is in the checkout or is a link into it, stop it before
+  either backend is asked anything. When a move that was recorded is run
+  again and its record fails, the refusal says that the record still hands
+  out the ticket this run replaced.
+  `--ticket-days` is read in decimal, so `010` is ten days.
+  When the old backend cut its roster short, the line that names the
+  sessions on an older plugin says that the list is not complete
+  (`roster_truncated` with `--json`).
+  The question and the lines show the path of the server's address when it
+  has one.
+
+  **A skill, `move`**, in all four packages (`/brigade:move` in Claude Code
+  and Grok Build, `$brigade:move` in Codex CLI, the move skill in Muse Code)
+  makes the move from a session. It asks the administrator, one question at
+  a time, for the server's URL, the path of the team's join secret file and,
+  when the server needs them, the path of its creation token file and its
+  certificate's fingerprint; runs the one command; prints what it printed;
+  and commits and pushes `.brigade.json` when the user says so. It never
+  asks for a secret's content, never chooses a path and never writes a
+  secret file. The Claude Code skill pre-approves nothing that writes, so
+  the move itself meets the session's own permission rule.
+
+  **The option `team_move_in_session`** (on by default; `off` restores the
+  refusal) decides whether `brigade team move` may move a team, record a
+  move or clear a record from inside the member's sessions. It is read as
+  `follow_team_move` is, in every harness, and a value that is neither word
+  is off and is said at session start. What a session-led move opens is in
+  `docs/security.md`, section 21: whatever steers the administrator's
+  session can send every member's sessions, and the join secret, to a server
+  of its choosing. What still stands in its way is the creator-only rule on
+  the old backend, the path of the secret's file, the harness's own
+  permission prompt and the line every member is shown when their session
+  follows. That prompt does not ask where `brigade` commands are allowed
+  already, by a `Bash(brigade:*)` rule of the member's own or, in Claude
+  Code, by the `team-messaging` skill in the turn that loaded it; the ask
+  rule `Bash(brigade team move*)` puts the dialog back.
+
+  It needs a Brigade server 0.7.0 or later and plugin 0.55.0 or later on
+  each member's machine. The pages are [Move the team to a
+  server](docs/team-admin/members/move-the-team.md) and [Move a team from
+  Supabase](docs/project-owner/server/move-from-supabase.md).
+
+- **The adapter protocol can ask a backend to take a team in and to open
+  and close its move** (work item 328, ADR 0006). BAP/1 gets the
+  capability `team.take_in` and three commands (4.4.10). `team take-in`
+  presents the join secret a team has on the backend it leaves, with a
+  name: a backend that does not hold the team takes it in under the
+  reference inside the secret and makes the caller a member and its
+  owner; one that holds it under that secret joins the caller to it;
+  one that holds that reference under another secret answers `conflict`.
+  `team open-move --ticket-file <path>` opens the move of the team's
+  members for the team's owner and writes the move ticket to that file
+  (mode 0600) and to no output, and `team close-move` closes it. The
+  bundled `rest` adapter carries the three, against a Brigade server
+  0.7.0 or later, which answers them while it runs
+  (`docs/backend-rest-v1.md`, section 3b); the Supabase adapter and the
+  filesystem adapter do not advertise the capability and are never
+  asked. Conformance cases C-53, C-54 and C-55 hold an adapter that
+  advertises it. Until now the server's operator took a team in and
+  opened its move with two commands on a stopped server; those commands
+  stay. `brigade team move --to`, the entry above, is the command that
+  makes the three requests.
+- **A `team take-in` whose answer was lost is run again, and owns the
+  team** (work item 328, ADR 0006). The server makes the team's owner
+  and puts its credential in the answer, and an answer that never
+  arrives (the command's deadline, a proxy's 502, an interrupt) left a
+  team owned by a member nobody could be: the command run again joined
+  as a stranger, and only the server's operator, on a stopped server,
+  could name the owner. The `rest` adapter now mints a retry key before
+  it asks, keeps it in `take-in-key.json` beside `credential.json` (mode
+  0600), and sends it; a server 0.7.0 keeps its hash until the owner
+  first asks for something with its own credential that the server
+  records, and no longer. The same command run again sends the same key
+  and is answered as the owner, with a new credential in the place of
+  the lost one. The key file is removed once the credential is written,
+  is for one server and one team, and is never printed or logged; a key
+  that was kept for another server or another team is replaced, and
+  stderr says so, because the take-in it was for can then not be made
+  again. A profile that ran `team join` between the two runs holds a
+  member's credential, which the server answers for whatever key the
+  request carries: the adapter then keeps the key file and says on
+  stderr what `profile revoke-credentials` and the same take-in do then.
+  They are answered for the owner the first run made; or, where no
+  earlier run reached the server, they join the profile as a new member,
+  which the line says as well, because the adapter cannot tell the two
+  apart. The adapter protocol does not change: the key is in no request
+  and no result of BAP/1.
+
+### Changed
+
+- **A session that is already running follows its team when the team
+  moves** (work item 327, ADR 0008). Until now only a session's start
+  followed a team to another backend: a session that was running stayed
+  on the backend the team left until it ended, and in a real move the
+  new server had no member session for hours. Now a running session
+  follows at its next prompts, in two steps. The first prompt after the
+  project's `.brigade.json` changed says once that the file names another
+  backend and starts the follow beside the session, so the prompt is not
+  held up; the follow asks the backend the member joined whether the
+  team's administrator recorded that move, as a session's start does, and
+  joins the new backend only on that record. A later prompt says the
+  follow's line and moves the session: it is registered on the new
+  backend under the name it had, its watcher there replaces the old one,
+  and the old session is closed. A session that asked for quiet stays
+  quiet. A session that holds messages for its member's review stays
+  where it is until they are released, and says so once: a held message
+  does not move, and `/clear` does not move the session away from it. A
+  session that started before the move was recorded and is connected to
+  nothing follows the same way, where it used to wait for a new start,
+  and says once that the backend the member joined is being asked.
+
+  A session moves with the checkout it was started in and with no other,
+  wherever it works. The `.brigade.json` and the membership that are read
+  at its prompts are that checkout's, so a session that was started in a
+  main checkout and works in a worktree, or after a `cd` into another
+  repository, follows when its own checkout does, and the line it says
+  there names the checkout it was started in. Another checkout of
+  the member's does not move it, whatever its `.brigade.json` names, and
+  neither does a `/clear` there: while a move is under way a member can
+  have one checkout that has the changed file and one that has not, and
+  a session does not go back and forth between them.
+
+  A session that moves is always told. Claude Code discards what a
+  prompt printed when the prompt runs out of time, so the prompt that
+  moves a session leaves a notice first, and a prompt that was cut short
+  after the session moved is made good by the next one, which says the
+  move and the session's new id. That prompt also starts the watcher
+  that serves the session, which delivers what was sent to its new id
+  meanwhile, and in Muse Code and Codex CLI it files the session for the
+  commands of its shell, which are refused until then.
+
+  What made a session follow has not changed. A `.brigade.json` with no
+  record behind it still sends a session nowhere and is sent nothing: the
+  backend the member joined is asked at most once a minute for a checkout
+  while its sessions are prompted. The option `follow_team_move` turns
+  this off as it turns off the follow at a start; a member who joins the
+  moved team themselves, with `/brigade:join <path>` in the checkout a
+  session was started in, has that running session move at its next
+  prompt. A Grok Build session still follows only when it starts, because
+  Grok Build shows nothing a prompt hook prints. `docs/security.md`,
+  section 21, says what this changes, and the page is
+  [When your team moves](docs/team-member/join/follow-a-move.md).
+- **`brigade team move --ticket-file` and `brigade team move --clear` run
+  inside a session** (work item 328, ADR 0007, which supersedes ADR 0003 in
+  part). They refused there since 0.55.0. The refusal read "inside a
+  session" from the environment, so a command run with those variables
+  removed passed it; it is now a member's choice, the option
+  `team_move_in_session`. At a terminal the record still shows what it is
+  about to do and asks; inside a session, where nobody can be asked, it
+  prints the same line and proceeds. `brigade team revoke-member`, `brigade
+  team transfer` and `brigade inbox release` refuse inside a session as
+  before.
+
+### Fixed
+
+- **A rotation and an opened move are no longer asked for when their
+  file could not be written** (work item 328). `team rotate-secret
+  --secret-file` and `team open-move --ticket-file` checked only that
+  the file's directory exists. In a directory that takes no file the
+  backend still ended the team's join secret, or put a new ticket in
+  the place of the live one, and the write then failed: the new secret
+  or ticket was lost and the one before it was dead. The `rest` adapter
+  and the Supabase adapter now write a file of their own beside the
+  path and remove it before they ask anything
+  (`adapterkit.CanWriteAtomic`), so a directory that takes no file, and
+  a path that names a directory, is `config` with
+  `secret_file_unwritable` or `ticket_file_unwritable`, and the backend
+  is not asked. `team create --secret-file` makes the same check on
+  those two adapters, and `team moved --ticket-file` on the Supabase
+  adapter and the filesystem adapter. What was at the path is left as
+  it is until the write, which
+  still replaces a symbolic link there and never follows it.
+- **A server that repeats only the secret half of a join secret cannot
+  make the `rest` adapter print it** (work item 328). The adapter passes
+  a server's refusal through its redactor, which replaces a whole
+  `brg1.<team_ref>.<secret>` wherever it finds one and knew nothing of
+  the part after the last dot alone, the one part that is secret: a
+  team's reference is in its committed team file. A server that broke
+  the contract's rule and repeated that half in a refusal got it printed
+  on stdout and stderr. `team join` and `team take-in` now register the
+  half of what they present before they send it, the team's join secret
+  or the ticket of its move, and `team create`, `team rotate-secret` and
+  `team open-move` the half of the secret in the server's answer before
+  they do anything else with it. The half is taken out of the names a
+  success carries as well, the team's name and the principal's
+  reference, and so is the credential that `team create`, `team join`
+  and `team take-in` are answered: a server that put either there had it
+  printed in the command's result and kept in `team.json`, and now has a
+  marker in its place. Nothing else of a name is touched, because it is
+  the team's own text: a team named "Standard Bearer ops" keeps its
+  name, though the redactor's rule for an Authorization header would cut
+  it in a log line. A half shorter than sixteen characters is not
+  registered: no backend mints one, and a short text would be cut out of
+  every line that holds those characters.
+- **`/clear` after a team moved registers the session on the backend the
+  team is on** (work item 327). `/clear` runs the session's start again in
+  the same process, and that start followed the team and then sent a
+  heartbeat for the session of the old backend to the new one. Any answer
+  but "no such session" left the session named by its old id on the new
+  backend, with no watcher that could serve it, until the session was
+  started again. A session whose team key changed is now registered anew,
+  with no heartbeat and no resume hint for an id the new backend never
+  issued, and a request for quiet made in the session is kept. A session
+  that holds messages, or whose new backend cannot be reached, is kept
+  where it is and told so, as at a prompt: it is not told that it is not
+  connected, which it is not. The backend it stays on is told of the
+  conversation that began, as after any `/clear`: the roster there has
+  the session's name as it is now, and no longer what the conversation
+  before was doing.
+- **`/clear` where Brigade resolves no team no longer leaves a running
+  session half attached** (work item 327). A `/clear` while the session
+  worked in a checkout that is not joined, in a directory with no
+  `.brigade.json`, or over a `.brigade.json` with no record behind it
+  said `not joined` or `not connected`, or nothing, of a session that
+  stayed attached; its doing line was then never asked for in the new
+  conversation, and in Muse Code the new conversation's shell found no
+  session. The session is now kept as after any `/clear` and says its
+  context line; a `.brigade.json` there that was refused is still said.
+
+  The same for a `/clear` beside settings of yours that the start
+  refuses: a `frame` level that is no level, a `frame_file` that fails a
+  check, an `adapter_command` that is no command. It said `not
+  connected` of a session that stayed attached, under the frame it had.
+  The session is kept, and one line after the context line says what
+  could not be used and why, that it is not in force, that the session
+  goes on with the frame and the options it had, and to fix the option
+  and `/clear` or start a new session. A session that starts anew beside
+  such a setting still connects to nothing and says why, as before.
+- **A Codex CLI thread that is resumed in another checkout registers
+  there** (work item 327), as it did before a session's checkout was
+  recorded.
+- **A join inside a session that is on the backend its team left no
+  longer says the session is already attached** (work item 327). It says
+  that the session moves at its next prompt, which it now does; made in
+  another checkout than the one the session was started in, it says that
+  the session stays where it is.
+- **Two checkouts of a team that follow a move in the same instant join
+  the new backend once** (work item 327). Each follow read this machine's
+  membership before it waited for the other, so the one that came second
+  presented the move's ticket again. It now reads the membership again
+  once it holds the lock. A member's own `brigade team join` waits for
+  that lock, for ten seconds at most, and then goes on: a join is never
+  refused because a session's follow is waiting for a slow backend. The
+  follow reads the membership once more when its backend has answered,
+  just before it would join, so a join made meanwhile does not leave
+  the backend a second membership of the machine.
+
 ## [0.55.1] — 2026-11-14
 
 ### Fixed

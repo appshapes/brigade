@@ -40,7 +40,10 @@ The toolchain is the one `server/rust-toolchain.toml` pins; rustup installs it o
 
 `make server-test` builds the Go binaries first, because the oracle is the conformance suite through
 `bin/brigade`'s `rest` adapter (the contract's section 6). It runs the suite twice: on the file log, and with
-`--slow` on the Cavalry feed. Beside it, `crates/brigade-core/tests/rules.rs` holds the same rules at the size of a
+`--slow` on the Cavalry feed. With it runs one test of the two built programs together that no suite can
+make: `bin/brigade`'s `rest` adapter takes a team in through a front that loses the server's answer, and the
+same command run again owns the team and opens its move
+(`a_take_in_whose_answer_is_lost_is_run_again_by_the_built_adapter_and_owns_the_team`). Beside it, `crates/brigade-core/tests/rules.rs` holds the same rules at the size of a
 function call with the clock in the test's hands, and `crates/brigade-server/tests/server.rs` holds what only a
 process shows: a kill and a start, a receive that waits, TLS, a process held still past Cavalry's timeouts.
 
@@ -86,9 +89,10 @@ header, and everything else is unchanged.
 elsewhere: the reference inside the secret, the name, the SHA-256 of the whole secret, and no creator and no
 member. A join checks that hash against the team the secret names, so the team's members join with the secret
 they have. It is a job of its own kind for the engine, appended and synced like any other, and not a request:
-`answer` knows no path for it, so no address of the server can reach it. It runs between a stop and a start,
+no path of `answer` reaches that kind. It runs between a stop and a start,
 because one process owns the log. The same secret again changes nothing; another secret for the same reference
-is refused.
+is refused. From 0.7.0 a request takes a team in as well, with an owner:
+[Taking a team in and moving it by request](#taking-a-team-in-and-moving-it-by-request).
 
 ## Administering a team
 
@@ -100,8 +104,9 @@ gives everyone else exactly what `member_team` gives a stranger.
   `team.owner_changed`. A revocation by version is one record however many members it covers, because an entry
   has a longest size: applying it finds the members from the state alone. Applying `member.joined` sets the
   member's `joined_secret_version` to the team's.
-- **The owner** is `Team.created_by`. A team that was taken in has none until a join whose request `may_own`:
-  the HTTP listener passes true, and the gateways' join inside the server passes false.
+- **The owner** is `Team.created_by`. A team that the operator took in has none until a join whose request
+  `may_own`: the HTTP listener passes true, and the gateways' join inside the server passes false. A team that
+  was taken in by request has the caller that took it in.
 - **`--set-owner <team_ref> --principal <principal_ref>`** is a job of its own kind between a stop and a start,
   as the import is, and no request reaches it. **`--take-back <team_ref> --secret-file <path>`** is another: one
   entry of a rotation, a revocation by version of everyone and an owner change to nobody, so that the first
@@ -120,7 +125,8 @@ does not change: `/v1/team/join` carries a ticket as it carries the join secret,
 member. Recording the ticket on the backend the team leaves, and following it, are the plugin's.
 
 - **`--open-move <team_ref> --ticket-file <path> [--ticket-days <days>]`** and **`--close-move <team_ref>`** are
-  jobs of their own kind between a stop and a start, as the import is, and no request reaches either. The
+  jobs of their own kind between a stop and a start, as the import is, and no request reaches those kinds. From
+  0.7.0 the team's owner asks for the same by request (the next section). The
   ticket is minted as a join secret is, `brg1.<team_ref>.<random>`, for 1 to 365 days, 30 unless told
   otherwise. Its file's place is held before the entry is appended, by the writer `--take-back` uses, and the
   file is the one place the ticket is.
@@ -140,6 +146,72 @@ member. Recording the ticket on the backend the team leaves, and following it, a
   2 wrote it. A 0.4.x passes a format 3 snapshot over and refuses a log that holds one of the two records, so
   it never reads a team whose move is open as a team with none. Where no move was ever opened it starts from
   the newest snapshot of its own that is kept, or from the log's first entry, and writes format 2 again.
+
+## Taking a team in and moving it by request
+
+From 0.7.0 the contract's section 3b is three requests like any other (work item 328, ADR 0006): a server that
+runs takes a team in for the caller that presents its join secret, and opens and closes a move for the team's
+owner. The operator's three commands stay as they are, and call the same functions.
+
+- **`/v1/team/take-in`** is an open path, as a creation and a join are, and a creation path:
+  `Command::creation_path` is what `answer` holds to `may_create`, once the body is known to be one JSON
+  object and before any member of it is read. `wire.rs` holds the reference inside the secret to
+  `limits::MAX_TAKEN_IN_TEAM_REF_CHARS`, because the caller chose it and the state keeps it. `team_take_in` in
+  `execute.rs` has two branches. A team the state does not hold is taken in by one entry: the credential of a
+  new principal, `team.created` with the reference inside the secret, the secret's hash and the caller as
+  `created_by`, and `member.joined`. A team the state holds is handed to `team_join` as it stands, so every
+  rule of a join holds without a second copy of it, and what `team_join` refuses for its secret is answered
+  `conflict` with `other_join_secret`, the refusal of `import_team`.
+- **`may_own` is read by a take-in too.** A caller whose request may not own takes a team in with no owner, as
+  the operator does. Only a gateway's request may not, and no gateway takes a team in.
+- **`retry_key`** is read last by `wire.rs`, into a `RetryKey` that prints as nothing of itself, and only its
+  form is held there. `execute.rs` hashes it before it looks at the team. The hash goes on `member.joined`
+  (`retry_key_hash`, written only when it is not empty) when the request made a principal and made it the
+  team's owner, in either branch, and applying that record sets `Team.take_in_retry` to the hash and the
+  principal, and `Principal.retry_key_in` to the team: the way back from a record that names the principal.
+  The team's member is the one fact of a key and all a snapshot holds of one. The principal's is never
+  written and never read: `State` is read through `Written`, which reads it off the teams
+  (`find_the_ways_back`), so a snapshot of any build starts a server on which the owner's own record ends
+  the key.
+  `repeated_take_in` tells a take-in made again: no credential the state knows, the team's current secret
+  and the kept hash. `join` then acts for that principal, and `reissue_credential` writes a
+  `credential.revoked` for every credential that names it and one `credential.issued`, in the entry of the
+  join, whose `member.joined` carries the hash again. Nothing in the answer of any other take-in differs by
+  whether the team keeps a key.
+- **The key ends in `State::apply`**, with the first record that its principal's own request makes. A record
+  that names the principal as the one who acted ends the key that principal has: `session.opened`,
+  `member.left`, a `member.joined` with no hash, and `credential.revoked`, which a take-in made again writes
+  too, so that entry's join keeps the key once more. A record that only the team's owner is answered for ends
+  the key the team keeps: `member.revoked`, `members.revoked_by_version`, and `team.move_opened` and
+  `team.move_closed` when they say `by_owner`, which the owner's request writes and the operator's command
+  does not. `team.owner_changed` to another principal and `team.secret_rotated` end it as well. So a team
+  keeps a key for its owner alone, the same request after the end is a stranger's join, and nothing that
+  leaves no record, a read or a refusal, ends anything. The five records of a session (`session.resumed`,
+  `session.heartbeat`, `session.closed`, `message.accepted`, `message.acked`) have no arm, because none can
+  be an owner's first: a principal that a team keeps a key for has no session, and the request that gives it
+  one ends the key. A new request of the owner's that leaves a record of another kind
+  needs its arm here. `rules.rs` holds that from both sides: one test asks every request the server reads
+  with the credential of an owner whose key is kept, and does not build when a request is added that it does
+  not name; and the walk of twenty thousand requests holds at every step that such an owner has no session
+  and is in no other team, names every kind of record in a match that does not build when one is added, and
+  starts again from a snapshot and the log after it every 199 steps.
+- **`taken_in`** is one member more of `team.created`, written only when it is true and read by the journal's
+  line alone, as `by_move_ticket` is on `member.joined`. The team is the team a creation makes, so there is no
+  new kind of record and no new snapshot format: a 0.6.0 starts on what 0.7.0 wrote.
+- **`/v1/team/open-move` and `/v1/team/close-move`** are administration paths: `answer` checks the owner before
+  it reads anything of the body but its `team_ref`, and each function checks it again before it calls
+  `open_a_move` or `close_a_move`, which the operator's `open_move` and `close_move` call as well: the
+  owner's request passes `by_owner`, which the record then says, and the operator's command does not.
+  `ticket_days` is read by `wire.rs` with the bounds `open_a_move` holds.
+- **A team that is taken in counts** against the principal that takes it in, in `teams_created_at`, because
+  applying `team.created` counts it for its `created_by`.
+- **`said.rs`** has a line for a team taken in, for a move its owner opened and for one its owner closed. A
+  `team.move_closed` in an entry that also holds a rotation is the rotation's; alone it is the owner's. A
+  `member.joined` in an entry that makes a credential unknown and issues one is a take-in made again, and has
+  a line of its own in the place of the join's. Such an entry always has a credential to make unknown: a
+  principal that gave its own up ended its key by that.
+- **`/v1/info`** lists `team.take_in` beside `team.admin`, and the conformance suite holds the three with cases
+  C-53 to C-55 through the `rest` adapter.
 
 ## The gateways
 
@@ -263,6 +335,16 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
   with no credential is a new principal each time and is held by none of them, and nothing bounds the
   principals a join secret or a move ticket makes or the teams a server holds: a limit by address is the
   proxy's.
+- Nothing removes a team from a server. On one that asks for no creation token, a stranger can take in a team
+  under a reference that is not theirs, with a secret of their own, and the real team's take-in then answers
+  `conflict` (ADR 0006; `docs/security.md`, section 20). A creation token keeps a stranger from it.
+- A take-in whose answer is lost is made again with its retry key and owns the team (ADR 0006). Without the
+  key, from a client that sends none or a machine that lost the file, the request made again joins as a
+  member, and the operator names the owner with `--set-owner`.
+- A take-in made again makes the credential before it unknown. A request that is delivered a second time
+  after its client kept the first answer, by a proxy that sends it again, and before the owner's first
+  request that leaves a record, leaves that client with a credential the server does not know and no key
+  file (ADR 0006). After that record the key has ended, and such a request is a stranger's join.
 - An entry that fails its seal refuses the start, wherever it is in the log. Whether a power loss can leave such
   an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here.
 - The seal has one key and no rotation. Nonces are random, which is sound for about four thousand million

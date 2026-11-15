@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
@@ -264,14 +266,23 @@ func TestTeamMoveRefusesBeforeAnythingIsAsked(t *testing.T) {
 }
 
 // TestTeamMoveDeclinedAndRefusedInASession: a declined confirmation records
-// nothing; inside a session the two writing forms are refused with the one
-// in-session shape, before the team file is even read.
+// nothing; inside a session whose member set the option
+// team_move_in_session to off, the two writing forms are refused with the
+// one in-session shape, before the team file is even read (work item 328,
+// ADR 0007: until then the refusal was unconditional). What a session does
+// with the option on is TestTeamMoveInsideASessionFollowsTheOption's.
 func TestTeamMoveDeclinedAndRefusedInASession(t *testing.T) {
 	t.Parallel()
 	r := newMoveRig(t, true)
 	wantCode(t, Team(r.inv(false, "--ticket-file", r.ticket)), protocol.CodeUsage, "declined")
 	if len(r.asked()) != 0 || len(r.prompts) != 1 {
 		t.Fatalf("a declined record asked %v after %d confirmations", r.asked(), len(r.prompts))
+	}
+	if err := (sessionmap.Store{StateDir: r.f.stateDir}).WriteStart(&sessionmap.StartFacts{
+		ClaudePID: fixturePID, ClaudeSessionID: "native-1", ConfigDir: r.f.dirs.BrigadeConfig,
+		TeamMoveInSession: config.SyncOff, WrittenAt: fixtureNow,
+	}); err != nil {
+		t.Fatal(err)
 	}
 	calls := r.f.rec.count()
 	for _, args := range [][]string{{"--ticket-file", r.ticket}, {"--clear"}} {
@@ -282,8 +293,8 @@ func TestTeamMoveDeclinedAndRefusedInASession(t *testing.T) {
 			t.Fatalf("%v in a session: %q", args, perr.Message)
 		}
 	}
-	if r.f.rec.count() != calls {
-		t.Fatalf("a refusal in a session spawned %v", r.f.rec.verbs())
+	if r.f.rec.count() != calls || len(r.prompts) != 1 {
+		t.Fatalf("a refusal in a session spawned %v and asked %d times", r.f.rec.verbs(), len(r.prompts))
 	}
 }
 

@@ -4,6 +4,100 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.7.0] — 2026-11-14
+
+### Added
+
+- **A running server takes a team in by request** (work item 328, ADR 0006). Until now a team that lives on
+  another backend was taken in by the operator alone, with `--import-team` on a stopped server. Now
+  `/v1/team/take-in` does it on a server that runs: the caller presents the join secret the team has on the
+  backend it leaves, a name and, when it has one, a label. It needs no credential, as a creation needs none,
+  and it is allowed exactly as a creation is: a server started with `--create-token-file` asks for that token
+  in the `Brigade-Create-Token` header, and refuses a take-in without it in a creation's words, before it
+  reads anything of the request beyond that its body is one JSON object. A team the server does not hold is
+  taken in under the reference inside the secret, with the secret's hash and never the secret, and in the
+  same entry of the log the caller becomes a member and the team's owner.
+- **The reference of a team that is taken in is held to 256 code points.** The caller chose it, the server
+  keeps it, in its state, in every record of the team and in every snapshot, and BAP/1 gives it no cap:
+  without one, a caller the server does not know could have it keep a megabyte with one request. A longer
+  one is `invalid_input` naming `join_secret`, in fixed words. A join keeps nothing of what it presents and
+  is answered as before, and `--import-team` is the operator's own and has no cap.
+- **Whoever takes a team in by request owns it.** The server cannot check who administered a team where it
+  came from, so the rule is the one a creation has. The rule of the first join, by which the first member to
+  join a team that has no owner owns it, stays for a team `--import-team` took in and for one `--take-back`
+  took back.
+- **A take-in is safe to repeat, and a team that is here is joined.** Where the server holds the team, the
+  request is a join by the rules a join has: the join secret and an open move ticket admit, a ticket never
+  makes an owner, a team that has no owner is owned by the first caller whose join may own it, and a refusal
+  is counted against a known principal as a failed join is. The answer says whether the team was taken in
+  now, `taken_in`, and whether the caller owns it, `owner`. Where the server holds a team of that reference
+  under another join secret the request is refused with `conflict` (409) and the reason `other_join_secret`,
+  in the words `--import-team` is refused in, and a principal the team banned reads the same. A request that
+  is made again without the credential its first answer carried joins as a member, unless it carries the
+  retry key of the first (next).
+- **A take-in whose answer was lost is made again by the machine that made it.** A take-in needs no credential,
+  and the credential of the owner it makes is in its answer alone: when the answer never arrives, nobody holds
+  it, and the request made again would join as a stranger. So `/v1/team/take-in` takes one more member,
+  `retry_key`: 22 to 128 characters of a credential's alphabet, which the client minted from at least 128 random
+  bits. The server keeps the key's hash, never the key, when the request made a principal and made it the team's
+  owner, by taking the team in or by the first join of a team that has no owner, one `--import-team` took in or
+  `--take-back` took back. A take-in for that team with its join secret, that key and no credential the server
+  knows is answered for the principal the first request made, which owns the team, with a new credential, and
+  every credential that named it before is unknown from then on. It is made again as often as its answer is
+  lost. Another key and no key are the join they were, and no answer says whether a team keeps a key; another
+  secret is `conflict`; the creation token is asked for where it was. A key that is not of that form is
+  `invalid_input` naming `retry_key`. A request without the member is answered as before.
+- **The key ends with the first record that its owner's own request makes**, with its credential: a session
+  registered, the credential made unknown, the team's move opened or closed by request, a member revoked, the
+  team transferred or left, a team joined or created. From then on the owner holds a credential, and the same
+  take-in with the key is the join of a new principal, in the bytes it has on a team that never kept a key: a
+  request that arrives a second time takes nothing from an owner that has acted. What the owner reads and what
+  it is refused end nothing, and neither does a request of anybody else's, nor `--open-move` and `--close-move`,
+  which are the operator's. A team that gets another owner, by `--set-owner` too, keeps no key, and a rotation
+  of the team's join secret ends it, as `--take-back` does, which rotates.
+- **A team's owner opens and closes its move by request.** `/v1/team/open-move` and `/v1/team/close-move` do
+  what `--open-move`, with `--ticket-days`, and `--close-move` do, on a server that runs, and answer the
+  team's owner only: every other caller reads what a stranger to the team reads. The ticket is in the answer
+  of the request that opens the move, once, and the `rest` adapter writes it to a file of mode 0600 on the
+  owner's machine, so no ticket file changes hands. The number of days is `ticket_days`, from 1 to 365, and
+  30 when the request names none. A second open puts a new ticket in the place of the one before and says so.
+  The requests and the operator's commands are one move: what one opens the other closes or replaces.
+- **A team that is taken in counts against the principal that takes it in** as a team it created does: five
+  in an hour, and then `rate_limited` with the reason `team_create` (0.6.0, ADR 0004).
+- **The server says who took a team in and who moved it.** A take-in leaves `member <reference> took in team
+  <name> (<team reference>) with the join secret it has on another backend, and owns it`, and the owner's two
+  requests leave `member <reference> opened the move of team <name> (<team reference>): its ticket admits
+  until <time>` and `member <reference> closed the move of team <name> (<team reference>): its ticket admits
+  nobody from now on`. A take-in made again leaves `member <reference> made its take-in of team <name> (<team
+  reference>) again with the retry key of the first: it has a new credential, and the one it had is not known
+  any more`. No line holds a join secret, a ticket, a retry key, a credential or the hash of any of them.
+- **`/v1/info` lists `team.take_in`** beside `team.admin`. The three requests are an addition to version 1 of
+  the contract that a server may leave out (`docs/backend-rest-v1.md`, section 3b); the bundled `rest`
+  adapter asks for the capability before each of its three commands, `team take-in`, `team open-move` and
+  `team close-move`, and the conformance suite holds a server to them with cases C-53 to C-55.
+
+### Changed
+
+- **A creation token now says who may take a team in as well.** On a server with no creation token, whoever
+  can reach it and holds a team's join secret can take that team in and own it there. That moves no member:
+  a member's session follows a team only on the record on the backend the team leaves. And because a team's
+  reference is in its committed team file, a stranger can take in a team under a reference that is not
+  theirs, with a secret of their own, after which the real team's take-in is refused. A creation token closes
+  both. No command removes a team from a server yet (`docs/security.md`, section 20).
+
+Nothing about the data directory changes. A take-in by request is the record a creation writes, with one member
+more that is written only for a team that was taken in, and the record of a join, with one member more that is
+written only when the take-in carried a retry key: the key's hash. A take-in made again is the records of a
+credential made unknown, a credential issued and a join, which carries the hash again. The records of a move
+that is opened and closed have one member more, written only when the team's owner asked by request. There is no
+new kind of record and the snapshot's format stays 3; a team that keeps a key has one member more in it until
+the key ends, the key's hash and the owner it is kept for. That is all a snapshot holds of a key: the way from
+the owner back to the team is read off it when a snapshot is read, so no snapshot can hold a key that its
+owner's own request does not end. A 0.6.0 starts on a 0.7.0 directory and a 0.7.0 on a 0.6.0 one. A
+0.6.0 reads past the members it does not know and writes no key in its own snapshot, so a take-in whose answer
+was lost, made again after a 0.6.0 wrote one, joins as a member. The operator's commands are unchanged, and
+`--import-team` writes the record it always wrote.
+
 ## [0.6.0] — 2026-11-14
 
 ### Added

@@ -29,21 +29,68 @@ fn team(state: &State, team_ref: &str) -> String {
     }
 }
 
+/// The owner of a team as a line names it: the member whose request the line is about, because only a
+/// team's owner is answered a request that opens or closes its move.
+fn owner(state: &State, team_ref: &str) -> String {
+    match state.teams.get(team_ref).and_then(|team| team.owner()) {
+        Some(owner) => format!("member {}", plain(owner)),
+        None => "its owner".to_owned(),
+    }
+}
+
 /// The lines for the records of one request, read against the state those records were applied to: a team
-/// that a member created, a member who joined, with the team's move ticket when that is what let it in, a
-/// team's new owner, and a move that a rotation of the team's join secret closed. Every other record has
-/// none.
+/// that a member created or took in from another backend, a member who joined, with the team's move ticket
+/// when that is what let it in, a take-in that its member made again with the key it kept, a team's new
+/// owner, a move that the team's owner opened, and a move that its owner or a rotation of the team's join
+/// secret closed. Every other record has none.
 #[must_use]
 pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
+    // One request alone makes a credential unknown and issues another in the same entry: a take-in made
+    // again with its retry key, whose first answer was lost (the contract's section 3b). The principal
+    // of the new credential is the one that take-in made. It always has a credential to make unknown: a
+    // principal that gave its own up ended its key by that, and the same request is a stranger's join.
+    let replaced = entry
+        .records
+        .iter()
+        .any(|record| matches!(record.event, Event::CredentialRevoked { .. }));
+    let repeated = entry.records.iter().find_map(|record| match &record.event {
+        Event::CredentialIssued { principal_ref, .. } if replaced => Some(principal_ref.as_str()),
+        _ => None,
+    });
+    // A move is closed by a rotation in the rotation's own entry, and by its owner in an entry of its own.
+    let rotated = entry
+        .records
+        .iter()
+        .any(|record| matches!(record.event, Event::TeamSecretRotated { .. }));
     entry
         .records
         .iter()
         .filter_map(|record| match &record.event {
             Event::TeamCreated {
-                team_ref, created_by, ..
-            } if !created_by.is_empty() => Some(format!(
-                "member {} created {}",
-                plain(created_by),
+                team_ref,
+                created_by,
+                taken_in,
+                ..
+            } if !created_by.is_empty() => Some(if *taken_in {
+                // The line says how the team came and never shows what it came with.
+                format!(
+                    "member {} took in {} with the join secret it has on another backend, and owns it",
+                    plain(created_by),
+                    team(state, team_ref)
+                )
+            } else {
+                format!("member {} created {}", plain(created_by), team(state, team_ref))
+            }),
+            // The line says that the credential was replaced and shows neither credential, nor the key,
+            // nor the hash of any of them. Who took a team over by a key is what an operator looks for.
+            Event::MemberJoined {
+                team_ref,
+                principal_ref,
+                ..
+            } if repeated == Some(principal_ref.as_str()) => Some(format!(
+                "member {} made its take-in of {} again with the retry key of the first: it has a new \
+                 credential, and the one it had is not known any more",
+                plain(principal_ref),
                 team(state, team_ref)
             )),
             Event::MemberJoined {
@@ -84,10 +131,25 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
                 plain(principal_ref),
                 team(state, team_ref)
             )),
-            // In a member's own request only a rotation closes a move: the operator's command that closes
-            // one prints its own line.
-            Event::TeamMoveClosed { team_ref } => Some(format!(
+            // The operator's command that opens a move prints its own line; this is the owner's request.
+            // The line names the day the ticket ends and nothing of the ticket.
+            Event::TeamMoveOpened {
+                team_ref, ends_at, ..
+            } => Some(format!(
+                "{} opened the move of {}: its ticket admits until {}",
+                owner(state, team_ref),
+                team(state, team_ref),
+                ends_at.rfc3339()
+            )),
+            // In a member's own request a rotation closes a move, or the team's owner does: the
+            // operator's command that closes one prints its own line.
+            Event::TeamMoveClosed { team_ref, .. } if rotated => Some(format!(
                 "the move of {} is closed by the rotation of its join secret: its ticket admits nobody from now on",
+                team(state, team_ref)
+            )),
+            Event::TeamMoveClosed { team_ref, .. } => Some(format!(
+                "{} closed the move of {}: its ticket admits nobody from now on",
+                owner(state, team_ref),
                 team(state, team_ref)
             )),
             _ => None,
@@ -117,7 +179,7 @@ pub fn of_gateway(gateway: &str, status: u16) -> String {
 #[cfg(test)]
 mod tests {
     use brigade_core::record::Record;
-    use brigade_core::state::{Member, Team};
+    use brigade_core::state::{Member, TakeInRetry, Team};
     use brigade_core::{Entry, State, Timestamp};
 
     use super::*;
@@ -143,6 +205,7 @@ mod tests {
             created_at: Timestamp(1),
             secret_version: 1,
             move_ticket: None,
+            take_in_retry: None,
             members: Default::default(),
             sessions: Default::default(),
         };
@@ -173,6 +236,7 @@ mod tests {
             principal_ref: principal.to_owned(),
             human_label: label.to_owned(),
             by_move_ticket: false,
+            retry_key_hash: String::new(),
         }
     }
 
@@ -182,6 +246,7 @@ mod tests {
             principal_ref: principal.to_owned(),
             human_label: String::new(),
             by_move_ticket: true,
+            retry_key_hash: String::new(),
         }
     }
 
@@ -199,6 +264,7 @@ mod tests {
                     team_name: "ops".to_owned(),
                     join_secret_hash: "hash-of-the-secret".to_owned(),
                     created_by: "p-alice".to_owned(),
+                    taken_in: false,
                 },
                 joined("p-alice", "alice@example.com"),
                 Event::TeamOwnerChanged {
@@ -241,16 +307,10 @@ mod tests {
                 "member p-bob joined team ops (t-1) with its move ticket, with no label",
             ]
         );
-        // The move's own records: one that was opened has no line here, because only the operator opens
-        // one and the command prints its own; one that a rotation closed has, and it holds no hash.
+        // A move that a rotation closed has a line, and it holds no hash.
         let lines = of_entry(
             &state(),
             &entry(vec![
-                Event::TeamMoveOpened {
-                    team_ref: "t-1".to_owned(),
-                    ticket_hash: "hash-of-the-ticket".to_owned(),
-                    ends_at: Timestamp(9),
-                },
                 Event::TeamSecretRotated {
                     team_ref: "t-1".to_owned(),
                     join_secret_hash: "hash-of-the-secret".to_owned(),
@@ -258,6 +318,7 @@ mod tests {
                 },
                 Event::TeamMoveClosed {
                     team_ref: "t-1".to_owned(),
+                    by_owner: false,
                 },
             ]),
         );
@@ -267,6 +328,164 @@ mod tests {
                 "the move of team ops (t-1) is closed by the rotation of its join secret: its ticket admits \
               nobody from now on"
             ]
+        );
+    }
+
+    #[test]
+    fn a_team_taken_in_and_a_move_its_owner_opened_or_closed_each_have_a_line() {
+        // A team a member took in by request says so, and that the member owns it: the operator reads
+        // here who put a team on the server.
+        let lines = of_entry(
+            &state(),
+            &entry(vec![
+                Event::TeamCreated {
+                    team_ref: "t-1".to_owned(),
+                    team_name: "ops".to_owned(),
+                    join_secret_hash: "hash-of-the-secret".to_owned(),
+                    created_by: "p-alice".to_owned(),
+                    taken_in: true,
+                },
+                joined("p-alice", "alice@example.com"),
+            ]),
+        );
+        assert_eq!(
+            lines,
+            [
+                "member p-alice took in team ops (t-1) with the join secret it has on another backend, and \
+              owns it",
+                "member p-alice joined team ops (t-1), labelled \"alice@example.com\"",
+            ]
+        );
+        // The move its owner opens names the owner and the ticket's end, and never the ticket's hash.
+        let lines = of_entry(
+            &state(),
+            &entry(vec![Event::TeamMoveOpened {
+                team_ref: "t-1".to_owned(),
+                ticket_hash: "hash-of-the-ticket".to_owned(),
+                ends_at: Timestamp(1_800_000_000_000_000_000),
+                by_owner: true,
+            }]),
+        );
+        assert_eq!(
+            lines,
+            [
+                "member p-alice opened the move of team ops (t-1): its ticket admits until \
+              2027-01-15T08:00:00Z"
+            ]
+        );
+        // The move its owner closes is not one a rotation closed, and the line says whose request it was.
+        let lines = of_entry(
+            &state(),
+            &entry(vec![Event::TeamMoveClosed {
+                team_ref: "t-1".to_owned(),
+                by_owner: true,
+            }]),
+        );
+        assert_eq!(
+            lines,
+            ["member p-alice closed the move of team ops (t-1): its ticket admits nobody from now on"]
+        );
+    }
+
+    #[test]
+    fn a_take_in_made_again_with_its_key_has_a_line_and_no_hash() {
+        // The entry of a take-in made again: the credential the lost answer carried is unknown, a new one
+        // is issued, and the member is the member it was, with the key's hash kept once more.
+        let again = entry(vec![
+            Event::CredentialRevoked {
+                credential_hash: "hash-of-the-lost-credential".to_owned(),
+            },
+            Event::CredentialIssued {
+                principal_ref: "p-alice".to_owned(),
+                credential_hash: "hash-of-the-new-credential".to_owned(),
+            },
+            Event::MemberJoined {
+                team_ref: "t-1".to_owned(),
+                principal_ref: "p-alice".to_owned(),
+                human_label: String::new(),
+                by_move_ticket: false,
+                retry_key_hash: "hash-of-the-retry-key".to_owned(),
+            },
+        ]);
+        let lines = of_entry(&state(), &again);
+        assert_eq!(
+            lines,
+            [
+                "member p-alice made its take-in of team ops (t-1) again with the retry key of the first: \
+              it has a new credential, and the one it had is not known any more"
+            ]
+        );
+        assert!(lines.iter().all(|line| !line.contains("hash-of")), "{lines:?}");
+        // A first take-in that kept a key is a take-in and a join, as any is: the line of a repeat is for
+        // an entry that made a credential unknown, and the key's hash is in no line.
+        let first = entry(vec![
+            Event::CredentialIssued {
+                principal_ref: "p-alice".to_owned(),
+                credential_hash: "hash-of-the-credential".to_owned(),
+            },
+            Event::MemberJoined {
+                team_ref: "t-1".to_owned(),
+                principal_ref: "p-alice".to_owned(),
+                human_label: String::new(),
+                by_move_ticket: false,
+                retry_key_hash: "hash-of-the-retry-key".to_owned(),
+            },
+        ]);
+        let lines = of_entry(&state(), &first);
+        assert_eq!(
+            lines,
+            ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
+        );
+        // A member that makes its own credential unknown, and one that joins, each in an entry of its
+        // own, say nothing of a repeat.
+        let revoked = entry(vec![Event::CredentialRevoked {
+            credential_hash: "hash-of-the-credential".to_owned(),
+        }]);
+        assert!(of_entry(&state(), &revoked).is_empty());
+    }
+
+    #[test]
+    fn only_an_entry_that_makes_a_credential_unknown_is_a_take_in_made_again() {
+        // A team that keeps a key for its owner. A principal that gave its credential up ended its key by
+        // that, so a take-in made again always has a credential to make unknown, and an entry that makes
+        // none unknown is a join, whoever it names and whatever the team keeps.
+        let mut keeps = state();
+        keeps.teams.get_mut("t-1").unwrap().take_in_retry = Some(TakeInRetry {
+            key_hash: "hash-of-the-retry-key".to_owned(),
+            principal_ref: "p-alice".to_owned(),
+        });
+        let issued_and_joined = |principal: &str, retry_key_hash: &str| {
+            entry(vec![
+                Event::CredentialIssued {
+                    principal_ref: principal.to_owned(),
+                    credential_hash: "hash-of-the-new-credential".to_owned(),
+                },
+                Event::MemberJoined {
+                    team_ref: "t-1".to_owned(),
+                    principal_ref: principal.to_owned(),
+                    human_label: String::new(),
+                    by_move_ticket: false,
+                    retry_key_hash: retry_key_hash.to_owned(),
+                },
+            ])
+        };
+        // A stranger's join, the first take-in with a key, and the two records of a principal that is
+        // issued a credential with none made unknown: each joined.
+        assert_eq!(
+            of_entry(&keeps, &issued_and_joined("p-bob", "")),
+            ["member p-bob joined team ops (t-1), with no label"]
+        );
+        for retry_key_hash in ["hash-of-the-retry-key", ""] {
+            let lines = of_entry(&keeps, &issued_and_joined("p-alice", retry_key_hash));
+            assert_eq!(
+                lines,
+                ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
+            );
+        }
+        // A member that joins again with the credential it holds is issued none, and joined.
+        assert_eq!(
+            of_entry(&keeps, &entry(vec![joined("p-alice", "")])),
+            ["member p-alice joined team ops (t-1), labelled \"alice@example.com\""]
         );
     }
 
@@ -289,6 +508,15 @@ mod tests {
                     team_name: "ops".to_owned(),
                     join_secret_hash: "hash-of-the-secret".to_owned(),
                     created_by: String::new(),
+                    taken_in: false,
+                },
+                // A caller that may not own takes a team in with no owner, and has no line either.
+                Event::TeamCreated {
+                    team_ref: "t-1".to_owned(),
+                    team_name: "ops".to_owned(),
+                    join_secret_hash: "hash-of-the-secret".to_owned(),
+                    created_by: String::new(),
+                    taken_in: true,
                 },
                 Event::TeamOwnerChanged {
                     team_ref: "t-1".to_owned(),

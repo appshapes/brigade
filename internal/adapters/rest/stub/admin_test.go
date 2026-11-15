@@ -59,13 +59,20 @@ func TestInfoListsTeamAdmin(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, Options{})
 	capabilities, _ := h.must("", "/v1/info", `{}`)["capabilities"].([]any)
-	if len(capabilities) != 1 || capabilities[0] != "team.admin" {
-		t.Errorf("/v1/info: capabilities %v, want [team.admin]", capabilities)
+	if len(capabilities) != 2 || capabilities[0] != "team.admin" || capabilities[1] != "team.take_in" {
+		t.Errorf("/v1/info: capabilities %v, want [team.admin team.take_in]", capabilities)
 	}
 
+	// A server that leaves out the administration endpoints and nothing
+	// else lists what it still carries; one that carries neither optional
+	// part has no capabilities member at all.
 	without := newHarness(t, Options{WithoutTeamAdmin: true})
-	if _, present := without.must("", "/v1/info", `{}`)["capabilities"]; present {
-		t.Errorf("/v1/info of a server without the endpoints has a capabilities member")
+	if kept, _ := without.must("", "/v1/info", `{}`)["capabilities"].([]any); len(kept) != 1 || kept[0] != "team.take_in" {
+		t.Errorf("/v1/info of a server without the administration endpoints: capabilities %v, want [team.take_in]", kept)
+	}
+	bare := newHarness(t, Options{WithoutTeamAdmin: true, WithoutTakeIn: true})
+	if _, present := bare.must("", "/v1/info", `{}`)["capabilities"]; present {
+		t.Errorf("/v1/info of a server with neither optional part has a capabilities member")
 	}
 	alice := without.create("ops")
 	unknown := without.post(alice.credential, "/v1/nosuch", `{}`)

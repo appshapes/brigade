@@ -33,6 +33,7 @@ const (
 	OptionClaudeInboundSetting = "CLAUDE_PLUGIN_OPTION_CLAUDE_INBOUND_SETTING"
 	OptionStatus               = "CLAUDE_PLUGIN_OPTION_STATUS"
 	OptionFollowTeamMove       = "CLAUDE_PLUGIN_OPTION_FOLLOW_TEAM_MOVE"
+	OptionTeamMoveInSession    = "CLAUDE_PLUGIN_OPTION_TEAM_MOVE_IN_SESSION"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -108,6 +109,12 @@ const (
 	// follow: the member who set the option wanted a say, so the session
 	// stays where it is and says so.
 	WarnFollowTeamMoveInvalid = `Brigade: follow_team_move must be "on" or "off"; the value set is neither, so this session does not follow a team that moved.`
+	// WarnTeamMoveInSessionInvalid: the team_move_in_session option is
+	// neither on nor off (work item 328, ADR 0007). An unexpected spelling
+	// restores the refusal: the member who set the option wanted `team
+	// move` kept out of their sessions, so it stays out and the session
+	// says so.
+	WarnTeamMoveInSessionInvalid = `Brigade: team_move_in_session must be "on" or "off"; the value set is neither, so brigade team move refuses to move a team from this session.`
 	// WarnMessageSoundInvalid: the message_sound option is neither on nor
 	// off (card 35); the session plays nothing and says so once.
 	WarnMessageSoundInvalid = `Brigade: message_sound must be "on" or "off"; the value set is neither, so no sound is played for this session.`
@@ -151,8 +158,9 @@ func ParseSync(raw string) (bool, string) {
 // administrator, recorded on the backend the team left (work item 273, ADR
 // 0003): "" (unset — the default is on) or "on" → true; "off" → false;
 // anything else → false with WarnFollowTeamMoveInvalid. The grammar is
-// ParseSync's, and there is no BRIGADE_* fallback: only a session's start
-// follows, and a terminal's `team join` is the member's own word.
+// ParseSync's, and there is no BRIGADE_* fallback: only a session's hooks
+// follow (its start, and the child a prompt starts, work item 327, ADR
+// 0008), and a terminal's `team join` is the member's own word.
 func ParseFollowTeamMove(raw string) (bool, string) {
 	switch strings.TrimSpace(raw) {
 	case "", SyncOn:
@@ -161,6 +169,24 @@ func ParseFollowTeamMove(raw string) (bool, string) {
 		return false, ""
 	default:
 		return false, WarnFollowTeamMoveInvalid
+	}
+}
+
+// ParseTeamMoveInSession maps a team_move_in_session value to whether
+// `brigade team move` may move a team, record where one went or clear that
+// record from inside a session (work item 328, ADR 0007): "" (unset — the
+// default is on) or "on" → true; "off" → false; anything else → false with
+// WarnTeamMoveInSessionInvalid. The grammar is ParseSync's, and there is no
+// BRIGADE_* fallback: at a terminal the command runs whatever the option
+// says, because the option is about sessions and nothing else.
+func ParseTeamMoveInSession(raw string) (bool, string) {
+	switch strings.TrimSpace(raw) {
+	case "", SyncOn:
+		return true, ""
+	case SyncOff:
+		return false, ""
+	default:
+		return false, WarnTeamMoveInSessionInvalid
 	}
 }
 
@@ -433,6 +459,15 @@ type Options struct {
 	// option was neither word.
 	FollowTeamMove        bool
 	FollowTeamMoveWarning string
+	// TeamMoveInSession is on unless the option says off (work item 328,
+	// ADR 0007): `brigade team move` may then move a team, record where one
+	// went and clear that record from inside this member's sessions. The
+	// hook freezes it into the start facts, because the command runs in the
+	// Bash tool and never sees CLAUDE_PLUGIN_OPTION_*.
+	// TeamMoveInSessionWarning carries WarnTeamMoveInSessionInvalid when
+	// the option was neither word.
+	TeamMoveInSession        bool
+	TeamMoveInSessionWarning string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -532,6 +567,7 @@ func ParseOptions(environ []string) (Options, error) {
 	o.MessageInterval, o.MessageIntervalWarning = ParseMessageInterval(opt(OptionMessageInterval))
 	o.Status, o.StatusWarning = ParseStatus(opt(OptionStatus))
 	o.FollowTeamMove, o.FollowTeamMoveWarning = ParseFollowTeamMove(opt(OptionFollowTeamMove))
+	o.TeamMoveInSession, o.TeamMoveInSessionWarning = ParseTeamMoveInSession(opt(OptionTeamMoveInSession))
 	return o, nil
 }
 

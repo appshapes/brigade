@@ -1,7 +1,8 @@
 # When your team moves
 
 A team can move from one backend to another: from a Supabase project to a Brigade server your organisation runs.
-You do nothing. The next session you start in the project follows the team and tells you so in one line:
+You do nothing. The next session you start in the project follows the team, a session that is already running
+follows at its next prompts, and either tells you so in one line:
 
 ```text
 Brigade: this checkout followed team "ops" to brigade.example.com:8743, trusting the server certificate sha256:…: the team's administrator recorded that move on abc.supabase.co, the backend you joined it on, and this machine joined it there with the move's ticket, under the label you had. To leave the team run `brigade team leave`; to stay put until you join a moved team yourself, set the option follow_team_move to off.
@@ -16,21 +17,57 @@ server under the label you had. Nothing you hold for the old backend was sent to
 
 ## A session that was already running
 
-It stays where it is until it ends, and says once that the team file now names another backend. Start a new
-session, or exit and resume this one.
+It follows at its next prompts, from plugin 0.56.0; on 0.55.0 and 0.55.1 it stays where it is until it
+ends. Nothing is asked of you.
+
+1. The first prompt after the team file changed says once that the file names another backend, and starts the
+   follow beside the session: the same question to the backend you joined, and the same join. Your prompt is not
+   held up.
+2. A later prompt, once the checkout has followed, says the line above and moves the session: it is registered
+   on the server under the name it had, and the line after it gives the session's new id. A reply sent to the
+   id it had does not reach it.
+
+- **It moves with the checkout it was started in.** A session follows the `.brigade.json` of the checkout it
+  was started in and no other, wherever it works: after a `cd`, in a worktree or in another repository it
+  still follows that checkout, at its next prompts. No other checkout's file moves it, and a `/clear` there
+  does not either: a session that has moved does not go back because another checkout has not pulled the
+  change yet, and one that has not moved does not go ahead of its own. Told while it works elsewhere, the line
+  above begins `Brigade: the checkout this session was started in followed team`: the directory it is in
+  followed nothing.
+- **If the prompt that moved it was cut short**, the next prompt tells you. A prompt has a few seconds, and
+  one that runs out of them after the session moved cannot say so: the session then has a new id for one
+  prompt before you are told. A message sent to that id meanwhile may wait on the server until that prompt,
+  and in Muse Code and Codex CLI a `brigade` command of the session may be refused until then.
+- **A quiet session stays quiet.** `/brigade:quiet` holds on the server as it did before.
+- **Held messages keep it back.** A message that is held for your review is on the backend the team left and
+  does not move. The session says so once and stays until you release it (`brigade inbox`, then `brigade inbox
+  release`, in your own terminal), and moves at its next prompt after that. `/clear` does not move it either:
+  the conversation that begins is told the same, and the session is the one it was.
+- **If the server cannot be reached**, the session stays where it is, says so once, and tries again at a later
+  prompt, a minute later at the earliest; after a `/clear` too, which never says that such a session is not
+  connected. A prompt that tries waits for the server, for no longer than the few seconds a prompt may take.
+- **With no record behind the file**, the session stays where it is. The backend you joined is asked again at
+  most once a minute while you prompt, and the address the file names is sent nothing.
+- **A Grok Build session** follows when it starts, not while it runs: Grok Build shows nothing a prompt hook
+  prints, so the session could not tell you.
 
 ## If you would rather decide yourself
 
 Set the option `follow_team_move` to `off` ([Know the options](../configure/options.md)): ask your session `Set
 follow_team_move to off.` From then on a session never follows. When a team of yours moves, the session says that
 `.brigade.json` does not match the team you joined, and you join the server yourself with the secret file:
-`/brigade:join ~/brigade-<team>.secret`.
+`/brigade:join ~/brigade-<team>.secret`. A session that is running says once that it stays where it is, and
+moves at its next prompt after you joined in the checkout it was started in.
 
 ## If the session says the file does not match
 
 Then nothing vouched for the change: the administrator has not recorded a move, or recorded another server than
 the file names, or the move has ended. Ask your administrator before you join anything. A team file that changed
 with no record behind it is exactly what this check is for.
+
+A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
+you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or
+two of the record being there.
 
 ## To leave
 

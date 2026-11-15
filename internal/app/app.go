@@ -68,7 +68,9 @@ const (
 	// adapterEntry is the hidden multi-call word of D26: `brigade adapter
 	// <name> <group> <verb> …`.
 	adapterEntry = "adapter"
-	// hookEntry is `brigade hook session-start|prompt|session-end` (6.3).
+	// hookEntry is `brigade hook session-start|prompt|stop|session-end`
+	// (6.3), and `brigade hook follow`, the child a prompt hook starts to
+	// follow a team that moved (work item 327).
 	hookEntry = "hook"
 	// watchEntry is `brigade watch [--sink <file> | --host codex]`, the detached watcher
 	// the SessionStart and prompt hooks start (6.6).

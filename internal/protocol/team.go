@@ -400,6 +400,138 @@ func (r *TeamMoveResult) Validate() error {
 	return nil
 }
 
+// Taking a team in (4.4.10, capability team.take_in; added 2026-11-14, work
+// item 328, ADR 0006): `team take-in`, `team open-move` and `team
+// close-move`. They are the other end of a team's move, at the backend the
+// team goes to: whoever holds the team's join secret takes the team in
+// there and owns it, and the owner opens and closes the move, whose ticket
+// admits the members that follow.
+
+// The days a move ticket admits for (4.4.10): the default when `team
+// open-move` names none, and the most it may name.
+const (
+	MoveTicketDefaultDays = 30
+	MoveTicketMaxDays     = 365
+)
+
+// TeamTakeInRequest is the `team take-in` stdin document (4.4.10): the join
+// secret the team has on the backend it comes from, the name it gets here,
+// and the caller's label. Backend is adapter-specific, as in TeamJoinRequest.
+type TeamTakeInRequest struct {
+	JoinSecret string         `json:"join_secret"`
+	TeamName   string         `json:"team_name"`
+	HumanLabel string         `json:"human_label,omitzero"`
+	Backend    jsontext.Value `json:"backend,omitzero"`
+}
+
+// Validate implements Validator. Whether the secret is well-formed is the
+// join-secret parser's business, as for TeamJoinRequest.
+func (r *TeamTakeInRequest) Validate() error {
+	if err := requireString("join_secret", r.JoinSecret); err != nil {
+		return err
+	}
+	if err := requireString("team_name", r.TeamName); err != nil {
+		return err
+	}
+	if err := capRunes("team_name", r.TeamName, MaxTeamNameCodepoints); err != nil {
+		return err
+	}
+	if err := optionalText("human_label", r.HumanLabel, MaxHumanLabelChars); err != nil {
+		return err
+	}
+	if len(r.Backend) > 0 && r.Backend.Kind() != '{' {
+		return &Error{
+			Code:    CodeInvalidInput,
+			Message: "backend must be a JSON object",
+			Details: map[string]string{"field": "backend", "reason": reasonInvalidValue},
+		}
+	}
+	return nil
+}
+
+// TeamTakeInResult is the `team take-in` result (4.4.10). TakenIn says
+// whether this request took the team in, and Owner whether the caller owns
+// the team now. A team that was already there under the same secret is
+// joined: TakenIn is then false, and TeamName is the name the team has.
+type TeamTakeInResult struct {
+	TeamRef      string `json:"team_ref"`
+	TeamName     string `json:"team_name"`
+	PrincipalRef string `json:"principal_ref"`
+	TakenIn      bool   `json:"taken_in"`
+	Owner        bool   `json:"owner"`
+}
+
+// Validate implements Validator. Whoever takes a team in owns it in that
+// request, so taken_in true beside owner false is two answers in one
+// document.
+func (r *TeamTakeInResult) Validate() error {
+	if err := requireString("team_ref", r.TeamRef); err != nil {
+		return err
+	}
+	if err := requireString("team_name", r.TeamName); err != nil {
+		return err
+	}
+	if err := capRunes("team_name", r.TeamName, MaxTeamNameCodepoints); err != nil {
+		return err
+	}
+	if err := requireString("principal_ref", r.PrincipalRef); err != nil {
+		return err
+	}
+	if r.TakenIn && !r.Owner {
+		return errInvalidValue("owner", "true when taken_in is true")
+	}
+	return nil
+}
+
+// TeamOpenMoveResult is the `team open-move` result (4.4.10). It has no
+// ticket member: the move ticket goes to the file TicketFile names and to
+// no output, because `team create` is the only command whose output may
+// carry a secret (4.5.14). Replaced says that the team had a move already,
+// whose ticket admits nobody from now on.
+type TeamOpenMoveResult struct {
+	TeamRef    string    `json:"team_ref"`
+	TeamName   string    `json:"team_name"`
+	EndsAt     time.Time `json:"ends_at"`
+	Replaced   bool      `json:"replaced"`
+	TicketFile string    `json:"ticket_file"`
+}
+
+// Validate implements Validator.
+func (r *TeamOpenMoveResult) Validate() error {
+	if err := requireString("team_ref", r.TeamRef); err != nil {
+		return err
+	}
+	if err := requireString("team_name", r.TeamName); err != nil {
+		return err
+	}
+	if err := capRunes("team_name", r.TeamName, MaxTeamNameCodepoints); err != nil {
+		return err
+	}
+	if err := requireTime("ends_at", r.EndsAt); err != nil {
+		return err
+	}
+	return requireString("ticket_file", r.TicketFile)
+}
+
+// TeamCloseMoveResult is the `team close-move` result (4.4.10). Closed is
+// false for a team that had no move, which the command leaves as it is.
+type TeamCloseMoveResult struct {
+	TeamRef  string `json:"team_ref"`
+	TeamName string `json:"team_name"`
+	Closed   bool   `json:"closed"`
+}
+
+// Validate implements Validator.
+func (r *TeamCloseMoveResult) Validate() error {
+	if err := requireString("team_ref", r.TeamRef); err != nil {
+		return err
+	}
+	if err := requireString("team_name", r.TeamName); err != nil {
+		return err
+	}
+	return capRunes("team_name", r.TeamName, MaxTeamNameCodepoints)
+}
+
 // errTeamAdminField refuses one member of a team-administration request,
 // naming the member and the reason and never its value. The messages are
 // the ones the commands have always answered with, which is why they are

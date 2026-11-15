@@ -63,7 +63,8 @@ Details: [Choose your label](your-label.md).
 
 1. Do nothing. When the team's administrator moved it to a Brigade server and recorded the move, your next
    session follows and says so in one line: where the team went and who vouched for it.
-2. A session that was already running stays put until it ends; start a new one.
+2. A session that was already running follows at its next prompts and says the same line; one that holds
+   messages for your review stays until you release them.
 3. To decide each move yourself: set the option `follow_team_move` to `off`, and join a moved team with
    `/brigade:join ~/brigade-<team>.secret`.
 

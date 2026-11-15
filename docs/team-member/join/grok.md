@@ -9,7 +9,9 @@ outside the repository, then ask the `join` skill to use that exact path:
 
 The skill runs `brigade team join --secret-file <that path>`, relays its output and never reads or prints the
 secret. The hook's start facts allow a not-yet-attached session to find its configuration. A successful join
-attaches at the next prompt; one already attached to another team stays there until a new session.
+attaches at the next prompt; one already attached to another team stays there until a new session. A session
+that is running when its team moves to another backend stays where it is too, and follows when it starts:
+Grok Build shows nothing a prompt hook prints ([When your team moves](follow-a-move.md)).
 
 A person may instead run `brigade team join` in their terminal in the checkout, confirm the backend and read
 the secret without echo. Each checkout needs consent. Set a literal `label` or `none` in

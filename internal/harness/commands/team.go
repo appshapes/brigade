@@ -14,8 +14,9 @@ import (
 )
 
 // The verbs of `brigade team`: the four of 6.4, the three administrative
-// pass-throughs of P5-2 (capability team.admin) and `move`, which records
-// where a team went (capability team.move; work item 273).
+// pass-throughs of P5-2 (capability team.admin) and `move`, which moves a
+// team to a Brigade server (work item 328) or records where one went
+// (capability team.move; work item 273).
 var teamVerbs = []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer", "move", "status", "reset", "revoke-credentials", "list"}
 
 // MembersNote is the note member of the `team members --json` result.
@@ -67,9 +68,9 @@ func Team(inv Invocation) error {
 		}
 		return inv.teamList()
 	case "move":
-		// The administrator's record of where the team went (work item 273):
-		// a harness command, because its destination is this project's team
-		// file and never an argument.
+		// The administrator's move of the team, or record of where it went
+		// (work items 328 and 273): a harness command, because it reads and
+		// writes this project's team file.
 		return inv.teamMove(raw.Rest)
 	case "revoke-member", "transfer":
 		if inv.inSession() {

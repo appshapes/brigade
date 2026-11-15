@@ -93,6 +93,10 @@ func rootTypes() []any {
 		protocol.TeamTransferResult{},        // 4.4.10, team.admin
 		protocol.TeamMoveRequest{},           // 4.4.10, team.move
 		protocol.TeamMoveResult{},            // 4.4.10, team.move
+		protocol.TeamTakeInRequest{},         // 4.4.10, team.take_in
+		protocol.TeamTakeInResult{},          // 4.4.10, team.take_in
+		protocol.TeamOpenMoveResult{},        // 4.4.10, team.take_in
+		protocol.TeamCloseMoveResult{},       // 4.4.10, team.take_in
 	}
 }
 
@@ -252,6 +256,11 @@ func patchDefinitions(defs jsonschema.Definitions) error {
 		{"TeamMoveResult", "adapter", protocol.MaxMoveAdapterChars},
 		{"TeamMoveResult", "url", protocol.MaxMoveURLChars},
 		{"TeamMoveResult", "certificate", protocol.MaxMoveCertificateChars},
+		{"TeamTakeInRequest", "team_name", protocol.MaxTeamNameCodepoints},
+		{"TeamTakeInRequest", "human_label", protocol.MaxHumanLabelChars},
+		{"TeamTakeInResult", "team_name", protocol.MaxTeamNameCodepoints},
+		{"TeamOpenMoveResult", "team_name", protocol.MaxTeamNameCodepoints},
+		{"TeamCloseMoveResult", "team_name", protocol.MaxTeamNameCodepoints},
 		{"ProfileInfo", "team_name", protocol.MaxTeamNameCodepoints},
 		{"ProfileInfo", "human_label", protocol.MaxHumanLabelChars},
 	} {
@@ -333,6 +342,15 @@ func patchDefinitions(defs jsonschema.Definitions) error {
 		return &jsonschema.Schema{
 			Type: "object",
 			Description: "Adapter-specific backend configuration (Supabase: url, publishable_key); " +
+				"accepted only when the profile has no backend configured (4.4.10).",
+		}
+	}); err != nil {
+		return err
+	}
+	if err := patchProp(defs, "TeamTakeInRequest", "backend", func(*jsonschema.Schema) *jsonschema.Schema {
+		return &jsonschema.Schema{
+			Type: "object",
+			Description: "Adapter-specific backend configuration, as in TeamJoinRequest; " +
 				"accepted only when the profile has no backend configured (4.4.10).",
 		}
 	}); err != nil {

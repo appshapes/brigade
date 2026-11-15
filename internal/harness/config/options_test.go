@@ -23,7 +23,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, ClaudeInboundSetting: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval, Status: true, FollowTeamMove: true}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, ClaudeInboundSetting: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval, Status: true, FollowTeamMove: true, TeamMoveInSession: true}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -60,6 +60,8 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		config.OptionStatus+"=off",
 		// `off` rather than `on`: the default is on (work item 273).
 		config.OptionFollowTeamMove+"=off",
+		// `off` rather than `on`: the default is on (work item 328).
+		config.OptionTeamMoveInSession+"=off",
 	)
 	got, err := config.ParseOptions(env)
 	if err != nil {
@@ -84,6 +86,7 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		MessageInterval:      2 * time.Minute,
 		Status:               false,
 		FollowTeamMove:       false,
+		TeamMoveInSession:    false,
 	}
 	if got != want {
 		t.Fatalf("options =\n %+v\nwant\n %+v", got, want)
@@ -167,6 +170,62 @@ func TestParseFollowTeamMove(t *testing.T) {
 	got, err = config.ParseOptions(environ)
 	if err != nil || warn != "" || got.FollowTeamMove {
 		t.Fatalf("an options file with follow_team_move off: %+v, %q, %v", got, warn, err)
+	}
+}
+
+// TestParseTeamMoveInSession: the option that lets `brigade team move` run
+// inside a session is on unless it says off, and a value that is neither
+// word restores the refusal and is said, without the value (work item 328,
+// ADR 0007). A terminal's BRIGADE_* has no say in it, and the options file
+// of a host that has one sets it as it sets the others.
+func TestParseTeamMoveInSession(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		raw  string
+		on   bool
+		warn string
+	}{
+		{"", true, ""}, {"on", true, ""}, {"  on\t", true, ""}, {"off", false, ""}, {" off ", false, ""},
+		{"ON", false, config.WarnTeamMoveInSessionInvalid}, {"true", false, config.WarnTeamMoveInSessionInvalid},
+		{"EVIL-value", false, config.WarnTeamMoveInSessionInvalid},
+	} {
+		on, warn := config.ParseTeamMoveInSession(tc.raw)
+		if on != tc.on || warn != tc.warn {
+			t.Errorf("ParseTeamMoveInSession(%q) = %v, %q; want %v, %q", tc.raw, on, warn, tc.on, tc.warn)
+		}
+		if strings.Contains(warn, "EVIL") {
+			t.Errorf("the warning echoes the value: %q", warn)
+		}
+	}
+	if !strings.Contains(config.WarnTeamMoveInSessionInvalid, "team_move_in_session") || config.WarnTeamMoveInSessionInvalid == config.WarnFollowTeamMoveInvalid {
+		t.Fatalf("the warning does not name its own option: %q", config.WarnTeamMoveInSessionInvalid)
+	}
+	d := newDirs(t)
+	got, err := config.ParseOptions(d.environ("CLAUDE_PID=4242"))
+	if err != nil || !got.TeamMoveInSession || got.TeamMoveInSessionWarning != "" {
+		t.Fatalf("ParseOptions with the option unset: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionTeamMoveInSession+"=off", "BRIGADE_TEAM_MOVE_IN_SESSION=on"))
+	if err != nil || got.TeamMoveInSession || got.TeamMoveInSessionWarning != "" || !got.FollowTeamMove {
+		t.Fatalf("ParseOptions with team_move_in_session=off: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionTeamMoveInSession+"=sometimes"))
+	if err != nil || got.TeamMoveInSession || got.TeamMoveInSessionWarning != config.WarnTeamMoveInSessionInvalid || got.FollowTeamMoveWarning != "" {
+		t.Fatalf("ParseOptions with team_move_in_session=sometimes: %+v, %v", got, err)
+	}
+	// The two options of a move are two options: one off leaves the other on.
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionFollowTeamMove+"=off"))
+	if err != nil || !got.TeamMoveInSession {
+		t.Fatalf("ParseOptions with follow_team_move=off: %+v, %v", got, err)
+	}
+	file := filepath.Join(t.TempDir(), "options.json")
+	if err := os.WriteFile(file, []byte(`{"team_move_in_session":"off"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environ, warn := config.OptionsEnviron(d.environ("MUSE_SESSION_ID=m1"), file, os.ReadFile)
+	got, err = config.ParseOptions(environ)
+	if err != nil || warn != "" || got.TeamMoveInSession || !got.FollowTeamMove {
+		t.Fatalf("an options file with team_move_in_session off: %+v, %q, %v", got, warn, err)
 	}
 }
 

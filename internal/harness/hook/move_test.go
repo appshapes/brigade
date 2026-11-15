@@ -58,7 +58,13 @@ func newMemberFixture(t *testing.T) *fixture {
 // of the test's own.
 func newMovingFixture(t *testing.T) *fixture {
 	t.Helper()
-	f := newFixture(t)
+	return movingFixture(t, config.HostClaude)
+}
+
+// movingFixture is newMovingFixture for a session of host.
+func movingFixture(t *testing.T, host config.Host) *fixture {
+	t.Helper()
+	f := buildFixture(t, host)
 	sum := sha256.Sum256([]byte(t.Name()))
 	url := "https://t" + hex.EncodeToString(sum[:6]) + ".supabase.co"
 	checkout := filepath.Join(t.TempDir(), "checkout")
@@ -131,12 +137,16 @@ func movedDoc(url, certificate string) map[string]any {
 func (f *fixture) useMoveSeam(moved map[string]any, responses map[string][]fakeadapter.Response) *adapterSeam {
 	f.t.Helper()
 	seam := f.useSeam(responses)
-	// The adapters of these tests carry the record's two commands.
+	// The adapters of these tests carry the record's two commands, and
+	// answer the team the checkout joined: a session's map names its team by
+	// the reference its adapter's describe answers, and a prompt compares
+	// that with the team file's.
 	var described protocol.DescribeResult
 	if err := json.Unmarshal(seam.describe, &described); err != nil {
 		f.t.Fatal(err)
 	}
 	described.Capabilities = append(described.Capabilities, "team.move")
+	described.Profile.TeamRef = "team-1"
 	seam.describe = mustJSON(&described)
 	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
 		if verbOf(spec.Argv) != "team moved" || moved == nil {
@@ -419,6 +429,30 @@ func TestHookSaysAnUnusableFollowOptionAtAnOrdinaryStart(t *testing.T) {
 	}
 }
 
+// TestHookSaysAnUnusableTeamMoveOptionAtAnOrdinaryStart: the same for the
+// option that keeps `brigade team move` out of a session (work item 328,
+// ADR 0007). A value that is neither word is said at the start, in the
+// option's own words, and the session attaches as usual; on and off say
+// nothing.
+func TestHookSaysAnUnusableTeamMoveOptionAtAnOrdinaryStart(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"), config.OptionTeamMoveInSession+"=sometimes")
+	if exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if got := lines(out); !slices.Contains(got, config.WarnTeamMoveInSessionInvalid) || slices.Contains(got, config.WarnFollowTeamMoveInvalid) ||
+		!strings.Contains(got[0], "(brigade-sess-1)") || !f.mapExists() {
+		t.Fatalf("lines = %q, map %v: want the context line first, the option's warning alone, and a session that attached", got, f.mapExists())
+	}
+	for _, word := range []string{"off", "on"} {
+		if exit, out, _ := f.run(SubSessionStart, f.startDoc("startup"), config.OptionTeamMoveInSession+"="+word); exit != 0 || strings.Contains(out, "team_move_in_session") {
+			t.Fatalf("a start with the option %s said something about it: %q", word, out)
+		}
+	}
+}
+
 // TestHookNeverAsksAboutAFileThatNamesAnotherTeam: a file re-pointed to
 // ANOTHER team is not a move, whatever backend it names, and no backend is
 // asked anything: the drift line, as before this work item.
@@ -436,113 +470,5 @@ func TestHookNeverAsksAboutAFileThatNamesAnotherTeam(t *testing.T) {
 	}
 	if got := seam.verbs(); len(got) != 0 {
 		t.Fatalf("adapter calls for a file that names another team: %v", got)
-	}
-}
-
-// TestPromptRetryNeverFollows: a session that started before the move was
-// recorded has no map, so each later prompt runs the registration again,
-// in the few seconds a prompt hook has. That retry never follows, though
-// the record is there by then: it says the drift line and asks no backend
-// anything. The session follows when it is started again.
-func TestPromptRetryNeverFollows(t *testing.T) {
-	t.Parallel()
-	f := newMemberFixture(t)
-	f.labelOldBinding()
-	f.moveTeamFile("team-1")
-	seam := f.useMoveSeam(nil, map[string][]fakeadapter.Response{
-		"team moved":       {okResp(mustJSON(map[string]any{"team_ref": "team-1", "moved": false}))},
-		"team join":        {okResp(mustJSON(map[string]any{"team_ref": "team-1", "team_name": teamName, "principal_ref": "p-new", "rejoined": false}))},
-		"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
-	})
-	if exit, out, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 || !slices.Equal(lines(out), []string{driftLine}) || f.mapExists() {
-		t.Fatalf("a start before the record: exit %d, lines %q", exit, lines(out))
-	}
-	// The administrator records the move.
-	seam = f.useMoveSeam(movedDoc(movedURL, movedPin), seam.responses)
-	if exit, out, errOut := f.run(SubPrompt, f.promptDoc("default")); exit != 0 || !slices.Equal(lines(out), []string{driftLine}) || f.mapExists() {
-		t.Fatalf("the prompt's retry: exit %d, lines %q\n%s", exit, lines(out), errOut)
-	}
-	if got := asked(seam); len(got) != 0 {
-		t.Fatalf("the prompt's retry asked a backend: %v", got)
-	}
-	if pin := f.checkoutPin(); pin.Adapter != "supabase" {
-		t.Fatalf("the prompt's retry moved the pin: %+v", pin)
-	}
-	if exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 || !strings.Contains(out, "followed team") || !f.mapExists() {
-		t.Fatalf("the session started again: exit %d, lines %q\n%s", exit, lines(out), errOut)
-	}
-}
-
-// TestPromptTellsARunningSessionOnceThatItsTeamMoved: a session that was
-// attached when the team file came to name another backend for its team is
-// told once, at its next prompt, that it stays where it is and what a new
-// session does; the line echoes nothing from the file, no backend is asked,
-// a later prompt says nothing more, and the session's end removes the
-// stamp. A file that names another team, or still the session's backend,
-// says nothing.
-func TestPromptTellsARunningSessionOnceThatItsTeamMoved(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	seam := f.useSeam(map[string][]fakeadapter.Response{
-		"session register":  {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
-		"session heartbeat": {okResp(heartbeatDoc())},
-		"session close":     {okResp(closeDoc())},
-	})
-	if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
-		t.Fatalf("exit %d: %s", exit, errOut)
-	}
-	// The map names the team by the reference the adapter's describe
-	// answers, which in this fixture is teamRef.
-	m := f.mustMap()
-	if m.TeamRef != teamRef {
-		t.Fatalf("the fixture's map names team %q", m.TeamRef)
-	}
-	stamp := config.TeamMovedStamp(f.stateDir, f.key())
-	prompt := func() string {
-		t.Helper()
-		exit, out, errOut := f.run(SubPrompt, f.promptDoc("default"))
-		if exit != 0 {
-			t.Fatalf("prompt: exit %d: %s", exit, errOut)
-		}
-		return out
-	}
-	if out := prompt(); strings.Contains(out, movedLine) {
-		t.Fatalf("a prompt with the team file unchanged: %q", out)
-	}
-	f.moveTeamFile("another-team")
-	if out := prompt(); strings.Contains(out, movedLine) {
-		t.Fatalf("a prompt with the team file naming another team: %q", out)
-	}
-	if _, err := os.Stat(stamp); err == nil {
-		t.Fatalf("the stamp was written for a file that names another team")
-	}
-	// A stamp that a dead session left under this process id is not this
-	// session's, and silences nothing.
-	if err := adapterkit.WriteAtomic(stamp, []byte("a-session-that-ended\n")); err != nil {
-		t.Fatal(err)
-	}
-	calls := len(seam.verbs())
-	f.moveTeamFile(teamRef)
-	out := prompt()
-	if !slices.Contains(lines(out), movedLine) {
-		t.Fatalf("the prompt after the team file changed: %q, want the moved line", out)
-	}
-	if strings.Contains(out, "brigade.example") || strings.Contains(out, "sha256:") {
-		t.Fatalf("the moved line echoed the file: %q", out)
-	}
-	if got := seam.verbs()[calls:]; slices.Contains(got, "team moved") || slices.Contains(got, "team join") {
-		t.Fatalf("the prompt asked a backend about the move: %v", got)
-	}
-	if told, err := os.ReadFile(stamp); err != nil || strings.TrimSpace(string(told)) != m.BrigadeSessionID {
-		t.Fatalf("the stamp does not name the session that was told: %v", err)
-	}
-	if out := prompt(); strings.Contains(out, movedLine) {
-		t.Fatalf("a second prompt said the line again: %q", out)
-	}
-	if exit, _, errOut := f.run(SubSessionEnd, f.endDoc("exit")); exit != 0 {
-		t.Fatalf("session end: exit %d: %s", exit, errOut)
-	}
-	if _, err := os.Stat(stamp); err == nil {
-		t.Fatalf("the session's end left the stamp")
 	}
 }

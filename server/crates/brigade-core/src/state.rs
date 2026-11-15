@@ -1,6 +1,7 @@
 //! The state of a server: what its records add up to.
 //!
-//! The state is held in memory and written whole in a snapshot. [`State::apply`] is the only thing that
+//! The state is held in memory and written in a snapshot, whole but for the one member that is read off the
+//! rest whenever a state is read ([`Principal::retry_key_in`]). [`State::apply`] is the only thing that
 //! changes it. It cannot fail, reads no clock and draws nothing, so a restart and a standby that apply the
 //! same records in the same order hold the same state.
 //!
@@ -33,7 +34,11 @@ fn first_secret_version() -> u32 {
 }
 
 /// Everything a server knows.
+///
+/// A state is read through `Written`, member for member, and what is derived from what was written is
+/// derived there: whatever reads a state, a snapshot or a test, reads a whole one.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "Written")]
 pub struct State {
     /// Every principal the server has created, by its reference.
     pub principals: BTreeMap<String, Principal>,
@@ -53,6 +58,43 @@ pub struct State {
     pub entries: u64,
 }
 
+/// A state as it was written: the members of [`State`], as a snapshot holds them.
+#[derive(Deserialize)]
+struct Written {
+    principals: BTreeMap<String, Principal>,
+    credentials: BTreeMap<String, String>,
+    teams: BTreeMap<String, Team>,
+    session_teams: BTreeMap<String, String>,
+    swept_at: Timestamp,
+    latest_at: Timestamp,
+    entries: u64,
+}
+
+impl From<Written> for State {
+    fn from(written: Written) -> Self {
+        let Written {
+            principals,
+            credentials,
+            teams,
+            session_teams,
+            swept_at,
+            latest_at,
+            entries,
+        } = written;
+        let mut state = Self {
+            principals,
+            credentials,
+            teams,
+            session_teams,
+            swept_at,
+            latest_at,
+            entries,
+        };
+        state.find_the_ways_back();
+        state
+    }
+}
+
 /// The server's record of one member's installation.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Principal {
@@ -68,6 +110,17 @@ pub struct Principal {
     /// opens none.
     #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
     pub sessions_opened_at: VecDeque<Timestamp>,
+    /// The team that keeps a retry key for this principal, when one does: the team whose
+    /// [`Team::take_in_retry`] names it, and empty for every other principal. It is the way from a record
+    /// that this principal's own request makes to the key that record ends, with no look at every team.
+    ///
+    /// It is no fact of its own. What a team keeps is the one fact of a key, and this is read off it:
+    /// [`State::apply`] keeps the two in step, a snapshot holds the team's member alone, and a state that
+    /// is read has this member from the teams it read (`State::find_the_ways_back`). So it is never
+    /// written, and what a snapshot of an earlier build holds under its name is not read: a principal is
+    /// written as it was before there were retry keys.
+    #[serde(skip)]
+    pub retry_key_in: String,
 }
 
 /// One team.
@@ -95,6 +148,16 @@ pub struct Team {
     /// moves reads as none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub move_ticket: Option<MoveTicket>,
+    /// The take-in that gave the team its owner, when that request carried a retry key: what its client
+    /// repeats the request with when the answer was lost. It is here from that take-in until the first
+    /// record that the owner's own request makes, with its credential: from then on the owner holds the
+    /// credential, and the key has nothing left to stand in for. A rotation of the team's join secret
+    /// and another owner end it as well ([`State::apply`]). A team that was not taken in so has none. A
+    /// snapshot written before there were retry keys reads as none, and a build that does not know the
+    /// member drops it: it answers no take-in at all. This member is the one fact of a key that a
+    /// snapshot holds: the way from the owner back to it is read off it ([`Principal::retry_key_in`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub take_in_retry: Option<TakeInRetry>,
     /// Every membership the team has had, by principal.
     pub members: BTreeMap<String, Member>,
     /// Every session the team still holds, by id.
@@ -110,6 +173,17 @@ pub struct MoveTicket {
     /// When the ticket stops admitting. It stays here after that, admitting nobody, until the move is
     /// closed or another is opened: the end is a time, and no record marks it.
     pub ends_at: Timestamp,
+}
+
+/// What a team keeps of the take-in that gave it its owner, for the request made again: the hash of the
+/// key that request carried, and the principal it made.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakeInRetry {
+    /// The SHA-256 of the retry key. The key itself is never kept.
+    pub key_hash: String,
+    /// The principal the take-in made, which a repeat of it is answered for. It owns the team for as
+    /// long as the team keeps the key: a team that gets another owner keeps none.
+    pub principal_ref: String,
 }
 
 /// One principal's membership of one team.
@@ -456,6 +530,88 @@ impl State {
         self.teams.get_mut(team_ref)?.sessions.get_mut(session_id)
     }
 
+    /// Names, on each principal that a team keeps a retry key for, the team that keeps it: the way back
+    /// from a record of the principal's own to the key that record ends ([`Principal::retry_key_in`]).
+    ///
+    /// It is read off what the teams keep, whenever a state is read, and what a snapshot says of it is
+    /// not read at all (the member is skipped). So a state never holds a key with no way back to it, a
+    /// way back to no key, or two that disagree, whatever wrote the snapshot: the first of those is a key
+    /// that its owner's own record could not end. A principal has one team that keeps its key. Where a
+    /// snapshot has more than one team keep a key for a principal, as no record leaves it, the last of
+    /// them in the order of their references keeps it and the others keep none, as their joins applied
+    /// in that order would have it.
+    fn find_the_ways_back(&mut self) {
+        let mut kept_in: BTreeMap<String, String> = BTreeMap::new();
+        for (team_ref, team) in &self.teams {
+            if let Some(kept) = &team.take_in_retry {
+                kept_in.insert(kept.principal_ref.clone(), team_ref.clone());
+            }
+        }
+        for (team_ref, team) in &mut self.teams {
+            if team
+                .take_in_retry
+                .as_ref()
+                .is_some_and(|kept| kept_in.get(&kept.principal_ref) != Some(team_ref))
+            {
+                team.take_in_retry = None;
+            }
+        }
+        for (principal_ref, team_ref) in kept_in {
+            if let Some(principal) = self.principals.get_mut(&principal_ref) {
+                principal.retry_key_in = team_ref;
+            }
+        }
+    }
+
+    /// The team keeps the hash of a retry key for the principal a take-in made its owner, in the place
+    /// of whatever it kept before.
+    fn keep_retry_key(&mut self, team_ref: &str, key_hash: &str, principal_ref: &str) {
+        self.end_retry_key_of_team(team_ref);
+        self.end_retry_key_of(principal_ref);
+        if let Some(team) = self.teams.get_mut(team_ref) {
+            team.take_in_retry = Some(TakeInRetry {
+                key_hash: key_hash.to_owned(),
+                principal_ref: principal_ref.to_owned(),
+            });
+            if let Some(principal) = self.principals.get_mut(principal_ref) {
+                team_ref.clone_into(&mut principal.retry_key_in);
+            }
+        }
+    }
+
+    /// The team keeps no retry key from now on: its join secret was rotated, it has another owner, or
+    /// its owner did what only an owner is answered for.
+    fn end_retry_key_of_team(&mut self, team_ref: &str) {
+        if let Some(kept) = self
+            .teams
+            .get_mut(team_ref)
+            .and_then(|team| team.take_in_retry.take())
+            && let Some(principal) = self.principals.get_mut(&kept.principal_ref)
+        {
+            principal.retry_key_in.clear();
+        }
+    }
+
+    /// No team keeps a retry key for the principal from now on: a request of its own, made with its
+    /// credential, left a record, so it holds the credential the key stood in for.
+    fn end_retry_key_of(&mut self, principal_ref: &str) {
+        let Some(principal) = self.principals.get_mut(principal_ref) else {
+            return;
+        };
+        if principal.retry_key_in.is_empty() {
+            return;
+        }
+        let team_ref = std::mem::take(&mut principal.retry_key_in);
+        if let Some(team) = self.teams.get_mut(&team_ref)
+            && team
+                .take_in_retry
+                .as_ref()
+                .is_some_and(|kept| kept.principal_ref == principal_ref)
+        {
+            team.take_in_retry = None;
+        }
+    }
+
     /// Applies the next entry of the log: the records one request made.
     ///
     /// # Errors
@@ -477,6 +633,18 @@ impl State {
 
     /// Applies one record. A record that names something the state does not hold changes nothing: the
     /// records of one log always agree with the state they were made against.
+    ///
+    /// A retry key (the contract's section 3b) is kept by the join that carries its hash, and ended by
+    /// the first record that the request of the principal it is kept for makes, with its credential:
+    /// from then on that principal holds a credential, and a key that could still take its place would
+    /// only be a second way in. Such a record names the principal as the one who acted (a session
+    /// opened, a membership left, a join without a key, its credential made unknown), or is one that
+    /// only the team's owner is answered for (a member revoked, a move its owner opened or closed), and
+    /// the principal a key is kept for is the team's owner for as long as the team keeps it: a team
+    /// that gets another owner keeps none, and neither does one whose join secret is rotated. A take-in
+    /// made again makes a credential unknown as well, and its join keeps the key again in the same
+    /// entry, so an answer that is lost twice is still made again. A record of anybody else, and the
+    /// operator's commands that name no owner, end nothing.
     pub fn apply(&mut self, record: &Record) {
         let at = record.at;
         self.latest_at = self.latest_at.max(at);
@@ -495,13 +663,19 @@ impl State {
                     .insert(credential_hash.clone(), principal_ref.clone());
             }
             Event::CredentialRevoked { credential_hash } => {
-                self.credentials.remove(credential_hash);
+                // Whoever made the credential unknown held it, or holds the key: the key ends here, and
+                // the join of a take-in made again keeps it once more.
+                if let Some(principal_ref) = self.credentials.remove(credential_hash) {
+                    self.end_retry_key_of(&principal_ref);
+                }
             }
             Event::TeamCreated {
                 team_ref,
                 team_name,
                 join_secret_hash,
                 created_by,
+                // A team that was taken in by a request is the team it would be had it been created.
+                taken_in: _,
             } => {
                 let mut created = false;
                 self.teams.entry(team_ref.clone()).or_insert_with(|| {
@@ -514,12 +688,13 @@ impl State {
                         created_at: at,
                         secret_version: FIRST_SECRET_VERSION,
                         move_ticket: None,
+                        take_in_retry: None,
                         members: BTreeMap::new(),
                         sessions: BTreeMap::new(),
                     }
                 });
-                // The team counts against the principal that created it, whoever owns it later. A team
-                // that was taken in has no creator here, and counts against nobody.
+                // The team counts against the principal that created it or took it in, whoever owns it
+                // later. A team the operator took in has no creator here, and counts against nobody.
                 if created && let Some(principal) = self.principals.get_mut(created_by) {
                     count(&mut principal.teams_created_at, at);
                 }
@@ -530,7 +705,19 @@ impl State {
                 human_label,
                 // A member that came in with the move ticket is the member it would be with the secret.
                 by_move_ticket: _,
+                retry_key_hash,
             } => {
+                if self.teams.contains_key(team_ref) {
+                    if retry_key_hash.is_empty() {
+                        // A join that carries no key is its principal's own, made with its credential.
+                        self.end_retry_key_of(principal_ref);
+                    } else {
+                        // The take-in that made this member the team's owner carried a key, or is that
+                        // take-in made again: the team keeps its hash and the principal, for the
+                        // request made again.
+                        self.keep_retry_key(team_ref, retry_key_hash, principal_ref);
+                    }
+                }
                 if let Some(team) = self.teams.get_mut(team_ref) {
                     // The secret a join was let in with is the one the team has when the join is recorded,
                     // and a join by the move ticket counts as one with that secret.
@@ -559,6 +746,8 @@ impl State {
             } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
                     team.end_memberships(|member| member == principal_ref, at);
+                    // Leaving is the member's own request.
+                    self.end_retry_key_of(principal_ref);
                 }
             }
             Event::MemberRevoked {
@@ -571,6 +760,8 @@ impl State {
                     if let Some(member) = team.members.get_mut(principal_ref) {
                         member.banned = *banned;
                     }
+                    // Only the team's owner revokes a member.
+                    self.end_retry_key_of_team(team_ref);
                 }
             }
             Event::MembersRevokedByVersion {
@@ -587,6 +778,8 @@ impl State {
                         .map(str::to_owned)
                         .collect();
                     team.end_memberships(|member| revoked.contains(member), at);
+                    // The team's owner did this, or the operator who takes the team back.
+                    self.end_retry_key_of_team(team_ref);
                 }
             }
             Event::TeamSecretRotated {
@@ -597,6 +790,10 @@ impl State {
                 if let Some(team) = self.teams.get_mut(team_ref) {
                     team.join_secret_hash.clone_from(join_secret_hash);
                     team.secret_version = *secret_version;
+                    // A retry key is honoured for as long as the team has the secret it was taken in
+                    // with, at the most: a rotation ends it, as it ends everything that let anyone in
+                    // before it.
+                    self.end_retry_key_of_team(team_ref);
                 }
             }
             Event::TeamOwnerChanged {
@@ -605,12 +802,22 @@ impl State {
             } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
                     team.created_by.clone_from(principal_ref);
+                    // The key is kept for the owner a take-in made. A team that has another owner, by a
+                    // transfer of that owner's or by the operator's word, keeps none.
+                    if team
+                        .take_in_retry
+                        .as_ref()
+                        .is_some_and(|kept| kept.principal_ref != *principal_ref)
+                    {
+                        self.end_retry_key_of_team(team_ref);
+                    }
                 }
             }
             Event::TeamMoveOpened {
                 team_ref,
                 ticket_hash,
                 ends_at,
+                by_owner,
             } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
                     // The ticket of a move the team already had is gone with this one in its place.
@@ -618,11 +825,18 @@ impl State {
                         hash: ticket_hash.clone(),
                         ends_at: *ends_at,
                     });
+                    // The owner's request is the owner's own. The operator's command is nobody's.
+                    if *by_owner {
+                        self.end_retry_key_of_team(team_ref);
+                    }
                 }
             }
-            Event::TeamMoveClosed { team_ref } => {
+            Event::TeamMoveClosed { team_ref, by_owner } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
                     team.move_ticket = None;
+                    if *by_owner {
+                        self.end_retry_key_of_team(team_ref);
+                    }
                 }
             }
             Event::SessionOpened {
@@ -647,6 +861,8 @@ impl State {
                     if let Some(principal) = self.principals.get_mut(principal_ref) {
                         count(&mut principal.sessions_opened_at, at);
                     }
+                    // A session is registered with its principal's credential.
+                    self.end_retry_key_of(principal_ref);
                 }
             }
             Event::SessionResumed {

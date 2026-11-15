@@ -177,7 +177,7 @@ func init() {
 		{
 			Name:    "team",
 			Args:    "create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [adapter flags]",
-			Summary: "create, join, leave and administer a team, list its members, and record where it moved",
+			Summary: "create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved",
 			Raw:     true,
 			Run:     runTeam,
 		},
@@ -195,8 +195,8 @@ func init() {
 		},
 		{
 			Name:      "hook",
-			Args:      "session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>]",
-			Summary:   "harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI)",
+			Args:      "session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>] | follow --checkout <dir> --config-dir <dir> --state-dir <dir> [--key <n>]",
+			Summary:   "harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI); follow is the child a prompt hook starts to follow a team that moved",
 			Hidden:    true,
 			MultiCall: true,
 			Run:       runHookEntry,

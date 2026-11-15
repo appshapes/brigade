@@ -10,7 +10,7 @@ The ` | <folder>` Codex shows after that name in its terminal title is Codex's o
 repository's root), not part of the name and not on the roster
 ([measured](../../experiments/codex-terminal-title.md), card 190).
 
-The Codex CLI package (`codex/brigade/`) ships the same fourteen skills, worded for Codex. They are the model's
+The Codex CLI package (`codex/brigade/`) ships the same fifteen skills, worded for Codex. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
@@ -19,8 +19,9 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`codex/brigade/skills/sessions/SKILL.md`](../../../codex/brigade/skills/sessions/SKILL.md) | `$brigade:sessions` | print the roster verbatim |
 | [`codex/brigade/skills/whoami/SKILL.md`](../../../codex/brigade/skills/whoami/SKILL.md) | `$brigade:whoami` | print `brigade whoami`, this session's identity, verbatim |
 | [`codex/brigade/skills/join/SKILL.md`](../../../codex/brigade/skills/join/SKILL.md) | `$brigade:join <path>` | run `brigade team join --secret-file <path>` on the file the user named |
+| [`codex/brigade/skills/move/SKILL.md`](../../../codex/brigade/skills/move/SKILL.md) | `$brigade:move [<server url>] [<path>]`, and the model when the team's administrator asks to move the team to a Brigade server | ask the administrator for the server's URL and the paths it needs, never a secret's content; run `brigade team move --to <url> --secret-file <path>` and print what it printed |
 | [`codex/brigade/skills/update/SKILL.md`](../../../codex/brigade/skills/update/SKILL.md) | `$brigade:update` | refresh the marketplace, install again, then a new session |
-| [`codex/brigade/skills/setup/SKILL.md`](../../../codex/brigade/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures |
+| [`codex/brigade/skills/setup/SKILL.md`](../../../codex/brigade/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures, and that `$brigade:move` moves a team to a server |
 | [`codex/brigade/skills/email/SKILL.md`](../../../codex/brigade/skills/email/SKILL.md) | `$brigade:email <address> <text>` | one `brigade send` to the mail gateway |
 | [`codex/brigade/skills/slack/SKILL.md`](../../../codex/brigade/skills/slack/SKILL.md) | `$brigade:slack <to> <text>` | one `brigade send` to the Slack gateway |
 | [`codex/brigade/skills/quiet/SKILL.md`](../../../codex/brigade/skills/quiet/SKILL.md) | `$brigade:quiet [on [--to <where>] [--refuse]]`, `$brigade:quiet off`, `$brigade:quiet status` | make this one session quiet with `brigade inbound hold`, the roster line and a standing instruction; `off` returns it |

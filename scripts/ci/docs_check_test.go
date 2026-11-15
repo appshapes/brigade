@@ -276,6 +276,14 @@ var docsMutations = []struct {
 		t.Helper()
 		plantADR(t, root, "9999-a-planted-decision.md", plantedADR("9999", "Superseded by 9998"))
 	}},
+	{"decisions: superseded in part by a list that names an ADR that does not exist", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", plantedADR("9999", "Accepted; superseded in part by 0001 and 9998"))
+	}},
+	{"decisions: superseded in part by a list out of order", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", plantedADR("9999", "Accepted; superseded in part by 0002 and 0001"))
+	}},
 	{"decisions: an ADR with no Decision section", "decisions", func(t *testing.T, root string) {
 		t.Helper()
 		plantADR(t, root, "9999-a-planted-decision.md", strings.Replace(plantedADR("9999", "Accepted"), "## Decision\n", "## What we do\n", 1))

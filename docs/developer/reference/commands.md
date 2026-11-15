@@ -33,11 +33,11 @@ Commands:
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
   team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [adapter flags]
-                                              create, join, leave and administer a team, list its members, and record where it moved
+                                              create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved
   inbox [release] [--session <id>] [--all | <message_id>…] | follow [--incarnation <token>] | read [--cursor <token>]
                                               show and release held messages; follow prints each team message as it lands (a native inbox monitor's command)
-  hook session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>]
-                                              harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI)
+  hook session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>] | follow --checkout <dir> --config-dir <dir> --state-dir <dir> [--key <n>]
+                                              harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI); follow is the child a prompt hook starts to follow a team that moved
   watch [--sink <file> | --host codex]        detached inbound watcher for one session
   adapter <name> <group> <verb> [flags]       run a bundled adapter over the BAP/1 protocol on stdio
   sync-adapter <name> describe|attach|apply|status|detach
@@ -215,7 +215,7 @@ show the folders this project syncs, the sync engine and the teammates' peers
 ```text
 Usage: brigade team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [adapter flags] [--json] [--log-level debug|info|warn|error]
 
-create, join, leave and administer a team, list its members, and record where it moved
+create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved
 ```
 
 ## brigade inbox
@@ -236,9 +236,9 @@ show and release held messages; follow prints each team message as it lands (a n
 ## brigade hook
 
 ```text
-Usage: brigade hook session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>] [--json] [--log-level debug|info|warn|error]
+Usage: brigade hook session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>] | follow --checkout <dir> --config-dir <dir> --state-dir <dir> [--key <n>] [--json] [--log-level debug|info|warn|error]
 
-harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI)
+harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI); follow is the child a prompt hook starts to follow a team that moved
 
 This entrypoint is for hooks, the watcher, adapters and tests, not for humans.
 ```

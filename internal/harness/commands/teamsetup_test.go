@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	json "encoding/json/v2"
 
@@ -495,6 +496,197 @@ func TestTeamJoinDeclinedWritesNothing(t *testing.T) {
 	if f.rec.count() != spawns {
 		t.Fatal("a declined gate spawned an adapter")
 	}
+}
+
+// TestTeamJoinWaitsForAFollowThatHoldsTheLock: a session's hook can be
+// following this team's move while the member joins it themselves (work
+// item 327). A follow joins under a lock, having read under it that the
+// machine is no member yet; a join sent beside it, before either has a
+// credential, leaves the backend two memberships of one machine. So the
+// member's join takes the same lock, once the person has answered: while
+// another process holds it nothing is sent, and the join goes through when
+// it is free.
+func TestTeamJoinWaitsForAFollowThatHoldsTheLock(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	if err := os.MkdirAll(f.dirs.BrigadeConfig, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	iv := joinInv(f, top, setupSecret, true, nil)
+	// A follow takes the lock while the member types the secret, and holds
+	// it for a while. What the adapter had been sent when it let go is what
+	// the join sent beside it.
+	sent := make(chan []string, 1)
+	iv.Deps.ReadSecret = func() (string, error) {
+		lock, err := adapterkit.LockFile(filepath.Join(f.dirs.BrigadeConfig, "team-move.lock"), time.Second)
+		if err != nil {
+			return "", err
+		}
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			sent <- f.rec.verbs()
+			_ = lock.Unlock()
+		}()
+		return setupSecret, nil
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if held := <-sent; slices.Contains(held, "team join") {
+		t.Fatalf("the join was sent while another process held the follow's lock: %v", held)
+	}
+	if n := countOf(f.rec.verbs(), "team join"); n != 1 {
+		t.Fatalf("%d joins were sent once the lock was free, want 1", n)
+	}
+	canon, _ := teamfile.Canonicalize(top)
+	if _, ok, _ := teamstore.LookupPin(f.dirs.BrigadeConfig, canon); !ok {
+		t.Fatal("no pin after the join")
+	}
+}
+
+// TestTeamJoinGoesOnWithoutALockItCannotHave: the lock is one for the whole
+// store, and a follow holds it while it asks an old backend that may be slow
+// or gone, a new one each minute for each checkout. A join is the member's
+// own command and is never refused for that (work item 327). It waits for
+// the lock as long as it may; when a follow still holds it then, or when
+// the lock cannot be had at all, the join is sent without it, and the
+// binding and the pin are written as by any join. The follow that held the
+// lock reads the membership again before its own join
+// (TestAFollowSeesTheJoinThatWentAheadWhileItsBackendHung, in teammove).
+func TestTeamJoinGoesOnWithoutALockItCannotHave(t *testing.T) {
+	t.Parallel()
+	joined := func(t *testing.T, f *fixture, top string) {
+		t.Helper()
+		sent := slices.DeleteFunc(f.rec.verbs(), func(verb string) bool { return verb != "team join" })
+		if len(sent) != 1 {
+			t.Fatalf("%d joins were sent, want 1", len(sent))
+		}
+		key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
+		if _, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key); err != nil {
+			t.Fatalf("the binding after the join: %v", err)
+		}
+		canon, _ := teamfile.Canonicalize(top)
+		if _, ok, _ := teamstore.LookupPin(f.dirs.BrigadeConfig, canon); !ok || !strings.Contains(f.out.String(), `joined team "devs"`) {
+			t.Fatalf("the pin, or the join's line: %q", f.out.String())
+		}
+	}
+
+	t.Run("a follow holds the lock for longer than the join waits", func(t *testing.T) {
+		t.Parallel()
+		f, top := joinFixture(t)
+		if err := os.MkdirAll(f.dirs.BrigadeConfig, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		lock, err := adapterkit.LockFile(filepath.Join(f.dirs.BrigadeConfig, "team-move.lock"), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = lock.Unlock() })
+		iv := joinInv(f, top, setupSecret, true, nil)
+		const wait = 150 * time.Millisecond
+		iv.Deps.FollowLockWait = wait
+		began := time.Now()
+		if err := Team(iv); err != nil {
+			t.Fatalf("a join beside a follow that holds the lock: %v", err)
+		}
+		// It waited for the follow before it went on.
+		if waited := time.Since(began); waited < wait {
+			t.Fatalf("the join went on after %v, before its wait of %v was over", waited, wait)
+		}
+		joined(t, f, top)
+		if !strings.Contains(f.errb.String(), "the join goes on without it") {
+			t.Fatalf("the join said nothing of the lock it did not have: %q", f.errb.String())
+		}
+	})
+
+	t.Run("the lock cannot be had at all", func(t *testing.T) {
+		t.Parallel()
+		f, top := joinFixture(t)
+		// A directory where the lock's file goes: no lock can be taken on it.
+		if err := os.MkdirAll(filepath.Join(f.dirs.BrigadeConfig, "team-move.lock"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := Team(joinInv(f, top, setupSecret, true, nil)); err != nil {
+			t.Fatalf("a join whose lock cannot be had: %v", err)
+		}
+		joined(t, f, top)
+	})
+}
+
+// TestTeamJoinFindsTheMembershipAFollowMade: the follow finished while the
+// member was at the join's question: under the lock the store now holds a
+// membership of the file's team that was not there when the join began. The
+// machine is a member the file describes, so the join presents no secret
+// for a second membership: it writes the checkout's pin and says so.
+func TestTeamJoinFindsTheMembershipAFollowMade(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
+	iv := joinInv(f, top, setupSecret, true, nil)
+	iv.Deps.Confirm = func(string) (bool, error) {
+		// What a follow's join leaves: the binding of the team on the backend
+		// the file names.
+		tf, err := teamfile.Parse(filepath.Join(top, teamfile.FileName))
+		if err != nil {
+			return false, err
+		}
+		return true, write.EnsureBinding(f.dirs.BrigadeConfig, key, tf.Adapter, tf.URL, tf.PublishableKey, tf.Certificate, tf.TeamRef, tf.TeamName, "p_followed")
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOf(f.rec.verbs(), "team join"); n != 0 {
+		t.Fatalf("%d joins were sent for a machine that a follow had joined, want none", n)
+	}
+	if binding, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key); err != nil || binding.PrincipalRef != "p_followed" {
+		t.Fatalf("the membership after the join: %+v, %v", binding, err)
+	}
+	canon, _ := teamfile.Canonicalize(top)
+	if _, ok, _ := teamstore.LookupPin(f.dirs.BrigadeConfig, canon); !ok || !strings.Contains(f.out.String(), `joined team "devs"`) {
+		t.Fatalf("the pin, or the join's line: %q", f.out.String())
+	}
+}
+
+// TestTeamJoinPresentsItsSecretBesideAMembershipTheFileDoesNotDescribe: the
+// membership that appeared while the member was asked spares the join only
+// when it is one the team file describes, member by member. One that names
+// the file's team under another key (or, on a Brigade server, another
+// certificate) is of a file that has changed since: a pin written beside it
+// would be a pin no session's start accepts. The join is sent with the
+// secret, as it would have been, and the binding is the file's afterwards.
+func TestTeamJoinPresentsItsSecretBesideAMembershipTheFileDoesNotDescribe(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
+	tf, err := teamfile.Parse(filepath.Join(top, teamfile.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	iv := joinInv(f, top, setupSecret, true, nil)
+	iv.Deps.Confirm = func(string) (bool, error) {
+		return true, write.EnsureBinding(f.dirs.BrigadeConfig, key, tf.Adapter, tf.URL, "sb_publishable_of_an_earlier_file", tf.Certificate, tf.TeamRef, tf.TeamName, "p_followed")
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOf(f.rec.verbs(), "team join"); n != 1 {
+		t.Fatalf("%d joins were sent beside a membership the file does not describe, want 1", n)
+	}
+	binding, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key)
+	if err != nil || teamstore.VerifyBinding(binding, tf) != nil {
+		t.Fatalf("the membership after the join is not the one the file describes: %+v, %v", binding, err)
+	}
+}
+
+// countOf is how often verb is among verbs.
+func countOf(verbs []string, verb string) int {
+	n := 0
+	for _, v := range verbs {
+		if v == verb {
+			n++
+		}
+	}
+	return n
 }
 
 func TestTeamJoinWrongTeamSecretRefusedLocally(t *testing.T) {

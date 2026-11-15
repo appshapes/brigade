@@ -244,10 +244,15 @@ pub enum Event {
         team_name: String,
         /// The SHA-256 of the whole join secret.
         join_secret_hash: String,
-        /// The principal that created it, which is its first owner. Empty for a team that was taken in from
-        /// another backend, which nobody here created: such a team has no owner until a
-        /// `team.owner_changed` names one.
+        /// The principal that created it, or that took it in from another backend by its own request,
+        /// which is its first owner. Empty for a team the server's operator took in, which nobody here
+        /// created: such a team has no owner until a `team.owner_changed` names one.
         created_by: String,
+        /// Whether the team exists on another backend and was taken in by a request, with the join
+        /// secret it has there. It is written only when it was, and the team is the same either way: it
+        /// is what lets the server say how a team came to be here.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        taken_in: bool,
     },
     /// A team was given a new join secret. The secret before it no longer joins, and every member is as it
     /// was.
@@ -271,11 +276,11 @@ pub enum Event {
         /// owner until the first member joins it over HTTP.
         principal_ref: String,
     },
-    /// The server's operator opened a team's move from another backend: until `ends_at`, or until the move
-    /// is closed, a join is let in with the move ticket as it is with the join secret, except that it
-    /// never makes an owner. The log holds the ticket's hash and never the ticket. A team has one move at
-    /// most: a move that is opened takes the place of the one the team had, whose ticket admits nobody
-    /// from then on.
+    /// A team's move from another backend was opened, by the server's operator or by the team's owner:
+    /// until `ends_at`, or until the move is closed, a join is let in with the move ticket as it is with
+    /// the join secret, except that it never makes an owner. The log holds the ticket's hash and never the
+    /// ticket. A team has one move at most: a move that is opened takes the place of the one the team had,
+    /// whose ticket admits nobody from then on.
     #[serde(rename = "team.move_opened")]
     TeamMoveOpened {
         /// The team.
@@ -284,13 +289,24 @@ pub enum Event {
         ticket_hash: String,
         /// When the ticket stops admitting.
         ends_at: Timestamp,
+        /// Whether the team's owner opened the move, by a request made with its credential (the
+        /// contract's section 3b), and not the server's operator from the command line. It is written
+        /// only when it is true, so the operator's record is the record it has always been. The owner's
+        /// own request ends the retry key the team keeps for that owner; the operator's does not.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        by_owner: bool,
     },
-    /// A team's move was closed, and its ticket admits nobody from now on: by the server's operator, or by
-    /// a rotation of the team's join secret, in the entry of the rotation.
+    /// A team's move was closed, and its ticket admits nobody from now on: by the server's operator, by
+    /// the team's owner, or by a rotation of the team's join secret, in the entry of the rotation.
     #[serde(rename = "team.move_closed")]
     TeamMoveClosed {
         /// The team.
         team_ref: String,
+        /// Whether the team's owner closed the move, by a request made with its credential, and neither
+        /// the server's operator nor a rotation. It is written only when it is true, and is read as
+        /// [`Event::TeamMoveOpened`]'s is.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        by_owner: bool,
     },
     /// A principal became an active member of a team: a new membership, or one that was revoked and is
     /// active again with the day it first joined. It joined with the secret the team has now, whose
@@ -309,6 +325,17 @@ pub enum Event {
         /// say how a member came in.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         by_move_ticket: bool,
+        /// The SHA-256 of the retry key of the take-in that made this member, when that request carried
+        /// one, made the principal and made it the team's owner: the log holds the key's hash and never
+        /// the key. It is what lets the machine that took the team in make the request again, when its
+        /// answer was lost, and be answered as this principal (the contract's section 3b). The record of
+        /// a take-in made again carries it too: that entry makes the principal's credential unknown,
+        /// which ends a key, and this record keeps it for the answer that may be lost in its turn. It is
+        /// written only then, so every other join is the record it has always been, and a build that
+        /// does not know the member reads the record without it. A join without it, by a principal a
+        /// team keeps a key for, is that principal's own, made with its credential: it ends the key.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        retry_key_hash: String,
     },
     /// A principal left a team: its membership is revoked and its open sessions there are closed.
     #[serde(rename = "member.left")]
@@ -463,25 +490,56 @@ mod tests {
                 team_name: "ops".into(),
                 join_secret_hash: "s".into(),
                 created_by: "p".into(),
+                taken_in: false,
+            },
+            Event::TeamCreated {
+                team_ref: "t".into(),
+                team_name: "ops".into(),
+                join_secret_hash: "s".into(),
+                created_by: "p".into(),
+                taken_in: true,
             },
             Event::MemberJoined {
                 team_ref: "t".into(),
                 principal_ref: "p".into(),
                 human_label: String::new(),
                 by_move_ticket: false,
+                retry_key_hash: String::new(),
             },
             Event::MemberJoined {
                 team_ref: "t".into(),
                 principal_ref: "p".into(),
                 human_label: "alice".into(),
                 by_move_ticket: true,
+                retry_key_hash: String::new(),
+            },
+            Event::MemberJoined {
+                team_ref: "t".into(),
+                principal_ref: "p".into(),
+                human_label: "alice".into(),
+                by_move_ticket: false,
+                retry_key_hash: "r".into(),
             },
             Event::TeamMoveOpened {
                 team_ref: "t".into(),
                 ticket_hash: "k".into(),
                 ends_at: Timestamp(9),
+                by_owner: false,
             },
-            Event::TeamMoveClosed { team_ref: "t".into() },
+            Event::TeamMoveOpened {
+                team_ref: "t".into(),
+                ticket_hash: "k".into(),
+                ends_at: Timestamp(9),
+                by_owner: true,
+            },
+            Event::TeamMoveClosed {
+                team_ref: "t".into(),
+                by_owner: false,
+            },
+            Event::TeamMoveClosed {
+                team_ref: "t".into(),
+                by_owner: true,
+            },
             Event::TeamSecretRotated {
                 team_ref: "t".into(),
                 join_secret_hash: "s2".into(),
@@ -580,17 +638,60 @@ mod tests {
         // A build that does not know these two kinds refuses the entry that holds one, so the names are
         // held here, as the four of the administration are.
         let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        let opened = |by_owner: bool| Event::TeamMoveOpened {
+            team_ref: "t".into(),
+            ticket_hash: "k".into(),
+            ends_at: Timestamp(9),
+            by_owner,
+        };
+        let closed = |by_owner: bool| Event::TeamMoveClosed {
+            team_ref: "t".into(),
+            by_owner,
+        };
+        let operators =
+            r#"{"version":1,"at":5,"kind":"team.move_opened","team_ref":"t","ticket_hash":"k","ends_at":9}"#;
+        assert_eq!(written(opened(false)), operators);
         assert_eq!(
-            written(Event::TeamMoveOpened {
-                team_ref: "t".into(),
-                ticket_hash: "k".into(),
-                ends_at: Timestamp(9),
-            }),
-            r#"{"version":1,"at":5,"kind":"team.move_opened","team_ref":"t","ticket_hash":"k","ends_at":9}"#
+            written(closed(false)),
+            r#"{"version":1,"at":5,"kind":"team.move_closed","team_ref":"t"}"#
+        );
+        // The operator's records are the records they have always been, byte for byte, and one written
+        // before an owner could open a move reads as the operator's. The owner's carry one member more,
+        // which a build that does not know it reads past.
+        assert_eq!(Record::decode(operators.as_bytes()).unwrap().event, opened(false));
+        let owners = r#"{"version":1,"at":5,"kind":"team.move_opened","team_ref":"t","ticket_hash":"k","ends_at":9,"by_owner":true}"#;
+        assert_eq!(written(opened(true)), owners);
+        assert_eq!(Record::decode(owners.as_bytes()).unwrap().event, opened(true));
+        let owners = r#"{"version":1,"at":5,"kind":"team.move_closed","team_ref":"t","by_owner":true}"#;
+        assert_eq!(written(closed(true)), owners);
+        assert_eq!(Record::decode(owners.as_bytes()).unwrap().event, closed(true));
+    }
+
+    #[test]
+    fn a_team_says_that_it_was_taken_in_by_a_request_only_when_it_was() {
+        let created = |created_by: &str, taken_in: bool| Event::TeamCreated {
+            team_ref: "t".into(),
+            team_name: "ops".into(),
+            join_secret_hash: "s".into(),
+            created_by: created_by.into(),
+            taken_in,
+        };
+        let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        // A team that was created here, and one the operator took in, are the records they have always
+        // been, byte for byte, and a record written before a request could take a team in reads as one.
+        let created_here = r#"{"version":1,"at":5,"kind":"team.created","team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":"p"}"#;
+        assert_eq!(written(created("p", false)), created_here);
+        assert_eq!(
+            Record::decode(created_here.as_bytes()).unwrap().event,
+            created("p", false)
         );
         assert_eq!(
-            written(Event::TeamMoveClosed { team_ref: "t".into() }),
-            r#"{"version":1,"at":5,"kind":"team.move_closed","team_ref":"t"}"#
+            written(created("", false)),
+            r#"{"version":1,"at":5,"kind":"team.created","team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":""}"#
+        );
+        assert_eq!(
+            written(created("p", true)),
+            r#"{"version":1,"at":5,"kind":"team.created","team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":"p","taken_in":true}"#
         );
     }
 
@@ -601,6 +702,7 @@ mod tests {
             principal_ref: "p".into(),
             human_label: String::new(),
             by_move_ticket,
+            retry_key_hash: String::new(),
         };
         let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
         // A join with the join secret is the record it has always been, byte for byte, and a record
@@ -616,5 +718,27 @@ mod tests {
             written(joined(true)),
             r#"{"version":1,"at":5,"kind":"member.joined","team_ref":"t","principal_ref":"p","by_move_ticket":true}"#
         );
+    }
+
+    #[test]
+    fn a_join_keeps_the_hash_of_a_retry_key_only_when_a_take_in_gave_it_one() {
+        let joined = |retry_key_hash: &str| Event::MemberJoined {
+            team_ref: "t".into(),
+            principal_ref: "p".into(),
+            human_label: String::new(),
+            by_move_ticket: false,
+            retry_key_hash: retry_key_hash.into(),
+        };
+        let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        // A join with no key is the record it has always been, byte for byte, and a record written before
+        // there were retry keys reads as one: a server 0.6.0 and a server 0.7.0 write and read the same.
+        let without = r#"{"version":1,"at":5,"kind":"member.joined","team_ref":"t","principal_ref":"p"}"#;
+        assert_eq!(written(joined("")), without);
+        assert_eq!(Record::decode(without.as_bytes()).unwrap().event, joined(""));
+        // The member is named as the log keeps it: a build that does not know it reads past it, and one
+        // that does reads the hash back.
+        let with = r#"{"version":1,"at":5,"kind":"member.joined","team_ref":"t","principal_ref":"p","retry_key_hash":"h"}"#;
+        assert_eq!(written(joined("h")), with);
+        assert_eq!(Record::decode(with.as_bytes()).unwrap().event, joined("h"));
     }
 }

@@ -26,7 +26,8 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   copied from `0000-template.md`, with the next number, listed in `docs/decisions/README.md`, in the same change
   as the code, the rule or the page it explains. Its Status is `Accepted`, `Accepted; superseded in part by NNNN`,
   `Superseded by NNNN` or `Rejected`, never Proposed. Once it is on `master` it keeps its text: its Status line
-  changes when a later ADR supersedes it, and a fact that was wrong when it was written is corrected in place
+  changes when a later ADR supersedes it (every ADR that supersedes a part is named, the lowest number first:
+  `by 0002 and 0009`, `by 0006, 0007 and 0008`; ADR 0009), and a fact that was wrong when it was written is corrected in place
   under a dated header entry, `- **Corrected:** YYYY-MM-DD: <what was wrong, and what the ADR says now>`, after
   the Supersedes line and any earlier entry. The title, the other header lines and the Decision section never
   change, and an ADR is never removed or renamed: a change of mind is a new ADR that supersedes the old one.

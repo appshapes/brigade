@@ -8,7 +8,7 @@
 // runs wrong. Since card 110 the pages are the member's and the admin's leaves, each joined on the forms of its
 // own procedure.
 //
-// The join is deliberately narrow. It pins the five invocation forms a person types and nothing else: not
+// The join is deliberately narrow. It pins the six invocation forms a person types and nothing else: not
 // prose, not which copies exist (a copy may be consolidated away — Rjae's ruling 2026-09-08, open by default),
 // so a lane may rewrite the reasons in docs/setup.md without touching this file; it bites the moment a flag or
 // a verb moves in one copy and not the others.
@@ -36,6 +36,17 @@ var setupDocFiles = map[string][]string{
 	"docs/team-member/join/muse-code.md":        {setupDocWitnesses[2]},
 	"docs/team-member/join/codex.md":            {setupDocWitnesses[2]},
 	"docs/team-member/leave/leave-the-team.md":  {setupDocWitnesses[3], setupDocWitnesses[4]},
+	// The one command of a team's move (work item 328): the setup skills name it, the `move` skill of each
+	// package runs it, and the Team Admin's and the Project Owner's pages are its procedure.
+	"grok/brigade/skills/setup/SKILL.md":              {setupDocWitnesses[5]},
+	"plugin/skills/move/SKILL.md":                     {setupDocWitnesses[5]},
+	"muse/brigade/skills/move/SKILL.md":               {setupDocWitnesses[5]},
+	"codex/brigade/skills/move/SKILL.md":              {setupDocWitnesses[5]},
+	"grok/brigade/skills/move/SKILL.md":               {setupDocWitnesses[5]},
+	"docs/team-admin/members/README.md":               {setupDocWitnesses[5]},
+	"docs/team-admin/members/move-the-team.md":        {setupDocWitnesses[5]},
+	"docs/project-owner/server/README.md":             {setupDocWitnesses[5]},
+	"docs/project-owner/server/move-from-supabase.md": {setupDocWitnesses[5]},
 }
 
 // pluginBinPrefix is the one difference the join tolerates: each copy names the binary the way its own reader
@@ -46,13 +57,15 @@ var pluginBinPrefix = regexp.MustCompile(`(\$\{CLAUDE_PLUGIN_ROOT\}|<plugin>)/bi
 // one line in one copy and across two in another; that is formatting, not drift, and must not fail the join.
 var whitespaceRun = regexp.MustCompile(`\s+`)
 
-// The five witnesses: the invocation forms of the procedures a person types (create, join, leave, reset).
+// The six witnesses: the invocation forms of the procedures a person types (create, join, leave, reset), and of
+// the one a person or their session types to move a team (work item 328).
 var setupDocWitnesses = []string{
 	"brigade team create --url https://<ref>.supabase.co --key sb_publishable_",
 	"--name <team> --secret-file ~/brigade-<team>.secret",
 	"brigade team join",
 	"brigade team leave",
 	"brigade team reset",
+	"brigade team move --to <url> --secret-file <path>",
 }
 
 // checkSetupDocs asserts each copy's witnesses in every copy that exists, with the path prefix normalised away.

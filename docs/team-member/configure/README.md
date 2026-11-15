@@ -21,9 +21,9 @@ teammate's message cannot change them.
 
 ## Know the options
 
-1. Seventeen options, all with working defaults: where the credential lives, your label, the inbound policy, what
-   the roster shows, file sync, the frame text, sounds and notifications, and whether a session follows a team
-   that moved.
+1. Eighteen options, all with working defaults: where the credential lives, your label, the inbound policy, what
+   the roster shows, file sync, the frame text, sounds and notifications, whether a session follows a team that
+   moved, and whether a session may move one.
 2. The same names and meanings in every harness; only the way to set them differs.
 
 Details: [Know the options](options.md).

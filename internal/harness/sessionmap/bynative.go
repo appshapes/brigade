@@ -13,10 +13,16 @@ import (
 // `/resume` returns the id to its pre-clear value), so the map tolerates a
 // returning id by design rather than assuming ids are monotonic.
 type ByNative struct {
-	BrigadeSessionID string    `json:"brigade_session_id"`
-	TeamRef          string    `json:"team_ref"`
-	SessionName      string    `json:"session_name"`
-	UpdatedAt        time.Time `json:"updated_at,omitzero"`
+	BrigadeSessionID string `json:"brigade_session_id"`
+	TeamRef          string `json:"team_ref"`
+	// TeamKey is the team key the session was registered under: the backend
+	// that issued BrigadeSessionID (work item 327). A team that moves keeps
+	// its reference and changes its key, and an id is a resume hint only to
+	// the backend that issued it. Absent (omitzero) in a map written before
+	// the member existed, which reads as "any backend", as it did then.
+	TeamKey     string    `json:"team_key,omitzero"`
+	SessionName string    `json:"session_name"`
+	UpdatedAt   time.Time `json:"updated_at,omitzero"`
 }
 
 // Validate requires the one member a resume hint cannot do without.

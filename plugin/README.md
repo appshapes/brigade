@@ -33,9 +33,10 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   conversation is closed and fires no hook; its next prompt re-opens it. Before the binary is installed, the
   prompt and session-end hooks return at once and print nothing, and an install that fails for good is reported
   once, on the next prompt, as a hook error beginning `Brigade: not installed:`.
-- **Fourteen skills** under `skills/`: `team-messaging` (model-facing: the command surface, the sending rules, the
+- **Fifteen skills** under `skills/`: `team-messaging` (model-facing: the command surface, the sending rules, the
   inbound frame, the gateways, the roster line, the notes, decisions and digest of a project with a state folder),
-  `setup` (human-facing: create, join, leave, uninstall), `join` (`/brigade:join <path>`), `update`
+  `setup` (human-facing: create, join, leave, uninstall), `join` (`/brigade:join <path>`), `move` (`/brigade:move`:
+  move the team to a Brigade server with one command, as its administrator), `update`
   (`/brigade:update`), `sessions` (`/brigade:sessions`), `whoami` (`/brigade:whoami`, this session's identity
   printed verbatim), `email` (`/brigade:email <address> <text>`), `slack`
   (`/brigade:slack <to> <text>`), `quiet` (`/brigade:quiet`, which makes the one session it is typed in hold its
@@ -46,7 +47,7 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   `work-item-start` (`/brigade:work-item-start <number> [<session>…]`: take one and work it through, leading the
   other sessions of yours that you name) and `work-item-next`
   (`/brigade:work-item-next [tag <tag>] [count]`: which one to take next, read from the board and the roster).
-- **No MCP server and no channel wiring.** The plugin is a CLI, four hooks and fourteen skills; there is nothing else
+- **No MCP server and no channel wiring.** The plugin is a CLI, four hooks and fifteen skills; there is nothing else
   in the tree, and `make plugin-check` enforces it.
 
 ## What leaves your machine, and where it goes
@@ -81,7 +82,7 @@ Who can read what, and what was measured, is [docs/security.md](../docs/security
 
 ## Options
 
-Seventeen options, all optional, all with working defaults, set from `/plugin` in a session, by asking the session,
+Eighteen options, all optional, all with working defaults, set from `/plugin` in a session, by asking the session,
 or with `--settings`; the table and each option's meaning is [Know the options](../docs/team-member/configure/options.md).
 
 ## For developers

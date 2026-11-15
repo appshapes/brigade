@@ -263,10 +263,11 @@ Phase 4 run with a real model — 84 headless sessions, the idle-wake and crash-
 interactive sweep — and it produced none of the acts those test messages asked for. Read that number with
 section 3's limits: those runs measured attempts, not effects.
 
-**The one deliberate exception.** Four commands refuse to run inside a Claude Code session: `brigade team
-revoke-member`, `brigade team transfer`, `brigade team move` (when it records or clears where a team went, section
-21; `--show` only reads) and `brigade inbox release`. Each is hard to undo, and each is exactly the
-sort of act a teammate's text could talk a session into. They run in your own terminal instead. Read the refusal
+**The one deliberate exception.** Three commands refuse to run inside a Claude Code session: `brigade team
+revoke-member`, `brigade team transfer` and `brigade inbox release`. Each is hard to undo, and each is exactly the
+sort of act a teammate's text could talk a session into. They run in your own terminal instead. A fourth,
+`brigade team move` when it records or clears where a team went, refused with them until 0.56.0 and runs inside a
+session since, unless you set the option `team_move_in_session` to `off` (section 21). Read the refusal
 for what it is: the command notices it is inside a session by the environment Claude Code gives the Bash tool
 (`CLAUDE_PID`), and a command that strips that environment first — `env -u CLAUDE_PID brigade team revoke-member …`
 — runs as if from a terminal (measured 2026-09-08). The gate that holds is Claude Code's own: that command text
@@ -1336,7 +1337,8 @@ what differs. The server is experimental in its 0.1.0.
   the directory belongs to a user of its own on a machine the organisation controls, and holds nothing else.
 - **Who may create a team.** Anyone who can reach the server, unless its operator started it with a creation
   token. That is deliberate: Brigade is open by design and closed by choice. Creating a team gives no way into
-  another one; a team's boundary is its join secret, as everywhere else. Nothing bounds how many teams a server
+  another one; a team's boundary is its join secret, as everywhere else. The same rule says who may take a team
+  in by request (below). Nothing bounds how many teams a server
   holds or how many members a join secret admits, and what bounds one member from server 0.6.0 (five teams
   created and 120 sessions opened in an hour, five failed joins in fifteen minutes; ADR 0004) does not hold a
   stranger, who arrives as a new member with each request, so a server that
@@ -1369,16 +1371,50 @@ what differs. The server is experimental in its 0.1.0.
   signature or the provider's secret before anything of it is acted on, and every other address still asks for a
   member's credential.
 - **A team taken in.** A team can move to a server from another backend with its join secret: the operator, with
-  the secret in a file, runs a command on the server's data directory while the server is stopped. No request
-  can do that, and the secret is not kept: the server stores its hash, as for a team it created. The secret is
+  the secret in a file, runs a command on the server's data directory while the server is stopped. From 0.7.0 a
+  request does it too, on a server that runs, for whoever presents the secret and may create a team there (work
+  item 328; [ADR 0006](decisions/0006-take-a-team-in-and-open-its-move-by-request.md)).
+  Either way the secret is not kept: the server stores its hash, as for a team it created. The secret is
   as strong after the move as before it, and whoever held it can join the team on the server. From 0.5.0 its
   members can follow it there with no command of their own: section 21 says on whose word, and what that opens.
+- **What a take-in by request opens.** Two things, stated plainly. Whoever holds a team's join secret, and may
+  create a team on a server, can own that team there: the caller that takes a team in is its owner from that
+  request on, because the server cannot check who administered it on the old backend. That moves no member. A
+  member's session follows a team only on the record on the backend the team leaves (section 21), and the join
+  secret does not let anyone write that record: only the team's creator there can, and whoever controls that
+  backend. And a team's reference is public, because the committed team file names it: on a server that asks
+  for no creation token, a stranger can take in a team under that reference with a secret of their own
+  invention, and the real team's take-in is then refused as a conflict. A creation token closes that, because
+  the stranger takes nothing in without it. No command of the operator's removes such a team yet.
+- **A take-in that is made again.** The answer to a take-in carries the credential of the owner it made, and
+  nothing else holds it: an answer that is lost on the way would leave the team with an owner nobody can be.
+  So the member's adapter mints a retry key before it asks, from 256 random bits, keeps it in a file of mode
+  0600 beside its credential, and sends it; the server keeps the key's hash with the take-in, never the key.
+  The same command run again sends the same key, and with the team's join secret it is answered for the owner
+  the first request made, with a new credential, while the one that was lost admits nobody. What this opens,
+  stated plainly: whoever can read that file, and holds the join secret, can own the team, as whoever can
+  read the credential beside it can, and the request that does it makes the credential before it unknown.
+  That is open until the owner first asks the server, with its own credential, for something the server
+  records: a session, the team's move, any change to the team or to its own credential. The server ends the
+  key with that record. From then on a copy of the file opens nothing, whether the file is gone or not, and a
+  take-in that arrives a second time is a stranger's join; one that arrives a second time before it takes
+  the credential out of the owner's hands, and the server's operator names the owner again. A rotation of the
+  team's join secret ends the key as well. The adapter removes the file as soon as a take-in is answered and
+  its credential written. The file stays after an answer that was lost and after a refusal, for the next run
+  of the command, and after one answer more: a machine that joined the team in between holds a member's
+  credential, the server answers for that credential and never looks at the key, so the adapter keeps the
+  file and says that `profile revoke-credentials` and the same take-in make the take-in again. The key is in
+  no argument, no output and no log line on either side. A key that is wrong, a key that has ended and none
+  are a member's join, and no answer says whether a team keeps one.
 - **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
   here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
-  revokes or bans a member and transfers the team. Three things differ from section 9. A team that was taken in
-  has no owner until someone joins it, because the server cannot check who administered it on the old backend:
+  revokes or bans a member and transfers the team. Three things differ from section 9. A team that the operator
+  took in has no owner until someone joins it,
+  because the server cannot check who administered it on the old backend:
   the first member to join becomes its owner, so until then anyone who holds the join secret can take that place
-  by joining first. A gateway never does. The server's operator can name a team's owner with a command on its
+  by joining first. A gateway never does. A team that was taken in by request has its owner from that request,
+  the caller that took it in, and no join changes that.
+  The server's operator can name a team's owner with a command on its
   data directory while the server is stopped, and can take a team back from whoever holds it: a second command
   gives the team a new join secret in a file, ends every membership and leaves the team to the first member who
   joins with that file. So a lost credential does not end a team's administration as it does in section 9, and
@@ -1393,11 +1429,19 @@ Until 0.55.0 nothing could point your sessions at another backend without a comm
 `.brigade.json` that named one stopped matching what you had joined, your next session connected to nothing, and
 `team join` asked for the secret file. From 0.55.0 one thing can, and this section states it plainly (work item
 273; the owner's ruling of 2026-11-13 is on work item 315, and the decision is
-[ADR 0003](decisions/0003-follow-a-team-that-moved-on-the-old-backends-record.md)).
+[ADR 0003](decisions/0003-follow-a-team-that-moved-on-the-old-backends-record.md)). From plugin 0.56.0
+a session that is already running follows too, at its next prompts (work item 327,
+[ADR 0008](decisions/0008-follow-a-move-from-a-running-session-at-its-next-prompts.md)).
 
 **What happens.** When a team moves from a Supabase project to a Brigade server, its administrator records the
 move on the project the team is leaving: the server's address, its certificate fingerprint when the team file
-pins one, and a move ticket that the server's operator made. When your next session starts in a checkout whose
+pins one, and a move ticket that the server made, for its operator or, from server 0.7.0, for the team's owner
+there by request ([ADR 0006](decisions/0006-take-a-team-in-and-open-its-move-by-request.md)).
+From 0.56.0 one command of the administrator's does all of it, `brigade team move --to`: the server takes the
+team in with the administrator as its owner, the move is opened and recorded, and only then is `.brigade.json`
+rewritten, from the one address the administrator typed (work item 328;
+[ADR 0007](decisions/0007-let-a-session-move-a-team.md)).
+When your next session starts in a checkout whose
 `.brigade.json` names a new backend for the team you joined there, the session asks the backend you joined
 whether that team moved. If the record names exactly what the file names — the adapter, the address, the
 fingerprint and the team — your machine joins the server with the ticket, under the label you had, and the
@@ -1412,40 +1456,87 @@ the session connects to nothing, says that the file does not match, and `team jo
   (section 2), because they can write anything in it.
 - **What you give up.** A confirmation. The team's administrator, or whoever controls the old backend, can now
   send your sessions for that team to a server of their choosing, and that server's operator reads what they
-  send, as section 20 says of any server. Before, that took your own command. You get a line at session start
-  instead, and an option, `follow_team_move`: set it to `off` and a session never follows; you join a moved team
-  yourself, with the secret file, when you have decided to. A value that is neither `on` nor `off` is read as
-  off, and the session says so.
+  send, as section 20 says of any server. Before, that took your own command. You get a line in the session
+  instead, at its start or at the prompt that finds the checkout followed, and an option, `follow_team_move`:
+  set it to `off` and a session never follows; you join a moved team yourself, with the secret file, when you
+  have decided to. A value that is neither `on` nor `off` is read as off, and the session says so.
 - **What is sent, and where.** One question goes to the backend you already joined, with the session you hold
   there. Nothing goes to the new address until the old backend has named it. Then one join goes there, carrying
   the ticket and your label, under the certificate the record named or the machine's authorities. Your session on
   the old backend, and its credential, never leave your machine: the server is not shown them.
-- **The ticket.** It is a second join secret of the team at the server, with an end date: 30 days unless the
-  operator chose otherwise. The server keeps only its hash. The old backend keeps the ticket itself, because your
+- **The ticket.** It is a second join secret of the team at the server, with an end date: 30 days unless
+  whoever opened the move chose otherwise.
+  The server keeps only its hash. The old backend keeps the ticket itself, because your
   machine has to present it: on Supabase in a table that no role of the Data API can read, handed to an active
   member of the team by one function. So whoever can read the old project's database can read the ticket, and
   join the team at the server with it until it ends, and so can every active member of the old team, each of
   whom holds the join secret already. A member who was revoked or banned on the old team reads no record. What
-  the ticket lets in is a member and never the team's owner: the administrator joins the server first, with the
-  secret file, and `team move` refuses to record anything until they have. The ticket is read from a file and
+  the ticket lets in is a member and never the team's owner: the administrator owns the team at the server
+  before a ticket exists, by taking the team in there or, on a team the operator took in, by joining first with
+  the secret file, and `team move` refuses to record anything until the administrator's machine has joined the
+  server. The ticket is read from a file and
   written to a file of mode 0600 inside your credential directory, which is removed as soon as the join has been
-  sent; it is in no argument, no output and no log line.
-- **Only a session's start follows.** A session that started before the move was recorded stays unconnected,
-  however many prompts it takes, until it is started again.
+  sent; it is in no argument, no output and no log line. On the administrator's machine `team move --to` keeps
+  it the same way, in a file of mode 0600 under Brigade's state directory, from the server's answer to the
+  record, and removes it when it ends. A command that Ctrl-C or a kill ends in between cannot: the file stays
+  until the next run of the same move, which writes over it and removes it.
+- **A session can move a team.** Until 0.56.0 `brigade team move` refused inside a session when it recorded or
+  cleared a move, so the administrator ran it in a terminal. From 0.56.0 it runs inside a session, and a skill
+  there asks the administrator for the server's address and the path of the join secret's file and runs the one
+  command; set the option `team_move_in_session` to `off` and it refuses in your sessions as before. A value that
+  is neither `on` nor `off` is read as off, and the session says so. What this costs, stated plainly: whatever
+  steers the administrator's session, a teammate's message or a file or a page the session read, can send every
+  member's sessions, and the join secret, to a server of its choosing. What still stands in its way is four
+  things. Only the team's creator on the old backend can record a move there, and the command asks that
+  before the server it was given is asked anything, whether or not a record is there already: the join secret
+  of a team its caller did not create is sent nowhere. The command needs the path of the join secret's file,
+  which is outside the repository and which the skill is told and never chooses. The
+  harness's own permission prompt asks before the command runs, in a mode that asks and where nothing has
+  allowed `brigade` commands already. The `move` skill allows nothing that writes, and tells the model to move
+  a team only on its user's own ask, which is an instruction to a model and no boundary. But the team-messaging
+  skill's `allowed-tools: Bash(brigade:*)` grant, for the turn that loaded it, and a
+  `permissions.allow: Bash(brigade:*)` rule of your own both cover `brigade team move` now, as they cover the
+  three verbs of section 5; and in a mode that skips prompts nothing stands there, as section 5 says of every
+  command. For a dialog on a move in every mode that asks, add `"ask": ["Bash(brigade team move*)"]` beside the
+  send rule of section 5. And every member is shown the line above when their session follows, and can turn the
+  follow off. What the refusal did, and no more: it read "inside a session" from the environment, so a command
+  run with those variables removed passed it, but that command matched no `Bash(brigade:*)` rule, so a mode that
+  asks did ask about it (section 5). That dialog is what the ask rule above puts back.
+- **A session that is running follows at its next prompts**, in two steps. A prompt that finds the team file of
+  the checkout the session was started in naming another backend for the session's team starts the same follow
+  as a process of its own, which has no session: no inbox socket, no messaging token. It asks the question
+  above, and at most one such process a minute is started for a checkout, so a file with no record behind it
+  has the old backend asked once a minute while you prompt and is sent nothing itself. When the checkout has
+  followed, a later prompt says the line, registers the session anew on the new backend under the name it has,
+  and its watcher there replaces the old one, which closes the old session. A session that asked for quiet
+  stays quiet. A session moves with the checkout it was started in and with no other, wherever it works: the
+  file and the pin that are read at its prompts are that checkout's, and another checkout or directory of
+  yours, whatever its file names, changes nothing. A `/clear` there, which is a session's start in that
+  directory, follows for that checkout as any start does and leaves this session where it is while its watcher
+  runs. A session with no watcher alive cannot be told from one a dead process left, and that start registers
+  it where that checkout is. A session that started before the move was recorded, and is connected to nothing,
+  follows the same way, and says that the backend you joined is being asked. A Grok Build session, whose
+  prompt hook can say nothing, follows only when it starts.
 - **Leaving holds.** The line names the way out, `brigade team leave`. A machine that left the team at the server
   is not joined again by a session in another checkout of the team: you come back with `team join`, yourself.
-- **How it ends.** The operator closes the move, or the ticket runs out, or the team's owner rotates the join
-  secret on the server, which closes it too. The administrator's `team move --clear` stops the old backend from
+- **How it ends.** The operator or the team's owner at the server closes the move, or the ticket runs out, or
+  the team's owner rotates the join secret on the server, which closes it too.
+  The administrator's `team move --clear` stops the old backend from
   saying where the team went; it does not end the ticket. Ending the team on the old backend removes the record
   with it.
 - **What does not come over.** Messages that were waiting on the old backend stay there until their retention
-  ends, so an administrator moves a team at a quiet moment. A session that was running when the file changed
-  stays on the old backend until it ends, and is told once, at its next prompt, that a new session follows.
-- **A session that sets `adapter_command`** names its adapter itself and never follows.
+  ends, so an administrator moves a team at a quiet moment. A running session that holds messages for your
+  review stays on the old backend until you release them, and says so once: a held message does not move with
+  it.
+- **A session that sets `adapter_command`** names its adapter itself and never starts a follow, and neither
+  does one with `follow_team_move` set to `off`. They keep a session from asking, not from going where you
+  joined: once the checkout a running session was started in is on the new backend, by your own `team join`
+  there or by another of your sessions that followed, that session moves at its next prompt and says so.
 - **The hook writes the store here.** Everywhere else a session's hooks only read your team store, and every
-  change to it is made by a command that was run. This is the one exception: the session-start hook writes the
-  new membership and the checkout's pin, in the one place and behind the one comparison this section describes.
-  The pin records the backend it moved from, so you can tell a pin a command wrote from one a session followed.
+  change to it is made by a command that was run. This is the one exception: the session-start hook, and the
+  process a prompt hook starts for a running session, write the new membership and the checkout's pin, in the
+  one place and behind the one comparison this section describes. The pin records the backend it moved from, so
+  you can tell a pin a command wrote from one a session followed.
 - **Other backends.** The record is a capability of an adapter (`team.move`), which the Supabase adapter
   carries. A backend whose adapter lacks it is asked nothing about a move, and a team on it, or on a Supabase
   project without the migration that adds the record, is never followed anywhere: its members join as before. A migration is applied to a hosted project

@@ -37,16 +37,25 @@ BRIGADE_TEST_SYNCTHING=1 BRIGADE_E2E_SERVER=$PWD/server/target/debug/brigade-ser
 
 ## The conformance suite
 
-`brigade-conformance` is the arbiter for an adapter: 54 cases, three principals in two teams, an environment built
+`brigade-conformance` is the arbiter for an adapter: 57 cases, three principals in two teams, an environment built
 from scratch. `make test` runs it against the fs adapter and, through `bin/brigade-rest-stub` (a stand-in server
 for [the backend REST contract](../../backend-rest-v1.md) that runs the fs adapter in-process), against the
 bundled `rest` adapter. The three team administration cases (C-48 to C-50) run in the second: the fs adapter does
 not advertise `team.admin`, so they are skipped in the first. The two cases of a team's move (C-51 and C-52) run in
 the first and against the Supabase adapter: the `rest` adapter does not advertise `team.move`, because a move's
-record is kept by the backend a team leaves. The move itself, a member's session following its team with no
+record is kept by the backend a team leaves. The three cases of the backend a team goes to (C-53 to C-55: `team
+take-in`, `team open-move` and `team close-move`) run in the second and in `make server-test`, against the stand-in
+and against the built server: only the `rest` adapter advertises `team.take_in`. The move itself, a member's session following its team with no
 command run, is proven end to end from the fs adapter in `make server-test`, and from the local Supabase stack by
 `make test-move-live`, which needs the stack and a Rust toolchain together and so is run by a developer and by no
-CI job. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
+CI job. The move by one command, `brigade team move --to` (work item 328), is proven the same way in
+`internal/harness/e2e/rest_move_test.go`, `rest_move_sessions_test.go` and `rest_move_checks_test.go`: from the
+fs adapter to the stand-in server in `make test` and to the built server in `make server-test` (the move and what
+stops it, the command stopped at each step and run again, the move made from inside a session, a take-in whose
+answer is lost and the same command run again, the sessions that are running when the command is run from one of
+them, a record that exists and is not cleared, the command killed in the middle of a step, a finished move run
+again and stopped, a server that asks for a creation token, and a member who did not create the team), and from
+the local Supabase stack in `make test-move-live`. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
 `--setup <cmd>` when principals are provisioned out of band ([Write an adapter](../change/adapters.md)). Its own
 positive control is four deliberately broken builds of the reference adapter, each of which must fail exactly its
 own cases.
@@ -60,7 +69,9 @@ make server-test         # cargo test, then the conformance suite against a runn
 
 `server/` is a Rust workspace outside `make test` ([Change the server](../change/server.md)). `make server-test`
 builds the Go binaries, runs the workspace's tests, and then runs `brigade-conformance` through `bin/brigade`'s
-`rest` adapter against a server it starts: on the file log, and with `--slow` on the Cavalry feed. It needs
+`rest` adapter against a server it starts: on the file log, and with `--slow` on the Cavalry feed. One more
+test there drives the built adapter against the built server through a front that loses an answer: a `team
+take-in` whose answer never arrives, run again, owns the team. It needs
 `cargo`, Linux or macOS, and 201 MiB of room where Cavalry's driver directory goes (`/dev/shm` on Linux).
 
 ## The drift tests in scripts/ci
