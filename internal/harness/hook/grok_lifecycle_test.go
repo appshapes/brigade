@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -74,15 +75,19 @@ func TestGrokOverlappingInitialHooksKeepOneReceiver(t *testing.T) {
 			var registrations, held atomic.Int32
 			deps := f.deps
 			deps.GrokLockHeld = func() { held.Add(1) }
+			// The first registration is held until the test lets it go, whatever
+			// deadline the hook made it under: a registration has eight seconds,
+			// and with the tests of this package sharing one core the second
+			// hook took longer than that to reach the lock. The first then gave
+			// its registration up and the lock with it, and the second
+			// registered, with nobody owning the receiver (2026-11-15).
+			var letGo sync.Once
+			t.Cleanup(func() { letGo.Do(func() { close(release) }) })
 			deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
 				result, err := seam.spawn(ctx, spec)
 				if verbOf(spec.Argv) == "session register" && registrations.Add(1) == 1 {
 					close(entered)
-					select {
-					case <-release:
-					case <-ctx.Done():
-						return nil, ctx.Err()
-					}
+					<-release
 				}
 				return result, err
 			}
@@ -126,7 +131,7 @@ func TestGrokOverlappingInitialHooksKeepOneReceiver(t *testing.T) {
 				}
 				return false
 			})
-			close(release)
+			letGo.Do(func() { close(release) })
 			for _, hook := range []struct {
 				name string
 				done chan struct{}

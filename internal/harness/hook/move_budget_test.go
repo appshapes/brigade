@@ -73,6 +73,11 @@ func detachedFollows(f *fixture) {
 	f.t.Cleanup(children.Wait)
 }
 
+// promptLong is the budget of a prompt that is held to a part of it: long
+// enough that a third of it is several times what a prompt that waits on
+// nothing took on the slowest machine measured.
+const promptLong = 5 * time.Minute
+
 // timed runs one prompt and returns its lines and how long the hook took.
 func (f *fixture) timed() ([]string, time.Duration) {
 	f.t.Helper()
@@ -95,17 +100,18 @@ func (f *fixture) timed() ([]string, time.Duration) {
 // the backend's question is unanswered, nothing having ended it (no caller
 // gave up on it and the test has not let it go), and the one question on
 // the record is the child's. And the time, against a budget made long: the
-// prompt has a minute and is back in a third of it. A hook that waits, on
-// the backend, on the child or on a file the child writes, waits as long as
-// its budget lets it, the whole minute; a prompt that waits on nothing took
-// 6.4 s at the most on a core it shared with seventy other tests
-// (2026-11-15). The order alone was not enough: a hook that polled for the
-// child's pin until its budget ended passed it. Each prompt used to be held
-// to 2 s of a budget of 4 s, which is a bound a busy machine passes with a
-// hook that waits on nothing.
+// prompt has five minutes and is back in a third of them. A hook that
+// waits, on the backend, on the child or on a file the child writes, waits
+// as long as its budget lets it, all five; a prompt that waits on nothing
+// took 23 s at the most on one core that three runs of this package's tests
+// shared with other suites (2026-11-15), which is why the budget is not the
+// minute it first was: a third of that was 20 s. The order alone was not
+// enough: a hook that polled for the child's pin until its budget ended
+// passed it. Each prompt used to be held to 2 s of a budget of 4 s, which is
+// a bound a busy machine passes with a hook that waits on nothing.
 func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 	t.Parallel()
-	const budget, within = time.Minute, time.Minute / 3
+	const budget, within = promptLong, promptLong / 3
 	movedOnly := func(spec adapterkit.SpawnSpec) bool { return verbOf(spec.Argv) == "team moved" }
 
 	t.Run("a session that is attached", func(t *testing.T) {
@@ -205,12 +211,12 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 // in another (2026-11-14). A lock has no list of who waits for it, so with
 // the lock held a wait shows only on a clock.
 //
-// And each prompt is back in a third of a budget of a minute, as in
+// And each prompt is back in a third of a budget of five minutes, as in
 // TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs: a hook that waits on
 // anything its budget ends takes the whole of it.
 func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 	t.Parallel()
-	const budget, within = time.Minute, time.Minute / 3
+	const budget, within = promptLong, promptLong / 3
 	f := newMemberFixture(t)
 	// The registration of the move has the budget, less a second, to be
 	// answered in.
