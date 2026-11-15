@@ -766,3 +766,51 @@ func TestTheRecordsFormsSayThatOnlyTheOwnerWritesOrClearsARecord(t *testing.T) {
 		t.Errorf("the refusal of a clear on the server a team returns to: %s", perr.Message)
 	}
 }
+
+// TestTheRecordsFormDoesNotTellAMemberWhoCannotRecordToRunItAgain (work
+// item 341): the record's own form clears the record a server holds of the
+// team's leaving, and then records the move on the backend the team leaves.
+// When that record fails, the stop says that the first record is cleared
+// and to run the same command again. Where the cause is that only the
+// team's owner on that backend records, the same command is refused again
+// for as long as the member is not its owner: the stop told him to run it
+// on the owner's machine or to have the team transferred, and then to run
+// it again. It ends with what the owner-only refusal tells him to do.
+// Every other cause keeps the sentence.
+func TestTheRecordsFormDoesNotTellAMemberWhoCannotRecordToRunItAgain(t *testing.T) {
+	t.Parallel()
+	const earlier, again = "https://earlier.example.test:8743", "Run the same command again"
+	notMoved := okAnswer(`{"team_ref":"` + setupTeamRef + `","moved":false}`)
+	// rig is a team that comes back to the server from another server, which
+	// this machine has joined it on: the server holds the record of the
+	// team's leaving for that one, and clears it.
+	rig := func(refusal answer) *moveRig {
+		t.Helper()
+		r := newMoveRig(t, true)
+		if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, teamstore.Key("rest", earlier, setupTeamRef), "rest", earlier, "", "", setupTeamRef, "devs", "p_earlier"); err != nil {
+			t.Fatal(err)
+		}
+		left := `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"rest","url":"` + earlier + `","recorded_at":"2026-11-10T12:00:00Z"}`
+		r.there.on("team moved", okAnswer(left)).on("team move", notMoved)
+		r.f.rec.on("team move", refusal).on("team moved", notMoved)
+		return r
+	}
+	cleared := func(r *moveRig) string {
+		return "the record " + r.newHost + " held that the team had left it is cleared, and earlier.example.test:8743 did not record the move: "
+	}
+
+	// An active member of the team on the backend it leaves, who does not own it there.
+	r := rig(failAnswer(protocol.CodeUnauthorized, "not an active member of this team"))
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket, "--from", earlier)), protocol.CodeUnauthorized, reasonNotTheCreator)
+	if want := cleared(r) + "only the owner of this team on earlier.example.test:8743 can record where it went: where a team went is its owner's to record there. " +
+		"Run this on the owner's machine, or have the owner transfer the team to you first"; perr.Message != want {
+		t.Errorf("the stop of a member who cannot record:\n%s\nwant\n%s", perr.Message, want)
+	}
+
+	// Any other cause: the same command, run again, may record.
+	r = rig(failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
+	perr = wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket, "--from", earlier)), protocol.CodeUnavailable, "")
+	if want := cleared(r) + "the backend could not be reached. " + again; perr.Message != want {
+		t.Errorf("the stop of a record that was not answered:\n%s\nwant\n%s", perr.Message, want)
+	}
+}

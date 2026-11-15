@@ -2083,3 +2083,50 @@ func TestAMemberWhoDoesNotOwnTheTeamIsToldThatItsOwnerClearsTheRecordThroughTheR
 		t.Fatalf("the owner's clear: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
 }
+
+// TestTheOlderFormDoesNotTellAMemberWhoCannotRecordToRunItAgainThroughTheRealBinary:
+// a team moved from A to B, and the team on A was handed to a member who is
+// only a member on B. He brings the team back to A by the record's own
+// form: A's record of the leaving, which is his to clear, is cleared, and
+// B, where he does not own the team, refuses to record. Until this the stop
+// told him to run the command on the owner's machine or to have the team
+// transferred to him, and then to run the same command again, which is
+// refused again for as long as he does not own the team on B. It ends with
+// what the owner-only refusal tells him to do.
+func TestTheOlderFormDoesNotTellAMemberWhoCannotRecordToRunItAgainThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b := startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	term, member := r.terminalEnv(r.configDir), r.terminalEnv(r.configDirB)
+	fileOfA := r.teamFile()
+	r.movedTo(b, r.secretFile)
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	// The team on A is handed to the member, who then opens its move there.
+	if res := r.run(term, `{"principal_ref":"`+r.principalOf(r.configDirB, a)+`"}`, "adapter", "rest", "--profile", r.keyAt(a), "team", "transfer"); res.exit != 0 {
+		t.Fatalf("the team on A handed to the member: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	ticket := filepath.Join(r.dirs.Root, "back.ticket")
+	if res := r.adapterAs(r.configDirB, r.keyAt(a), "team", "open-move", "--ticket-file", ticket); res.exit != 0 {
+		t.Fatalf("the move opened on A by its new owner: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	r.putTeamFile(fileOfA)
+	res := r.runIn(r.checkout, member, "y\n", "team", "move", "--ticket-file", ticket)
+	_, said, _ := strings.Cut(res.stderr, "[y/N] ")
+	for _, need := range []string{
+		"the record " + hostOf(a) + " held that the team had left it is cleared",
+		hostOf(b) + " did not record the move: only the owner of this team on " + hostOf(b) + " can record where it went",
+		"have the owner transfer the team to you first",
+	} {
+		if !strings.Contains(said, need) {
+			t.Errorf("the stop of a member who cannot record lacks %q: %s", need, said)
+		}
+	}
+	if res.exit == 0 || strings.Contains(said, "Run the same command again") || strings.Contains(said, "not an active member") {
+		t.Fatalf("the stop of a member who owns the team on A and not on B: exit %d\n%s", res.exit, said)
+	}
+	if onA, onB := r.recordOn(r.configDir, a), r.recordOn(r.configDir, b); onA.Moved || onB.Moved {
+		t.Fatalf("the records after it: A %+v, B %+v", onA, onB)
+	}
+}

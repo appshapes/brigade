@@ -354,7 +354,15 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 			if errors.As(err, &perr) {
 				out := *perr
 				out.Message = "the record " + destHost + " held that the team had left it is cleared, and " + attrLine(hostOf(source.URL)) +
-					" did not record the move: " + perr.Message + ". Run the same command again"
+					" did not record the move: " + perr.Message
+				// The same command, run again, records where the cause has gone.
+				// Where it is that only the team's owner there records, it is
+				// refused again for as long as this member is not that owner:
+				// the stop ends with what the refusal tells them to do (work
+				// item 341).
+				if perr.Details["reason"] != reasonNotTheCreator {
+					out.Message += ". Run the same command again"
+				}
 				return &out
 			}
 		}
