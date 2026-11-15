@@ -595,24 +595,74 @@ func knownSpelling(configDir string, f *teamfile.File, to string) string {
 // stopped after it wrote the team file and before it wrote the pin leaves
 // exactly that. Otherwise nothing on this machine says which it is, and
 // the command names the candidates and the flag.
+//
+// A candidate whose record cannot be read is not one that holds none: it
+// may be the very backend the team is leaving, and an earlier backend's
+// record of an earlier move to the same server would then be taken for the
+// one that counts. So nothing is chosen while one does not answer: the
+// command changes nothing, names it, and says to run it again when it
+// answers, or with --from.
 func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string, error) {
 	bindings, keys, err := listBindings(m.configDir)
 	if err != nil {
 		return nil, "", err
 	}
-	var candidates, recorded []int
+	var candidates, recorded, unread []int
 	for i, b := range bindings {
 		if b.TeamRef != m.file.TeamRef || keys[i] == m.destKey {
 			continue
 		}
 		candidates = append(candidates, i)
 		t, terr := inv.dialectTarget(b.Adapter, keys[i])
-		if terr != nil || requireMoveRecord(t) != nil {
+		if terr != nil {
+			unread = append(unread, i)
+			continue
+		}
+		desc, derr := call(func(ctx context.Context) (*protocol.DescribeResult, error) { return t.client.Describe(ctx) })
+		if derr != nil {
+			unread = append(unread, i)
+			continue
+		}
+		if !slices.Contains(desc.Capabilities, teammove.Capability) {
+			// A backend that keeps no record of where a team goes holds none.
 			continue
 		}
 		record, rerr := inv.callMove(t, "moved", nil, nil)
-		if rerr == nil && record.Moved && record.Adapter == m.dest.Adapter && teammove.SameAddress(record.URL, m.dest.URL) {
+		switch {
+		case rerr != nil:
+			unread = append(unread, i)
+		case record.Moved && record.Adapter == m.dest.Adapter && teammove.SameAddress(record.URL, m.dest.URL):
 			recorded = append(recorded, i)
+		}
+	}
+	hostsOf := func(named []int) string {
+		hosts := make([]string, 0, len(named))
+		for _, i := range named {
+			hosts = append(hosts, attrLine(teammove.Host(bindings[i].URL)))
+		}
+		slices.Sort(hosts)
+		if len(slices.Compact(slices.Clone(hosts))) != len(hosts) {
+			// Two of them on one host: the whole address tells them apart.
+			hosts = hosts[:0]
+			for _, i := range named {
+				hosts = append(hosts, attrLine(bindings[i].URL))
+			}
+			slices.Sort(hosts)
+		}
+		return strings.Join(hosts, ", ")
+	}
+	rerun := "`brigade team move --to " + attrLine(m.dest.URL) + " --secret-file <path> --from <host>`"
+	if len(unread) > 0 {
+		it, did := "it answers", " did not answer what it records of this team"
+		if len(unread) > 1 {
+			it = "they answer"
+		}
+		return nil, "", &protocol.Error{
+			Code: protocol.CodeUnavailable,
+			Message: "this machine has joined this team on more than one other backend (" + hostsOf(candidates) + "), and " + hostsOf(unread) + did +
+				", so which one the team is leaving is not known: a backend that cannot be read may be the one. Run the same command again when " + it +
+				", or with --from <host>, one of those: " + rerun + ". Nothing was changed",
+			Details: map[string]string{"reason": "team_ambiguous"},
 		}
 	}
 	if len(recorded) == 1 {
@@ -632,24 +682,10 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 	if len(recorded) > 1 {
 		named, why = recorded, "more than one of them records a move to "+m.toHost()
 	}
-	hosts := make([]string, 0, len(named))
-	for _, i := range named {
-		hosts = append(hosts, attrLine(teammove.Host(bindings[i].URL)))
-	}
-	slices.Sort(hosts)
-	if len(slices.Compact(slices.Clone(hosts))) != len(hosts) {
-		// Two of them on one host: the whole address tells them apart.
-		hosts = hosts[:0]
-		for _, i := range named {
-			hosts = append(hosts, attrLine(bindings[i].URL))
-		}
-		slices.Sort(hosts)
-	}
 	return nil, "", &protocol.Error{
 		Code: protocol.CodeConfig,
-		Message: "this machine has joined this team on more than one other backend (" + strings.Join(hosts, ", ") + "): " + why +
-			", so which one the team is leaving is not known. Run the same command with --from <host>, one of those: `brigade team move --to " +
-			attrLine(m.dest.URL) + " --secret-file <path> --from <host>`. Nothing was changed",
+		Message: "this machine has joined this team on more than one other backend (" + hostsOf(named) + "): " + why +
+			", so which one the team is leaving is not known. Run the same command with --from <host>, one of those: " + rerun + ". Nothing was changed",
 		Details: map[string]string{"reason": "team_ambiguous"},
 	}
 }
@@ -1028,8 +1064,8 @@ func (inv Invocation) takeIn(m *serverMove) (*protocol.TeamTakeInResult, error) 
 		return nil, protocolMismatch("team take-in answered a team other than the one the secret names")
 	}
 	if !taken.Owner {
-		if m.sameData() {
-			return nil, inv.sameServer(m, fresh)
+		if known := m.sameData(taken.PrincipalRef); known != nil {
+			return nil, inv.sameServer(m, known, fresh)
 		}
 		return nil, &protocol.Error{
 			Code: protocol.CodeConflict,
@@ -1042,43 +1078,68 @@ func (inv Invocation) takeIn(m *serverMove) (*protocol.TeamTakeInResult, error) 
 	return taken, nil
 }
 
-// sameData reports whether the server that just answered "held, and owned
-// by someone else" holds the very membership this machine has on the
-// backend the team is on: the principal of that membership is on its
-// roster. A server makes the references of its principals itself, at
-// random, so one on two servers means one set of data: the server the
-// team is on under another address (another name of the machine, a
-// different spelling the command could not see through), or a server
-// started from a copy of its data directory. The roster names no owner;
-// the principal being there is the whole test, and the owner on the
-// backend the team is on is that principal, which the command's first
-// check established. A roster that cannot be read answers false, and the
-// command says what it has always said.
-func (m *serverMove) sameData() bool {
-	if m.source.PrincipalRef == "" {
-		return false
+// sameData answers the membership of this machine that the server which
+// just answered "held, and owned by someone else" holds too, nil when it
+// holds none: the principal of a membership this machine has of the team,
+// on any backend, is on that server's roster. A server makes the
+// references of its principals itself, at random, so one on two servers
+// means one set of data: a server this machine knows under another address
+// (another name of the machine, a spelling the command could not see
+// through), or a server started from a copy of its data directory. Every
+// membership the machine holds is looked for, not only the one on the
+// backend the team is leaving: a team that moved from A to B and is
+// pointed at A by another address is A all the same. The membership the
+// take-in itself made, mine, is the one that is always there and is left
+// out. The roster names no owner; a principal of this machine's being
+// there is the whole test. A roster that cannot be read answers nil, and
+// the command says what it has always said.
+func (m *serverMove) sameData(mine string) *adapterkit.Profile {
+	bindings, keys, err := listBindings(m.configDir)
+	if err != nil {
+		return nil
+	}
+	held := map[string]*adapterkit.Profile{}
+	for i, b := range bindings {
+		if b.TeamRef == m.file.TeamRef && keys[i] != m.destKey && b.PrincipalRef != "" && b.PrincipalRef != mine {
+			// The backend the team is leaving first: it is the one a line names.
+			if _, seen := held[b.PrincipalRef]; !seen || keys[i] == m.sourceKey {
+				held[b.PrincipalRef] = b
+			}
+		}
+	}
+	if len(held) == 0 {
+		return nil
 	}
 	roster, err := call(func(ctx context.Context) (*adapterclient.MembersResult, error) { return m.to.client.TeamMembers(ctx) })
 	if err != nil {
-		return false
+		return nil
 	}
+	var known *adapterkit.Profile
 	for i := range roster.Members {
-		if roster.Members[i].PrincipalRef == m.source.PrincipalRef {
-			return true
+		b, ok := held[roster.Members[i].PrincipalRef]
+		if !ok {
+			continue
+		}
+		if b.URL == m.source.URL && b.Adapter == m.source.Adapter {
+			return b
+		}
+		if known == nil {
+			known = b
 		}
 	}
-	return false
+	return known
 }
 
-// sameServer refuses a move to the server the team is already on, or to a
-// copy of its data (sameData), and ends the membership the take-in made
-// there: this machine had no credential for that address, so the take-in
-// was the join of a new member, and the administrator would be on the
-// roster twice. Only a membership this run made is ended (fresh). When it
-// cannot be, the refusal names the one command that ends it. It never
-// names the operator's --set-owner: on the server the team is on that
-// would take the team from the administrator's own membership.
-func (inv Invocation) sameServer(m *serverMove, fresh bool) error {
+// sameServer refuses a move to a server this machine already knows under
+// another address, or to a copy of one's data (sameData), and ends the
+// membership the take-in made there: this machine had no credential for
+// that address, so the take-in was the join of a new member, and the
+// administrator would be on the roster twice. known is the membership the
+// server was found to hold. Only a membership this run made is ended
+// (fresh). When it cannot be, the refusal names the one command that ends
+// it. It never names the operator's --set-owner: on that server it would
+// take the team from the administrator's own membership.
+func (inv Invocation) sameServer(m *serverMove, known *adapterkit.Profile, fresh bool) error {
 	left := false
 	if fresh {
 		if _, err := call(func(ctx context.Context) (*protocol.Envelope, error) {
@@ -1097,11 +1158,18 @@ func (inv Invocation) sameServer(m *serverMove, fresh bool) error {
 		second = "This machine holds a second membership of the team under that address, which `brigade adapter " + config.BundledRestName +
 			" --profile " + m.destKey + " team leave` ends"
 	}
+	knownHost := attrLine(hostOf(known.URL))
+	what := "and a team is not moved to either. " +
+		"A server's address changes by a fresh server at the new one, which its operator starts (docs/project-owner/server/move-to-another-server.md in the Brigade repository). "
+	if known.URL != m.source.URL || known.Adapter != m.source.Adapter {
+		// A server the team was on before, not the one it is on: a team may
+		// go back to it, by the address this machine knows it by.
+		what = "and a team is not moved to a copy. To move the team back to " + knownHost + ", name it by the address this machine knows it by: `--to " + attrLine(known.URL) + "`. "
+	}
 	return &protocol.Error{
 		Code: protocol.CodeConflict,
-		Message: m.toHost() + " holds " + m.team() + " with the membership this machine has on " + m.fromHost() +
-			": it is the same server under another address, or a copy of its data, and a team is not moved to either. " +
-			"A server's address changes by a fresh server at the new one, which its operator starts (docs/project-owner/server/move-to-another-server.md in the Brigade repository). " +
+		Message: m.toHost() + " holds " + m.team() + " with the membership this machine has on " + knownHost +
+			": it is the same server under another address, or a copy of its data, " + what +
 			second + ". Nothing was recorded, and " + teamfile.FileName + " is unchanged",
 		Details: map[string]string{"reason": reasonSameServer},
 	}

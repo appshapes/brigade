@@ -449,6 +449,15 @@ func (r *run) leaveEachOtherMark(path, teamKey string) {
 	}
 }
 
+// dropEachOtherMark removes the checkout's mark of two backends that named
+// each other: a follow of the checkout has since ended another way.
+func (r *run) dropEachOtherMark(f facts, opts config.Options, canon string) {
+	path := config.MoveEachOtherMark(f.stateDir, opts.ConfigDir, canon)
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.log.Debug("the mark of two backends that named each other was not removed", log.Err(err))
+	}
+}
+
 // namedEachOther reports whether the last follow of the checkout found
 // that the backend its team file names now and the one it is pinned to
 // each record that the team moved to the other (leaveEachOtherMark).

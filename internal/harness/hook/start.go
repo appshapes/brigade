@@ -1190,12 +1190,10 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		// file in front of us is unconsented input until a human reviews
 		// the change in a terminal, or until the backend the member joined
 		// says the team went where the file says (followMove).
-		// One answer of the follow has a line of its own: the two backends
-		// each record that the team moved to the other.
-		line := driftLine
-		if r.eachOther {
-			line = eachOtherLine
-		}
+		// Two answers of the follow have a line of their own: the two
+		// backends each record that the team moved to the other, and the one
+		// the team moved to did not answer.
+		line := notFollowedLine(r.notFollowed)
 		r.fileRefused = line
 		r.say(line)
 		return nil, "", "", false
@@ -1258,7 +1256,7 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		if r.namedEachOther(f, opts, canon, tf) {
 			// The child found the two backends naming each other: the
 			// prompt says that in place of the drift line, as a start does.
-			r.eachOther = true
+			r.notFollowed = teammove.ReasonEachOther
 		}
 		if r.startFollow(ctx, f, opts, canon) {
 			r.tell(f, in, toldAsked, movedRetryLine)
@@ -1276,10 +1274,17 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 			attrs = append(attrs, log.Err(err))
 		}
 		r.log.Info("the team file names another backend for this team, and the move was not followed", attrs...)
-		r.eachOther = out.Reason == teammove.ReasonEachOther
+		r.notFollowed = out.Reason
+		if out.Reason != teammove.ReasonEachOther {
+			r.dropEachOtherMark(f, opts, canon)
+		}
 		return false
 	}
 	r.log.Info("followed the team's recorded move", slog.Bool("joined", out.Joined))
+	// What a follow of a prompt left for the checkout, that the two backends
+	// named each other, is no longer so: left there, a running session would
+	// say that it follows neither at the team's next move between the two.
+	r.dropEachOtherMark(f, opts, canon)
 	// This start's line is the member's only word of how the machine got in.
 	// When a child that a prompt started made the join, and this follow found
 	// the membership there (it completed a child that was stopped before its

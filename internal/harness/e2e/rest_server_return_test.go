@@ -4,14 +4,17 @@ package e2e
 
 import (
 	json "encoding/json/v2"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
@@ -39,7 +42,14 @@ func (r *rig) keyAt(backend restBackend) string {
 // when it attached to nothing.
 func (r *rig) bobStarts() (result, string) {
 	r.t.Helper()
-	s := r.newSession("bob", bobName, "", "", "")
+	return r.startsIn("bob", bobName, r.checkout)
+}
+
+// startsIn is bobStarts for a session of either member in any checkout.
+func (r *rig) startsIn(profile, title, dir string) (result, string) {
+	r.t.Helper()
+	s := r.newSession(profile, title, "", "", "")
+	s.cwd = dir
 	res := r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
 	key := ""
 	if r.mapExists(s) {
@@ -47,6 +57,83 @@ func (r *rig) bobStarts() (result, string) {
 	}
 	r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 	return res, key
+}
+
+// anotherCheckout makes one more checkout of the team for the member whose
+// store configDir is: a directory with the team file the rig's checkout has
+// now, pinned as that checkout is pinned in that store.
+func (r *rig) anotherCheckout(configDir, name string) (dir, canon string) {
+	r.t.Helper()
+	first, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	pin, pinned, err := teamstore.LookupPin(configDir, first)
+	if err != nil || !pinned {
+		r.t.Fatalf("the pin of the rig's checkout: %v %v", pinned, err)
+	}
+	dir = filepath.Join(r.dirs.Root, name)
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o700); err != nil {
+		r.t.Fatal(err)
+	}
+	r.putFileIn(dir, r.teamFile())
+	if canon, err = teamfile.Canonicalize(dir); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := write.Pin(configDir, canon, *pin); err != nil {
+		r.t.Fatal(err)
+	}
+	return dir, canon
+}
+
+// putFileIn writes a checkout's team file.
+func (r *rig) putFileIn(dir, text string) {
+	r.t.Helper()
+	//nolint:gosec // G306: a committed team file is 0644
+	if err := os.WriteFile(filepath.Join(dir, teamfile.FileName), []byte(text), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// principalsAt is the principals of the active members of the rig's team on
+// a server, by label, as the administrator's profile there reads them.
+func (r *rig) principalsAt(backend restBackend) map[string][]string {
+	r.t.Helper()
+	res := r.adapterAs(r.configDir, r.keyAt(backend), "team", "members")
+	if res.exit != 0 {
+		r.t.Fatalf("the roster of %s: exit %d\nstdout: %s\nstderr: %s", hostOf(backend), res.exit, res.stdout, res.stderr)
+	}
+	out := map[string][]string{}
+	for _, member := range jsonResult[roster](r.t, res.stdout).Members {
+		out[member.HumanLabel] = append(out[member.HumanLabel], member.PrincipalRef)
+	}
+	return out
+}
+
+// principalOf is the principal a member's machine holds for the rig's team
+// on a server.
+func (r *rig) principalOf(configDir string, backend restBackend) string {
+	r.t.Helper()
+	binding, err := teamstore.LoadBinding(configDir, r.keyAt(backend))
+	if err != nil || binding.PrincipalRef == "" {
+		r.t.Fatalf("the membership of %s on %s: %+v %v", configDir, hostOf(backend), binding, err)
+	}
+	return binding.PrincipalRef
+}
+
+// notAMember is a server's answer to a caller that is no active member of
+// the team, as a front gives it in the server's place.
+const notAMember = `{"ok":false,"protocol_version":"` + protocol.ProtocolVersion + `","error":{"code":"unauthorized","message":"not an active member of this team","retryable":false}}`
+
+// silent is a front's switch: while it is on, the front answers every
+// request as a server that cannot be reached.
+type silent struct{ on atomic.Bool }
+
+func (s *silent) before(*http.Request, []byte) (int, string) {
+	if s.on.Load() {
+		return http.StatusServiceUnavailable, unreachable
+	}
+	return 0, ""
 }
 
 // teamFile reads the rig's checkout's team file, and putTeamFile writes it:
@@ -184,8 +271,8 @@ func TestATeamIsEndedOnTheServerItLeftByNamingThatServerThroughTheRealBinary(t *
 // took that membership for a good one, pinned the checkout to A and left
 // the session unconnected, with `team join` answering "already joined".
 // Now the follow asks A with that membership, is answered `unauthorized`,
-// sets it aside and joins with the move's ticket, as a machine that had
-// never joined would.
+// and joins with the move's ticket under the credential it holds, so the
+// server acts for the same principal: he comes back as who he was.
 func TestAMemberRevokedOnTheServerATeamReturnsToFollowsWithTheTicketThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	a, b := startRestBackend(t), startRestBackend(t)
@@ -205,6 +292,7 @@ func TestAMemberRevokedOnTheServerATeamReturnsToFollowsWithTheTicketThroughTheRe
 	if res := r.adapterAs(r.configDirB, r.keyAt(a), "team", "moved"); res.exit == 0 {
 		t.Fatalf("the member still reads A after he was revoked there: %s", res.stdout)
 	}
+	had := r.principalOf(r.configDirB, a)
 	// The team comes back to A, with the secret A has now.
 	r.movedTo(a, rotated)
 
@@ -215,6 +303,12 @@ func TestAMemberRevokedOnTheServerATeamReturnsToFollowsWithTheTicketThroughTheRe
 	}
 	if members := r.rosterAt(a); len(members) != 2 || members[aliceLabel] != 1 || members[bobLabel] != 1 {
 		t.Fatalf("A's roster after the member followed back: %v", members)
+	}
+	// He is who he was on A: the machine joined with the credential it held,
+	// so the server acted for the same principal, and anything A holds
+	// against that principal, a ban above all, still knows him.
+	if now, listed := r.principalOf(r.configDirB, a), r.principalsAt(a)[bobLabel]; now != had || len(listed) != 1 || listed[0] != had {
+		t.Fatalf("the member came back to A as %q, on its roster as %v; he was %q", now, listed, had)
 	}
 	// And the session after that is where the team is, with nothing to say.
 	if res, key := r.bobStarts(); key != r.keyAt(a) || strings.Contains(res.stdout, "followed") || strings.Contains(res.stdout, "not connected") {
@@ -355,6 +449,31 @@ func TestTwoServersThatNameEachOtherSendNoSessionAnywhereThroughTheRealBinary(t 
 		t.Fatalf("the member's pin moved at a prompt: %+v %v", pin, perr)
 	}
 	r.restHook(running, "session-end", running.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+
+	// The administrator clears the record that is out of date, A's, and the
+	// member's next session follows at its start. What the follow of a
+	// prompt left for the checkout, that the two named each other, is gone
+	// with it: left there, it would have a running session say "follows
+	// neither" at the team's next move between the two, and then follow.
+	marks := func() []string {
+		left, gerr := filepath.Glob(filepath.Join(r.stateDir, "state", "move-*.each-other"))
+		if gerr != nil {
+			t.Fatal(gerr)
+		}
+		return left
+	}
+	if len(marks()) != 1 {
+		t.Fatalf("the follow that found the two naming each other left %v", marks())
+	}
+	if res := r.runIn(r.checkout, r.terminalEnv(r.configDir), "", "team", "move", "--clear", "--from", hostOf(a)); res.exit != 0 {
+		t.Fatalf("the clear of A's record: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	if res, key := r.bobStarts(); key != r.keyAt(a) || !strings.Contains(res.stdout, "followed team") {
+		t.Fatalf("the member's session after the repair: attached to %q, stdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if left := marks(); len(left) != 0 {
+		t.Fatalf("a start that followed left the mark of two backends that named each other: %v", left)
+	}
 }
 
 // TestTheSameCommandRunAgainAfterAnEarlierMoveFindsTheBackendItLeavesThroughTheRealBinary:
@@ -444,4 +563,247 @@ func TestTheServerATeamIsOnUnderAnotherAddressIsNoPlaceToMoveItToThroughTheRealB
 		t.Fatalf("the roster after a move to the same server was refused: %v, want each member once", members)
 	}
 	m.notJoined("a move to the server the team is on", other)
+}
+
+// TestAMemberPutOutOfTheServerTheTeamMovedToComesBackOrStaysOutAsTheServerSaysThroughTheRealBinary:
+// while a move is open its ticket admits the team's members, and a
+// machine that holds a membership on the server the team moved to joins
+// with the ticket when the server answers `unauthorized` to it. It joins
+// with the credential it holds, so the server acts for the same principal
+// (BAP/1 4.4.10). Until this the machine set that membership aside and
+// joined as a principal the server had never seen, which a ban, made by
+// principal, did not know: a member the administrator had banned on the
+// server the team lives on was back on its roster at his next session in
+// another checkout.
+//
+//  1. Revoked and not banned, he comes back by the ticket, as who he was:
+//     that is the protocol's "may come back", and what keeps a member out
+//     during an open move is a ban, or closing the move.
+//  2. Banned, he stays out: his other checkout does not follow, he is not
+//     on the roster, and the machine holds the membership it held.
+func TestAMemberPutOutOfTheServerTheTeamMovedToComesBackOrStaysOutAsTheServerSaysThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b := startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	second, _ := r.anotherCheckout(r.configDirB, "checkout-2")
+	third, thirdCanon := r.anotherCheckout(r.configDirB, "checkout-3")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	r.putFileIn(third, r.teamFile())
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	onB := r.principalOf(r.configDirB, b)
+
+	// --- 1. revoked, and the move is open: he comes back as who he was ------------------------------------
+	if res := r.runIn(r.checkout, term, "", "team", "revoke-member", "--principal", onB); res.exit != 0 {
+		t.Fatalf("the revocation on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	if members := r.rosterAt(b); members[bobLabel] != 0 {
+		t.Fatalf("B's roster after the revocation: %v", members)
+	}
+	res, key := r.startsIn("bob", bobName, second)
+	if key != r.keyAt(b) || !strings.Contains(res.stdout, "with the move's ticket") {
+		t.Fatalf("the second checkout of a member revoked while the move is open: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if listed := r.principalsAt(b)[bobLabel]; len(listed) != 1 || listed[0] != onB || r.principalOf(r.configDirB, b) != onB {
+		t.Fatalf("he came back to B as %v (the machine holds %q); he was %q", listed, r.principalOf(r.configDirB, b), onB)
+	}
+
+	// --- 2. banned: he stays out ----------------------------------------------------------------------------
+	if res := r.runIn(r.checkout, term, "", "team", "revoke-member", "--principal", onB, "--ban"); res.exit != 0 {
+		t.Fatalf("the ban on B: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+	pinBefore, _, err := teamstore.LookupPin(r.configDirB, thirdCanon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, key = r.startsIn("bob", bobName, third)
+	if key != "" || strings.Contains(res.stdout, "followed") || !strings.Contains(res.stdout, "not connected") {
+		t.Fatalf("the third checkout of a member banned on the server the team moved to: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if members := r.principalsAt(b); len(members[bobLabel]) != 0 || len(members) != 1 {
+		t.Fatalf("B's roster after a banned member's session started: %v", members)
+	}
+	if pin, _, perr := teamstore.LookupPin(r.configDirB, thirdCanon); perr != nil || *pin != *pinBefore {
+		t.Fatalf("the pin of a banned member's checkout moved: %+v %v", pin, perr)
+	}
+	if now := r.principalOf(r.configDirB, b); now != onB {
+		t.Fatalf("the machine of a banned member holds %q for B; it held %q", now, onB)
+	}
+	// His first checkout, pinned to B, is told what it was always told.
+	if res, key := r.bobStarts(); key != "" || !strings.Contains(res.stdout, "not connected (unauthorized)") {
+		t.Fatalf("the checkout that had followed, after the ban: attached to %q, stdout %q", key, res.stdout)
+	}
+}
+
+// TestTheOwnerAnsweredUnauthorizedOnceStillOwnsTheTeamThroughTheRealBinary:
+// something in front of the server the team moved to answers the follow's
+// question once as the server would answer a stranger. The machine is the
+// team's owner's, in a second checkout of hers. Until this the follow set
+// her membership aside on that one answer and joined with the ticket as a
+// new principal, which a ticket never makes an owner: she lost the team.
+// Now the join is made with the credential she holds, the server acts for
+// the principal that owns the team, and she owns it afterwards.
+func TestTheOwnerAnsweredUnauthorizedOnceStillOwnsTheTeamThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	var refuse atomic.Bool
+	a := startRestBackend(t)
+	_, b := startFront(t, startRestBackend(t), func(req *http.Request, _ []byte) (int, string) {
+		if req.URL.Path == "/v1/team/moved" && refuse.CompareAndSwap(true, false) {
+			return http.StatusForbidden, notAMember
+		}
+		return 0, ""
+	}, nil)
+	r := teamOnAServer(t, a)
+	second, _ := r.anotherCheckout(r.configDir, "admin-checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	owner := r.principalOf(r.configDir, b)
+
+	refuse.Store(true)
+	res, key := r.startsIn("alice", aliceName, second)
+	if refuse.Load() {
+		t.Fatalf("the front was not asked what the server records: the test holds nothing\nstdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	if key != r.keyAt(b) || strings.Contains(res.stdout, "not connected") {
+		t.Fatalf("the owner's second checkout: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if now, listed := r.principalOf(r.configDir, b), r.principalsAt(b); now != owner || len(listed[aliceLabel]) != 1 || listed[aliceLabel][0] != owner {
+		t.Fatalf("the owner is %q on her machine and %v on the roster; she was %q", now, listed, owner)
+	}
+	// What only the team's owner is answered: the clear of a record, here of none.
+	if res := r.adapterAs(r.configDir, r.keyAt(b), "team", "move", "--clear"); res.exit != 0 {
+		t.Fatalf("the owner no longer owns the team after one unauthorized answer: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+	}
+}
+
+// TestAnEarlierServerUnderAnotherAddressIsKnownForWhatItIsThroughTheRealBinary:
+// the team moved from A to B, and the one command is pointed at A by
+// another address than the one this machine knows it by. The server holds
+// the team with the membership the machine has on A, which is not the
+// backend the team is on now. Until this only the membership on the
+// backend the team is leaving was looked for, so the command printed the
+// operator's `--set-owner` and left the administrator on A's roster twice.
+func TestAnEarlierServerUnderAnotherAddressIsKnownForWhatItIsThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	a, b := startRestBackend(t), startRestBackend(t)
+	r := teamOnAServer(t, a)
+	r.movedTo(b, r.secretFile)
+	moved := r.teamFile()
+	other := a
+	other.url = strings.Replace(a.url, "127.0.0.1", "localhost", 1)
+	if other.url == a.url {
+		t.Fatalf("the server's address has no 127.0.0.1 in it: %s", a.url)
+	}
+	res := r.runIn(r.checkout, r.terminalEnv(r.configDir), "y\n", moveArgs(other, r.secretFile)...)
+	if res.exit == 0 || !strings.Contains(res.stderr, "the same server under another address, or a copy of its data") ||
+		!strings.Contains(res.stderr, "with the membership this machine has on "+hostOf(a)) || strings.Contains(res.stderr, "--set-owner") {
+		t.Fatalf("the one command to an earlier server by another address: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if members := r.rosterAt(a); len(members) != 2 || members[aliceLabel] != 1 || members[bobLabel] != 1 {
+		t.Fatalf("A's roster after the refusal: %v, want each member once", members)
+	}
+	if _, err := os.Lstat(filepath.Join(r.configDir, "teams", r.keyAt(other))); err == nil {
+		t.Fatalf("the refusal left a profile for the other address in the administrator's store")
+	}
+	if r.teamFile() != moved {
+		t.Fatalf("the refusal rewrote the team file:\n%s", r.teamFile())
+	}
+	if record := r.recordOn(r.configDir, b); record.Moved {
+		t.Fatalf("B recorded a move that was refused: %+v", record)
+	}
+}
+
+// TestARerunDoesNotGuessWhileABackendTheTeamWasOnDoesNotAnswerThroughTheRealBinary:
+// a team went from A to B to C and back to B, and the same command is run
+// again while C does not answer. A still records the first move, to B; C
+// holds the record of the last. Until this a backend whose record could
+// not be read counted as one with none, so A was taken for the backend
+// the team is leaving: the command recorded there, and replaced B's
+// ticket. A backend that cannot be read is not one with no record: the
+// command changes nothing, names it, and says to run it again when it
+// answers or with --from.
+func TestARerunDoesNotGuessWhileABackendTheTeamWasOnDoesNotAnswerThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	down := &silent{}
+	a, b := startRestBackend(t), startRestBackend(t)
+	_, c := startFront(t, startRestBackend(t), down.before, nil)
+	r := teamOnAServer(t, a)
+	term := r.terminalEnv(r.configDir)
+	r.movedTo(b, r.secretFile)
+	r.movedTo(c, r.secretFile)
+	r.movedTo(b, r.secretFile)
+	onA, onC := r.recordOn(r.configDir, a), r.recordOn(r.configDir, c)
+	if !onA.Moved || onA.URL != b.url || !onC.Moved || onC.URL != b.url {
+		t.Fatalf("the records before the rerun: A %+v, C %+v", onA, onC)
+	}
+	ticket := filepath.Join(r.dirs.Root, "b.ticket")
+	read := func() string {
+		t.Helper()
+		if res := r.adapterAs(r.configDir, r.keyAt(a), "team", "moved", "--ticket-file", ticket); res.exit != 0 {
+			t.Fatalf("A's record with its ticket: exit %d\n%s\n%s", res.exit, res.stdout, res.stderr)
+		}
+		text, err := os.ReadFile(ticket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(text)
+	}
+	held := read()
+
+	down.on.Store(true)
+	res := r.runIn(r.checkout, term, "y\n", moveArgs(b, r.secretFile)...)
+	down.on.Store(false)
+	if res.exit == 0 || !strings.Contains(res.stderr, hostOf(c)+" did not answer") || !strings.Contains(res.stderr, "--from <host>") ||
+		!strings.Contains(res.stderr, "when it answers") || !strings.Contains(res.stderr, "Nothing was changed") || strings.Contains(res.stderr, "[y/N]") {
+		t.Fatalf("the same command while a backend the team was on does not answer: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if now := r.recordOn(r.configDir, a); !now.RecordedAt.Equal(onA.RecordedAt) || read() != held {
+		t.Fatalf("A's record was written while C did not answer: %+v, was %+v", now, onA)
+	}
+	// With the backend named, it runs.
+	if res := r.runIn(r.checkout, term, "y\n", moveArgs(b, r.secretFile, "--from", hostOf(c))...); res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+hostOf(c)+":") {
+		t.Fatalf("the same command with --from: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+}
+
+// TestAServerThatDoesNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThroughTheRealBinary:
+// a member followed the team to its new server in one checkout, and starts
+// a session in another while that server does not answer. The follow asks
+// it with the membership the machine holds, gets no answer, and changes
+// nothing. Until this the start then said that `.brigade.json` does not
+// match the team and to run `brigade team join`, which is what a file
+// nobody vouched for is told. It says that the server did not answer, and
+// the next start follows.
+func TestAServerThatDoesNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	down := &silent{}
+	a := startRestBackend(t)
+	_, b := startFront(t, startRestBackend(t), down.before, nil)
+	r := teamOnAServer(t, a)
+	second, canon := r.anotherCheckout(r.configDirB, "checkout-2")
+	r.movedTo(b, r.secretFile)
+	r.putFileIn(second, r.teamFile())
+	if res, key := r.bobStarts(); key != r.keyAt(b) {
+		t.Fatalf("the member did not follow to B: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	pinBefore, _, err := teamstore.LookupPin(r.configDirB, canon)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	down.on.Store(true)
+	res, key := r.startsIn("bob", bobName, second)
+	down.on.Store(false)
+	if key != "" || !strings.Contains(res.stdout, "did not answer") || strings.Contains(res.stdout, "does not match") || strings.Contains(res.stdout, "brigade team join") {
+		t.Fatalf("a start while the server the team moved to does not answer: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
+	if pin, _, perr := teamstore.LookupPin(r.configDirB, canon); perr != nil || *pin != *pinBefore {
+		t.Fatalf("the pin moved while the server did not answer: %+v %v", pin, perr)
+	}
+	if res, key := r.startsIn("bob", bobName, second); key != r.keyAt(b) || !strings.Contains(res.stdout, "this machine had joined it there already") {
+		t.Fatalf("the start after the server answered again: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
+	}
 }

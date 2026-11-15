@@ -34,7 +34,6 @@ import (
 	"encoding/hex"
 	json "encoding/json/v2"
 	"errors"
-	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
@@ -468,25 +467,23 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 	// the memberships there once everyone had followed away, and the team
 	// has come back (work item 341). So the backend is asked with it before
 	// the pin is written on its strength. `unauthorized` is that backend's
-	// word that the membership is none: it is set aside, and the machine
-	// joins with the ticket as one that had never joined. Any other failure
-	// is no word about the membership: nothing is changed, and the next
-	// follow asks again.
-	needsJoin := berr != nil || teamstore.VerifyBinding(existing, in.File) != nil
-	if !needsJoin {
+	// word that the caller is no active member: the machine then joins with
+	// the move's ticket ON THE PROFILE IT HOLDS, so the adapter presents the
+	// credential it has and the backend acts for the same principal
+	// (4.4.10: "the same principal_ref, rejoined: true"). Nothing is ever
+	// set aside. A member who was revoked comes back as who they were; one
+	// who was banned is refused, because a ban is by principal, and stays
+	// out; and the team's owner, answered `unauthorized` once by something
+	// in front of the backend, joins as the principal that owns the team
+	// and owns it still. Any other failure is no word about the membership:
+	// nothing is changed, and the next follow asks again.
+	held := berr == nil && teamstore.VerifyBinding(existing, in.File) == nil
+	rejoin := false
+	if held {
 		theirs, aerr := askNew(ctx, newClient)
 		switch {
 		case unauthorized(aerr):
-			if _, reason, terr := readTicket(record, ticketFile, in.File.TeamRef); reason != "" {
-				return Outcome{Reason: reason}, terr
-			}
-			if serr := write.SetAside(in.ConfigDir, newKey); serr != nil {
-				return Outcome{Reason: ReasonStore}, serr
-			}
-			if in.Log != nil {
-				in.Log.Info("the backend the team moved to no longer honours the membership this machine held there; it was set aside, and the machine joins with the move's ticket")
-			}
-			needsJoin, berr = true, fs.ErrNotExist
+			rejoin = true
 		case aerr != nil:
 			return Outcome{Reason: ReasonNewBackendFailed}, aerr
 		case namesBack(theirs, in.Pin, in.File.TeamRef):
@@ -494,14 +491,15 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		}
 	}
 	joined := false
-	if needsJoin {
+	if !held || rejoin {
 		// This machine holds no membership at the new backend that the file
-		// describes: it joins with the ticket, under the label the member had.
+		// describes, or one the backend does not honour: it joins with the
+		// ticket, under the label the member had.
 		ticket, reason, terr := readTicket(record, ticketFile, in.File.TeamRef)
 		if reason != "" {
 			return Outcome{Reason: reason}, terr
 		}
-		if berr == nil {
+		if berr == nil && !held {
 			// A profile is there that does not describe the file's backend:
 			// one a refused join left, or one made under a certificate the
 			// server has since replaced. The record named this backend, so

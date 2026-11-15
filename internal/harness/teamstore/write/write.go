@@ -116,24 +116,6 @@ func Promote(configDir, tempKey, key string) error {
 	return fmt.Errorf("teamstore: promote temp key: %w", err)
 }
 
-// SetAside takes teams/<key> out of the store's teams without destroying
-// it: the directory gets a create-time name (TempKey), which nothing lists
-// as a team and PruneOrphans removes once it is old. It is for a membership
-// the backend answered `unauthorized` to when a follow asked with it (work
-// item 341): the machine then joins anew under the same key. A key that
-// names no directory is nothing to set aside.
-func SetAside(configDir, key string) error {
-	temp, err := TempKey()
-	if err != nil {
-		return err
-	}
-	teams := filepath.Join(configDir, "teams")
-	if err := os.Rename(filepath.Join(teams, key), filepath.Join(teams, temp)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("teamstore: set a membership aside: %w", err)
-	}
-	return nil
-}
-
 // PatchBindingBackend rewrites the binding's harness-owned members —
 // adapter, url, publishable_key, certificate — leaving everything the adapter wrote
 // intact (verify-round high fix 1: the kit schema round-trips, so a

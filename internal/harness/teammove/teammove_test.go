@@ -972,7 +972,9 @@ func (r *rig) memberAtTheNewBackend() string {
 	return credential
 }
 
-// setAside lists the directories of the store's teams that are set aside.
+// setAside lists the directories of the store's teams that carry a
+// create-time name: a membership set aside would be one, and no follow
+// leaves one.
 func (r *rig) setAside() []string {
 	r.t.Helper()
 	entries, err := os.ReadDir(filepath.Join(r.configDir, "teams"))
@@ -988,18 +990,23 @@ func (r *rig) setAside() []string {
 	return out
 }
 
-// TestFollowSetsAsideAMembershipTheNewBackendNoLongerHonours: a team that
-// comes back to a backend its administrator had ended it on (work item
-// 341). The machine holds the membership it had there, and the backend
-// answers `unauthorized` to it. The follow does not pin the checkout on its
-// strength: it sets the membership aside and joins with the move's ticket,
-// as a machine that had never joined.
-func TestFollowSetsAsideAMembershipTheNewBackendNoLongerHonours(t *testing.T) {
+// TestFollowJoinsOnTheProfileItHoldsWhereTheNewBackendNoLongerHonoursIt: a
+// team that comes back to a backend its administrator had ended it on
+// (work item 341). The machine holds the membership it had there, and the
+// backend answers `unauthorized` to it. The follow does not pin the
+// checkout on its strength: it joins with the move's ticket, under the
+// profile it holds, so the adapter presents the credential that is there
+// and the backend acts for the same principal. Nothing is set aside: a
+// first form of this did that, and a banned member came back as a
+// principal the ban did not know.
+func TestFollowJoinsOnTheProfileItHoldsWhereTheNewBackendNoLongerHonoursIt(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	r.memberAtTheNewBackend()
+	credential := r.memberAtTheNewBackend()
 	r.b.newRecords = true
 	r.b.newMovedErrs = []error{&protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}}
+	// The backend acts for the principal whose credential was presented.
+	r.b.join = &protocol.TeamJoinResult{TeamRef: teamRef, TeamName: teamName, PrincipalRef: "p-before", Rejoined: true}
 	out, err := r.follow()
 	if err != nil || !out.Followed || !out.Joined {
 		t.Fatalf("follow: %+v, %v", out, err)
@@ -1007,25 +1014,54 @@ func TestFollowSetsAsideAMembershipTheNewBackendNoLongerHonours(t *testing.T) {
 	if got := r.b.verbs(); !slices.Equal(got, []string{"supabase:describe", "supabase:team moved", "rest:describe", "rest:team moved", "rest:team join", "rest:describe", "rest:team moved"}) {
 		t.Fatalf("adapter calls: %v", got)
 	}
-	if req, ok := r.b.called("team join")[0].stdin.(*protocol.TeamJoinRequest); !ok || req.JoinSecret != ticket || req.HumanLabel != label {
-		t.Fatalf("the join that followed the membership set aside was not made with the ticket and the member's label")
+	joined := r.b.called("team join")[0]
+	if req, ok := joined.stdin.(*protocol.TeamJoinRequest); !ok || joined.profile != r.newKey || req.JoinSecret != ticket || req.HumanLabel != label {
+		t.Fatalf("the join was not made under the profile the machine holds, with the ticket and the member's label")
 	}
 	binding, err := teamstore.LoadBinding(r.configDir, r.newKey)
-	if err != nil || binding.PrincipalRef != "p-new" || teamstore.VerifyBinding(binding, r.file) != nil {
+	if err != nil || binding.PrincipalRef != "p-before" || teamstore.VerifyBinding(binding, r.file) != nil {
 		t.Fatalf("the binding after the follow: %+v, %v", binding, err)
 	}
-	if _, err := os.Stat(filepath.Join(r.configDir, "teams", r.newKey, "credential.json")); err == nil {
-		t.Fatalf("the credential the backend refused is still in the profile the machine joined anew under")
+	if data, err := os.ReadFile(credential); err != nil || !strings.Contains(string(data), "before") {
+		t.Fatalf("the credential the machine held is not where it was: %q, %v", data, err)
 	}
-	aside := r.setAside()
-	if len(aside) != 1 {
-		t.Fatalf("the membership the backend refused was not set aside: %v", aside)
-	}
-	if data, err := os.ReadFile(filepath.Join(r.configDir, "teams", aside[0], "credential.json")); err != nil || !strings.Contains(string(data), "before") {
-		t.Fatalf("what was set aside does not hold what the machine had: %q, %v", data, err)
+	if aside := r.setAside(); len(aside) != 0 {
+		t.Fatalf("a membership was set aside: %v", aside)
 	}
 	if pin := r.currentPin(); !pin.Matches(r.file) || pin.MovedFrom != oldURL {
 		t.Fatalf("the pin after the follow: %+v", pin)
+	}
+}
+
+// TestFollowLeavesOutAMemberTheNewBackendRefusesToLetBackIn: the backend
+// answers `unauthorized` to the membership the machine holds and refuses
+// the join made with its credential, as it refuses a principal that is
+// banned. The checkout is not pinned, nothing of the membership is touched
+// or set aside, and the machine joined nothing as anyone else.
+func TestFollowLeavesOutAMemberTheNewBackendRefusesToLetBackIn(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	credential := r.memberAtTheNewBackend()
+	r.b.newRecords = true
+	refused := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	r.b.newMovedErrs = []error{refused}
+	r.b.joinErr = &protocol.Error{Code: protocol.CodeUnauthorized, Message: "this principal is banned from the team"}
+	out, _ := r.follow()
+	if out.Followed || out.Reason != teammove.ReasonJoinRefused {
+		t.Fatalf("follow: %+v, want %s", out, teammove.ReasonJoinRefused)
+	}
+	if joins := r.b.called("team join"); len(joins) != 1 || joins[0].profile != r.newKey {
+		t.Fatalf("the joins of a member who is refused: %v", r.b.verbs())
+	}
+	binding, err := teamstore.LoadBinding(r.configDir, r.newKey)
+	if err != nil || binding.PrincipalRef != "p-before" {
+		t.Fatalf("the membership the machine held after a refused join: %+v, %v", binding, err)
+	}
+	if _, err := os.Stat(credential); err != nil || len(r.setAside()) != 0 {
+		t.Fatalf("the credential is gone (%v) or something was set aside: %v", err, r.setAside())
+	}
+	if pin := r.currentPin(); pin != r.pin {
+		t.Fatalf("the pin moved: %+v", pin)
 	}
 }
 
