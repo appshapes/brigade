@@ -84,7 +84,9 @@ func (c *command) retryKeyPath() (string, error) {
 // the request. A file that group or other can read is the strict reader's
 // `config`, as for credential.json: a key that others could read is not
 // sent. A file that does not parse, holds no key, or was minted for another
-// server or another team is replaced. A key that cannot be written is
+// server or another team is replaced, the last with a line on stderr that
+// says so: the take-in that key was for cannot be made again once it is
+// gone. A key that cannot be written is
 // `internal` and nothing is sent: the credential the answer carries goes to
 // the same directory, so a take-in that cannot keep its key could not keep
 // its answer either.
@@ -97,11 +99,16 @@ func (c *command) takeInRetryKey(teamRef string) (string, error) {
 	switch {
 	case err == nil:
 		var kept retryKey
-		if json.Unmarshal(data, &kept) == nil && validRetryKey(kept.Key) &&
-			kept.URL == c.profile.URL && kept.Certificate == c.profile.Certificate && kept.TeamRef == teamRef {
-			c.redactor.Add(kept.Key)
-			c.log.Debug("the take-in carries the retry key an earlier attempt kept")
-			return kept.Key, nil
+		if json.Unmarshal(data, &kept) == nil && validRetryKey(kept.Key) {
+			if kept.URL == c.profile.URL && kept.Certificate == c.profile.Certificate && kept.TeamRef == teamRef {
+				c.redactor.Add(kept.Key)
+				c.log.Debug("the take-in carries the retry key an earlier attempt kept")
+				return kept.Key, nil
+			}
+			// A key that could still be honoured is given up here, and the
+			// take-in it was minted for can then not be made again: that is
+			// said, and not done in silence.
+			c.log.Warn("the retry key in " + retryKeyFileName + " was kept for a take-in of another team, at another server or under another certificate pin; this take-in puts its own in its place, and that one cannot be made again from this profile")
 		}
 	case errors.Is(err, iofs.ErrNotExist):
 	default:

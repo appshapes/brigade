@@ -355,7 +355,21 @@ func TestARetryKeyIsForOneServerAndOneTeam(t *testing.T) {
 		r := newRig(t, b.url())
 		r.ok("", "profile", "init", "--url", b.url())
 		write(r, content, 0o600)
-		r.fails(protocol.CodeConflict, document, "team", "take-in")
+		refused := r.fails(protocol.CodeConflict, document, "team", "take-in")
+		// A key that could still be honoured where it was minted for is not
+		// given up in silence: stderr says that it was replaced, and holds
+		// nothing of it. A file that held no key says nothing.
+		usable := strings.HasPrefix(name, "a key for another") || strings.HasPrefix(name, "a key under another")
+		said := false
+		for line := range strings.Lines(refused.stderr) {
+			said = said || (strings.Contains(line, `"level":"WARN"`) && strings.Contains(line, "cannot be made again from this profile"))
+		}
+		if said != usable {
+			t.Errorf("%s: stderr warns that a kept key was replaced: %v, want %v", name, said, usable)
+		}
+		if strings.Contains(refused.stdout+refused.stderr, planted) {
+			t.Errorf("%s: the key the file held is on stdout or stderr", name)
+		}
 		keys := sentRetryKeys(b)
 		// A key of its own, of this adapter's minting: 32 random bytes in
 		// base64url, and nothing the file held.
