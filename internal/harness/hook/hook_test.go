@@ -30,7 +30,8 @@ import (
 // them: with GrokStartBudget at zero in RealDeps this package, cmd/brigade
 // and scripts/ci all passed (work item 336). A Deps a caller built with a
 // budget left at zero is given the same values, the git calls keep each
-// hook's own budget, and nobody is told of a lock that is held.
+// hook's own budget, and nobody is told of a lock that is held or of a wait
+// for a pidfile.
 func TestRealDepsAreTheDocumentedBudgets(t *testing.T) {
 	t.Parallel()
 	for name, d := range map[string]Deps{"RealDeps": RealDeps(), "a zero Deps with its defaults": Deps{}.withDefaults()} {
@@ -39,8 +40,9 @@ func TestRealDepsAreTheDocumentedBudgets(t *testing.T) {
 			t.Errorf("%s: prompt %v, Stop %v, Grok start %v, end %v, follow %v, pidfile wait %v; want 4.5s, 4.5s, 12s, 1.4s, 55s and 2s",
 				name, d.PromptBudget, d.StopBudget, d.GrokStartBudget, d.EndBudget, d.FollowBudget, d.PidfileWait)
 		}
-		if d.GitBudget != 0 || d.GrokLockHeld != nil {
-			t.Errorf("%s: a git budget of %v, a GrokLockHeld that is set: %v; want each hook's own git budget and nobody told", name, d.GitBudget, d.GrokLockHeld != nil)
+		if d.GitBudget != 0 || d.GrokLockHeld != nil || d.PidfileAwaited != nil {
+			t.Errorf("%s: a git budget of %v, a GrokLockHeld that is set: %v, a PidfileAwaited that is set: %v; want each hook's own git budget and nobody told",
+				name, d.GitBudget, d.GrokLockHeld != nil, d.PidfileAwaited != nil)
 		}
 	}
 }

@@ -301,6 +301,12 @@ type Deps struct {
 	// test waits on it for the moment a second hook contends, where it
 	// would otherwise sleep and hope (work item 336).
 	GrokLockHeld func()
+	// PidfileAwaited, when set, is called by a hook each time it begins to
+	// wait for a watcher's pidfile (awaitPidfile). nil in production,
+	// which tells nobody. A test counts on it whether a hook waited: a wait
+	// for a pidfile that never comes shows otherwise only on a clock, or in
+	// the wording of a log line (work item 336).
+	PidfileAwaited func()
 	// FollowBudget bounds the whole follow of `brigade hook follow`, the
 	// child a prompt hook starts (move.go, work item 327); zero means
 	// followBudget. Only a test lowers it, to see a follow whose backend

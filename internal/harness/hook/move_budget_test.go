@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -503,32 +502,52 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 	}
 }
 
-// TestAMoveDoesNotWaitForItsWatchersPidfile: what follows a registration
+// TestAMoveAnsweredLateDoesNotWaitForAPidfile: what follows a registration
 // is what its deadline's second is for, and the most that could follow is a
-// wait. The session's old watcher is dead and its pidfile gone, and the
-// watcher the hook starts never writes one: a hook that waited for a
-// pidfile here would wait as long as it may, and log that none appeared.
-// The prompt that moves a session does not wait at all: nothing in it reads
-// the pidfile, a watcher that did not come up is started by the next
-// prompt, and the half second of a prompt's wait was time a move has to be
-// said in. The session moves, the watcher is started, both lines are said,
-// and the log has no word of a pidfile.
+// wait. The backend the team went to takes its time over the registration:
+// it holds its answer until the test lets it go, which is once the hook is
+// known to be waiting on it, the session still where it was. Then it
+// answers, inside its deadline. The session's old watcher is dead and its
+// pidfile gone, and the watcher the hook starts never writes one: a hook
+// that waited for a pidfile here would wait as long as it may. The prompt
+// that moves a session does not wait at all: nothing in it reads the
+// pidfile, a watcher that did not come up is started by the next prompt,
+// and the half second of a prompt's wait was time a move has to be said in.
+// The session moves, the watcher is started and both lines are said.
+//
+// That it did not wait is counted, not timed and not read off the wording
+// of a log line: a hook tells Deps.PidfileAwaited each time it begins to
+// wait for a pidfile, and the prompt that moved the session told it
+// nothing. The controls are the session's own start before it and the
+// prompt after it, which finds no watcher, starts one and waits for its
+// pidfile: one each. (A start whose watcher never comes is
+// TestPidfileWaitTimesOut, counted too.)
 //
 // The backend used to answer a quarter of a second before the
 // registration's deadline, under a budget of 3 s, and the test was named
 // for that last moment (work item 336). That held the hook to reaching its
-// registration within 1.75 s, and what followed the answer to fitting in a
-// quarter of a second: two guesses about the machine, and what follows a
-// registration is the same code whenever the answer comes. So the answer
-// comes at once, under a budget no busy machine reaches. How long the
-// prompt takes is not held: a hook that waits for a pidfile says so.
-func TestAMoveDoesNotWaitForItsWatchersPidfile(t *testing.T) {
+// registration within 1.75 s and what followed the answer to fitting in a
+// quarter of a second: two guesses about the machine, which a busy one
+// did not keep. What is left out with them is the last moment itself: what
+// a hook does with an answer that leaves it little of its budget can only
+// be shown by an answer that leaves little, and how much an answer leaves
+// is the machine's clock, not the test's. The move looks at no clock after
+// its registration (reattach). The one look a prompt takes at what is left
+// of its budget, before its doing reminder, has a test with a budget of
+// its own (doing_test.go, "under a second of budget"), and the deadline's
+// second is held, as a value, by
+// TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt.
+func TestAMoveAnsweredLateDoesNotWaitForAPidfile(t *testing.T) {
 	t.Parallel()
-	const startWait = 6 * time.Second
+	// The prompt's budget, the minute every fixture has. The test's two
+	// waits on the prompt are as long, each a hang catcher.
+	const budget = time.Minute
 	f := newMemberFixture(t)
-	f.deps.PromptBudget = time.Minute
-	// A start's wait, made long: a wait would show.
-	f.deps.PidfileWait = startWait
+	f.deps.PromptBudget = budget
+	// Short, for the control's sake: its watcher's pidfile never comes.
+	f.deps.PidfileWait = 50 * time.Millisecond
+	var awaited atomic.Int32
+	f.deps.PidfileAwaited = func() { awaited.Add(1) }
 	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
 	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
 	before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
@@ -543,25 +562,85 @@ func TestAMoveDoesNotWaitForItsWatchersPidfile(t *testing.T) {
 	}
 	f.spawner.watcherPID = 0
 	spawns := f.spawner.count()
-	began := time.Now()
-	exit, out, errOut := f.run(SubPrompt, f.promptDoc("default"))
-	took := time.Since(began)
-	if exit != 0 {
-		t.Fatalf("exit %d\n%s", exit, errOut)
+	// The session's start waited for its watcher's pidfile, and no prompt
+	// since: what is counted is what comes after this.
+	waits := awaited.Load()
+	if waits == 0 {
+		t.Fatal("the session's start told nobody that it waited for its watcher's pidfile: the count would hold nothing")
+	}
+	// The new backend holds its answer to the registration until it is let
+	// go, and gives up with its caller.
+	var asked, gaveUp atomic.Int32
+	answer := make(chan struct{})
+	inner := f.deps.Spawn
+	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if verbOf(spec.Argv) != "session register" || profileOf(adapterCall{Argv: spec.Argv}) != newKey {
+			return inner(ctx, spec)
+		}
+		asked.Add(1)
+		select {
+		case <-answer:
+			return inner(ctx, spec)
+		case <-ctx.Done():
+			gaveUp.Add(1)
+			return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
+		}
+	}
+	type ended struct {
+		exit        int
+		out, errOut string
+	}
+	done := make(chan ended, 1)
+	go func() {
+		exit, out, errOut := f.run(SubPrompt, f.promptDoc("default"))
+		done <- ended{exit, out, errOut}
+	}()
+	let := sync.OnceFunc(func() { close(answer) })
+	t.Cleanup(let)
+	testutil.Await(t, budget, pollInterval, "the hook's registration to reach the backend the team went to", func() bool {
+		if asked.Load() == 1 {
+			return true
+		}
+		// A prompt that is back by now asked for no registration, and none
+		// will come: said at once, where the wait would say it in a minute.
+		select {
+		case early := <-done:
+			t.Fatalf("the prompt ended, exit %d, with no registration asked of the backend the team went to\n%s", early.exit, early.errOut)
+		default:
+		}
+		return false
+	}, nil)
+	// The hook waits on the answer: the session is where it was, with no
+	// watcher started for it.
+	if m := f.mustMap(); m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || f.spawner.count() != spawns {
+		t.Fatalf("with its registration unanswered the session is at %+v, %d watchers started: want it where it was", m, f.spawner.count()-spawns)
+	}
+	let()
+	var got ended
+	select {
+	case got = <-done:
+	case <-time.After(budget):
+		t.Fatalf("waited %v, the whole of the prompt's budget, for the prompt to end after the backend's answer, which it did not", budget)
+	}
+	if got.exit != 0 || asked.Load() != 1 || gaveUp.Load() != 0 {
+		t.Fatalf("exit %d, %d registrations asked, %d given up: want the one, answered\n%s", got.exit, asked.Load(), gaveUp.Load(), got.errOut)
 	}
 	if m := f.mustMap(); m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" || f.spawner.count() != spawns+1 {
-		t.Fatalf("the registration did not move the session, or started %d watchers: %+v\n%s", f.spawner.count()-spawns, m, errOut)
+		t.Fatalf("a registration answered late, inside its deadline, did not move the session, or started %d watchers: %+v\n%s", f.spawner.count()-spawns, m, got.errOut)
 	}
 	want := []string{followedLine(tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
-	if got := lines(out); !slices.Equal(got, want) {
-		t.Fatalf("lines = %q\nwant %q", got, want)
+	if said := lines(got.out); !slices.Equal(said, want) {
+		t.Fatalf("lines = %q\nwant %q", said, want)
 	}
-	// It did not look for the watcher's pidfile: a hook that waits for one
-	// that never appears says so in its log.
-	if strings.Contains(errOut, "watcher pidfile did not appear") {
-		t.Fatalf("the prompt waited for the watcher's pidfile; it took %v\n%s", took, errOut)
+	if n := awaited.Load() - waits; n != 0 {
+		t.Fatalf("the prompt that moved the session waited for a watcher's pidfile %d time(s)\n%s", n, got.errOut)
 	}
-	t.Logf("the prompt that moved the session took %v", took.Round(time.Millisecond))
+	// The control: the watcher never came up, so the next prompt starts one,
+	// and that prompt does wait for its pidfile.
+	if exit, _, errOut := f.run(SubPrompt, f.promptDoc("default")); exit != 0 || f.spawner.count() != spawns+2 || awaited.Load()-waits != 1 {
+		t.Fatalf("the prompt after the move: exit %d, %d watchers started, %d waits for a pidfile; want a watcher started and waited for once: the count holds nothing otherwise\n%s",
+			exit, f.spawner.count()-spawns-1, awaited.Load()-waits, errOut)
+	}
 }
 
 // TestAFollowWhoseBackendHangsEndsWithItsBudget: the child itself, with the

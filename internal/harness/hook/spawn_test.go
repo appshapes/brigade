@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -170,15 +171,22 @@ func TestSpawnFailureIsLoggedNotFatal(t *testing.T) {
 }
 
 // TestPidfileWaitTimesOut: a watcher that never writes its pidfile is
-// logged after the bounded wait and the hook still succeeds.
+// logged after the bounded wait and the hook still succeeds. The start
+// waited for it once, by the count a test of a hook that must not wait
+// holds at zero (Deps.PidfileAwaited).
 func TestPidfileWaitTimesOut(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	f.deps.PidfileWait = 50 * time.Millisecond
+	var awaited atomic.Int32
+	f.deps.PidfileAwaited = func() { awaited.Add(1) }
 	f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 	exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
 	if exit != 0 || !strings.Contains(out, "(brigade-sess-1)") || !strings.Contains(errOut, "pidfile did not appear") {
 		t.Fatalf("exit %d out %q err %q", exit, out, errOut)
+	}
+	if n := awaited.Load(); n != 1 {
+		t.Fatalf("the start waited for its watcher's pidfile %d times, want once", n)
 	}
 }
 
