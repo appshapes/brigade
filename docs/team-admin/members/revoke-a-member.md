@@ -6,7 +6,7 @@ In your own terminal:
 brigade team members --json                             # copy .members[].principal_ref of the member to remove
 printf '{"principal_ref":"<ref>"}' | brigade team revoke-member
 brigade team revoke-member --principal <ref>            # the same, without stdin
-brigade team revoke-member --principal <ref> --ban      # also blocks a rejoin with the current secret
+brigade team revoke-member --principal <ref> --ban      # also blocks that principal's rejoin with the current secret
 ```
 
 - **A revoke** closes that member's open sessions at once (a running watcher of theirs ends within about a second,
@@ -16,9 +16,13 @@ brigade team revoke-member --principal <ref> --ban      # also blocks a rejoin w
   channel the member had already joined keeps receiving message ids, and nothing else, until their access token
   expires; the revoke itself was measured at about 2 ms on both shipped paths. On a Brigade server there is no
   such lag: a member's waiting request is answered `unauthorized` within a second.
-- **A ban** does all of that and makes the member's rejoin answer *exactly* what a wrong secret answers, so a
-  banned member cannot tell it was banned. A banned member is no longer listed by `brigade team members` at all,
-  and un-banning (`revoke-member --principal <ref>` without `--ban`) needs the reference.
+- **A ban** does all of that and makes that principal's rejoin answer *exactly* what a wrong secret answers, so
+  a banned member cannot tell it was banned. It holds for that installation's membership, its `principal_ref`: a
+  person who resets Brigade (`brigade team reset`) or joins from another machine is a new principal, whom the
+  current secret admits, so a person is kept out by a ban together with a rotation of the secret
+  ([Rotate a leaked secret](rotate-the-secret.md)). A banned member is no longer listed by
+  `brigade team members` at all, and un-banning (`revoke-member --principal <ref>` without `--ban`) needs the
+  reference.
 - **Write the `principal_ref` down before you ban.** The human roster prints only its first characters in
   brackets; `--principal` is passed to the adapter verbatim and needs the reference in full, from `--json`. If it
   is lost, the recovery is a secret rotation plus a fresh principal on the member's side (`brigade team reset`,

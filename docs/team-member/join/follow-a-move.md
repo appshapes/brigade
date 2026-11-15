@@ -88,12 +88,22 @@ who clears the record that is out of date.
 there. Where the administrator ended that membership after the team had left, the server refuses it, and the
 session joins again with the move's ticket, with no command of yours, under the credential your machine holds:
 you come back as the member you were. Where the membership is still good, the session uses it and joins
-nothing. Where the administrator banned you there, the server refuses the join, and the session says that the
-file does not match.
+nothing. Where the server refuses that join too, because the administrator banned you there or the move's
+ticket no longer admits, a session says once that the backend refuses the membership your machine holds, with
+the command that joins. No session presents the ticket again for fifteen minutes; the first to start after that
+asks once more.
 
 **If the session says that the backend the team moved to did not answer.** The move is recorded and the file is
-the right one; the new backend was not reachable when the session asked it. Nothing was changed, and nothing is
-yours to do: the next session follows when it starts, and this one at one of its next prompts.
+the right one; the new backend could not be reached, or did not answer in time, when the session asked it.
+Nothing was changed, and nothing is yours to do: the next session follows when it starts, and this one at one of
+its next prompts. Until then a prompt says the same.
+
+**If the session says that the backend refuses the membership this machine holds there.** The move is recorded
+and the file is the right one, and the backend the team moved to answered: it does not know the credential your
+machine holds for it, or it no longer counts you a member and did not take the move's ticket. Waiting does not
+mend that. Ask your administrator for the file of the team's current join secret and run
+`brigade team join --secret-file <path>` in the project (`/brigade:join <path>` in a session); the session
+connects at its next prompt.
 
 A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
 you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or

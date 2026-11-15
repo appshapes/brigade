@@ -131,9 +131,28 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			gone:  []string{"sets it aside", "as a machine that had never joined"},
 		},
 		{
-			why:   "the page on moving says what keeps a member out while a move is open",
+			why:   "a ban holds for the membership of one installation, its principal: a person who resets Brigade or uses another machine is a new principal, whom an open move's ticket or the current secret admits, so the page on moving does not say that a ban alone keeps a person out",
 			files: []string{admin},
-			need:  []string{"While a move is open, a revocation alone does not keep a member out", "A member is kept out during an open move by a ban", "or by closing the move"},
+			gone:  []string{"A member is kept out during an open move by a ban", "which the ticket does not get past"},
+			need:  []string{"While a move is open, a revocation alone does not keep a member out", "holds for that installation's membership", "is a new principal", "a ban together with a rotation"},
+		},
+		{
+			why:   "the page on a ban says the same: it is that principal's rejoin a ban refuses, not a person's",
+			files: []string{"docs/team-admin/members/revoke-a-member.md"},
+			gone:  []string{"makes the member's rejoin answer"},
+			need:  []string{"holds for that installation's membership", "is a new principal", "a ban together with a rotation"},
+		},
+		{
+			why:   "a session whose rejoin the server refused says so once, with the join that helps, and no session presents the ticket again for fifteen minutes: it does not say that the team file does not match",
+			files: []string{"docs/team-member/join/follow-a-move.md"},
+			gone:  []string{"the server refuses the join, and the session says that the file does not match"},
+			need:  []string{"brigade team join --secret-file <path>", "fifteen minutes", "refuses the membership"},
+		},
+		{
+			why:   "a server that answers a refusal is not told as one that did not answer, a refused rejoin is asked for once in fifteen minutes, and a line a refusal prints to be run carries the certificate's pin",
+			files: []string{"CHANGELOG.md"},
+			gone:  []string{"Any other failure changes nothing, and the session says that the backend the team moved to did not answer", "a ban does, and so does closing the move"},
+			need:  []string{"fifteen minutes", "refuses the membership", "--certificate sha256:"},
 		},
 		{
 			why:   "the Team Admin's page says what the same command run again does on such a machine",

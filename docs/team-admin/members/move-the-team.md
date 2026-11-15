@@ -105,8 +105,8 @@ was already there.
 | the server this team is on keeps no record of where a team goes | It is older than 0.8.0. Its operator updates it ([Keep the server](../../project-owner/server/keep-the-server.md#update-it)); then run the command again. Until then each member joins the new server with the secret file. |
 | the team is taken in on the server, and it still records that the team left it | The team was on that server before, and its record of the leaving could not be cleared or read. Nothing was recorded on the backend the team is leaving, so no session follows yet. Remove the cause the refusal names and run the same command again. |
 | the answer to the clear of that record did not arrive, so the record may be cleared all the same | The same stop, when the server did not answer the clear: it may have cleared the record, and `brigade team move --show --from <that server's host>` says. Run the same command again either way. |
-| this machine has joined this team on more than one other backend | You ran a move again whose `.brigade.json` already names the server, and nothing says which backend the team is leaving. The refusal names them: run the same command with `--from <host>`. Where it says that one of them did not answer what it records, that backend may be the one the team is leaving, so nothing was chosen: run the command again when it answers, or with `--from <host>`. |
-| the same server under another address, or a copy of its data | The server you named holds the team with a membership your machine has: on the server the team is on, or on one it was on before. A team is not moved to the server it is on, nor to a copy; to move it back to a server it was on before, name that server by the address your machine knows, which the refusal prints. The command ended the membership it had made there; when it could not, it names the one command that does. To change a server's address, its operator starts a fresh server at the new one ([Move it](../../project-owner/server/keep-the-server.md#move-it)). |
+| this machine has joined this team on more than one other backend | You ran a move again whose `.brigade.json` already names the server, and nothing says which backend the team is leaving. The refusal names them: run the same command with `--from <host>`. Where it says that one of them did not answer what it records, that backend may be the one the team is leaving, so nothing was chosen: run the command again when it answers, or with `--from <host>`. The line the refusal prints is the whole command, with `--certificate sha256:…` for a server that made its own certificate. |
+| the same server under another address, or a copy of its data | The server you named holds the team with a membership your machine has: on the server the team is on, or on one it was on before. A team is not moved to the server it is on, nor to a copy; to move it back to a server it was on before, name that server by the address your machine knows, which the refusal prints with the certificate's fingerprint where that server made its own. The command ended the membership it had made there; when it could not, it names the one command that does. To change a server's address, its operator starts a fresh server at the new one ([Move it](../../project-owner/server/keep-the-server.md#move-it)). |
 | the old backend holds a record of a move already, and a private file for its ticket could not be written | The command names the directory under Brigade's state directory: make it one you can write, and run the command again. |
 | the record was cleared while this command was checking it | Someone cleared it from another machine. Run the command again. |
 | the file holds the join secret of another team | Name the file `team create` wrote for this team. |
@@ -138,17 +138,25 @@ before when:
   reads each record, and `--clear --from <host>` clears the one that is out of date.
 
 A member whose machine was on the server before, and whom you revoked there when the team had left it, follows
-all the same when the team comes back: the server refuses the membership the machine held, and the session
-joins with the move's ticket under the credential it holds, so the member comes back as who they were. A member
-you banned there is refused, and stays out.
+all the same when the team comes back: the server refuses the membership the machine held, and the session joins
+with the move's ticket under the credential it holds, so the member comes back as who they were. A member the
+server refuses that join too stays out: one you banned there, or one whose ticket no longer admits. A session of
+theirs says once that the server refuses the membership their machine holds, with the command that joins,
+`brigade team join --secret-file <path>` and the file of the team's current join secret. No session of theirs
+presents the ticket again for fifteen minutes, because a server counts the joins a principal fails and their own
+join has to be heard; the first session to start after that asks once more, so a member whose ban you lift comes
+back with no command of theirs.
 
 **While a move is open, a revocation alone does not keep a member out.** The move's ticket admits the team's
 members until it ends, and a member you revoke on the server the team moved to still reads that ticket on the
 old backend: their next session in a checkout that has not followed joins with it, as the member they were.
-That is what a revocation is, a member who may come back. A member is kept out during an open move by a ban,
-`brigade team revoke-member --principal <principal_ref> --ban`, which the ticket does not get past
-([Revoke or ban a member](revoke-a-member.md)), or by closing the move: rotate the join secret on the server,
-which ends the ticket for everyone who has not followed yet.
+That is what a revocation is, a member who may come back. A ban,
+`brigade team revoke-member --principal <principal_ref> --ban` ([Revoke or ban a member](revoke-a-member.md)),
+holds for that installation's membership, its `principal_ref`: the ticket does not let that principal back in.
+A person who resets Brigade (`brigade team reset`) or uses another machine is a new principal, whom an open
+move's ticket or the current join secret admits. So a person is kept out by a ban together with a rotation of
+the join secret on the server, which closes the move: the ticket then admits nobody, and they are not given the
+new secret.
 
 ## A member who missed a move
 

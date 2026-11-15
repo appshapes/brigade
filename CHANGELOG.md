@@ -72,14 +72,27 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `team join` answering "already joined". Now it asks the server with
   it, and on `unauthorized` joins with the move's ticket under the
   credential the machine holds, so the server acts for the same
-  principal: a revoked member comes back as who they were, a banned one
-  is refused and stays out, and an owner answered `unauthorized` once by
-  something in front of the server owns the team still. While a move is
-  open a revocation alone therefore keeps nobody out: a ban does, and so
-  does closing the move. Any other failure changes nothing, and the
-  session says that the backend the team moved to did not answer, where
-  it used to say that `.brigade.json` does not match; the next session
-  or prompt asks again.
+  principal: a revoked member comes back as who they were, and an owner
+  answered `unauthorized` once by something in front of the server owns
+  the team still. A principal the server refuses that join too stays
+  out, one that is banned or one whose ticket no longer admits. The
+  member is told once that the backend refuses the membership their
+  machine holds, with the command that joins,
+  `brigade team join --secret-file <path>` and the file of the team's
+  current join secret; and no session presents the ticket again for
+  fifteen minutes, because a server counts the joins a principal fails
+  and the member's own join has to be heard. The first session to start
+  after that asks once more, so a member whose ban is lifted comes back.
+  While a move is open a revocation alone therefore keeps nobody out,
+  and a ban holds for the installation it names: a person who resets
+  Brigade or uses another machine is a new principal, so a person is
+  kept out by a ban together with a rotation, which closes the move. A
+  server that does not answer changes nothing, and the session says so,
+  at its start and at the prompts after it, where it used to say that
+  `.brigade.json` does not match. One that answers another refusal, a
+  credential it does not know above all, is told as a server that
+  refuses the membership, with the same command, and not as one to wait
+  for.
 - **`team rotate-secret` and `team revoke-member` say which backend they
   act on, and take `--on <url or host>`.** After a move a checkout is
   joined to the server the team went to, and a team command goes there
@@ -114,6 +127,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   flag; and where one of those backends does not answer what it records,
   it chooses none, because that one may be the backend the team is
   leaving, and says to run it again when it answers or with `--from`.
+  The line either refusal prints is the whole command: it carries
+  `--certificate sha256:…` for a server that made its own certificate,
+  as does the address the command prints for a move back to an earlier
+  server.
 - **Pages.** A new page for the two operators, "Move a team to another
   server", with what each must have in place, what a team with gateways
   does, and why the server a team goes to must not be a copy of the old

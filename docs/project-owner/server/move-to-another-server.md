@@ -61,8 +61,9 @@ a server's own address changes without a join on every machine: [Move it](keep-t
   new secret's version or the number of memberships it ended: that is where a rotation and a revocation show.
   Your journal has no line for either; a rotation is there only when it closed a move this server had open. A
   member who was revoked here and whose team later comes back joins again with the move's ticket, with no
-  command, as the member they were; one who was banned here stays out. What the team wrote stays in the data
-  directory until the directory goes.
+  command, as the member they were; an installation that was banned here stays out, and a ban holds for that
+  installation and no further ([Revoke or ban a member](../../team-admin/members/revoke-a-member.md)). What the
+  team wrote stays in the data directory until the directory goes.
 
 ## A team with gateways on the server it leaves
 
