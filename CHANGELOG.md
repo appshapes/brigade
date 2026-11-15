@@ -73,14 +73,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `brg1.<team_ref>.<secret>` wherever it finds one and knew nothing of
   the part after the last dot alone, the one part that is secret: a
   team's reference is in its committed team file. A server that broke
-  the contract's rule and repeated that half in a refusal got it
-  printed on stdout and stderr. `team join` and `team take-in` now
-  register the half of what they present before they send it, the
-  team's join secret or the ticket of its move, and `team
-  rotate-secret` and `team open-move` the half of the secret in the
-  server's answer before they do anything else with it. A half shorter
-  than sixteen characters is not registered: no backend mints one, and
-  a short text would be cut out of every line that holds those
+  the contract's rule and repeated that half in a refusal got it printed
+  on stdout and stderr. `team join` and `team take-in` now register the
+  half of what they present before they send it, the team's join secret
+  or the ticket of its move, and `team rotate-secret` and `team
+  open-move` the half of the secret in the server's answer before they
+  do anything else with it. The names a success carries go through the
+  redactor as well, the team's name and the principal's reference: a
+  server that put the half there had it printed in the command's result
+  and kept in `team.json`, and now has a marker in its place. A half
+  shorter than sixteen characters is not registered: no backend mints
+  one, and a short text would be cut out of every line that holds those
   characters.
 
 ## [0.55.0] — 2026-11-13
