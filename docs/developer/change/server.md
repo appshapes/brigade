@@ -85,14 +85,18 @@ header, and everything else is unchanged.
 
 ## Taking a team in
 
+From 0.7.0 a team's move from a Supabase project is one command of its administrator's,
+`brigade team move --to <url> --secret-file <path>`, whose three requests a running server answers
+([Taking a team in and moving it by request](#taking-a-team-in-and-moving-it-by-request)). The operator's
+commands of this section and of [Moving a team's members](#moving-a-teams-members) are the older way, and stay.
+
 `--import-team <name> --join-secret-file <file>` writes one `team.created` record for a team that exists
 elsewhere: the reference inside the secret, the name, the SHA-256 of the whole secret, and no creator and no
 member. A join checks that hash against the team the secret names, so the team's members join with the secret
 they have. It is a job of its own kind for the engine, appended and synced like any other, and not a request:
 no path of `answer` reaches that kind. It runs between a stop and a start,
 because one process owns the log. The same secret again changes nothing; another secret for the same reference
-is refused. From 0.7.0 a request takes a team in as well, with an owner:
-[Taking a team in and moving it by request](#taking-a-team-in-and-moving-it-by-request).
+is refused.
 
 ## Administering a team
 

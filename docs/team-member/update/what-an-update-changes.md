@@ -9,7 +9,7 @@ permission settings let Brigade ask ([What teammates see about your session](../
 
 ## Who is behind
 
-The VERSION column of `brigade sessions` shows each session's plugin version. Two moments where it matters:
+The VERSION column of `brigade sessions` shows each session's plugin version. The moments where it matters:
 
 - **Before a project commits a `sync` or a `polling` member**, every member's plugin must be 0.11.0 or later. An
   older plugin reads `.brigade.json` against a closed schema and refuses the whole file: its sessions say
@@ -29,6 +29,10 @@ The VERSION column of `brigade sessions` shows each session's plugin version. Tw
   ([Turn on the Brigade Board](../../team-admin/configure/board.md)).
 - **Around 0.16.0**, which changed how a synced folder's id is made: members on either side of it do not exchange
   files until the last one has updated ([Sync folders](../use/sync-folders.md)).
+- **Before a team moves to a Brigade server**, a member's plugin must be 0.55.0 or later for their next session
+  to follow the team with no command of theirs, and 0.56.0 or later for a session that is running to follow. An
+  older one does not follow, and its member updates or joins the server with the secret file
+  ([When your team moves](../join/follow-a-move.md)).
 
 ## Plugin versions and migrations are independent
 

@@ -1,8 +1,9 @@
 # When your team moves
 
 A team can move from one backend to another: from a Supabase project to a Brigade server your organisation runs.
-You do nothing. The next session you start in the project follows the team, a session that is already running
-follows at its next prompts, and either tells you so in one line:
+Its administrator moves it with one command, and you run nothing: no join and no command. Once you have pulled
+the changed `.brigade.json`, the next session you start in the project follows the team, on plugin 0.55.0 or
+later. A session that is already running follows at its next prompts. Either tells you so in one line:
 
 ```text
 Brigade: this checkout followed team "ops" to brigade.example.com:8743, trusting the server certificate sha256:…: the team's administrator recorded that move on abc.supabase.co, the backend you joined it on, and this machine joined it there with the move's ticket, under the label you had. To leave the team run `brigade team leave`; to stay put until you join a moved team yourself, set the option follow_team_move to off.
@@ -64,6 +65,9 @@ moves at its next prompt after you joined in the checkout it was started in.
 Then nothing vouched for the change: the administrator has not recorded a move, or recorded another server than
 the file names, or the move has ended. Ask your administrator before you join anything. A team file that changed
 with no record behind it is exactly what this check is for.
+
+A plugin older than 0.55.0 does not follow either, though the move is recorded: update it
+([Update](../update/README.md)) and start a new session, or join with the secret file.
 
 A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
 you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or

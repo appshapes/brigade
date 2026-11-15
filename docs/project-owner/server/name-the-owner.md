@@ -9,16 +9,20 @@ is, so whoever runs the server can name another (from 0.4.0 of the server).
 | The team | Its owner |
 | --- | --- |
 | Created on the server | the member who created it |
-| Taken in from a Supabase project | the first member to join it on the server |
+| Moved here from a Supabase project by its Team Admin's one command, `brigade team move --to`, from server 0.7.0 | the member whose machine took it in by request: the Team Admin |
+| Taken in by you, with `--import-team` | the first member to join it on the server |
 | After `brigade team transfer` | the member the owner named |
 
 A gateway joins as a member and never becomes an owner.
 
-A team that was taken in has no owner until someone joins, because the server cannot check who administered it
-on the old backend. Anyone who holds the join secret can be that first member. So the Team Admin joins before the
-repository's `.brigade.json` points anyone else at the server
-([Take in a team that exists](take-in-a-team.md)). If someone else got there first, name the right owner with the
-command below; if that someone has also changed the secret or put the others out,
+The server cannot check who administered a team on the old backend. So anyone who holds the join secret, and the
+creation token where the server asks for one, can take a team in by request, or be the first to join one you
+took in. The Team Admin's one command takes the team in before `.brigade.json` points anyone else at the server;
+after your own `--import-team`, the Team Admin joins before that file is pushed
+([Take in a team that exists](take-in-a-team.md)). If someone else got there first, name the right owner with
+the command below. The Team Admin's one command says when that is needed: it stops, says that the team is owned
+by someone else, and prints `--set-owner` with the team's reference and the principal of the Team Admin's
+machine. If that someone has also changed the secret or put the others out,
 [take the team back](#take-a-team-back).
 
 ## Name another owner

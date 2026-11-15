@@ -25,6 +25,8 @@ Details: [Apply a release](apply-a-release.md).
 1. Plugin versions and migrations are independent by design: an older adapter works on a migrated project, a newer
    one on a project you have not migrated yet, losing only what the migration adds.
 2. `migration list` says where each project stands.
+3. `20261114120000_team_move` is the one a team needs before its Team Admin moves it to a Brigade server with
+   one command.
 
 Details: [Know which migration adds what](migrations.md).
 

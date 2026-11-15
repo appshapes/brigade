@@ -1,10 +1,11 @@
 # Move the team to a server
 
 Your team is in a Supabase project and is going to a Brigade server. You run one command in a checkout of the
-team, and your members run none: each one's next session follows. It works from plugin 0.56.0, on a server of
-0.7.0 or later, and needs the migration `20261114120000_team_move` applied to the Supabase project the team is
-leaving ([Know which migration adds what](../../project-owner/update/migrations.md)). The whole move, with what
-the server's operator and the Project Owner do first, is in
+team. The server's operator runs none and only gives you the server's URL, and your members run none: each one's
+next session follows. It works from plugin 0.56.0, on a server of 0.7.0 or later, and needs the migration
+`20261114120000_team_move` applied to the Supabase project the team is leaving
+([Know which migration adds what](../../project-owner/update/migrations.md)). The whole move, with what the
+server's operator and the Project Owner do first, is in
 [Move a team from Supabase](../../project-owner/server/move-from-supabase.md). A server older than 0.7.0 takes no
 team in by request: [With an older server](#with-an-older-server).
 
@@ -19,9 +20,10 @@ team in by request: [With an older server](#with-an-older-server).
 
 ## 1. Run the one command
 
-In a session, ask it to move the team (`/brigade:move` in Claude Code). It asks you for the values above, one at
-a time, and runs the command. It never asks for the secret itself: it asks for the path of its file. Or run the
-command yourself, in a terminal or with `!` in a session, in the checkout:
+In a session, ask it to move the team (`/brigade:move` in Claude Code and Grok Build, `$brigade:move` in Codex
+CLI, the `move` skill in Muse Code). It asks you for the values above, one at a time, and runs the command. It
+never asks for the secret itself: it asks for the path of its file. Or run the command yourself, in a terminal
+or with `!` in a session, in the checkout:
 
 ```sh
 brigade team move --to <url> --secret-file <path>

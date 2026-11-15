@@ -4,7 +4,9 @@ The mail and Slack gateways let people without a session take part: a person's m
 Brigade message to the session they name, and a session's message to the gateway becomes a mail or a post. On a
 Brigade server they are part of `brigade-server` itself, from 0.2.0: there is nothing more to install, and they
 stay off until you name a configuration file. What people and sessions do is the same as with a Supabase project
-([People on email and Slack](../../team-member/use/people-on-email-and-slack.md)).
+([People on email and Slack](../../team-member/use/people-on-email-and-slack.md)). For a team that moved here
+from a Supabase project, open them here first and then take them out of that project
+([After the move](move-from-supabase.md#after-the-move)).
 
 ## What you need
 

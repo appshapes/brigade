@@ -13,7 +13,7 @@ A genuine Stop offers one setup continuation; its marker and recursion guard pre
 | [`grok/brigade/skills/sessions/SKILL.md`](../../../grok/brigade/skills/sessions/SKILL.md) | sessions |
 | [`grok/brigade/skills/whoami/SKILL.md`](../../../grok/brigade/skills/whoami/SKILL.md) | whoami: print `brigade whoami`, this session's identity, verbatim |
 | [`grok/brigade/skills/join/SKILL.md`](../../../grok/brigade/skills/join/SKILL.md) | join |
-| [`grok/brigade/skills/move/SKILL.md`](../../../grok/brigade/skills/move/SKILL.md) | move: ask the team's administrator for the server's URL and the paths it needs, never a secret's content, then run `brigade team move --to <url> --secret-file <path>` and print what it printed |
+| [`grok/brigade/skills/move/SKILL.md`](../../../grok/brigade/skills/move/SKILL.md) | move: ask the team's administrator for the server's URL and the paths it needs, never a secret's content, then run the one command of a move, `brigade team move --to <url> --secret-file <path>`, and print what it printed; the members run nothing |
 | [`grok/brigade/skills/update/SKILL.md`](../../../grok/brigade/skills/update/SKILL.md) | update |
 | [`grok/brigade/skills/setup/SKILL.md`](../../../grok/brigade/skills/setup/SKILL.md) | setup |
 | [`grok/brigade/skills/email/SKILL.md`](../../../grok/brigade/skills/email/SKILL.md) | email |

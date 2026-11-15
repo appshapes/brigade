@@ -14,9 +14,11 @@ Two minutes of it, with two people's sessions:
 ## Who are you?
 
 - **[Project Owner](docs/project-owner/README.md)** — you run the backend project the teams live in: create it,
-  deploy Brigade into it, keep it alive, update it after a release, add the mail and Slack gateways.
+  deploy Brigade into it, keep it alive, update it after a release, add the mail and Slack gateways; or you run a
+  Brigade server on a machine you keep, which a team moves to from Supabase with one command.
 - **[Team Admin](docs/team-admin/README.md)** — you create a team, hand out its secret, decide what the project's
-  checkouts share, and revoke, rotate and transfer when you must.
+  checkouts share, revoke, rotate and transfer when you must, and move the team from Supabase to a Brigade
+  server with one command.
 - **[Team Member](docs/team-member/README.md)** — your sessions take part: install Brigade in your harness, join,
   message teammates and the people on email or Slack, choose what your sessions receive and share.
 - **[Developer](docs/developer/README.md)** — you work on Brigade itself: set up a clone, pass the gates, change

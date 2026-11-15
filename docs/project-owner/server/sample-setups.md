@@ -12,8 +12,8 @@ brigade-server --data <dir> --listen 127.0.0.1:8750 --create-token-file <file> -
 ```
 
 - Plain HTTP on loopback needs no TLS option, and nothing between Caddy and the server reads a message.
-- Both servers are on the internet, so creating a team needs the token
-  ([Who may create a team](run-the-server.md#who-may-create-a-team)).
+- Both servers are on the internet, so creating a team, and moving one here from a Supabase project, needs the
+  token ([Who may create a team](run-the-server.md#who-may-create-a-team)).
 - `--gateway-config` is there once the gateways are opened ([Open the gateways](gateways.md)).
 - A copy is taken each night with the server stopped, leaves the machine, and something outside the machine says
   when it did not ([Keep the server](keep-the-server.md)).

@@ -28,8 +28,11 @@
   authority signed the server's certificate, the file also has `"certificate": "sha256:…"`, that certificate's
   SHA-256 fingerprint in lowercase hex, and a member's sessions then trust that certificate and no other. `team
   create --adapter rest` writes all of it. A file that names another certificate is a changed file: each member
-  reviews the change with `team join`, which needs no secret for it. A plugin before the release that carries
-  this reads such a file as broken and connects to nothing.
+  reviews the change with `team join`, which needs no secret for it. A plugin before 0.52.0 reads such a file as
+  broken and connects to nothing.
+- **A team that moves from a Supabase project to a Brigade server** has these members rewritten by the one
+  command of the move, `brigade team move --to <url> --secret-file <path>`, with everything else left as it was:
+  never change them by hand to move a team ([Move the team to a server](../members/move-the-team.md)).
 - **A member this version does not define** is ignored and named in one line at session start.
 - **Size and versions.** A plugin of 0.10.0 or earlier reads the file against a closed schema and refuses the whole
   file for an unknown member (`team_file_unknown_field`) or a file over 4096 bytes (`team_file_too_large`); its
@@ -38,6 +41,8 @@
 - **A changed file** reaches a session at its next start or `/clear`. A pull that changes the file to point at a
   different team makes the next session print one line and attach to nothing until the member runs `team join`
   and reviews the change.
-- **What the member cannot do.** It cannot point a session at another backend without the member's review, cannot
-  widen what a session trusts, and its timer bounds are fixed in the plugin; each session names non-default values
-  in one line at start.
+- **What the file cannot do.** By itself it cannot point a session at another backend without the member's
+  review: a session follows a changed file there only when the team's administrator recorded that move on the
+  backend the member joined, and the member can turn that off
+  ([When your team moves](../../team-member/join/follow-a-move.md)). It cannot widen what a session trusts, and
+  its timer bounds are fixed in the plugin; each session names non-default values in one line at start.

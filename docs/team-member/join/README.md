@@ -12,7 +12,7 @@ secret your administrator sent you, saved outside the repository, lets you in. Y
 | join from a Codex CLI session | [Join in Codex CLI](#join-in-codex-cli) |
 | join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
 | choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
-| know what happens when your team moves to another backend | [When your team moves](#when-your-team-moves) |
+| know what to do when your team moves from Supabase to a Brigade server: nothing | [When your team moves](#when-your-team-moves) |
 | use Grok Build join status | [Grok Build](#grok-build) |
 
 ## Join in Claude Code
@@ -61,11 +61,13 @@ Details: [Choose your label](your-label.md).
 
 ## When your team moves
 
-1. Do nothing. When the team's administrator moved it to a Brigade server and recorded the move, your next
-   session follows and says so in one line: where the team went and who vouched for it.
-2. A session that was already running follows at its next prompts and says the same line; one that holds
-   messages for your review stays until you release them.
-3. To decide each move yourself: set the option `follow_team_move` to `off`, and join a moved team with
+1. Run nothing: no join and no command. Your administrator moves the team to a Brigade server with one command
+   of theirs and pushes the changed `.brigade.json`; you pull as on any day.
+2. Your next session in the checkout follows, on plugin 0.55.0 or later, and says so in one line: where the team
+   went and who vouched for it.
+3. A session that was already running follows at its next prompts, on plugin 0.56.0 or later, and says the same
+   line; one that holds messages for your review stays until you release them.
+4. To decide each move yourself: set the option `follow_team_move` to `off`, and join a moved team with
    `/brigade:join ~/brigade-<team>.secret`.
 
 Details: [When your team moves](follow-a-move.md).

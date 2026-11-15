@@ -3,8 +3,9 @@
 You run the backend that holds your organisation's teams and their messages. It is one of two: a single-purpose
 Supabase project, which you create, deploy Brigade into with one command, keep awake on a free plan and update
 with a release's migrations, and which can host the gateways that let people on email or Slack take part; or a
-Brigade server, one program on a machine you keep, your own or a cloud instance. Anyone who can read the
-backend's storage can read every message, so it holds nothing else.
+Brigade server, one program on a machine you keep, your own or a cloud instance. A team moves from the first to
+the second with one command, which its Team Admin runs. Anyone who can read the backend's storage can read every
+message, so it holds nothing else.
 
 ## If you want to
 
@@ -14,8 +15,9 @@ backend's storage can read every message, so it holds nothing else.
 | apply what a release changed in the backend, know which migration adds what | [Update](update/README.md) |
 | install the mail or Slack gateway, choose who may write, review the project's settings | [Configure](configure/README.md) |
 | stop the keep-alive, remove a gateway | [Remove](remove/README.md) |
-| delete the project | [Delete](delete/README.md) |
-| run a Brigade server on a machine you keep, with no Supabase project, and move a team to it from one | [Server](server/README.md) |
+| delete the project, once the teams that are to go on have moved to a Brigade server | [Delete](delete/README.md) |
+| run a Brigade server on a machine you keep, with no Supabase project | [Server](server/README.md) |
+| have a team move from your Supabase project to a Brigade server: one command, which its Team Admin runs | [Server](server/README.md#move-a-team-from-supabase) |
 
 ## Install
 
@@ -45,4 +47,6 @@ do first.
 ## Server
 
 A Brigade server is one program on an always-on machine you keep: install it, start it with a data directory,
-and hand the Team Admin its URL and its certificate's fingerprint. [Server](server/README.md) has each step.
+and hand the Team Admin its URL and its certificate's fingerprint. A team in a Supabase project then moves to it
+with one command of its Team Admin's, `brigade team move --to <url> --secret-file <path>`, and you run nothing;
+[Server](server/README.md) has each step.

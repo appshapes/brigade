@@ -10,6 +10,7 @@ then on your sessions message teammates' sessions and receive theirs. You ask yo
 | --- | --- |
 | install Brigade in Claude Code, Muse Code or Codex CLI, or use it from a terminal | [Install](install/README.md) |
 | join a team, a second checkout, or choose your label | [Join](join/README.md) |
+| know what to do when your team moves to a Brigade server: nothing | [Join](join/README.md#when-your-team-moves) |
 | update Brigade, or see who is behind | [Update](update/README.md) |
 | set an option: the frame text, holding messages, sounds, file sync, permissions | [Configure](configure/README.md) |
 | see the team, message a session or a person, sync folders, record notes and decisions, subscribe to the digest, check delivery, quiet a session | [Use](use/README.md) |
@@ -24,7 +25,8 @@ Claude Code, Muse Code, Codex CLI and your own terminal.
 ## Join
 
 The committed `.brigade.json` names the team and the secret file your administrator sent lets you in, once per
-checkout. [Join](join/README.md) also covers a second checkout and the label teammates see.
+checkout. [Join](join/README.md) also covers a second checkout, the label teammates see, and a team that moves to
+a Brigade server, where you run nothing: your sessions follow.
 
 ## Update
 
