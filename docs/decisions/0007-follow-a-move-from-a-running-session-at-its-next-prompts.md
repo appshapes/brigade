@@ -152,8 +152,9 @@ start follows on.
   points 5 and 6); a registration answered in the last second of the budget (`move_budget_test.go`; point 3);
   the retry of an unattached session saying nothing of the follow it started (point 7). And two follows of one
   team in two checkouts at the same instant each joined, because the membership was read before the lock:
-  `teammove.Follow` now reads it again under the lock (`TestTwoFollowsOfOneTeamAtOnceJoinOnce`). Twenty-three
-  one-line changes to these rules were each caught by a test.
+  `teammove.Follow` now reads it again under the lock (`TestTwoFollowsOfOneTeamAtOnceJoinOnce`). Twenty-four
+  one-line changes to these rules were each caught by a test, two of them also through the built binary and
+  the built server.
 - The same day, 35 one-line changes to the rules above, in the hook, the follow and the join's last line, were
   each caught by a test. One of them, the map of another backend treated as a session that continues, was also
   run through the built binary: the test failed, and the hook's log showed the server answering `not_found` to
