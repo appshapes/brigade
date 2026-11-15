@@ -161,8 +161,11 @@ type serverMove struct {
 	teamName string
 	// older lists the team's sessions that will not follow, and replaces is
 	// a record the old backend already holds of a move somewhere else.
+	// recorded says that it holds a record of this very move, which a run
+	// before this one made.
 	older    []olderSession
 	replaces *protocol.TeamMoveResult
+	recorded bool
 }
 
 // moveTo runs the move.
@@ -190,7 +193,13 @@ func (inv Invocation) moveTo(flags moveFlags) error {
 	}
 	recorded, err := inv.recordMoveTo(m, ticketFile)
 	if err != nil {
-		return m.stopped(err, "the team is taken in on "+m.toHost()+" and its move is open, and "+m.fromHost()+" did not record it")
+		where := "the team is taken in on " + m.toHost() + " and its move is open, and " + m.fromHost() + " did not record it"
+		if m.recorded && opened.Replaced {
+			// The record a run before this one made is still there, with
+			// the ticket this run's open has just replaced on the server.
+			where += "; the record it holds from a run before this one hands out a ticket that this run replaced, so no member follows until the record is made again"
+		}
+		return m.stopped(err, where)
 	}
 	if err := inv.writeMove(m, taken); err != nil {
 		return m.stopped(err, "the move is recorded on "+m.fromHost()+", and this checkout was not written")
@@ -551,6 +560,8 @@ func (inv Invocation) checkOldBackend(m *serverMove) error {
 		}
 	case record.Adapter != m.dest.Adapter || record.URL != m.dest.URL || record.Certificate != m.dest.Certificate:
 		m.replaces = record
+	default:
+		m.recorded = true
 	}
 	list, err := call(func(ctx context.Context) (*adapterclient.ListResult, error) {
 		return m.from.client.ListSessions(ctx, false)
