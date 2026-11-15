@@ -127,16 +127,11 @@ func moveWaitsLine(n int) string {
 	return "Brigade: this session stays on the backend it is on for now: " + what + " held for it there, and a held message does not move with a session. Run `brigade inbox` in your own terminal to read " + it + ", then `brigade inbox release` to deliver " + it + "; this session moves at its next prompt after that."
 }
 
-// rejoinedLine is the line of a session that moves because its member
-// joined the team's new backend in this checkout with a command of their
-// own: nothing was followed, so the follow's line would not be true. The
-// file's values are consented to by then, and sanitised all the same.
-func rejoinedLine(tf *teamfile.File) string {
-	return rejoinedLineOf(thisCheckout, tf)
-}
-
-// rejoinedLineOf is rejoinedLine with the words that name the checkout
-// (followedLineOf).
+// rejoinedLineOf is the line of a session that moves because its member
+// joined the team's new backend in the session's checkout with a command of
+// their own: nothing was followed, so the follow's line would not be true.
+// The file's values are consented to by then, and sanitised all the same.
+// checkout is how the line names the checkout (followedLineOf).
 func rejoinedLineOf(checkout string, tf *teamfile.File) string {
 	where := attr(teammove.Host(tf.URL))
 	if tf.Certificate != "" {

@@ -1019,7 +1019,7 @@ func TestASessionMovesWithItsMembersOwnJoin(t *testing.T) {
 	}
 	calls := len(asked(seam))
 	got := f.prompted(env...)
-	want := []string{rejoinedLine(tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+	want := []string{rejoinedLineOf(thisCheckout, tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
 	if !slices.Equal(got, want) {
 		t.Fatalf("lines = %q\nwant %q", got, want)
 	}
@@ -1056,7 +1056,7 @@ func TestTheFollowsLineIsOfAMoveFromTheBackendTheSessionIsOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := f.prompted()
-	want := []string{rejoinedLine(tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+	want := []string{rejoinedLineOf(thisCheckout, tf), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
 	if !slices.Equal(got, want) || strings.Contains(strings.Join(got, "\n"), "between.example.test") {
 		t.Fatalf("lines = %q\nwant %q", got, want)
 	}
