@@ -812,6 +812,45 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 	}
 }
 
+// TestAStartThatCannotRefreshAKeptMapLeavesTheShellsRoad: on Muse Code a
+// start that keeps a session files the pointer of the conversation that
+// begins and retires the one before, in that order and only once the map
+// is written. Where the map cannot be written the session is where it was,
+// under the map it had, which names the conversation before: the pointer
+// of that conversation is the one road the shell still has to the session,
+// and it stays. The start says the session's line as it was.
+func TestAStartThatCannotRefreshAKeptMapLeavesTheShellsRoad(t *testing.T) {
+	t.Parallel()
+	f := movingFixture(t, config.HostMuse)
+	f.noAdapterOption = true
+	attachedMember(t, f, nil, nil)
+	first, name := f.nativeID, f.mustMap().SessionName
+	bare := filepath.Join(t.TempDir(), "no-checkout")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mapPath, err := f.store().ByPIDPath(f.key())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(mapPath), 0o500); err != nil { //nolint:gosec // G302: a directory, made unwritable on purpose
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(mapPath), 0o700) }) //nolint:gosec // G302: the directory's own mode again
+	f.nativeID, f.cwd = otherConversation, bare
+	exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("clear"))
+	want := []string{startLine(name, "brigade-sess-1", teamName, "accept"), armLine(f.pluginBin)}
+	if got := lines(out); exit != 0 || !slices.Equal(got, want) {
+		t.Fatalf("exit %d, lines %q\nwant %q\n%s", exit, got, want, errOut)
+	}
+	if m := f.mustMap(); m.ClaudeSessionID != first {
+		t.Fatalf("the map names the conversation %q", m.ClaudeSessionID)
+	}
+	if p, err := f.store().ReadByHost(string(config.HostMuse), first); err != nil || p.BrigadeSessionID != "brigade-sess-1" {
+		t.Fatalf("the pointer of the conversation the map still names: %+v, %v", p, err)
+	}
+}
+
 // TestAStartKeepsTheShellsRoadToAMuseSessionThatStays: on Muse Code a
 // command in the model's shell finds its session through a pointer filed
 // under the native session id, and a start whose document names another id

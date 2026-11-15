@@ -925,14 +925,15 @@ func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *s
 	now := r.deps.Now()
 	store := sessionmap.Store{StateDir: f.stateDir}
 	id := r.identity(f, in)
-	r.retirePointer(f, store, existing, in)
 	kept := keptMap(in, existing, id.name, now)
 	r.tellKept(ctx, f, in, id, existing)
 	if err := store.WriteByPID(kept); err != nil {
-		// The session is where it was, under the map it had.
+		// The session is where it was, under the map it had, and the road
+		// its shell had to it stays.
 		r.log.Warn("the map of the session this start keeps was not refreshed", log.Err(err))
 		kept = existing
 	} else {
+		r.retirePointer(f, store, existing, in)
 		r.writeByNative(store, in.SessionID, kept, now)
 		r.writeByHost(f, store, in.SessionID, kept, now)
 		if opts, oerr := r.options(); oerr == nil {
