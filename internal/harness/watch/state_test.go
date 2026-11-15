@@ -404,6 +404,14 @@ func TestStateFansOut(t *testing.T) {
 				if n == productions {
 					t.Fatalf("the first subscriber was not reached in %d production(s): %v", n, fx.logLines())
 				}
+				// Held back, the one whose send was refused as the one with
+				// no road: the checks that run while the clock stands make no
+				// further attempt. Without this the clock moved before any
+				// check ran, and a refused send tried again at once passed.
+				checks.pass(t)
+				if got := produced(); got != n {
+					t.Fatalf("produced %d times while the clock stood after production %d; a subscriber whose send was refused was tried again before its hold-back had passed", got, n)
+				}
 				clock.Advance(100 * deps.StateCheckInterval)
 			}
 			if n := produced(); n != productions {
