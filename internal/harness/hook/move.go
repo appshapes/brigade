@@ -206,10 +206,18 @@ func (r *run) tellFollowed(f facts, opts config.Options, tf *teamfile.File, cano
 	if !marked || pin.MovedFrom == "" {
 		return
 	}
-	r.say(followedLine(tf, &teamstore.Pin{URL: pin.MovedFrom}, mark.Joined, r.commandName(f)))
-	r.saidFollowed = true
+	r.sayFollowed(followedLine(tf, &teamstore.Pin{URL: pin.MovedFrom}, mark.Joined, r.commandName(f)), canon)
 	r.dropFollowedMark(f, opts, canon)
 	r.forgetTold(f)
+}
+
+// sayFollowed says line, the line of a follow of the checkout canon, and
+// keeps it: the start may yet keep a running session and drop everything
+// its resolution said (keepUnresolved), and this line is said all the same.
+func (r *run) sayFollowed(line, canon string) {
+	r.say(line)
+	r.saidFollowed = true
+	r.followLine, r.followCheckout = line, canon
 }
 
 // conversation is the name a conversation has in the team-moved stamp: its
@@ -1038,11 +1046,12 @@ func stillMember(m *sessionmap.ByPID) bool {
 // session is on is told, and the line is the context line of the session
 // where it is. Nothing of what was resolved is in the map, because nothing
 // was. What the resolution said is dropped, being said of a session that
-// is not connected or not joined, but for two things the member has to hear
-// whatever session they are in: that the team file there was refused
-// (keptFileLine), and that their own settings were, so that what they set
-// is not in force and the session goes on with what it had
-// (keptSettingLine).
+// is not connected or not joined, but for three things the member has to
+// hear whatever session they are in: that the team file there was refused
+// (keptFileLine), that their own settings were, so that what they set is
+// not in force and the session goes on with what it had (keptSettingLine),
+// and that the checkout followed its team, which the start did or found
+// done before it failed (sayFollowed).
 func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *sessionmap.ByPID) {
 	now := r.deps.Now()
 	store := sessionmap.Store{StateDir: f.stateDir}
@@ -1060,6 +1069,18 @@ func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *s
 		r.writeByHost(f, store, in.SessionID, kept, now)
 		if opts, oerr := r.options(); oerr == nil {
 			r.stateStart(ctx, f, opts, kept, now)
+		}
+	}
+	// The line of a follow this start made, or found made, was held with
+	// what the resolution said, and its mark is gone: it is said here, before
+	// the context line as a start that follows says it. When the checkout
+	// that followed is the session's own, the conversation has now heard how
+	// it arrived, and the prompt that moves the session does not say it
+	// again, as one that found the machine joined already.
+	if r.followLine != "" {
+		r.say(r.followLine)
+		if existing.Checkout == "" || existing.Checkout == r.followCheckout {
+			r.note(f, in, toldFollowed)
 		}
 	}
 	r.sayContext(f, kept)

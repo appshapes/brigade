@@ -230,3 +230,111 @@ func TestAStartThatKeepsASessionSaysWhatHoldsForItWhateverWasResolved(t *testing
 		t.Fatalf("the user settings file after the start: %q, %v", data, err)
 	}
 }
+
+// TestAFollowsLineIsSaidByAStartThatThenKeepsTheSession: a start over a
+// running session holds what its resolution says until it is known whether
+// the session is kept, and a kept start drops it. One line among them is
+// not the resolution's to drop: the line of a follow. A `/clear` in a
+// checkout whose team moved follows in its own run, joins the new backend
+// with the move's ticket and writes the pin; or it finds the pin a child
+// wrote, with the mark the child left, and takes the mark away. When the
+// member's settings are then refused (a frame_file that is not there) the
+// session is kept, and the follow happened all the same: the start says its
+// line before the context line, as a start that follows does, with how the
+// machine joined. The conversation has then heard it, and the prompt that
+// moves the session does not say that the machine "had joined it there
+// already", which is all that is left to say once the mark is gone.
+func TestAFollowsLineIsSaidByAStartThatThenKeepsTheSession(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		// asked is true when a prompt started the follow as a child before
+		// the start: the start then finds the pin written and the mark left.
+		asked bool
+	}{
+		{"the start follows in its own run", false},
+		{"the start finds the mark a child left", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMemberFixture(t)
+			f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+			seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+			before := f.checkoutPin()
+			f.moveTeamFile("team-1")
+			tf := f.movedFile()
+			mark := config.MoveFollowedMark(f.stateDir, f.configDir, f.canon())
+			if tc.asked {
+				if got := f.prompted(); !slices.Equal(got, []string{movedLine}) || !exists(mark) {
+					t.Fatalf("the prompt that started the follow: %q; a mark is left: %v", got, exists(mark))
+				}
+			}
+			missing := config.OptionFrameFile + "=" + filepath.Join(t.TempDir(), "no-such-clause.txt")
+			f.nativeID = otherConversation
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"), missing)
+			want := []string{
+				followedLine(tf, &before, true, "brigade"),
+				startLine("payments-api", "brigade-sess-1", teamName, "accept"),
+				"Brigade: this session stays connected as it was. The `frame_file` option cannot be used (frame_file_unreadable), so the frame your options name now is not in force here: team messages still reach this session under the frame it had. Fix the `frame` or `frame_file` option, then `/clear` or start a new session.",
+			}
+			if exit != 0 || !slices.Equal(lines(out), want) {
+				t.Fatalf("exit %d, lines\n%q\nwant\n%q\n%s", exit, lines(out), want, errOut)
+			}
+			// The checkout followed, the machine joined once, the session is
+			// where it was, and no mark is left to be said a second time.
+			if pin := f.checkoutPin(); !pin.Matches(tf) || len(seam.callsFor("team join")) != 1 || f.mustMap().BrigadeSessionID != "brigade-sess-1" || exists(mark) {
+				t.Fatalf("after the start: pin %+v, %d joins, session %q, a mark is left: %v", pin, len(seam.callsFor("team join")), f.mustMap().BrigadeSessionID, exists(mark))
+			}
+			// The setting is fixed: the next prompt moves the session, and has
+			// nothing to say of how the checkout arrived.
+			got := f.prompted()
+			if !slices.Equal(got, []string{startLine("payments-api", "brigade-sess-2", teamName, "accept")}) {
+				t.Fatalf("the prompt after the start:\n%q", got)
+			}
+			if strings.Contains(strings.Join(got, "\n"), "had joined it there already") {
+				t.Fatalf("the prompt said that the machine had joined already: %q", got)
+			}
+		})
+	}
+}
+
+// TestAFollowOfAnotherCheckoutIsSaidAndOwesTheSessionsOwnNothing: the
+// follow a kept start says can be of another checkout than the session's
+// own: a `/clear` while the model works in a second checkout of the team,
+// whose team file names the server, follows for that checkout. The line is
+// that checkout's and is said. It is not the word of how the session's own
+// checkout arrived: when that one follows later, the prompt that moves the
+// session still says so.
+func TestAFollowOfAnotherCheckoutIsSaidAndOwesTheSessionsOwnNothing(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
+	seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
+	home, before := f.cwd, f.checkoutPin()
+	other, _ := f.addCheckout("moved-first", serverFile("team-1"), pinDoc(before))
+	otherFile, err := teamfile.Parse(filepath.Join(other, teamfile.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing := config.OptionFrameFile + "=" + filepath.Join(t.TempDir(), "no-such-clause.txt")
+	f.nativeID, f.cwd = otherConversation, other
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"), missing)
+	f.cwd = home
+	got := lines(out)
+	if exit != 0 || len(got) != 3 || got[0] != followedLine(otherFile, &before, true, "brigade") || got[1] != startLine("payments-api", "brigade-sess-1", teamName, "accept") {
+		t.Fatalf("exit %d, lines\n%q\n%s", exit, got, errOut)
+	}
+	if n := len(seam.callsFor("team join")); n != 1 || f.mustMap().BrigadeSessionID != "brigade-sess-1" {
+		t.Fatalf("after the start: %d joins, session %q", n, f.mustMap().BrigadeSessionID)
+	}
+	// The session's own checkout follows: the machine is a member by now.
+	f.moveTeamFile("team-1")
+	tf := f.movedFile()
+	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+		t.Fatalf("the first prompt after its own checkout's file changed: %q", got)
+	}
+	want := []string{followedLine(tf, &before, false, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+	if got := f.prompted(); !slices.Equal(got, want) {
+		t.Fatalf("the prompt that moved the session:\n%q\nwant\n%q", got, want)
+	}
+}

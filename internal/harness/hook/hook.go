@@ -523,6 +523,16 @@ type run struct {
 	// then keeps the session where it is (stay) records the line as heard
 	// by this conversation and does not say it twice.
 	saidFollowed bool
+	// followLine is that line as it was said, and followCheckout the
+	// checkout that followed. A start over a running session holds what
+	// its resolution says and drops it when it keeps the session
+	// (keepUnresolved); the follow's line is not the resolution's to drop.
+	// The follow was made, or its mark was taken away, whatever the start
+	// does next, and nothing but this line tells the member that the
+	// machine joined the new backend with the move's ticket: the start
+	// that keeps the session says it from here.
+	followLine     string
+	followCheckout string
 	// movedSaid is true once this prompt has said the lines of a move, its
 	// own or one whose hook was stopped (sayMoved): the move's notice is
 	// removed when the hook ends, and not before.

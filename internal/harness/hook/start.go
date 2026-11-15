@@ -186,7 +186,9 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// known whether a team was resolved, and dropped when the session is
 	// kept (keepUnresolved). The same when what the resolution refused was
 	// the member's own settings (an option, the frame text, the adapter): the
-	// session is kept with what it had, and says so (settingRefused).
+	// session is kept with what it had, and says so (settingRefused). The
+	// line of a follow is held with the rest and is not dropped: the start
+	// that keeps the session says it (sayFollowed).
 	running := r.runningSession(f)
 	var said []string
 	if running != nil {
@@ -1276,8 +1278,7 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 	if mark, marked := readFollowedMark(config.MoveFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)); marked && mark.Joined {
 		joined = true
 	}
-	r.say(followedLine(tf, pin, joined, r.commandName(f)))
-	r.saidFollowed = true
+	r.sayFollowed(followedLine(tf, pin, joined, r.commandName(f)), canon)
 	// This start said the line: nothing is left for a later hook to say.
 	r.dropFollowedMark(f, opts, canon)
 	return true
