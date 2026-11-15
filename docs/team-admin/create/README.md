@@ -30,6 +30,8 @@ Details: [Create the team](create-the-team.md).
 2. Add `--certificate sha256:…` when the Project Owner gave you a fingerprint, and `--create-token-file <path>`
    when they gave you a creation token.
 3. `git add .brigade.json && git commit && git push`. Members need the plugin at 0.52.0 or later.
+4. A team that exists in a Supabase project is not created again: one command moves it
+   ([Move the team to a server](../members/README.md#move-the-team-to-a-server)).
 
 Details: [Create the team on a server](create-on-a-server.md).
 

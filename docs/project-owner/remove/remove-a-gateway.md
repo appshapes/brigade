@@ -2,7 +2,8 @@
 
 There is no `make gateway-remove`. A gateway is a team member, functions in the project, a `pg_cron` job, function
 secrets, a line in `.brigade.json` and, for mail, a webhook at the provider. Take them away in this order; the
-dashboard or the Supabase CLI does what the installers did.
+dashboard or the Supabase CLI does what the installers did. For a team that moved to a Brigade server only three
+of the steps apply: [After a team moved to a Brigade server](#after-a-team-moved-to-a-brigade-server).
 
 1. **Revoke the member** (the Team Admin, in a terminal): `brigade team members --json`, copy the gateway's
    `principal_ref` (its label is `mail gateway` or `slack gateway`), then `brigade team revoke-member --principal
@@ -22,3 +23,15 @@ dashboard or the Supabase CLI does what the installers did.
 
 Several teams share the connector, the Slack app, the secrets and the tick: remove a team's gateway member and its
 `gateways` row, and leave the functions, the job, the secrets and the Slack app while another team still uses them.
+
+## After a team moved to a Brigade server
+
+The team's gateways go on, on the server ([Open the gateways](../server/gateways.md)), so only what is inside the
+project is taken away, once they answer there: steps 2, 3 and 6, and of those only what no other team of the
+project still uses, as above.
+
+- **Not step 1.** In a checkout that followed the team, a team command goes to the server, and would revoke the
+  gateway there. The gateway's member in this project goes when the Team Admin ends the team on the old backend
+  ([Undo it, and end it](../../team-admin/members/move-the-team.md#undo-it-and-end-it)).
+- **Not step 4.** The Slack app and the provider's webhook were pointed at the server and serve the team there.
+- **Not step 5.** The `gateway` member stays in `.brigade.json`, so sessions go on announcing the gateways.

@@ -5,6 +5,10 @@ a machine of your organisation's own, in place of a Supabase project. Everything
 same. The server is experimental. A team on one has the mail and Slack gateways when the Project Owner has opened
 them ([Open the gateways](../../project-owner/server/gateways.md)), from 0.2.0 of the server.
 
+This page creates a new team. A team that exists in a Supabase project is not created again: it moves, with one
+command, keeps its join secret, and its members follow with no command of theirs
+([Move the team to a server](../members/move-the-team.md)).
+
 ## What you need
 
 | Value | Looks like | Where to get it | Who may have it |

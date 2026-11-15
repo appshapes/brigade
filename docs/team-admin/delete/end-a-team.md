@@ -2,6 +2,11 @@
 
 There is no `brigade team delete`. A team row stays in the backend's `brigade.teams`; what you can end is its use.
 
+A team that leaves a Supabase project for a Brigade server is not ended: it moves, with one command, and its
+members follow ([Move the team to a server](../members/move-the-team.md)). What the move leaves on the old
+backend is ended by the steps below once no checkout is left to follow, with the three differences
+[Undo it, and end it](../members/move-the-team.md#undo-it-and-end-it) names.
+
 1. **Rotate the secret away.** `brigade team rotate-secret --secret-file ~/brigade-<team>.secret`, then delete
    the file. Nobody holds a secret that joins the team.
 2. **Evict every other member.** `brigade team revoke-member --max-version <the result's secret_version minus

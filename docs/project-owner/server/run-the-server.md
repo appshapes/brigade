@@ -53,6 +53,12 @@ To require a token, put one line of your choosing in a file only the server's us
 with `--create-token-file <file>`. Creating a team then needs that token, and the Team Admin gives `team create`
 the path of a file that holds it ([Hand over the values](hand-over-the-values.md)).
 
+From server 0.7.0 the same rule says who may move a team here from a Supabase project. The Team Admin's one
+command, `brigade team move --to <url> --secret-file <path>`, has the running server take the team in: with no
+token, for anyone who can reach the server and holds a team's join secret; with one, for a Team Admin who also
+gives the command `--create-token-file <path>`
+([Take in a team that exists](take-in-a-team.md#by-request-with-the-server-running)).
+
 ## What one member may do in an hour
 
 From server 0.6.0 one member's installation, which the server knows by its credential, is held to the numbers a

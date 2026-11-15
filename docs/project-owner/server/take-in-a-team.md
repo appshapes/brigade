@@ -1,44 +1,21 @@
 # Take in a team that exists
 
-A team that lives in a Supabase project can move to a Brigade server and keep its join secret, so nobody is sent a
-new one (from 0.3.0 of the server). The team keeps its reference and its name. Its members, sessions and waiting
-messages do not come over: each member joins the server once, with the secret file they already have.
+From server 0.7.0 you take no team in yourself. The Team Admin of a team in a Supabase project runs one command,
+`brigade team move --to <url> --secret-file <path>`, and the running server takes the team in by request, with
+the Team Admin as its owner: you run nothing, and the server is not stopped
+([Move a team from Supabase](move-from-supabase.md)). Your own command, `--import-team`, stays. It is the way on
+a server older than 0.7.0, from 0.3.0, and for a team that is to be on the server before its administrator acts:
+[Take the team in yourself](#take-the-team-in-yourself).
 
-There are two ways to take a team in. You run a command on the server's data directory, with the server stopped:
-the first section below. Or, from server 0.7.0, the Team Admin's machine asks the running server to do it, and
-you run nothing: [By request, with the server running](#by-request-with-the-server-running).
-
-## What you need
-
-| | |
-| --- | --- |
-| The team's join secret file | The file `team create` wrote when the team was made. The Team Admin has it. |
-| The team's name | As `.brigade.json` has it in `team_name`. |
-| A moment with the server stopped | For your own command: one process at a time owns the server's log, so the team is taken in between a stop and a start. A take-in by request needs none. |
-
-## Take the team in
-
-```sh
-sudo systemctl stop brigade-server
-sudo -u brigade brigade-server --data /var/lib/brigade-server --import-team <name> --join-secret-file <file>
-sudo systemctl start brigade-server
-```
-
-- The command writes one record: the team, with the reference that is inside the secret, the name you gave and the
-  hash of the secret. It says `took in team "<name>" (<reference>)` and ends.
-- The secret is read from the file and is never an argument. Nothing the command writes repeats it.
-- Run again with the same secret, it changes nothing and says the team is already here. With another secret for
-  the same team it refuses.
-- It is a command for whoever can run the server on its data directory, and a creation token has no part in it.
-- The team has no owner until its first member joins ([Point the team at the server](#point-the-team-at-the-server)).
+Either way the team keeps its join secret, so nobody is sent a new one, and its reference and its name. Its
+members, sessions and waiting messages do not come over
+([What comes over, and what does not](#what-comes-over-and-what-does-not)).
 
 ## By request, with the server running
 
-From server 0.7.0 a running server takes a team in when it is asked to, by the request `/v1/team/take-in` of
-[the backend's contract](../../backend-rest-v1.md) (section 3b). The Team Admin's machine makes it through the
-bundled `rest` adapter (`team take-in`), with the team's join secret and its name. The server is not stopped, and
-you run nothing. The Team Admin's command for it is `brigade team move --to <url> --secret-file <path>`, which
-takes the team in, opens its move and records it
+The request is `/v1/team/take-in` of [the backend's contract](../../backend-rest-v1.md) (section 3b). The Team
+Admin's machine makes it through the bundled `rest` adapter (`team take-in`), with the team's join secret and its
+name. It is the first step of `brigade team move --to`, which then opens the team's move and records it
 ([Move the team to a server](../../team-admin/members/move-the-team.md)).
 
 - **Whoever takes the team in owns it**, from that request on: the server cannot check who administered the team
@@ -76,12 +53,34 @@ takes the team in, opens its move and records it
   secret of their own, and your team's take-in is then refused. A creation token closes that. No command removes
   such a team yet ([Security, section 20](../../security.md#20-a-team-on-a-brigade-server)).
 
-Your own command stays, and is the one to use for a team that is to be on the server before its administrator
-acts, with no owner until its first member joins.
+## Take the team in yourself
+
+Your own command runs on the server's data directory, with the server stopped.
+
+| | |
+| --- | --- |
+| The team's join secret file | The file `team create` wrote when the team was made. The Team Admin has it. |
+| The team's name | As `.brigade.json` has it in `team_name`. |
+| A moment with the server stopped | One process at a time owns the server's log, so the team is taken in between a stop and a start. |
+
+```sh
+sudo systemctl stop brigade-server
+sudo -u brigade brigade-server --data /var/lib/brigade-server --import-team <name> --join-secret-file <file>
+sudo systemctl start brigade-server
+```
+
+- The command writes one record: the team, with the reference that is inside the secret, the name you gave and the
+  hash of the secret. It says `took in team "<name>" (<reference>)` and ends.
+- The secret is read from the file and is never an argument. Nothing the command writes repeats it.
+- Run again with the same secret, it changes nothing and says the team is already here. With another secret for
+  the same team it refuses.
+- It is a command for whoever can run the server on its data directory, and a creation token has no part in it.
+- The team has no owner until its first member joins ([Point the team at the server](#point-the-team-at-the-server)).
 
 ## Point the team at the server
 
-In each repository of the team, change three members of `.brigade.json` and leave the rest as it is:
+The Team Admin's one command rewrites `.brigade.json` itself. For a team you took in yourself the file is changed
+by hand. In each repository of the team, change three members of `.brigade.json` and leave the rest as it is:
 
 ```diff
  {
@@ -104,12 +103,14 @@ names.
 The Team Admin joins before the file is pushed: change it in one checkout, run `/brigade:join <path>` there with
 the secret file, then commit and push. The first member to join the team on the server becomes its owner, the one
 who may rotate its secret, revoke a member and transfer it (from 0.4.0 of the server;
-[Name a team's owner](name-the-owner.md)). A team that the Team Admin took in by request is theirs already.
+[Name a team's owner](name-the-owner.md)).
 
 ## What each member does
 
-From server 0.5.0 and plugin 0.55.0 a member can do nothing at all: you open a move, the Team Admin records it,
-and each member's next session follows ([Let a team's members follow it](open-a-move.md)). Without a move, or for
+With a move, nothing: each member's next session follows, from plugin 0.55.0, and a session that is running
+follows at its next prompts, from 0.56.0 ([When your team moves](../../team-member/join/follow-a-move.md)). The
+Team Admin's one command opens the move and records it. After your own `--import-team`, from server 0.5.0, you
+open it and the Team Admin records it ([Let a team's members follow it](open-a-move.md)). Without a move, or for
 a member whose session does not follow:
 
 1. Update the plugin to 0.53.1 or later, and pull. (0.52.0 reads a server's team file; 0.53.1 also moves the

@@ -22,5 +22,7 @@ Details: [Stop the keep-alive](stop-the-keep-alive.md).
 
 1. The Team Admin revokes the gateway's member; you unschedule its cron job and delete its functions.
 2. Remove the `gateway` member from `.brigade.json` and the provider's webhook or the Slack app.
+3. For a team that moved to a Brigade server, the gateway goes on there: unschedule and delete only, and leave
+   the member, the `gateway` member of `.brigade.json`, the webhook and the Slack app.
 
 Details: [Remove a gateway](remove-a-gateway.md).

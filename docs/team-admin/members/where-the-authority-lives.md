@@ -19,10 +19,10 @@ the server can name a new owner.
   to name you its owner ([Name a team's owner](../../project-owner/server/name-the-owner.md)). Your credential
   is gone with your machine all the same; what the server's operator restores is the role, to the member you
   are after joining again.
-- **A team that moved to a Brigade server** is owned by whoever took it in there by request, which is what
-  `brigade team move --to` does for you ([Move the team to a server](move-the-team.md)). A team its operator took
-  in is owned by the first member who joined it there, which is why the Team Admin joins first
-  ([Take in a team that exists](../../project-owner/server/take-in-a-team.md)).
+- **A team that moved to a Brigade server** is owned by whoever took it in there by request, which is what the
+  one command of a move, `brigade team move --to`, does for you ([Move the team to a server](move-the-team.md)).
+  A team its operator took in, on a server older than 0.7.0, is owned by the first member who joined it there,
+  which is why you join first ([With an older server](move-the-team.md#with-an-older-server)).
 
 Why anonymous credentials are unrecoverable by design, and what the directory is worth to an attacker:
 [docs/security.md, section 9](../../security.md#9-running-a-team-and-losing-the-ability-to).

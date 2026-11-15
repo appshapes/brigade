@@ -4,6 +4,10 @@ Each harness Brigade supports — Claude Code, Muse Code, Codex CLI, Grok Build 
 `team-messaging`; the rest are slash commands a person types. The frame keeps the same structure and trust rules, with host-specific tool
 and delivery wording.
 
+One of the skills, `move`, moves a team from a Supabase project to a Brigade server when the team's administrator
+asks for it. It is one command, `brigade team move --to <url> --secret-file <path>`: you ask for the server's URL
+and the path of the join secret file, never for a secret, and the team's members run nothing.
+
 ## If you want to
 
 | If you want to | Go to |

@@ -3,7 +3,8 @@
 A Brigade server is the backend you run yourself: one program on an always-on machine, your own or a cloud
 instance, with no Supabase project. It keeps every team on that machine's disk, so whoever can read its data
 directory can read every message. It is experimental: one instance with no standby. From 0.2.0 it carries the mail
-and Slack gateways itself.
+and Slack gateways itself. From 0.7.0 a team in a Supabase project moves to it with one command, which its Team
+Admin runs: you run nothing.
 
 ## If you want to
 
@@ -15,9 +16,9 @@ and Slack gateways itself.
 | give a Team Admin what they need, and nothing more | [Hand over the values](#hand-over-the-values) |
 | back it up, restore it, update it, move it, watch it, replace its certificate | [Keep the server](#keep-the-server) |
 | let people write to the team by email or from Slack | [Open the gateways](#open-the-gateways) |
-| see the whole move of a team from a Supabase project, in order, and who does each step | [Move a team from Supabase](#move-a-team-from-supabase) |
-| move a team here from a Supabase project, keeping its join secret | [Take in a team that exists](#take-in-a-team-that-exists) |
-| have that team's members follow it here with no command of theirs | [Let a team's members follow it](#let-a-teams-members-follow-it) |
+| have a team move here from a Supabase project: one command, which its Team Admin runs, and none of yours | [Move a team from Supabase](#move-a-team-from-supabase) |
+| take a team in yourself: on a server older than 0.7.0, or before its Team Admin acts | [Take in a team that exists](#take-in-a-team-that-exists) |
+| open, replace or close a team's move yourself | [Let a team's members follow it](#let-a-teams-members-follow-it) |
 | say who administers a team, name a new owner, or take a team back | [Name a team's owner](#name-a-teams-owner) |
 
 ## Install the server
@@ -57,6 +58,8 @@ Details: [Sample setups](sample-setups.md).
 1. The server's URL as members reach it, `https://<host>:8743`, and the fingerprint from its start line. Both
    are public.
 2. The file that holds the creation token, only if you started the server with `--create-token-file`.
+3. With these a Team Admin creates a team here, or moves one here from a Supabase project with one command. You
+   run nothing more.
 
 Details: [Hand over the values](hand-over-the-values.md).
 
@@ -84,51 +87,58 @@ Details: [Open the gateways](gateways.md).
 
 ## Move a team from Supabase
 
-1. Before: the server at 0.7.0 or later, the migration `20261114120000_team_move` on the Supabase project,
-   plugin 0.56.0 or later on the Team Admin's machine and 0.55.0 or later on each member's.
-2. The operator gives the Team Admin the server's URL, its certificate's fingerprint when the server made its
-   own, and the creation token's file when the server asks for one.
-3. The Team Admin runs one command in a checkout of the team, `brigade team move --to <url> --secret-file <path>`,
-   then commits and pushes `.brigade.json` in every repository. The operator runs nothing.
-4. Each member pulls as usual, and the next session in each checkout follows. Nobody runs a join.
+1. The Team Admin runs one command in a checkout of the team, or asks a session to (`/brigade:move`):
+   `brigade team move --to <url> --secret-file <path>`
+2. You run nothing. You give the Team Admin the server's URL, its certificate's fingerprint when the server made
+   its own (`--certificate`), and the creation token's file when the server asks for one (`--create-token-file`).
+3. The Team Admin commits and pushes `.brigade.json` in every repository of the team. The members run nothing:
+   each one's next session follows, and a session that is running follows at its next prompts.
+4. It needs the server at 0.7.0 or later, the migration `20261114120000_team_move` on the Supabase project,
+   plugin 0.56.0 or later on the Team Admin's machine and 0.55.0 or later on each member's: 0.56.0 for a running
+   session to follow.
 5. After: open the gateways on the server and take them out of the Supabase project. When no checkout is left to
-   follow, close the move and end the team on the old backend, from a checkout that still names it.
-6. A server older than 0.7.0: the operator takes the team in and opens the move with the server stopped, and the
-   Team Admin joins and records it with `brigade team move --ticket-file <path>`.
+   follow, close the move, and the Team Admin ends the team on the old backend, from a checkout that still names
+   it.
+6. A server older than 0.7.0, from 0.5.0: update it, or take the team in and open its move yourself with the
+   server stopped. The Team Admin then joins and records the move with `brigade team move --ticket-file <path>`.
 
 Details: [Move a team from Supabase](move-from-supabase.md).
 
 ## Take in a team that exists
 
-1. Stop the server, then
-   `brigade-server --data <dir> --import-team <name> --join-secret-file <file>`, then start it.
-2. In each repository of the team, in `.brigade.json`: `adapter` becomes `rest`, `url` the server's, and
-   `publishable_key` goes; `team_ref` stays.
-3. Each member updates the plugin to 0.53.1 or later, pulls, and joins with the secret file they already have,
+1. From server 0.7.0 you run none of this: the Team Admin's one command,
+   `brigade team move --to <url> --secret-file <path>`, has the running server take the team in, with the Team
+   Admin as its owner ([Move a team from Supabase](#move-a-team-from-supabase)).
+2. To do it yourself, on a server older than 0.7.0 or for a team that is to be here before its Team Admin acts:
+   stop the server, then `brigade-server --data <dir> --import-team <name> --join-secret-file <file>`, then
+   start it.
+3. In each repository of the team, in `.brigade.json`: `adapter` becomes `rest`, `url` the server's, and
+   `publishable_key` goes; `team_ref` stays. The Team Admin joins first, and so owns the team.
+4. Each member updates the plugin to 0.53.1 or later, pulls, and joins with the secret file they already have,
    once in each checkout that was joined to the team on the old backend. With a move opened and recorded they
    do nothing instead ([Let a team's members follow it](#let-a-teams-members-follow-it)).
-4. From server 0.7.0 you run none of this: the Team Admin's `brigade team move --to <url> --secret-file <path>`
-   asks the running server to take the team in ([Move a team from Supabase](#move-a-team-from-supabase)).
 
 Details: [Take in a team that exists](take-in-a-team.md).
 
 ## Let a team's members follow it
 
-1. Stop the server, then
+1. From server 0.7.0 you run none of this: the Team Admin's one command,
+   `brigade team move --to <url> --secret-file <path>`, opens the move by request, and no ticket file changes
+   hands ([Move a team from Supabase](#move-a-team-from-supabase)).
+2. To do it yourself, on a server from 0.5.0: stop the server, then
    `brigade-server --data <dir> --open-move <team_ref> --ticket-file <file>`, then start it.
-2. Give the ticket's file to the Team Admin, who joins the server first and then records the move:
+3. Give the ticket's file to the Team Admin, who joins the server first and then records the move:
    `brigade team move --ticket-file <path>`.
-3. Once the changed `.brigade.json` is pushed, each member's next session follows; nobody runs a join.
-4. `--close-move <team_ref>` ends it, as does the ticket's end after 30 days.
-5. From server 0.7.0 the Team Admin's `brigade team move --to <url> --secret-file <path>` opens the move by
-   request, and no ticket file changes hands.
+4. Once the changed `.brigade.json` is pushed, each member's next session follows; nobody runs a join.
+5. `--close-move <team_ref>`, between a stop and a start, ends a move however it was opened. So does the
+   ticket's end, after 30 days unless another number was chosen.
 
 Details: [Let a team's members follow it](open-a-move.md).
 
 ## Name a team's owner
 
-1. A team's owner is whoever created it on the server. A team that was taken in is owned by the first member to
-   join it there.
+1. A team's owner is whoever created it on the server, or moved it here: the Team Admin whose
+   `brigade team move --to` took it in. A team you took in yourself is owned by the first member to join it.
 2. To name another: `brigade team members --json` on a member's machine gives the new owner's `principal_ref`.
 3. Stop the server, then
    `brigade-server --data <dir> --set-owner <team_ref> --principal <principal_ref>`, then start it.

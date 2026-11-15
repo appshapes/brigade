@@ -9,6 +9,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The plugin's page says where a session's messages go for a team on a
+  Brigade server** (work item 328). "What leaves your machine, and where it
+  goes" named a Supabase project as the only backend. It now names both: a
+  Supabase project the team's Project Owner owns, or a Brigade server that
+  they or another operator run.
+
 ## [0.56.0] — 2026-11-15
 
 ### Added
