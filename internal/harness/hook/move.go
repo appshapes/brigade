@@ -57,6 +57,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 const (
@@ -961,7 +962,10 @@ func stillMember(m *sessionmap.ByPID) bool {
 // comes from, over a session that is running (runningSession) and whose
 // member is still in its team (stillMember): `/clear` in a checkout that is
 // not joined, in a directory with no team file, or over a team file with no
-// record behind it. Such a start used to return before it read the map,
+// record behind it. It ends the same way a start whose resolution refused
+// the member's own settings, wherever it comes from: an option that cannot
+// be read, a frame text that fails a check, an adapter that cannot be
+// resolved. Such a start used to return before it read the map,
 // with the line of a session that is not connected, or none. The session
 // was attached all the same, and its map went on naming the conversation
 // that ended: the doing line was not asked for in the one that began, that
@@ -972,9 +976,11 @@ func stillMember(m *sessionmap.ByPID) bool {
 // session is on is told, and the line is the context line of the session
 // where it is. Nothing of what was resolved is in the map, because nothing
 // was. What the resolution said is dropped, being said of a session that
-// is not connected or not joined, but for one thing the member has to hear
+// is not connected or not joined, but for two things the member has to hear
 // whatever session they are in: that the team file there was refused
-// (keptFileLine).
+// (keptFileLine), and that their own settings were, so that what they set
+// is not in force and the session goes on with what it had
+// (keptSettingLine).
 func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *sessionmap.ByPID) {
 	now := r.deps.Now()
 	store := sessionmap.Store{StateDir: f.stateDir}
@@ -1004,6 +1010,9 @@ func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *s
 	if r.fileRefused != "" {
 		r.say(keptFileLine(r.fileRefused))
 	}
+	if r.settingRefused != "" {
+		r.say(r.settingRefused)
+	}
 	// The context line is said: a move's notice has nothing left to tell.
 	r.dropMovedNotice(f)
 }
@@ -1016,6 +1025,73 @@ func (r *run) keepUnresolved(ctx context.Context, f facts, in input, existing *s
 func keptFileLine(refusal string) string {
 	rest := strings.TrimPrefix(strings.TrimPrefix(refusal, "Brigade: not connected: "), "Brigade: not connected ")
 	return "Brigade: this session stays where it is. In the directory this conversation began in: " + rest
+}
+
+// keptSettingLine is what a start that keeps a running session says when
+// what its resolution refused was the member's own settings and not the
+// team (work item 327, ADR 0007): what could not be used, the refusal's own
+// reason (a fixed word, never a value or a path), what is in force instead,
+// and the remedy. The refusal's own line says `not connected` and, for most
+// options, `run brigade team join`: neither is true of a session that is
+// kept. What is in force is what the session had. The start wrote nothing
+// of what it resolved into the map and started no watcher, so the watcher
+// that runs goes on reading the frame, the inbound policy and the adapter
+// the map held, and it read file sync and the polling intervals when it
+// started. A session that starts anew with the same settings connects to
+// nothing: the kept one can so be on a weaker frame than the one its
+// member tried to set, and the line says which frame holds.
+func keptSettingLine(what, reason, effect, remedy string) string {
+	if reason == "" {
+		reason = "unusable"
+	}
+	return "Brigade: this session stays connected as it was. " + what + " cannot be used (" + attr(reason) + "), so " + effect +
+		". " + remedy + ", then `/clear` or start a new session."
+}
+
+// keptOptionLine is keptSettingLine for options that could not be parsed.
+// One option that cannot be read is all of them unread: the start resolved
+// nothing, and a prompt hook that cannot parse the options does not decide
+// the inbound policy again, polls for nothing and follows no move, until
+// the option is fixed.
+func keptOptionLine(err error) string {
+	_, reason := codeOf(err)
+	what, remedy := "Your Brigade options", "Fix them"
+	var perr *protocol.Error
+	if errors.As(err, &perr) && perr.Details["option"] != "" {
+		what, remedy = "The `"+attr(perr.Details["option"])+"` option", "Fix the option"
+	}
+	return keptSettingLine(what, reason,
+		"no change to your options is in force here: the session's watcher goes on with the frame and the options the session had, and its prompts read no option until this one is fixed",
+		remedy)
+}
+
+// keptFrameLine is keptSettingLine for a frame_file whose text could not be
+// read or failed a check. The options themselves were read, so only the
+// frame is not the member's new one: the watcher, and a prompt's poll, go
+// on framing messages as the map says, which is as before.
+func keptFrameLine(err error) string {
+	_, reason := codeOf(err)
+	if reason == "" {
+		reason = "frame_file_unreadable"
+	}
+	return keptSettingLine("The `frame_file` option", reason,
+		"the frame your options name now is not in force here: team messages still reach this session under the frame it had",
+		"Fix the `frame` or `frame_file` option")
+}
+
+// keptAdapterLine is keptSettingLine for an adapter that could not be
+// resolved: the adapter_command option, or the adapter the team file of the
+// start's directory names, which adapters.json has to hold. The session's
+// watcher and its commands go on through the adapter the map names.
+func keptAdapterLine(name string, err error) string {
+	_, reason := codeOf(err)
+	const goesOn = "the session goes on through the adapter it had"
+	var perr *protocol.Error
+	if errors.As(err, &perr) && perr.Details["source"] == config.SourceOption {
+		return keptSettingLine("The `adapter_command` option", reason, "the adapter it names is not in force here: "+goesOn, "Fix the option")
+	}
+	return keptSettingLine("The adapter \""+attr(name)+"\" that the team file in the directory this conversation began in names", reason,
+		"this start changed nothing: "+goesOn, "Run `brigade team status` in a terminal to see why and fix it")
 }
 
 // heldCount is how many messages wait for the session in its pending file:

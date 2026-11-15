@@ -535,6 +535,15 @@ type run struct {
 	// (keepUnresolved): a team file that holds a secret, or that was pointed
 	// elsewhere, is the member's to hear of in any case.
 	fileRefused string
+	// settingRefused is the line a start that keeps a running session says
+	// when what its resolution refused was the member's own settings and not
+	// the team: an option that cannot be read, a frame text that fails a
+	// check, an adapter that cannot be resolved (resolve). It is written in
+	// the words of a session that stays connected (keptSettingLine), where
+	// the refusal itself says `not connected`: the kept session goes on
+	// with what it had, and the member has to hear that what they set is
+	// not in force.
+	settingRefused string
 	// optionsEnv is the environment ParseOptions reads: environ itself on
 	// Claude Code; on a host with an options file (Muse Code, Codex CLI)
 	// environ plus the entries the file supplies (config.OptionsEnviron),
