@@ -77,6 +77,7 @@ Each refusal says what to do. Nothing is written before the checks pass.
 | the server asks for a creation token, or refused the one you gave | Ask its operator for the token's file, and pass `--create-token-file <path>`. |
 | the team is held on the server and owned by someone else | Someone took the team in there before you. The server's operator names you its owner ([Name a team's owner](../../project-owner/server/name-the-owner.md)); then run the command again. |
 | the server holds a team of this reference under another join secret | Tell the server's operator: this team cannot be taken in there. |
+| the server did not take the team in | It could not be reached, or its answer did not arrive. Run the same command again, on the same machine. |
 | `Run the same command again to finish the move` | It stopped after the server took the team in. Remove the cause and run it again. |
 
 ## What a member sees, and when they do not follow

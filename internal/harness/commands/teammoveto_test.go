@@ -61,6 +61,23 @@ type moveToRig struct {
 	// ticket is what the server's adapter writes to --ticket-file; a test
 	// empties it to make an adapter that writes nothing.
 	ticket string
+	// leaves makes the rig's adapter do, at each `team take-in`, what the
+	// real one does before it asks the server anything: write the profile
+	// down. With it goes a file of the adapter's own beside the profile,
+	// kept, a file a later take-in of the same profile needs.
+	leaves bool
+}
+
+// keptFile is the file the rig's adapter keeps in the profile's directory
+// when leaves is set, and keptBytes what it holds.
+const (
+	keptFile  = "kept-by-the-adapter.json"
+	keptBytes = "what a second take-in of this profile is the same caller with\n"
+)
+
+// profileDir is the directory of the team's profile at the server.
+func (r *moveToRig) profileDir() string {
+	return filepath.Join(r.f.dirs.BrigadeConfig, "teams", r.newKey)
 }
 
 // newMoveToRig joins the team on the Supabase project it leaves, with the
@@ -199,6 +216,16 @@ func (r *moveToRig) sessions() string {
 // the server's adapter does beside its answer, which is to write the ticket
 // to the file it was told.
 func (r *moveToRig) spawn(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+	if verbKey(spec.Argv) == "team take-in" && r.leaves {
+		if _, err := os.Lstat(r.profileDir()); err != nil {
+			if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", r.newURL, "", moveNewPin, "", "", ""); err != nil {
+				r.t.Errorf("the adapter's profile: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(r.profileDir(), keptFile), []byte(keptBytes), 0o600); err != nil {
+				r.t.Errorf("the adapter's own file: %v", err)
+			}
+		}
+	}
 	if verbKey(spec.Argv) == "team open-move" {
 		path := ""
 		if i := slices.Index(spec.Argv, "--ticket-file"); i >= 0 && i+1 < len(spec.Argv) {
@@ -803,8 +830,6 @@ func TestTeamMoveToStopsBeforeAnythingIsWritten(t *testing.T) {
 		{name: "a server that cannot be reached", confirm: true, args: plain, taken: true,
 			setup: func(r *moveToRig) {
 				r.f.rec.on("team take-in", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
-				r.f.rec.on("profile status", okAnswer(`{"name":"x","state":"unauthenticated"}`))
-				r.f.rec.on("profile reset", okAnswer(`{"name":"x","state":"unconfigured"}`))
 			},
 			code: protocol.CodeUnavailable, says: []string{"did not take the team in: the backend could not be reached", "Nothing was recorded"}},
 		{name: "a team that someone else owns on the server", confirm: true, args: plain, taken: true,
@@ -865,22 +890,137 @@ func TestTeamMoveToNamesTheProjectToMigrate(t *testing.T) {
 	}
 }
 
-// TestTeamMoveToKeepsAProfileThatHoldsACredential: a take-in that is
-// refused removes the profile its adapter wrote only when the server issued
-// it nothing. A profile that holds a credential is kept, because the server
-// may have taken the team in for it before the answer was lost, and one
-// that was there before the command is never touched.
-func TestTeamMoveToKeepsAProfileThatHoldsACredential(t *testing.T) {
+// TestTeamMoveToKeepsTheProfileOfATakeInThatMayHaveReachedTheServer: a
+// take-in that fails with `unavailable` or `internal`, or with no answer of
+// the adapter's at all, may have been carried out by the server with its
+// answer lost. The profile the adapter wrote is then what the next run is
+// the same caller with, so nothing of its directory is removed: not the
+// profile, not a file the adapter keeps beside it, and no adapter is asked
+// to reset anything. The next run takes the team in under the same
+// profile, and an answer that says the caller owns a team it did not take
+// in just now is a move that goes on.
+func TestTeamMoveToKeepsTheProfileOfATakeInThatMayHaveReachedTheServer(t *testing.T) {
 	t.Parallel()
-	refuse := failAnswer(protocol.CodeUnavailable, "the backend could not be reached")
+	for name, lost := range map[string]answer{
+		"unavailable":                      failAnswer(protocol.CodeUnavailable, "the backend could not be reached"),
+		"internal":                         failAnswer(protocol.CodeInternal, "the backend answered with something that is not a result envelope"),
+		"an adapter that did not answer":   {spawnErr: context.DeadlineExceeded},
+		"an answer this build cannot read": okAnswer(`{"team_ref":"` + setupTeamRef + `"}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newMoveToRig(t)
+			r.leaves = true
+			r.f.rec.on("team take-in", lost)
+			if err := Team(r.inv(true, r.args()...)); err == nil {
+				t.Fatal("a take-in that failed moved the team")
+			}
+			if asked := r.asked(); slices.Contains(asked, "profile status") || slices.Contains(asked, "profile reset") || slices.Contains(asked, "team open-move") {
+				t.Fatalf("after a take-in that may have reached the server: %v", asked)
+			}
+			kept, err := os.ReadFile(filepath.Join(r.profileDir(), keptFile))
+			if err != nil || string(kept) != keptBytes {
+				t.Fatalf("the file the adapter kept in the profile's directory: %q, %v", kept, err)
+			}
+			if p, err := teamstore.LoadBinding(r.f.dirs.BrigadeConfig, r.newKey); err != nil || p.URL != r.newURL || p.Certificate != moveNewPin {
+				t.Fatalf("the profile the adapter wrote: %+v, %v", p, err)
+			}
+			if got := r.fileNow(); got != r.original {
+				t.Fatalf("the team file was rewritten")
+			}
+			if pin := r.pin(); pin.Adapter != "supabase" {
+				t.Fatalf("the pin was rewritten: %+v", pin)
+			}
+
+			// The second run: the same profile, and the server answers that this
+			// caller owns the team it took in on the run whose answer was lost.
+			r.f.rec.on("team take-in", okAnswer(r.takenIn(false, true)))
+			r.f.out.Reset()
+			if err := Team(r.inv(true, r.args()...)); err != nil {
+				t.Fatalf("the second run: %v", err)
+			}
+			takes := r.f.rec.specsOf("team take-in")
+			if len(takes) != 2 {
+				t.Fatalf("%d take-ins, want one for each run", len(takes))
+			}
+			for _, take := range takes {
+				if i := slices.Index(take.Argv, "--profile"); i < 0 || take.Argv[i+1] != r.newKey {
+					t.Fatalf("a take-in ran under another profile: %s", argvOf(take))
+				}
+			}
+			if asked := r.asked(); slices.Contains(asked, "profile init") || slices.Contains(asked, "profile reset") {
+				t.Fatalf("the second run touched the profile before the take-in: %v", asked)
+			}
+			if kept, err := os.ReadFile(filepath.Join(r.profileDir(), keptFile)); err != nil || string(kept) != keptBytes {
+				t.Fatalf("the adapter's file after the second run: %q, %v", kept, err)
+			}
+			out := r.f.out.String()
+			if !strings.Contains(out, "was on "+r.newHost+" already, and you own it there") || strings.Contains(out, "someone else") ||
+				!strings.Contains(out, "wrote "+teamfile.FileName) {
+				t.Fatalf("the second run's lines:\n%s", out)
+			}
+			if got := r.fileNow(); got != r.moved() {
+				t.Fatalf("the team file after the second run:\n%s", got)
+			}
+			r.noSecrets()
+		})
+	}
+}
+
+// TestTeamMoveToForgetsTheProfileOfATakeInThatWasRefused: after a refusal
+// the server holds nothing new, and the profile the adapter wrote for the
+// request goes, so a refused move leaves the store as it found it: the
+// adapter is asked what the profile holds, and to reset it when the server
+// issued it nothing. A profile that holds a credential is kept, and one
+// that was there before the command is never looked at.
+func TestTeamMoveToForgetsTheProfileOfATakeInThatWasRefused(t *testing.T) {
+	t.Parallel()
+	refusals := map[string]answer{
+		"a server that takes no team in": {errObj: &protocol.ErrorObject{
+			Code: protocol.CodeConfig, Message: "the server does not offer taking a team in by request",
+			Details: map[string]string{"reason": "server_lacks_team_take_in"},
+		}},
+		"another join secret": {errObj: &protocol.ErrorObject{
+			Code: protocol.CodeConflict, Message: "a team of that reference is here under another join secret",
+			Details: map[string]string{"reason": "other_join_secret"},
+		}},
+		"no creation token":       failAnswer(protocol.CodeUnauthorized, "this server does not let this caller create a team"),
+		"a request it cannot use": failAnswer(protocol.CodeInvalidInput, "team_name is too long"),
+		"too many requests":       {errObj: &protocol.ErrorObject{Code: protocol.CodeRateLimited, Message: "too many teams", Retryable: true, RetryAfterMS: 1000}},
+	}
+	for name, refused := range refusals {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newMoveToRig(t)
+			r.leaves = true
+			r.f.rec.on("team take-in", refused)
+			r.f.rec.on("profile status", okAnswer(`{"name":"x","state":"unauthenticated"}`))
+			r.f.rec.on("profile reset", okAnswer(`{"name":"x","state":"unconfigured"}`))
+			if err := Team(r.inv(true, r.args()...)); err == nil {
+				t.Fatal("a take-in that was refused moved the team")
+			}
+			asked := r.asked()
+			take, status, reset := slices.Index(asked, "team take-in"), slices.Index(asked, "profile status"), slices.Index(asked, "profile reset")
+			if take < 0 || status != take+1 || reset != status+1 || slices.Contains(asked, "team open-move") {
+				t.Fatalf("after a refused take-in: %v, want the profile asked about and reset", asked)
+			}
+			for _, verb := range []string{"profile status", "profile reset"} {
+				spec := r.f.rec.specsOf(verb)[0]
+				if i := slices.Index(spec.Argv, "--profile"); i < 0 || spec.Argv[i+1] != r.newKey {
+					t.Fatalf("%s ran under another profile: %s", verb, argvOf(spec))
+				}
+			}
+		})
+	}
 	t.Run("a credential was issued", func(t *testing.T) {
 		t.Parallel()
 		r := newMoveToRig(t)
-		r.f.rec.on("team take-in", refuse)
+		r.leaves = true
+		r.f.rec.on("team take-in", refusals["another join secret"])
 		r.f.rec.on("profile status", okAnswer(`{"name":"x","state":"not_member","principal_ref":"p_new"}`))
-		wantCode(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, "")
-		if slices.Contains(r.asked(), "profile reset") {
-			t.Fatalf("a profile that holds a credential was reset: %v", r.asked())
+		wantCode(t, Team(r.inv(true, r.args()...)), protocol.CodeConflict, reasonOtherJoinSecret)
+		if asked := r.asked(); !slices.Contains(asked, "profile status") || slices.Contains(asked, "profile reset") {
+			t.Fatalf("a profile that holds a credential: %v, want it asked about and not reset", asked)
 		}
 	})
 	t.Run("the profile was there before", func(t *testing.T) {
@@ -889,30 +1029,34 @@ func TestTeamMoveToKeepsAProfileThatHoldsACredential(t *testing.T) {
 		if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", r.newURL, "", moveNewPin, "", "", "p_left"); err != nil {
 			t.Fatal(err)
 		}
-		r.f.rec.on("team take-in", refuse)
-		wantCode(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, "")
+		r.f.rec.on("team take-in", refusals["another join secret"])
+		wantCode(t, Team(r.inv(true, r.args()...)), protocol.CodeConflict, reasonOtherJoinSecret)
 		if asked := r.asked(); slices.Contains(asked, "profile status") || slices.Contains(asked, "profile reset") {
 			t.Fatalf("a profile that was there before was looked at: %v", asked)
 		}
 	})
-	t.Run("the profile is moved to the certificate that was typed", func(t *testing.T) {
-		t.Parallel()
-		r := newMoveToRig(t)
-		if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", r.newURL, "", otherPin, "", "", "p_left"); err != nil {
-			t.Fatal(err)
-		}
-		r.f.rec.on("profile init", okAnswer(`{"name":"x","state":"not_member"}`))
-		if err := Team(r.inv(true, r.args()...)); err != nil {
-			t.Fatal(err)
-		}
-		init := r.f.rec.specsOf("profile init")
-		if len(init) != 1 || !strings.Contains(argvOf(init[0]), "--force --url "+r.newURL+" --certificate "+moveNewPin) {
-			t.Fatalf("the profile was not moved to the certificate that was typed: %v", r.asked())
-		}
-		if i, j := slices.Index(r.asked(), "profile init"), slices.Index(r.asked(), "team take-in"); i < 0 || i > j {
-			t.Fatalf("the take-in went before the profile was moved: %v", r.asked())
-		}
-	})
+}
+
+// TestTeamMoveToMovesAProfileToTheCertificateThatWasTyped: a profile that is
+// there for the server under another certificate is moved to the one the
+// administrator typed before the take-in is sent to it.
+func TestTeamMoveToMovesAProfileToTheCertificateThatWasTyped(t *testing.T) {
+	t.Parallel()
+	r := newMoveToRig(t)
+	if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", r.newURL, "", otherPin, "", "", "p_left"); err != nil {
+		t.Fatal(err)
+	}
+	r.f.rec.on("profile init", okAnswer(`{"name":"x","state":"not_member"}`))
+	if err := Team(r.inv(true, r.args()...)); err != nil {
+		t.Fatal(err)
+	}
+	init := r.f.rec.specsOf("profile init")
+	if len(init) != 1 || !strings.Contains(argvOf(init[0]), "--force --url "+r.newURL+" --certificate "+moveNewPin) {
+		t.Fatalf("the profile was not moved to the certificate that was typed: %v", r.asked())
+	}
+	if i, j := slices.Index(r.asked(), "profile init"), slices.Index(r.asked(), "team take-in"); i < 0 || i > j {
+		t.Fatalf("the take-in went before the profile was moved: %v", r.asked())
+	}
 }
 
 // TestTeamMoveToRunAgainEndsInTheSameState: stopped after any step, the

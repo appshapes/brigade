@@ -130,11 +130,17 @@ no hosted project was asked.
   project without the migration is to the adapter, the built `brigade` refused with the sentence that names the
   migration and `make backend-install`, exit 11, and left the team file and the store as they were; the functions
   were put back and the record read again.
-- Mutation: 85 one-line changes to the new rules, in the command, the option, the start facts, the hook, the
-  version rule and the team file's rewrite. 84 are caught by a test; two of them needed a test added, a secret
-  file's path inside the checkout that names no file and the roster read without its offline sessions. The one
-  that is not caught drops a comparison that cannot differ: the rewritten team file is parsed again, and a URL
-  it could not carry fails that parse first.
+- A take-in whose answer is lost: behind a front that hands the request to the stand-in server and drops the
+  answer, the command stops with nothing recorded or written and leaves the profile its adapter wrote where it
+  is, because that directory is what the next run is the same caller with. After a refusal, where the server
+  holds nothing new, the same profile is removed (`TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary`,
+  and the two tests of the profile in `internal/harness/commands`). What the next run is answered is the
+  adapter's and the server's part, in the work of ADR 0005.
+- Mutation: 92 one-line changes to the new rules, in the command, the option, the start facts, the hook, the
+  version rule and the team file's rewrite. 91 are caught by a test; three of them needed a test added, a
+  secret file's path inside the checkout that names no file, the roster read without its offline sessions, and
+  what the command says when the ticket has nowhere to go. The one that is not caught drops a comparison that
+  cannot differ: the rewritten team file is parsed again, and a URL it could not carry fails that parse first.
 - The acceptance gate and the four package checks pass.
 - Not measured: a move of a real team from a hosted project by the one command, and a session of a real model
   running the `move` skill. Both wait on the owner's word.

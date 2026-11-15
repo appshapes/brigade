@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json/v2"
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -284,6 +285,79 @@ func (s *olderServer) asked() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.paths)
+}
+
+// A lossyFront stands between a member's machine and a server and, while it
+// is told to, loses the answer of every take-in: it hands the request to the
+// server, lets the server carry it out, and closes the connection without a
+// word. It is what a network does to a request whose answer never arrives.
+type lossyFront struct {
+	*httptest.Server
+	backend string
+	mu      sync.Mutex
+	losing  bool
+	// lost counts the take-ins the server answered as done whose answer
+	// the front dropped.
+	lost int
+}
+
+func startLossyFront(t *testing.T, backend string) *lossyFront {
+	t.Helper()
+	f := &lossyFront{backend: backend, losing: true}
+	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, "the request could not be read", http.StatusBadGateway)
+			return
+		}
+		//nolint:gosec // G704: the url is the stand-in server's own, and the path one the built adapter asked this front for
+		forward, err := http.NewRequestWithContext(req.Context(), req.Method, f.backend+req.URL.Path, bytes.NewReader(body))
+		if err != nil {
+			http.Error(w, "the request could not be forwarded", http.StatusBadGateway)
+			return
+		}
+		forward.Header = req.Header.Clone()
+		answer, err := http.DefaultClient.Do(forward) //nolint:gosec // G704: as above
+		if err != nil {
+			http.Error(w, "the server did not answer", http.StatusBadGateway)
+			return
+		}
+		defer func() { _ = answer.Body.Close() }()
+		answered, err := io.ReadAll(answer.Body)
+		if err != nil {
+			http.Error(w, "the server's answer could not be read", http.StatusBadGateway)
+			return
+		}
+		f.mu.Lock()
+		lose := f.losing && req.URL.Path == "/v1/team/take-in"
+		if lose && answer.StatusCode == http.StatusOK {
+			f.lost++
+		}
+		f.mu.Unlock()
+		if lose {
+			// The answer is lost: the connection ends with nothing on it.
+			if hijacker, ok := w.(http.Hijacker); ok {
+				if conn, _, herr := hijacker.Hijack(); herr == nil {
+					_ = conn.Close()
+					return
+				}
+			}
+			panic(http.ErrAbortHandler)
+		}
+		w.Header().Set("Content-Type", answer.Header.Get("Content-Type"))
+		w.WriteHeader(answer.StatusCode)
+		_, _ = w.Write(answered)
+	}))
+	t.Cleanup(f.Close)
+	return f
+}
+
+// answersLost is how many take-ins the server carried out whose answer the
+// front lost.
+func (f *lossyFront) answersLost() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lost
 }
 
 // withFsAdapter runs do with the administrator's `fs` adapter replaced by a
@@ -706,7 +780,8 @@ func TestAMoveStoppedAtEachStepEndsTheSameWhenRunAgainThroughTheRealBinary(t *te
 		t.Fatal(err)
 	}
 	res := m.move(m.terminal, "y\n", args...)
-	if res.exit == 0 {
+	if res.exit == 0 || !strings.Contains(res.stderr, "the team is taken in on ") || !strings.Contains(res.stderr, "and its move was not opened") ||
+		!strings.Contains(res.stderr, again) {
 		t.Fatalf("a move whose ticket has nowhere to go: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
 	m.unmoved("a move stopped after the take-in")
@@ -845,4 +920,48 @@ func TestATeamIsMovedFromInsideASessionThroughTheRealBinary(t *testing.T) {
 	// --- 3. a member's next session follows, and the team works ------------------------------------------
 	m.followsAndTalks(backend)
 	m.noSecrets(ticket, r.secretFile, ticketRead, filepath.Join(r.root, "teams", r.teamRef, "move.json"))
+}
+
+// TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary: the
+// server takes the team in and its answer never arrives. The one command
+// stops, having recorded and written nothing, and it leaves the profile the
+// server's adapter wrote for the request where it is: that directory is
+// what the next run of the command is the same caller with, so nothing of
+// it may be cleaned away, as it is after a refusal. The server is the
+// stand-in, behind a front that loses the answer; what the next run is
+// answered is the adapter's and the server's to say, and is not held here.
+func TestATakeInWhoseAnswerIsLostKeepsItsProfileThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.createTeam()
+	m := newMovingTeam(t, r, r.fsAdapterAs(r.configDir))
+	front := startLossyFront(t, startStub(t).url)
+	server := restBackend{url: front.URL}
+	profile := filepath.Join(r.configDir, "teams", teamstore.Key("rest", front.URL, r.teamRef))
+	if _, err := os.Lstat(profile); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the profile for the server before the move: %v", err)
+	}
+
+	res := m.move(m.terminal, "y\n", moveArgs(server, r.secretFile)...)
+	if res.exit == 0 || !strings.Contains(res.stderr, "did not take the team in") || !strings.Contains(res.stderr, "Nothing was recorded") ||
+		strings.Contains(res.stdout, "took") {
+		t.Fatalf("a move whose take-in's answer was lost: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if lost := front.answersLost(); lost != 1 {
+		t.Fatalf("the server carried out %d take-ins whose answer was lost, want 1", lost)
+	}
+	m.unmoved("a move whose take-in's answer was lost")
+	// The profile the adapter wrote is where the adapter left it, with what
+	// it holds: the server it names, and no team yet.
+	entries, err := os.ReadDir(profile)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("the profile's directory after a lost answer: %v, %v", entries, err)
+	}
+	kept, err := teamstore.LoadBinding(r.configDir, filepath.Base(profile))
+	if err != nil || kept.URL != front.URL || kept.TeamRef != "" {
+		t.Fatalf("the profile after a lost answer: %+v, %v", kept, err)
+	}
+	if strings.Contains(m.said.String(), m.secret) {
+		t.Fatalf("the join secret is in what the move printed")
+	}
 }

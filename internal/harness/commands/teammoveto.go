@@ -177,7 +177,7 @@ func (inv Invocation) moveTo(flags moveFlags) error {
 	}
 	ticketFile, err := m.ticketFile()
 	if err != nil {
-		return err
+		return m.stopped(err, "the team is taken in on "+m.toHost()+", and its move was not opened")
 	}
 	// The ticket's file is gone when the command ends, however it ends.
 	defer func() { _ = os.Remove(ticketFile) }()
@@ -599,17 +599,21 @@ func olderLine(older []olderSession) string {
 // of the terminal the command happens to run in (work item 326): a member
 // of the team is the same member on the server, as one who follows is.
 //
-// The profile at the server is the team's key there from the first
-// request, so a run that is stopped after the server answered finds the
-// credential the server issued and is the owner again. A profile that is
-// there under another certificate is moved to the one the administrator
-// named, as a join does (alignRestBackend).
+// The profile at the server is the team's key there on every attempt, the
+// first included, so a run that is stopped after the server answered finds
+// the credential the server issued and is the owner again, and one whose
+// answer was lost finds whatever the adapter kept in that profile's
+// directory to be the same caller with. A profile that is there under
+// another certificate is moved to the one the administrator named, as a
+// join does (alignRestBackend).
 //
-// The answer must say that the caller owns the team. A team that the
-// server holds and someone else owns is joined and not owned, and its move
-// is not this member's to open: the command stops here, before a move is
-// opened and before anything is written, and says that the server's
-// operator can name the team's owner.
+// The answer must say that the caller owns the team, and that is all it is
+// read for: `taken_in` false beside `owner` true is a team this caller
+// took in before, on a run that stopped or whose answer was lost, and the
+// move goes on. A team that the server holds and someone else owns is
+// joined and not owned, and its move is not this member's to open: the
+// command stops here, before a move is opened and before anything is
+// written, and says that the server's operator can name the team's owner.
 func (inv Invocation) takeIn(m *serverMove) (*protocol.TeamTakeInResult, error) {
 	fresh := false
 	if _, err := teamstore.LoadBinding(m.configDir, m.destKey); err != nil {
@@ -642,7 +646,7 @@ func (inv Invocation) takeIn(m *serverMove) (*protocol.TeamTakeInResult, error) 
 		return &res, nil
 	})
 	if err != nil {
-		if fresh {
+		if fresh && refusedBeforeTheServerActed(err) {
 			inv.forgetUnusedProfile(m)
 		}
 		return nil, m.notTakenIn(err)
@@ -662,16 +666,34 @@ func (inv Invocation) takeIn(m *serverMove) (*protocol.TeamTakeInResult, error) 
 	return taken, nil
 }
 
+// refusedBeforeTheServerActed reports whether a take-in's failure is one
+// after which the server holds nothing new: a refusal the adapter or the
+// server made. `unavailable` and `internal` are not: the request may have
+// reached the server and been carried out, with the answer lost on the way
+// back, and so is a failure the adapter did not produce at all (a deadline,
+// a child that died) or an answer this build could not read. What the
+// adapter left in the profile's directory is then what makes the next run
+// the same caller to the server, so nothing of it may be removed.
+func refusedBeforeTheServerActed(err error) bool {
+	var perr *protocol.Error
+	if !errors.As(err, &perr) {
+		return false
+	}
+	return perr.Code != protocol.CodeUnavailable && perr.Code != protocol.CodeInternal && perr.Code != protocol.CodeProtocolMismatch
+}
+
 // forgetUnusedProfile removes the profile the server's adapter wrote for a
 // take-in that was refused, when this command is what made it and the
 // server issued it nothing: the adapter writes the backend down before it
 // asks the server anything, and a refused move should leave the store as
-// it found it. `profile status` is answered from local files, and `profile
-// reset` on a profile that holds no credential asks the server nothing and
-// removes the directory. A profile that holds a credential is kept: the
-// server may have taken the team in for it before the answer was lost, and
-// that credential is then the owner's. Best effort: a profile that stays
-// is one the next run uses.
+// it found it. It runs only after a refusal (refusedBeforeTheServerActed):
+// a take-in whose answer was lost leaves the same profile, with no
+// credential, and that profile's directory is what the adapter retries
+// from, the same caller to the server on every attempt. `profile status`
+// is answered from local files, and `profile reset` on a profile that
+// holds no credential asks the server nothing and removes the directory.
+// A profile that holds a credential is kept whatever the failure was.
+// Best effort: a profile that stays is one the next run uses.
 func (inv Invocation) forgetUnusedProfile(m *serverMove) {
 	state, err := call(func(ctx context.Context) (string, error) {
 		env, err := m.to.client.Call(ctx, "profile", "status", nil, nil)
