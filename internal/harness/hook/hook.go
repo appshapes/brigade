@@ -518,6 +518,11 @@ type run struct {
 	// to have succeeded.
 	moving bool
 	held   *[]string
+	// saidFollowed is true once this run has said the line of a follow (a
+	// start that followed, or one that found a child's mark): a start that
+	// then keeps the session where it is (stay) records the line as heard
+	// by this conversation and does not say it twice.
+	saidFollowed bool
 	// optionsEnv is the environment ParseOptions reads: environ itself on
 	// Claude Code; on a host with an options file (Muse Code, Codex CLI)
 	// environ plus the entries the file supplies (config.OptionsEnviron),

@@ -466,10 +466,10 @@ func TestPromptDoesNotMoveASessionTheNewBackendRefused(t *testing.T) {
 // TestPromptRetryFollowsThroughAChild: a session that started before the
 // move was recorded is attached to nothing, and each later prompt runs the
 // registration again in the few seconds a prompt hook has. That retry does
-// not follow in its own run: it starts the child, says the drift line as
-// before and asks no backend anything. When the child has followed, the
-// very next prompt registers the session, and says the follow's line before
-// any other.
+// not follow in its own run: it starts the child, says that the backend the
+// member joined is being asked and then the drift line as before, and asks
+// no backend anything. When the child has followed, the very next prompt
+// registers the session, and says the follow's line before any other.
 func TestPromptRetryFollowsThroughAChild(t *testing.T) {
 	t.Parallel()
 	f := newMemberFixture(t)
@@ -486,7 +486,7 @@ func TestPromptRetryFollowsThroughAChild(t *testing.T) {
 	}
 	// The administrator records the move.
 	seam = f.useMoveSeam(movedDoc(movedURL, movedPin), seam.responses)
-	if got := f.prompted(); !slices.Equal(got, []string{driftLine}) || f.mapExists() {
+	if got := f.prompted(); !slices.Equal(got, []string{movedRetryLine, driftLine}) || f.mapExists() {
 		t.Fatalf("the prompt's retry: lines %q, map %v", got, f.mapExists())
 	}
 	if got := asked(seam); len(got) != 0 {

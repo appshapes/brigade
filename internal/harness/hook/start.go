@@ -116,8 +116,12 @@ func (r *run) zeroDoingStamp(f facts) {
 
 // resolved is everything the register/heartbeat paths share.
 type resolved struct {
-	opts        config.Options
-	teamKey     string
+	opts    config.Options
+	teamKey string
+	// checkout is the canonical directory of the checkout the team was
+	// resolved from: the one the session registers in, and the map's
+	// `checkout` (work item 327).
+	checkout    string
 	teamFile    *teamfile.File
 	adapter     config.Adapter
 	argv        []string
@@ -214,6 +218,31 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// closes its session where it registered it.
 	elsewhere := existing != nil && existing.TeamKey != res.teamKey
 	watcherOfExisting := existing != nil && verdict.Found && verdict.Alive && verdict.Entry.BrigadeSessionID == existing.BrigadeSessionID
+	// ours: the map is this process's beyond doubt. Its watcher is alive, or
+	// it names the conversation this document names. A map a dead process
+	// left under the same pid is neither.
+	ours := existing != nil && (watcherOfExisting || (in.SessionID != "" && existing.ClaudeSessionID == in.SessionID))
+	// staying: this is a session's start (a /clear among them, which fires
+	// it again in the same process), the session is running on the backend
+	// its team left, and what would move it may not: then it is kept where
+	// it is, as a prompt keeps it (reattach), and is never told that it is
+	// `not connected`, which it is not. A prompt that moves a session
+	// (r.moving) decides both for itself.
+	staying := elsewhere && ours && !r.moving
+	// foreign: the session is running, and this start comes from another
+	// checkout than the one it registered in. A hook document's directory
+	// follows the model (a `cd`, a worktree), so a `/clear` can come from
+	// anywhere. A session is its own checkout's, at a start as at a prompt
+	// (moveSession): one that moved to whatever backend the checkout of its
+	// last `/clear` was on would go back and forth between two checkouts of
+	// one team. So this start changes neither where the session is attached
+	// nor the checkout it is of.
+	foreign := ours && !r.moving && existing.Checkout != "" && existing.Checkout != res.checkout
+	if foreign && elsewhere {
+		r.log.Info("this start comes from another checkout than the session's own; the session stays where it is")
+		r.keep(ctx, f, in, res, existing, now, watcherOfExisting)
+		return
+	}
 	if elsewhere && r.moving && existing.SessionName != "" {
 		// A prompt's document names no title, and the name a running session
 		// has is the map's, which the prompt hook keeps level with a rename.
@@ -306,15 +335,36 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// conversation this document names. A map a dead process left under the
 	// same pid gives a new session no request.
 	request := ""
-	if elsewhere && (watcherOfExisting || (in.SessionID != "" && existing.ClaudeSessionID == in.SessionID)) {
+	if elsewhere && ours {
 		request = existing.InboundRequest
+	}
+	if staying {
+		// Messages that wait for the session on the backend it is leaving
+		// stay there, so it stays with them: the test a prompt makes.
+		if held := r.heldCount(f, existing); held > 0 {
+			r.log.Info("the team moved and messages wait for this session where it is; it stays", slog.Int("held", held))
+			r.stay(ctx, f, in, res, existing, now, watcherOfExisting, toldWaits, moveWaitsLine(held))
+			return
+		}
+	}
+	// failed is how a registration that could not be made ends: a session
+	// that is running where the team left it is kept there and told so,
+	// and tries again at a later prompt; any other is `not connected`.
+	failed := func(what string, err error, line string) {
+		if !staying {
+			r.fail(what, err, line)
+			return
+		}
+		r.log.Warn(what+"; this session stays where it is", log.Err(err))
+		r.stampRetry(f)
+		r.stay(ctx, f, in, res, existing, now, watcherOfExisting, toldUnreached, moveUnreachedLine)
 	}
 
 	dctx, dcancel := context.WithTimeout(ctx, adapterclient.DescribeTimeout)
 	desc, err := res.client.Describe(dctx)
 	dcancel()
 	if err != nil {
-		r.fail("session-start: describe", err, notConnectedFor(err))
+		failed("session-start: describe", err, notConnectedFor(err))
 		return
 	}
 	// The doing mode is resolved from THIS describe (plan 5.2): no extra
@@ -356,7 +406,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	}
 	result, err := r.register(ctx, res.client, reg)
 	if err != nil {
-		r.fail("session-start: register", err, notConnectedFor(err))
+		failed("session-start: register", err, notConnectedFor(err))
 		return
 	}
 	m := r.buildMap(f, in, res, result.SessionID, desc.Profile.TeamRef, desc.Profile.TeamName, now, now)
@@ -365,6 +415,12 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	}
 	if request != "" {
 		m.SetInboundRequest(request)
+	}
+	if ours && existing.Checkout != "" {
+		// A session of this process that is registered again (its watcher
+		// died, or its own checkout moved) is still its checkout's, wherever
+		// this hook's directory is.
+		m.Checkout = existing.Checkout
 	}
 	if err := r.adoptGrokBacklog(f.stateDir, prior, m); err != nil {
 		// The move renames one file at a time and stops at the first
@@ -382,7 +438,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			return
 		}
 	} else if err := res.store.WriteByPID(m); err != nil {
-		r.fail("session-start: session map not written", err, notConnected(protocol.CodeConfig))
+		failed("session-start: session map not written", err, notConnected(protocol.CodeConfig))
 		return
 	}
 	spawned := r.spawnWatcher(ctx, f, m, pidfileWait)
@@ -400,6 +456,13 @@ func (r *run) continueMap(f facts, in input, res resolved, existing *sessionmap.
 	// policy is derived from both.
 	if existing.InboundRequest != "" {
 		m.SetInboundRequest(existing.InboundRequest)
+	}
+	// And it is the checkout's it registered in (work item 327), wherever
+	// this start's directory is: a session that continues was not
+	// registered again. A map from before the member existed takes this
+	// start's.
+	if existing.Checkout != "" {
+		m.Checkout = existing.Checkout
 	}
 	if f.host == config.HostGrok && existing.ValidGrokReceiver() {
 		g := *existing.Grok
@@ -501,7 +564,7 @@ func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 	// use. Best effort — a session that cannot write its state directory
 	// fails at the map write below with its own line.
 	r.writeStartFacts(f, in, opts)
-	tf, key, ok := r.resolveTeam(ctx, f, opts, in)
+	tf, key, checkout, ok := r.resolveTeam(ctx, f, opts, in)
 	if !ok {
 		return resolved{}, false
 	}
@@ -560,6 +623,7 @@ func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 		notificationLine:    notificationLine,
 		opts:                opts,
 		teamKey:             key,
+		checkout:            checkout,
 		teamFile:            tf,
 		adapter:             adapter,
 		argv:                argv,
@@ -1022,56 +1086,57 @@ func pathValue(environ []string) string {
 // followed there (followMove), and the gates go on against the new pin.
 // A pin that matches because a follow outside a session's start wrote it
 // earns that follow's line here (tellFollowed).
-func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in input) (*teamfile.File, string, bool) {
+func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in input) (tf *teamfile.File, key, checkout string, ok bool) {
+	var err error
 	path, found := teamfile.Discover(in.Cwd)
 	if !found {
 		r.log.Debug("no team file discovered; Brigade stays off")
-		return nil, "", false
+		return nil, "", "", false
 	}
-	tf, err := teamfile.Parse(path)
+	tf, err = teamfile.Parse(path)
 	if err != nil {
 		r.fail("session-start: team file", err, teamFileLine(err))
-		return nil, "", false
+		return nil, "", "", false
 	}
 	canon, err := teamfile.Canonicalize(filepath.Dir(path))
 	if err != nil {
 		r.fail("session-start: canonicalize checkout", err, notConnected(protocol.CodeConfig))
-		return nil, "", false
+		return nil, "", "", false
 	}
 	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, canon)
 	if err != nil {
 		r.fail("session-start: pin store", err, notConnectedFor(err))
-		return nil, "", false
+		return nil, "", "", false
 	}
 	if !pinned {
 		r.log.Debug("no pin for this checkout", slog.String("canonical", canon))
 		r.say(notJoinedLine(tf.TeamName, r.commandName(f)))
-		return nil, "", false
+		return nil, "", "", false
 	}
 	if pin.Matches(tf) {
 		// A follow that ran outside a session's start had nobody to tell:
 		// the first hook of the checkout after it says its line.
 		r.tellFollowed(f, opts, tf, canon, pin)
-	} else if !r.followMove(ctx, f, opts, tf, canon, pin) {
+	} else if !r.followMove(ctx, f, in, opts, tf, canon, pin) {
 		// The drift line deliberately echoes NOTHING from the file: the
 		// file in front of us is unconsented input until a human reviews
 		// the change in a terminal, or until the backend the member joined
 		// says the team went where the file says (followMove).
 		r.say(driftLine)
-		return nil, "", false
+		return nil, "", "", false
 	}
-	key := teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)
+	key = teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)
 	binding, err := teamstore.LoadBinding(opts.ConfigDir, key)
 	if err != nil {
 		r.log.Debug("no binding for the pinned team", log.Err(err))
 		r.say(notJoinedLine(tf.TeamName, r.commandName(f)))
-		return nil, "", false
+		return nil, "", "", false
 	}
 	if err := teamstore.VerifyBinding(binding, tf); err != nil {
 		r.fail("session-start: binding mismatch", err, notJoinedLine(tf.TeamName, r.commandName(f)))
-		return nil, "", false
+		return nil, "", "", false
 	}
-	return tf, key, true
+	return tf, key, canon, true
 }
 
 // followMove follows the team to the backend the team file names, when
@@ -1086,12 +1151,13 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 // asks two. A session's start follows here, in its own run. The prompt
 // hook's registration retry, which runs the same resolution in a few
 // seconds, does not: it starts the follow as a child (startFollow, work
-// item 327, ADR 0007), reports the pin as it is, and a later prompt finds
-// the pin the child wrote. Every other outcome is silence here and the
+// item 327, ADR 0007), says once that the backend the member joined is
+// being asked, reports the pin as it is, and a later prompt finds the pin
+// the child wrote. Every other outcome is silence here and the
 // drift line in the caller, with the reason in the log and never in a
 // line: the file is unconsented input, and why it was not followed is the
 // member's to read in their own terminal.
-func (r *run) followMove(ctx context.Context, f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin) bool {
+func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin) bool {
 	if !teammove.Candidate(pin, tf) {
 		return false
 	}
@@ -1110,7 +1176,13 @@ func (r *run) followMove(ctx context.Context, f facts, opts config.Options, tf *
 			// starts.
 			return false
 		}
-		r.startFollow(ctx, f, opts, canon)
+		// The session is attached to nothing, and the child may join the
+		// new backend before its next prompt: it is told that the old one
+		// is being asked, once in a conversation, as a session that is
+		// attached is (moveSession).
+		if r.startFollow(ctx, f, opts, canon) {
+			r.tell(f, in, toldAsked, movedRetryLine)
+		}
 		return false
 	}
 	out, err := teammove.Follow(ctx, teammove.Inputs{
@@ -1138,6 +1210,7 @@ func (r *run) followMove(ctx context.Context, f facts, opts config.Options, tf *
 		joined = true
 	}
 	r.say(followedLine(tf, pin, joined, r.commandName(f)))
+	r.saidFollowed = true
 	// This start said the line: nothing is left for a later hook to say.
 	r.dropFollowedMark(f, opts, canon)
 	return true
@@ -1413,6 +1486,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		TranscriptPath:         transcriptPath(in),
 		TeamKey:                res.teamKey,
 		ConfigDir:              res.opts.ConfigDir,
+		Checkout:               res.checkout,
 		AdapterCommand:         res.argv,
 		PluginBin:              f.pluginBin,
 		SyncAdapter:            res.sync.adapter,

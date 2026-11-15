@@ -392,6 +392,11 @@ func (r *run) retryConnect(ctx context.Context, f facts, in input) {
 	}
 	r.log.Info("prompt: not registered; retrying the registration")
 	r.connect(ctx, f, in, min(r.deps.PidfileWait, promptPidfileWait))
+	if _, err := (sessionmap.Store{StateDir: f.stateDir}).ReadByPID(f.pid); err == nil {
+		// The session is attached now: what its conversation was told while
+		// it was not (that a follow was started for it, move.go) is over.
+		r.forgetTold(f)
+	}
 	if err := adapterkit.MkdirPrivate(filepath.Join(f.stateDir, "state")); err == nil {
 		if werr := adapterkit.WriteAtomic(stamp, []byte(r.deps.Now().Format(time.RFC3339Nano)+"\n")); werr != nil {
 			r.log.Debug("prompt: retry stamp not written", log.Err(werr))

@@ -97,7 +97,9 @@ func (r *rig) serverRoster(s session) map[string]struct{ name, inbound string } 
 //     sent on the server reaches it.
 //  5. The quiet session moves and stays quiet.
 //  6. The session that holds a message stays until the message is
-//     released, and moves then.
+//     released, through a /clear too, and moves then. A prompt of a moved
+//     session that comes from a checkout still on the old backend does not
+//     take it back.
 //  7. /clear in the second checkout follows in the start's own run and
 //     ends with a map that names the server and a session the server
 //     knows, with no heartbeat of the old session sent there first.
@@ -388,6 +390,17 @@ func TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary(t *testing.
 	if res := r.restPrompt(bob); strings.Contains(res.stdout, "followed") || strings.Contains(res.stdout, movedWords) || questions() != asked {
 		t.Fatalf("a third prompt: stdout %q", res.stdout)
 	}
+	// A session moves with the checkout it registered in and no other. Bob's second checkout has not pulled
+	// the changed file and is still pinned to the old backend: a prompt of the moved session that comes from
+	// there (the model changed directory) does not take the session back, and says and asks nothing.
+	elsewhere := bob
+	elsewhere.cwd = clearDir
+	if res := r.restPrompt(elsewhere); strings.Contains(res.stdout, "this session moves there") || strings.Contains(res.stdout, movedWords) || questions() != asked {
+		t.Fatalf("a prompt of the moved session from a checkout still on the old backend: stdout %q", res.stdout)
+	}
+	if m := r.mustMap(bob); m.TeamKey != newKey || m.BrigadeSessionID != bobMap.BrigadeSessionID || m.Checkout != canon {
+		t.Fatalf("bob's map after a prompt from his other checkout: %+v", m)
+	}
 
 	// --- 6. the quiet session moves in one prompt, the checkout having followed, and stays quiet ---------------
 	res = r.restPrompt(quiet)
@@ -411,6 +424,21 @@ func TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary(t *testing.
 		t.Fatalf("a later prompt said the lines again: stdout %q", res.stdout)
 	}
 	unmoved(held, "with a message held, a prompt later")
+	// /clear fires the session's start again: it keeps the session with its message, as a prompt does, tells
+	// the conversation that begins why, and says the context line of the session where it is.
+	held.nativeID += "-cleared"
+	res = r.restHook(held, "session-start", held.hookDoc("SessionStart", map[string]any{"source": "clear"}))
+	if !strings.Contains(res.stdout, "followed team") || !strings.Contains(res.stdout, "1 team message is held for it there") ||
+		!strings.Contains(res.stdout, `this session is "billing-held" (`+old[held.pid]+`)`) || strings.Contains(res.stdout, "not connected") {
+		t.Fatalf("/clear with a message held: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	unmoved(held, "after a /clear with a message held")
+	if m := r.mustMap(held); m.ClaudeSessionID != held.nativeID || pending() != 1 {
+		t.Fatalf("after a /clear with a message held: the map names the conversation %q, %d messages wait", m.ClaudeSessionID, pending())
+	}
+	if res := r.restPrompt(held); strings.Contains(res.stdout, "followed team") || strings.Contains(res.stdout, "stays on the backend") {
+		t.Fatalf("the prompt after the /clear said the lines again: stdout %q", res.stdout)
+	}
 	// The member releases it from a terminal: the watcher delivers it, on the backend it was sent on.
 	bobTerminal := r.terminalEnv(r.configDirB)
 	if res := r.runIn(r.checkout, bobTerminal, "", "inbox", "release", "--session", old[held.pid], "--all"); res.exit != 0 {
