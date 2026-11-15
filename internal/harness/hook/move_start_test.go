@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -19,6 +20,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
@@ -767,10 +769,12 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 
 	// The controls. A map with no live watcher may be one a dead process
 	// left: the start is of a session that is attached to nothing, and says
-	// so, the map as it was. A watcher that is alive and serves another
-	// session than the map names shows no running session either. And a
-	// member who left the team has a binding that names none: a session of
-	// theirs is not kept by a start that resolves nothing.
+	// so, the map as it was. So is a map beside the pidfile of a watcher
+	// that died: the file shows no running session, its process does. A
+	// watcher that is alive and serves another session than the map names
+	// shows no running session either. And a member who left the team has a
+	// binding that names none: a session of theirs is not kept by a start
+	// that resolves nothing.
 	for _, tc := range []struct {
 		name string
 		gone func(t *testing.T, f *fixture)
@@ -779,6 +783,17 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 			t.Helper()
 			if err := os.Remove(f.pidfilePath()); err != nil {
 				t.Fatal(err)
+			}
+		}},
+		{"the watcher died and left its pidfile", func(t *testing.T, f *fixture) {
+			t.Helper()
+			watcher := f.spawner.watcherPID
+			if err := syscall.Kill(watcher, syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			testutil.Eventually(t, pollTimeout, pollInterval, func() bool { return !alive(watcher) })
+			if !exists(f.pidfilePath()) {
+				t.Fatal("the watcher that died left no pidfile")
 			}
 		}},
 		{"the watcher that is alive serves another session", func(t *testing.T, f *fixture) {
