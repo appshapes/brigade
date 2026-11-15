@@ -91,24 +91,29 @@ func (f *fixture) timed() ([]string, time.Duration) {
 // budget: the question it had asked would end with that budget, and only
 // then would the prompt be back.
 //
-// That order is what is held, and no length of time (work item 336). A
-// prompt is back while the backend's question is unanswered, nothing having
-// ended it: no caller gave up on it and the test has not let it go. And the
-// one question on the record is the child's. Each prompt used to be held to
-// half its budget, 2 s, which a prompt that waited on nothing passed beside
-// other work on this machine: its stamps are files synced to disk, 0.25 s in
-// one run and 2.8 s in another (2026-11-14). A hook that asks the backend
-// itself still fails here, when its budget ends its question.
+// Two things are held (work item 336). The order: a prompt is back while
+// the backend's question is unanswered, nothing having ended it (no caller
+// gave up on it and the test has not let it go), and the one question on
+// the record is the child's. And the time, against a budget made long: the
+// prompt has a minute and is back in a third of it. A hook that waits, on
+// the backend, on the child or on a file the child writes, waits as long as
+// its budget lets it, the whole minute; a prompt that waits on nothing took
+// 6.4 s at the most on a core it shared with seventy other tests
+// (2026-11-15). The order alone was not enough: a hook that polled for the
+// child's pin until its budget ended passed it. Each prompt used to be held
+// to 2 s of a budget of 4 s, which is a bound a busy machine passes with a
+// hook that waits on nothing.
 func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 	t.Parallel()
-	// The budget is how long a hook that did wait would keep this test.
-	const budget = 4 * time.Second
+	const budget, within = time.Minute, time.Minute / 3
 	movedOnly := func(spec adapterkit.SpawnSpec) bool { return verbOf(spec.Argv) == "team moved" }
 
 	t.Run("a session that is attached", func(t *testing.T) {
 		t.Parallel()
 		f := newMemberFixture(t)
-		f.deps.PromptBudget = budget
+		// The child's own budget is out of the way: its question ends when
+		// the test lets it go.
+		f.deps.PromptBudget, f.deps.FollowBudget = budget, 10*budget
 		seam := attachedMember(t, f, nil, nil)
 		detachedFollows(f)
 		blocked, ended, release := hangingBackend(f, movedOnly)
@@ -116,15 +121,15 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 		pinBefore := f.checkoutPin()
 		f.moveTeamFile("team-1")
 
-		got := f.prompted()
-		if !slices.Equal(got, []string{movedLine}) || ended.Load() != 0 {
-			t.Fatalf("the prompt that started the follow: lines %q, and %d questions to the backend had ended when it was back; want the one line and the question unanswered", got, ended.Load())
+		got, took := f.timed()
+		if !slices.Equal(got, []string{movedLine}) || ended.Load() != 0 || took >= within {
+			t.Fatalf("the prompt that started the follow: lines %q in %v, and %d questions to the backend had ended when it was back; want the one line in under %v of its %v and the question unanswered", got, took, ended.Load(), within, budget)
 		}
 		if n := len(f.spawner.followed()); n != 1 {
 			t.Fatalf("%d follow children started, want 1", n)
 		}
 		// The child is where a real one would be: waiting on the old backend.
-		waitFor(t, func() bool { return blocked.Load() == 1 })
+		waitFor(t, "the follow child's question to reach the backend that hangs", func() bool { return blocked.Load() == 1 })
 		// The control: the question is on the record, so a hook that had asked
 		// it would have been seen waiting too.
 		if asks := seam.callsFor("team moved"); len(asks) != 1 || profileOf(asks[0]) != f.teamKey {
@@ -132,9 +137,9 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 		}
 		// A prompt while the child still waits: nothing said, started or asked,
 		// and it is back with the child's question still unanswered.
-		got = f.prompted()
-		if len(got) != 0 || len(f.spawner.followed()) != 1 || blocked.Load() != 1 || ended.Load() != 0 {
-			t.Fatalf("a prompt while the child waits: lines %q, %d follows, %d calls blocked, %d of them ended", got, len(f.spawner.followed()), blocked.Load(), ended.Load())
+		got, took = f.timed()
+		if len(got) != 0 || len(f.spawner.followed()) != 1 || blocked.Load() != 1 || ended.Load() != 0 || took >= within {
+			t.Fatalf("a prompt while the child waits: lines %q in %v (want under %v of its %v), %d follows, %d calls blocked, %d of them ended", got, took, within, budget, len(f.spawner.followed()), blocked.Load(), ended.Load())
 		}
 		if m := f.mustMap(); m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || f.checkoutPin() != pinBefore {
 			t.Fatalf("the session or its pin moved: %+v", m)
@@ -145,7 +150,7 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 	t.Run("a session attached to nothing", func(t *testing.T) {
 		t.Parallel()
 		f := newMemberFixture(t)
-		f.deps.PromptBudget = budget
+		f.deps.PromptBudget, f.deps.FollowBudget = budget, 10*budget
 		f.labelOldBinding()
 		f.moveTeamFile("team-1")
 		seam := f.useMoveSeam(nil, map[string][]fakeadapter.Response{
@@ -160,20 +165,20 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 		blocked, ended, release := hangingBackend(f, movedOnly)
 		t.Cleanup(release)
 
-		got := f.prompted()
-		if !slices.Equal(got, []string{movedRetryLine, driftLine}) || ended.Load() != 0 {
-			t.Fatalf("the retry that started the follow: lines %q, and %d questions to the backend had ended when it was back; want its two lines and the question unanswered", got, ended.Load())
+		got, took := f.timed()
+		if !slices.Equal(got, []string{movedRetryLine, driftLine}) || ended.Load() != 0 || took >= within {
+			t.Fatalf("the retry that started the follow: lines %q in %v, and %d questions to the backend had ended when it was back; want its two lines in under %v of its %v and the question unanswered", got, took, ended.Load(), within, budget)
 		}
 		if n := len(f.spawner.followed()); n != 1 {
 			t.Fatalf("%d follow children started, want 1", n)
 		}
-		waitFor(t, func() bool { return blocked.Load() == 1 })
+		waitFor(t, "the follow child's question to reach the backend that hangs", func() bool { return blocked.Load() == 1 })
 		if n := len(seam.callsFor("team moved")); n != asksAtStart+1 {
 			t.Fatalf("%d questions since the start, want the child's one", n-asksAtStart)
 		}
-		got = f.prompted()
-		if len(got) != 0 || len(f.spawner.followed()) != 1 || blocked.Load() != 1 || ended.Load() != 0 || f.mapExists() {
-			t.Fatalf("a prompt while the child waits: lines %q, %d follows, %d calls blocked, %d of them ended", got, len(f.spawner.followed()), blocked.Load(), ended.Load())
+		got, took = f.timed()
+		if len(got) != 0 || len(f.spawner.followed()) != 1 || blocked.Load() != 1 || ended.Load() != 0 || took >= within || f.mapExists() {
+			t.Fatalf("a prompt while the child waits: lines %q in %v (want under %v of its %v), %d follows, %d calls blocked, %d of them ended", got, took, within, budget, len(f.spawner.followed()), blocked.Load(), ended.Load())
 		}
 		release()
 	})
@@ -199,12 +204,17 @@ func TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs(t *testing.T) {
 // machine: its stamps are files synced to disk, 0.25 s in one run and 2.8 s
 // in another (2026-11-14). A lock has no list of who waits for it, so with
 // the lock held a wait shows only on a clock.
+//
+// And each prompt is back in a third of a budget of a minute, as in
+// TestAPromptDoesNotWaitOnAFollowWhoseBackendHangs: a hook that waits on
+// anything its budget ends takes the whole of it.
 func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 	t.Parallel()
+	const budget, within = time.Minute, time.Minute / 3
 	f := newMemberFixture(t)
-	// A budget no busy machine reaches: the registration of the move has it,
-	// less a second, to be answered in.
-	f.deps.PromptBudget = time.Minute
+	// The registration of the move has the budget, less a second, to be
+	// answered in.
+	f.deps.PromptBudget = budget
 	attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
 	f.moveTeamFile("team-1")
 	lockPath := filepath.Join(f.configDir, "team-move.lock")
@@ -212,8 +222,8 @@ func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 		t.Fatal("the lock's file is there before any follow: the test would hold nothing")
 	}
 
-	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) || len(f.spawner.followed()) != 1 {
-		t.Fatalf("the prompt that started the follow: lines %q, %d follows", got, len(f.spawner.followed()))
+	if got, took := f.timed(); !slices.Equal(got, []string{movedLine}) || len(f.spawner.followed()) != 1 || took >= within {
+		t.Fatalf("the prompt that started the follow: lines %q in %v (want under %v of its %v), %d follows", got, took, within, budget, len(f.spawner.followed()))
 	}
 	if exists(lockPath) {
 		t.Fatal("the prompt that started the follow asked for the follow's lock")
@@ -226,8 +236,8 @@ func TestAPromptDoesNotWaitOnTheFollowsLock(t *testing.T) {
 	if err := os.Remove(lockPath); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.prompted(); len(got) != 2 {
-		t.Fatalf("the prompt that moved the session: lines %q", got)
+	if got, took := f.timed(); len(got) != 2 || took >= within {
+		t.Fatalf("the prompt that moved the session: lines %q in %v (want under %v of its %v)", got, took, within, budget)
 	}
 	if m := f.mustMap(); m.TeamKey != teamstore.Key("rest", movedURL, "team-1") || m.BrigadeSessionID != "brigade-sess-2" {
 		t.Fatalf("the map: %+v", m)
@@ -317,38 +327,43 @@ func TestAPromptWhoseNewBackendHangsGivesUpAtTheRegistrationsDeadline(t *testing
 // not be registered. The control is the same backend answering in good
 // time, which moves the session and says so.
 //
-// Nothing here is held against the clock of the machine. The second is
-// read where the backends are asked: the deadline the registration was made
-// under, and the deadline of the poll that follows it in the same hook,
-// which runs under the hook's whole budget. Their difference is the
-// registration's second exactly, however long the hook took to get there.
-// And the backend that answers late is given up on before its answer
-// because its caller's deadline comes first, not because a prompt was
-// timed: the hook's other work, its stamps, each a file synced to disk,
-// took 0.25 s in one run and 2.8 s in another beside other agents' work on
-// this machine (measured 2026-11-14). Where the second is not enough for
-// that, the move's notice is what tells the session (move_notice_test.go).
+// Nothing here is held against the clock of the machine (work item 336
+// took out what still was: the control's answer came 200 ms into a budget
+// of 3 s, which a hook has to reach its registration 1.8 s into). The
+// control now has a budget no busy machine reaches and an answer at once.
+// The second is read in the other case, where the backends are asked: the
+// deadline the registration was made under, and the deadline of the poll
+// that follows it in the same hook, which runs under the hook's whole
+// budget. Their difference is the registration's second exactly, however
+// long the hook took to get to either, and whether or not its budget had
+// run out by then: a deadline is read off a call that is made, late or
+// not. The budget of that case is 3 s because a longer one hides both: a
+// registration has 8 s of its own and a poll 4 s, and the nearer deadline
+// is the one a call shows. And the backend that answers late is given up
+// on before its answer because its caller's deadline comes first, not
+// because a prompt was timed.
 func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 	t.Parallel()
 	// The second is written out: a test that took it from the constant would
 	// pass whatever the constant said.
-	const budget, second = 3 * time.Second, time.Second
+	const second = time.Second
 	for _, tc := range []struct {
-		name string
-		// answers is how long the new backend takes to register the session.
-		answers time.Duration
-		moves   bool
+		name   string
+		budget time.Duration
+		// late is a backend that answers half a second after the deadline
+		// its call was made under; the other answers at once.
+		late bool
 	}{
-		{"answered in good time", 200 * time.Millisecond, true},
-		{"answered after the registration's deadline and inside the budget", 2500 * time.Millisecond, false},
+		{"answered in good time", time.Minute, false},
+		{"answered after the registration's deadline and inside the budget", 3 * time.Second, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newMemberFixture(t)
-			f.deps.PromptBudget = budget
+			f.deps.PromptBudget = tc.budget
 			f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
 			attachedMember(t, f, movedDoc(movedURL, movedPin), map[string][]fakeadapter.Response{
-				"message receive": {okResp(receiveDoc())},
+				"message receive": {okResp(receiveDoc()), okResp(receiveDoc())},
 			})
 			before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
 			f.moveTeamFile("team-1")
@@ -356,31 +371,40 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 			if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
 				t.Fatalf("lines = %q", got)
 			}
-			// A backend that takes its time, as a real one does: its answer
-			// reaches a caller that is still waiting, and nobody else. It notes
-			// the deadline its call was made under, and whether its caller
-			// stopped waiting; the poll of the same hook notes its own.
+			// The backend the team went to notes the deadline its registration
+			// was made under, and whether its caller stopped waiting; the poll
+			// of the same hook, of whichever backend the session is on by
+			// then, notes its own. An answer reaches a caller that is still
+			// waiting, and nobody else.
 			var registerBy, pollBy atomic.Int64
 			var gaveUp atomic.Bool
 			inner := f.deps.Spawn
 			f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
-				onNew := profileOf(adapterCall{Argv: spec.Argv}) == newKey
-				if d, ok := ctx.Deadline(); ok && onNew && verbOf(spec.Argv) == "message receive" {
+				if d, ok := ctx.Deadline(); ok && verbOf(spec.Argv) == "message receive" {
 					pollBy.Store(d.UnixNano())
 				}
-				if verbOf(spec.Argv) != "session register" || !onNew {
+				if verbOf(spec.Argv) != "session register" || profileOf(adapterCall{Argv: spec.Argv}) != newKey {
 					return inner(ctx, spec)
 				}
-				if d, ok := ctx.Deadline(); ok {
-					registerBy.Store(d.UnixNano())
+				due, ok := ctx.Deadline()
+				if !ok {
+					t.Errorf("the registration was made under no deadline")
+					return inner(ctx, spec)
+				}
+				registerBy.Store(due.UnixNano())
+				answer := time.After(0)
+				if tc.late {
+					answer = time.After(time.Until(due) + second/2)
 				}
 				select {
-				case <-time.After(tc.answers):
-					return inner(ctx, spec)
 				case <-ctx.Done():
-					gaveUp.Store(true)
-					return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
+				case <-answer:
+					if ctx.Err() == nil {
+						return inner(ctx, spec)
+					}
 				}
+				gaveUp.Store(true)
+				return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
 			}
 			began := time.Now()
 			exit, out, errOut := f.run(SubPrompt, f.promptDoc("default"), config.OptionPollOnPrompt+"=true")
@@ -389,34 +413,34 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 			if exit != 0 || registerBy.Load() == 0 {
 				t.Fatalf("exit %d; the registration was made under a deadline: %v\n%s", exit, registerBy.Load() != 0, errOut)
 			}
-			if !tc.moves {
-				// The caller stopped waiting before the backend answered, and
-				// not before its deadline.
-				if !gaveUp.Load() || took < budget-second {
-					t.Fatalf("a registration answered after its deadline was waited for: %v; the prompt took %v, the deadline being %v", !gaveUp.Load(), took, budget-second)
+			if !tc.late {
+				if gaveUp.Load() {
+					t.Fatalf("a registration answered at once, under a budget of %v, was given up after %v", tc.budget, took)
 				}
-				if m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" {
-					t.Fatalf("a registration answered after its deadline moved the session: %+v", m)
+				if m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" {
+					t.Fatalf("a registration answered in good time did not move the session: %+v", m)
 				}
-				if !slices.Equal(got, []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine}) {
-					t.Fatalf("lines = %q", got)
+				want := []string{followedLine(tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
+				if !slices.Equal(got, want) {
+					t.Fatalf("lines = %q\nwant %q", got, want)
 				}
 				return
 			}
-			if gaveUp.Load() {
-				t.Fatalf("a registration answered in good time was given up")
+			// The caller stopped waiting before the backend answered, and
+			// not before its deadline.
+			if !gaveUp.Load() || took < tc.budget-second {
+				t.Fatalf("a registration answered after its deadline was waited for: %v; the prompt took %v, the deadline being %v", !gaveUp.Load(), took, tc.budget-second)
 			}
-			if m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" {
-				t.Fatalf("a registration answered in good time did not move the session: %+v", m)
+			if m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" {
+				t.Fatalf("a registration answered after its deadline moved the session: %+v", m)
 			}
-			want := []string{followedLine(tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
-			if !slices.Equal(got, want) {
-				t.Fatalf("lines = %q\nwant %q", got, want)
+			if !slices.Equal(got, []string{followedLine(tf, &before, true, "brigade"), moveUnreachedLine}) {
+				t.Fatalf("lines = %q", got)
 			}
 			// The poll that followed ran under the hook's whole budget: the
 			// registration's deadline was a second before the hook's.
 			if pollBy.Load() == 0 {
-				t.Fatalf("the hook did not poll the backend the session moved to: the test holds nothing of the second")
+				t.Fatalf("the hook did not poll after the registration: the test holds nothing of the second\n%s", errOut)
 			}
 			if left := time.Duration(pollBy.Load() - registerBy.Load()); left != second {
 				t.Fatalf("the registration's deadline was %v before the hook's, want %v", left, second)
@@ -425,27 +449,30 @@ func TestAMoveIsMadeOnlyWhenItsRegistrationLeavesTimeToSayIt(t *testing.T) {
 	}
 }
 
-// TestAMoveAnsweredAtTheLastMomentDoesNotWaitForAPidfile is the most that
-// can follow a registration, which is what its deadline's second is for.
-// The backend answers a quarter of a second before the registration's
-// deadline. The session's old watcher is dead and its pidfile gone, and the
+// TestAMoveDoesNotWaitForItsWatchersPidfile: what follows a registration
+// is what its deadline's second is for, and the most that could follow is a
+// wait. The session's old watcher is dead and its pidfile gone, and the
 // watcher the hook starts never writes one: a hook that waited for a
 // pidfile here would wait as long as it may, and log that none appeared.
 // The prompt that moves a session does not wait at all: nothing in it reads
 // the pidfile, a watcher that did not come up is started by the next
-// prompt, and the half second was time a move has to be said in. The
-// session moves and both lines are said.
+// prompt, and the half second of a prompt's wait was time a move has to be
+// said in. The session moves, the watcher is started, both lines are said,
+// and the log has no word of a pidfile.
 //
-// How long the prompt then takes to end is logged and not held: it is the
-// map, the resume hint, the notice and the stamps, each a file synced to
-// disk, and with this package's other tests running it varies by a second.
-// A move whose hook is stopped there is said by the next prompt
-// (TestAMoveWhoseHookWasStoppedIsSaidByTheNextPrompt).
-func TestAMoveAnsweredAtTheLastMomentDoesNotWaitForAPidfile(t *testing.T) {
+// The backend used to answer a quarter of a second before the
+// registration's deadline, under a budget of 3 s, and the test was named
+// for that last moment (work item 336). That held the hook to reaching its
+// registration within 1.75 s, and what followed the answer to fitting in a
+// quarter of a second: two guesses about the machine, and what follows a
+// registration is the same code whenever the answer comes. So the answer
+// comes at once, under a budget no busy machine reaches. How long the
+// prompt takes is not held: a hook that waits for a pidfile says so.
+func TestAMoveDoesNotWaitForItsWatchersPidfile(t *testing.T) {
 	t.Parallel()
-	const budget, lead, startWait = 3 * time.Second, 250 * time.Millisecond, 6 * time.Second
+	const startWait = 6 * time.Second
 	f := newMemberFixture(t)
-	f.deps.PromptBudget = budget
+	f.deps.PromptBudget = time.Minute
 	// A start's wait, made long: a wait would show.
 	f.deps.PidfileWait = startWait
 	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
@@ -462,57 +489,35 @@ func TestAMoveAnsweredAtTheLastMomentDoesNotWaitForAPidfile(t *testing.T) {
 	}
 	f.spawner.watcherPID = 0
 	spawns := f.spawner.count()
-	// The backend answers lead before the deadline its call was made under,
-	// and notes when that was, as time since the prompt began.
-	var began time.Time
-	var answered atomic.Int64
-	inner := f.deps.Spawn
-	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
-		if verbOf(spec.Argv) != "session register" || profileOf(adapterCall{Argv: spec.Argv}) != newKey {
-			return inner(ctx, spec)
-		}
-		due, ok := ctx.Deadline()
-		if !ok {
-			t.Errorf("the registration was made under no deadline")
-			return inner(ctx, spec)
-		}
-		select {
-		case <-time.After(time.Until(due) - lead):
-			answered.Store(int64(time.Since(began)))
-			return inner(ctx, spec)
-		case <-ctx.Done():
-			return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller stopped waiting"}
-		}
-	}
-	began = time.Now()
+	began := time.Now()
 	exit, out, errOut := f.run(SubPrompt, f.promptDoc("default"))
 	took := time.Since(began)
-	at := time.Duration(answered.Load())
-	if exit != 0 || at == 0 {
-		t.Fatalf("exit %d; the backend's answer was waited for: %v\n%s", exit, at != 0, errOut)
+	if exit != 0 {
+		t.Fatalf("exit %d\n%s", exit, errOut)
 	}
 	if m := f.mustMap(); m.TeamKey != newKey || m.BrigadeSessionID != "brigade-sess-2" || f.spawner.count() != spawns+1 {
-		t.Fatalf("a registration answered before its deadline did not move the session, or started %d watchers: %+v", f.spawner.count()-spawns, m)
+		t.Fatalf("the registration did not move the session, or started %d watchers: %+v\n%s", f.spawner.count()-spawns, m, errOut)
 	}
 	want := []string{followedLine(tf, &before, true, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
 	if got := lines(out); !slices.Equal(got, want) {
 		t.Fatalf("lines = %q\nwant %q", got, want)
 	}
 	// It did not look for the watcher's pidfile: a hook that waits for one
-	// that never appears says so in its log, and takes at least that long.
-	if after := took - at; strings.Contains(errOut, "watcher pidfile did not appear") || after >= startWait {
-		t.Fatalf("the prompt waited for the watcher's pidfile: it ended %v after the backend's answer\n%s", after, errOut)
+	// that never appears says so in its log.
+	if strings.Contains(errOut, "watcher pidfile did not appear") {
+		t.Fatalf("the prompt waited for the watcher's pidfile; it took %v\n%s", took, errOut)
 	}
-	t.Logf("the backend answered %v after the prompt began, and the prompt ended %v after that", at.Round(time.Millisecond), (took - at).Round(time.Millisecond))
+	t.Logf("the prompt that moved the session took %v", took.Round(time.Millisecond))
 }
 
-// waitFor waits for cond, which another goroutine makes true.
-func waitFor(t *testing.T, cond func() bool) {
+// waitFor waits for cond, which another goroutine makes true, and when it
+// gives up says what it waited for.
+func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(pollTimeout)
 	for !cond() {
 		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting")
+			t.Fatalf("waited %v for %s, which did not come", pollTimeout, what)
 		}
 		time.Sleep(pollInterval)
 	}
