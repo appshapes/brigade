@@ -33,9 +33,11 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 - **The ticket is kept as it was given.** The server keeps the hash of every other secret it is handed. It
   hands this one to the team's members, so it keeps the ticket itself: in its state, in the record of the log,
   which is sealed under the key beside it, and in every snapshot that holds the record, which is plain text.
-  Whoever can read the data directory can read it, as they can read every message. After a clear, the entries
-  of the log and the snapshots that are still kept hold it until they are let go. No line the server writes
-  holds any of it.
+  Whoever can read the data directory can read it, as they can read every message. After a clear, the snapshots
+  that are still kept and the log's earlier entries go on holding it. The server sets no end to that stay: the
+  file log keeps every entry, and the feed lets a recording go only once it has been rolled and a snapshot is
+  due, so what ends a cleared ticket's use is closing the move at the backend the team went to, or the ticket's
+  own end. No line the server writes holds any of it.
 - **The server says who recorded where a team went, and who cleared it.** `member <reference> recorded that team
   <name> (<team reference>) moved to <address> (adapter <name>, certificate <pin>): its members' sessions follow
   it there, and the team stays here as it is`, and `member <reference> cleared the record of where team <name>
@@ -58,19 +60,22 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
   - **From the first record of a move, a server before 0.8.0 does not start on that directory.** The record is
     of a kind it does not know, `team.move_recorded`, and the snapshot that holds it names a new format, 4,
     which an older server passes over: it would otherwise read a team that moved as one that did not, and its
-    members would stop following with nothing to say so. A 0.7.0 writes two lines and ends with status 1:
-    `the snapshot <file> is passed over: it is of format 4, and this build reads formats 1 to 3`, and `the log
-    could not be read from the snapshot's position, <n>: not an entry: unknown variant
-    `team.move_recorded`, expected one of …`. Neither names the version to run, because 0.7.0 was released
-    before there was one: it is 0.8.0 or later.
+    members would stop following with nothing to say so. A 0.7.0 ends with status 1, and what it writes first
+    is one of two things. Where a snapshot holds the record, as one does once the 0.8.0 has stopped, started
+    again or reached its next snapshot since the record, it writes `the snapshot <file> is passed over: it is
+    of format 4, and this build reads formats 1 to 3`, once for each such snapshot it meets before one it can
+    read, and then `the log could not be read from the snapshot's position, <n>: not an entry: unknown variant
+    `team.move_recorded`, expected one of …`. Where the 0.8.0 was killed after the record and before its next
+    snapshot, no snapshot holds the record yet, and it writes the second line alone. Neither line names the
+    version to run, because 0.7.0 was released before there was one: it is 0.8.0 or later.
   - **Once every such record is cleared and the server has written a snapshot since**, which a stop does, a
     0.7.0 starts on the directory again: the newest snapshot is format 3, and the entries before it are not
     read. Until that snapshot is written it does not: the log still holds the record.
   Measured on 2026-11-15 with the released 0.7.0, built from the tag `server-v0.7.0`, on directories this build
-  wrote: it started and answered on one with no record, ended with the two lines above on one that held a
-  record, and started and answered again after the record was cleared and the server stopped. 0.8.0 reads the
-  snapshots and the log of every earlier release as they are, and says of a snapshot of a format later than
-  its own which build to run.
+  wrote, on the file log and on the Cavalry feed: it started and answered on one with no record, ended as above
+  on one that held a record, in each of the two cases, and started and answered again after the record was
+  cleared and the server stopped. 0.8.0 reads the snapshots and the log of every earlier release as they are,
+  and says of a snapshot of a format later than its own which build to run.
 
 ## [0.7.0] — 2026-11-15
 

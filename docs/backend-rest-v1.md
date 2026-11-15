@@ -248,8 +248,10 @@ follow its team on the word of the backend the member joined it on.
     `invalid_input` naming the member. A `ticket` that is missing, that is not a join secret, that carries
     another `team_ref` than the request's, or that is longer than the server keeps is `invalid_input` naming
     `ticket`, in words that hold nothing of it: a ticket of another team would admit nobody where the team
-    went. `clear` beside any member of a record, and a `clear` that is not a boolean, is `invalid_input` naming
-    `clear`. A server keeps the ticket, so it may hold it to a cap of its own, of 512 code points or more:
+    went. `clear: true` beside an `adapter`, a `url`, a `certificate` or a `ticket` that is not `null`, an empty
+    one included, and a `clear` that is neither a boolean nor `null`, is `invalid_input` naming `clear`.
+    `clear: false`, like a `clear` that is `null`, is the same as no `clear`: the request is then a record. A
+    server keeps the ticket, so it may hold it to a cap of its own, of 512 code points or more:
     `brigade-server` takes 1024.
 - **`/v1/team/moved`** answers the record: 4.4.10's result, `{"team_ref", "moved": false}` for a team with none.
   `with_ticket: true` asks for the ticket as well, and the result of a team with a record then carries it as
@@ -257,9 +259,13 @@ follow its team on the word of the backend the member joined it on.
   `--ticket-file`, writes it to that file (mode 0600) and answers BAP/1's result, which carries `ticket_file`
   and no ticket.
 - **Who is answered.** `/v1/team/move` answers the team's owner only, by §3a's rule and with its refusals,
-  checked before anything else of the request is read: every other caller reads the one `unauthorized`, for a
-  record and for a clear alike. `/v1/team/moved` answers every active member of the team, by §3's rule: anyone
-  else, a member that left or was revoked included, is the byte-identical `unauthorized` of 4.5.7.
+  checked before any member of the request but its `team_ref` is acted on: every other caller reads the one
+  `unauthorized`, for a record, for a clear and for a request that reads as neither. What is answered before
+  that check is the same for every caller and says nothing about any team: a body over the cap and a body
+  that is not one JSON object are `invalid_input` (§1), a caller with no credential the server knows is
+  `unauthenticated` (§3), and a `team_ref` that is missing, empty or not a string is `invalid_input`.
+  `/v1/team/moved` answers every active member of the team, by §3's rule: anyone else, a member that left or
+  was revoked included, is the byte-identical `unauthorized` of 4.5.7.
 - **The record changes nothing else.** The team stays on the server as it is: no membership ends, no session is
   closed, and no join, registration or message is refused for it. A member that has not followed yet still
   reaches the team here, and that is how it reads the record. Ending the team here is no part of a move.

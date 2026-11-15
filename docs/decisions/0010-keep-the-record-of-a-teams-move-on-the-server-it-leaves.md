@@ -48,9 +48,12 @@ carries the two commands that write and read it.
    second record takes the place of the first, and a clear is safe to repeat. **`/v1/team/moved`** answers the
    record, and carries the ticket only to a request that asks for it.
 3. **The record is the team's owner's alone to write and to clear.** Every other caller reads the one
-   `unauthorized` a stranger to a team that does not exist reads, checked before the request is looked at.
-   **Every active member reads it** and may take the ticket; a member that left, was revoked or was banned reads
-   nothing. The refusals are the ones BAP/1 fixes for the other backends.
+   `unauthorized` a stranger to a team that does not exist reads, checked before any member of the request but
+   its `team_ref` is acted on. What is answered before that check is the same for every caller and says nothing
+   about any team: a body over the cap, a body that is not one JSON object, and a `team_ref` that is missing,
+   empty or not a string are `invalid_input`, and a caller with no credential the server knows is
+   `unauthenticated`. **Every active member reads it** and may take the ticket; a member that left, was revoked
+   or was banned reads nothing. The refusals are the ones BAP/1 fixes for the other backends.
 4. **The record changes nothing else on the server the team leaves.** The team stays there as it is: no
    membership ends, no session is closed, and no join, registration or message is refused for it. A member who
    has not followed still reaches the team there, which is how its session reads the record. Ending the team
@@ -173,8 +176,11 @@ All on 2026-11-15, on this machine (macOS, Apple silicon), in the worktree of wo
   server the owner is not always the team's creator: it is whoever took the team in, the first member to join a
   team the operator took in, or the principal the operator named. The last two were ways to administer a team;
   they are now ways to redirect it. `docs/security.md` sections 20 and 21 state that.
-- A server's data directory holds one secret that is not a hash, for as long as a record stands and, in the
-  log's earlier entries and the snapshots still kept, for a while after it is cleared.
+- A server's data directory holds one secret that is not a hash, for as long as a record stands and, after it
+  is cleared, in the snapshots still kept and in the log's earlier entries. The server sets no end to that
+  stay: the file log keeps every entry, and the feed lets a recording go only once it has been rolled and a
+  snapshot is due, so what ends a cleared ticket's use is closing the move at the backend the team went to, or
+  the ticket's own end.
 - A server before 0.8.0 does not start on a data directory on which a move was recorded.
 - The one command has one step more, which asks the server a team moves to two things it was never asked.
 - The old server keeps a team that moved, with its messages and its gateways, until someone ends it there, and

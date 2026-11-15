@@ -225,13 +225,18 @@ server is moved to another with the one command and its members follow. The sect
 moves **to**; this one is the server a team **leaves**. BAP/1 does not change.
 
 - **`/v1/team/move`** is an administration path (`Command::administration_path`): `answer` holds the caller to
-  `owned_team` before the request's shape is read, so every other caller reads one refusal for a record, for a
-  clear and for a request that reads as neither. **`/v1/team/moved`** is a team-scoped path, as a roster is:
-  `member_team`, then the read. Neither is answered without a credential.
-- **Two forms** of `/v1/team/move`, read in `wire.rs` in the order the stand-in reads them: `clear`, which goes
-  with `team_ref` alone, then the adapter, the url and the certificate within BAP/1's caps, then the ticket. A
-  ticket is a `JoinSecret` that carries the request's `team_ref`, within `limits::MAX_MOVE_TICKET_CHARS`; what is
-  not is `Error::not_a_move_ticket`, fixed words that name `ticket`.
+  `owned_team` before any member of the request but its `team_ref` is acted on, so every other caller reads one
+  refusal for a record, for a clear and for a request that reads as neither. What `answer` tells before that is
+  the same for every caller and says nothing about any team: a body over the cap and one that is not one JSON
+  object are `invalid_input`, a caller with no credential the server knows is `unauthenticated`, and a
+  `team_ref` that is missing, empty or no string is `invalid_input`. **`/v1/team/moved`** is a team-scoped
+  path, as a roster is: `member_team`, then the read. Neither is answered without a credential.
+- **Two forms** of `/v1/team/move`, read in `wire.rs` in the order the stand-in reads them: `clear`, which when
+  `true` goes with no `adapter`, `url`, `certificate` or `ticket` that is not null, while `false` and null are
+  no `clear`; then the adapter, the url and the certificate within BAP/1's caps, then the ticket. A ticket is a
+  `JoinSecret` that carries the request's `team_ref`, within `limits::MAX_MOVE_TICKET_CHARS`; what is not is
+  `Error::not_a_move_ticket`, fixed words that name `ticket` and spell no format of a join secret: the
+  adapter's redactor takes that format for a secret, and the person would read the hint as `[redacted]`.
 - **Two records.** `team.move_recorded` holds the destination and the ticket; `team.move_cleared` names the
   team. Applying the first puts `Team.moved_to` in the place of the record the team had, with the record's own
   time as `recorded_at`; applying the second takes it away. A clear of a team that has no record makes no entry.
@@ -390,6 +395,10 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
 - A team that moved away stays on the server it left, with its messages and its gateways, until someone ends
   it there, and nothing ends one (ADR 0010). The record of where it went is followed one move at a time: a
   member whose machine missed a move does not follow the next.
+- Nothing bounds how often a team's owner records where the team went: ADR 0004 counts no record, each one is
+  an entry of the log, of 17,649 bytes at the caps (measured on the file log on 2026-11-15), and only the state
+  keeps one. A bound needs a `rate_limited` reason that BAP/1 4.6 does not list and a count in the state, so
+  work item 341 built none.
 - Nothing removes a team from a server. On one that asks for no creation token, a stranger can take in a team
   under a reference that is not theirs, with a secret of their own, and the real team's take-in then answers
   `conflict` (ADR 0006; `docs/security.md`, section 20). A creation token keeps a stranger from it.

@@ -1415,11 +1415,14 @@ what differs. The server is experimental in its 0.1.0.
   ticket as it was given: the one secret it keeps that is not a hash, because it hands it to the team's active
   members. It is in the data directory with everything else, in the log and in the snapshots, so whoever can
   read the directory, or a copy of it, can join the team where it went, as a member and never as its owner,
-  until the ticket ends. Clearing the record takes it out of what the server holds now; the log's earlier
-  entries and the snapshots that are still kept hold it until they are let go. No line the server writes holds
-  it. And the server the team leaves keeps the team as it is: nothing is ended, closed or refused there because
-  the team moved, so that a member who has not followed can still read the record, and nothing removes the team
-  afterwards. What its members wrote stays on that server for as long as its data directory does.
+  until the ticket ends. Clearing the record takes it out of what the server holds now; the snapshots that are
+  still kept and the log's earlier entries go on holding it. The server sets no end to that stay: the file log
+  keeps every entry, and the feed lets a recording go only once it has been rolled and a snapshot is due, so
+  what ends a cleared ticket's use is closing the move at the backend the team went to, or the ticket's own
+  end. No line the server writes holds it. And the server the team leaves keeps the team as it is: nothing is
+  ended, closed or refused there because the team moved, so that a member who has not followed can still read
+  the record, and nothing removes the team afterwards. What its members wrote stays on that server for as long
+  as its data directory does.
 - **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
   here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
   revokes or bans a member and transfers the team. Three things differ from section 9. A team that the operator
