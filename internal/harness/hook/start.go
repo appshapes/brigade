@@ -1127,7 +1127,17 @@ func (r *run) followMove(ctx context.Context, f facts, opts config.Options, tf *
 		return false
 	}
 	r.log.Info("followed the team's recorded move", slog.Bool("joined", out.Joined))
-	r.say(followedLine(tf, pin, out.Joined, r.commandName(f)))
+	// This start's line is the member's only word of how the machine got in.
+	// When a child that a prompt started made the join, and this follow found
+	// the membership there (it completed a child that was stopped before its
+	// pin, or the child wrote the pin while this one waited for the lock),
+	// the child's mark is what says that the ticket was used, as it does for
+	// a child that completes another (leaveFollowedMark).
+	joined := out.Joined
+	if mark, marked := readFollowedMark(config.MoveFollowedMark(f.stateDir, opts.ConfigDir, canon), teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)); marked && mark.Joined {
+		joined = true
+	}
+	r.say(followedLine(tf, pin, joined, r.commandName(f)))
 	// This start said the line: nothing is left for a later hook to say.
 	r.dropFollowedMark(f, opts, canon)
 	return true
