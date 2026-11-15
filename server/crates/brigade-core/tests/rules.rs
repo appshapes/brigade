@@ -5273,6 +5273,141 @@ fn whatever_the_records_say_a_team_keeps_one_key_and_a_principal_has_one_team_th
     assert_eq!(state.principals, before.principals);
 }
 
+/// A state as it is read from a snapshot that `change` wrote differently: the state's own snapshot,
+/// with whatever the change did to its members.
+fn read_as_written(state: &State, change: impl Fn(&mut Value)) -> State {
+    let mut written = serde_json::to_value(state).unwrap();
+    change(&mut written);
+    serde_json::from_value(written).unwrap()
+}
+
+#[test]
+fn a_state_that_is_read_has_the_way_back_to_a_key_from_what_its_team_keeps() {
+    // What a team keeps is the one fact of a key. The way from the owner back to it is read off that
+    // whenever a state is read, and is in no snapshot: so whatever a snapshot says of it, the owner's
+    // own record ends the key.
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let mut rig = Rig::new();
+    let owner = member_of(&take_in_keyed(&mut rig, None, &secret, KEY).unwrap());
+    let member = rig.join(&secret, "bob");
+    let north = "a-team-the-operator-took-in";
+    rig.import("north", &secret_of(north, "of-the-north")).unwrap();
+    assert_eq!(rig.state.principals[&owner.principal_ref].retry_key_in, ELSEWHERE);
+
+    // The snapshot holds the hash with the team, and nothing of the way back.
+    let written = serde_json::to_string(&rig.state).unwrap();
+    assert!(written.contains(&sha256_hex(KEY)) && written.contains("take_in_retry"));
+    assert!(!written.contains("retry_key_in"), "{written}");
+
+    let (owner_ref, member_ref) = (owner.principal_ref.clone(), member.principal_ref.clone());
+    type Change = Box<dyn Fn(&mut Value)>;
+    let snapshots: [(&str, Change); 5] = [
+        ("as this build writes it", Box::new(|_| {})),
+        // What a 0.7.0 of before this rule wrote: the way back as a member of the principal.
+        (
+            "with the way back an earlier build wrote",
+            Box::new({
+                let owner_ref = owner_ref.clone();
+                move |written| written["principals"][&owner_ref]["retry_key_in"] = json!(ELSEWHERE)
+            }),
+        ),
+        (
+            "with a way back that names another team",
+            Box::new({
+                let owner_ref = owner_ref.clone();
+                move |written| written["principals"][&owner_ref]["retry_key_in"] = json!(north)
+            }),
+        ),
+        (
+            "with a way back that names no team at all",
+            Box::new({
+                let owner_ref = owner_ref.clone();
+                move |written| written["principals"][&owner_ref]["retry_key_in"] = json!("no-such-team")
+            }),
+        ),
+        (
+            "with a way back on a principal no team keeps a key for",
+            Box::new(move |written| written["principals"][&member_ref]["retry_key_in"] = json!(ELSEWHERE)),
+        ),
+    ];
+    for (what, change) in snapshots {
+        // Each reads to the state the server holds, the way back included: the state a replay makes.
+        let read = read_as_written(&rig.state, change);
+        assert_eq!(read, rig.state, "{what}");
+        assert_eq!(read, replayed(&rig), "{what}");
+        assert_eq!(
+            read.principals[&owner.principal_ref].retry_key_in, ELSEWHERE,
+            "{what}"
+        );
+        assert_eq!(read.principals[&member.principal_ref].retry_key_in, "", "{what}");
+
+        // A server goes on from it. The owner registers a session with the credential of the first
+        // answer: its own record, which ends the key. No take-in is made again before it, because its
+        // join would write the way back by itself.
+        let mut restarted = Rig::new();
+        restarted.state = read;
+        restarted.now = rig.now;
+        restarted.advance(60);
+        restarted.register(&owner, "alpha");
+        assert_eq!(restarted.state.teams[ELSEWHERE].take_in_retry, None, "{what}");
+        assert_eq!(
+            restarted.state.principals[&owner.principal_ref].retry_key_in, "",
+            "{what}"
+        );
+        let stranger = take_in_keyed(&mut restarted, None, &secret, KEY).unwrap();
+        assert_eq!(
+            (&stranger["taken_in"], &stranger["owner"]),
+            (&json!(false), &json!(false)),
+            "{what}"
+        );
+        assert_ne!(stranger["principal_ref"], json!(owner.principal_ref), "{what}");
+        assert!(known(&mut restarted, &owner.credential), "{what}");
+    }
+    // The positive control: the state that was read keeps the key, and before the owner asks anything
+    // the take-in is made again.
+    let mut restarted = Rig::new();
+    restarted.state = read_as_written(&rig.state, |_| {});
+    restarted.now = rig.now;
+    let again = take_in_keyed(&mut restarted, None, &secret, KEY).unwrap();
+    assert_eq!(
+        (&again["principal_ref"], &again["owner"]),
+        (&json!(owner.principal_ref), &json!(true))
+    );
+
+    // A snapshot in which two teams keep a key for one principal, as no record leaves it: the state
+    // that is read is whole all the same. The principal has one team that keeps its key, the last in
+    // the order of the teams' references, and the other team keeps none.
+    let (first, last) = if north < ELSEWHERE {
+        (north, ELSEWHERE)
+    } else {
+        (ELSEWHERE, north)
+    };
+    let twice = read_as_written(&rig.state, |written| {
+        written["teams"][north]["take_in_retry"] =
+            json!({"key_hash": sha256_hex(OTHER_KEY), "principal_ref": owner.principal_ref});
+    });
+    assert_eq!(twice.teams[first].take_in_retry, None);
+    assert_eq!(
+        twice.teams[last]
+            .take_in_retry
+            .as_ref()
+            .map(|kept| kept.principal_ref.as_str()),
+        Some(owner.principal_ref.as_str())
+    );
+    assert_eq!(twice.principals[&owner.principal_ref].retry_key_in, last);
+    // And a key kept for a principal the snapshot does not hold is read as it is, with no way back to
+    // write: nothing is made for it.
+    let nobodys = read_as_written(&rig.state, |written| {
+        written["teams"][north]["take_in_retry"] = json!({"key_hash": sha256_hex(OTHER_KEY), "principal_ref": "a-principal-the-state-does-not-hold"});
+    });
+    assert_eq!(nobodys.principals, rig.state.principals);
+    assert!(nobodys.teams[north].take_in_retry.is_some());
+    assert_eq!(
+        nobodys.teams[ELSEWHERE].take_in_retry,
+        rig.state.teams[ELSEWHERE].take_in_retry
+    );
+}
+
 #[test]
 fn a_log_written_before_a_retry_key_had_an_end_replays_to_one_state() {
     // What a 0.7.0 of before a key had an end wrote, in the records it wrote them in: the take-in with a

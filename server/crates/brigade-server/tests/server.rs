@@ -2773,14 +2773,15 @@ fn an_owners_own_request_ends_its_retry_key(name: &str, ask: impl Fn(&Server, &s
     let (status, taken) = server.post(None, "/v1/team/take-in", &keyed(&secret));
     assert_eq!(status, 200, "{taken}");
     let alice_ref = text(&taken["result"], "principal_ref");
-    // The state the server starts from holds the key: its hash with the team, and the team with the
-    // owner, which is the way from the owner's own record back to the key.
+    // The state the server starts from holds the key: its hash with the team, which is the one fact of
+    // a key that a snapshot holds. The way from the owner's own record back to the key is read off it
+    // when the snapshot is read, and is not written.
     server.stop();
     let written = snapshots(&scratch);
     let newest = written.last().unwrap();
     assert!(
-        newest.contains(&key_hash) && newest.contains("retry_key_in"),
-        "the newest snapshot does not hold the key's hash and the way back to it"
+        newest.contains(&key_hash) && newest.contains("take_in_retry") && !newest.contains("retry_key_in"),
+        "the newest snapshot does not hold the key's hash with the team, or holds the way back to it"
     );
     let server = Server::start(&scratch, &arguments);
     // The positive control: before the owner asks anything, the take-in is made again.
@@ -2875,6 +2876,166 @@ fn an_owner_that_rotates_the_secret_ends_its_retry_key() {
         );
         rotated
     });
+}
+
+/// Writes the newest snapshot again with `change` made to the state it holds, and with the checksum of
+/// what it holds then: what a build that wrote the state differently would have left in the directory.
+fn rewrite_the_newest_snapshot(scratch: &Scratch, change: impl Fn(&mut Value)) {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(scratch.path("data").join("snapshots"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    files.sort();
+    let newest = files.last().unwrap();
+    let bytes = std::fs::read(newest).unwrap();
+    let end_of_header = bytes.iter().position(|byte| *byte == b'\n').unwrap();
+    let mut header: Value = serde_json::from_slice(&bytes[..end_of_header]).unwrap();
+    let mut state: Value = serde_json::from_slice(&bytes[end_of_header + 1..]).unwrap();
+    change(&mut state);
+    let body = serde_json::to_vec(&state).unwrap();
+    let mut covered = format!("{}\n{}\n", header["format"], header["position"]).into_bytes();
+    covered.extend_from_slice(&body);
+    header["sha256"] = json!(brigade_core::hash::sha256_hex_of(&covered));
+    let mut written = serde_json::to_vec(&header).unwrap();
+    written.push(b'\n');
+    written.extend_from_slice(&body);
+    std::fs::write(newest, written).unwrap();
+}
+
+/// What a team keeps is the one fact of a key, and the way from its owner back to it is read off that
+/// when a snapshot is read. So a snapshot that says something else of the way back, or nothing, starts a
+/// server on which the owner's own record ends the key: `way_back` is what the snapshot says, as the
+/// member a 0.7.0 of before this rule wrote on the principal, or nothing.
+///
+/// With `the_owner_asks` the owner registers a session with the credential of the first answer, and the
+/// same take-in is a stranger's join from then on, after a kill as well. No take-in is made again before
+/// it: its join would write the way back by itself. Without, the take-in is made again: the positive
+/// control that the snapshot the server started from keeps the key.
+fn a_server_starts_from_a_snapshot_that_says_this_of_the_way_back(
+    name: &str,
+    log: &str,
+    way_back: Option<&str>,
+    the_owner_asks: bool,
+) {
+    let scratch = Scratch::new(name);
+    let arguments = log_arguments(log, &scratch);
+    let secret = format!("brg1.{ELSEWHERE}.kept-from-the-other-backend");
+    let team = json!({"team_ref": ELSEWHERE});
+    let keyed =
+        json!({"join_secret": secret, "team_name": "ops", "human_label": "alice", "retry_key": RETRY_KEY});
+    let key_hash = brigade_core::hash::sha256_hex(RETRY_KEY);
+    let server = Server::start(&scratch, &arguments);
+    let (status, taken) = server.post(None, "/v1/team/take-in", &keyed);
+    assert_eq!(status, 200, "{taken}");
+    let (alice_ref, held) = (
+        text(&taken["result"], "principal_ref"),
+        text(&taken["result"], "credential"),
+    );
+    server.stop();
+
+    // The snapshot the stop wrote, written again: the way back as it is to be read, and another name
+    // for the team, by which the server shows that this is the snapshot it started from. A snapshot
+    // whose checksum is wrong is passed over for the log, which would say nothing of this.
+    let named = "ops, as the snapshot has it";
+    rewrite_the_newest_snapshot(&scratch, |state| {
+        state["teams"][ELSEWHERE]["team_name"] = json!(named);
+        assert!(state["teams"][ELSEWHERE]["take_in_retry"]["key_hash"] == json!(key_hash));
+        assert!(state["principals"][&alice_ref].get("retry_key_in").is_none());
+        if let Some(way_back) = way_back {
+            state["principals"][&alice_ref]["retry_key_in"] = json!(way_back);
+        }
+    });
+    let server = Server::start(&scratch, &arguments);
+    assert_eq!(
+        server.ok(&held, "/v1/team/members", &team)["team_name"],
+        json!(named),
+        "the server did not start from the snapshot that was written again"
+    );
+
+    if !the_owner_asks {
+        let (status, again) = server.post(None, "/v1/team/take-in", &keyed);
+        assert_eq!(status, 200, "{again}");
+        assert_eq!(
+            (&again["result"]["principal_ref"], &again["result"]["owner"]),
+            (&json!(alice_ref), &json!(true))
+        );
+        server.stop();
+        return;
+    }
+    register(&server, &held, ELSEWHERE, "alpha");
+    let stranger = |server: &Server| {
+        let (status, joined) = server.post(None, "/v1/team/take-in", &keyed);
+        assert_eq!(status, 200, "{joined}");
+        assert_eq!(
+            (&joined["result"]["taken_in"], &joined["result"]["owner"]),
+            (&json!(false), &json!(false)),
+            "the owner's own record did not end the key: {joined}"
+        );
+        assert_ne!(joined["result"]["principal_ref"], json!(alice_ref));
+    };
+    stranger(&server);
+    // The owner's credential is the one it held: a key that ended replaces nothing.
+    assert_eq!(
+        server.ok(&held, "/v1/team/members", &team)["members"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    // A kill, and the same snapshot with the log after it: the key is ended still.
+    server.kill();
+    let server = Server::start(&scratch, &arguments);
+    stranger(&server);
+    server.ok(&held, "/v1/team/members", &team);
+    server.stop();
+    let written = snapshots(&scratch);
+    let newest = written.last().unwrap();
+    assert!(
+        !newest.contains("take_in_retry") && !newest.contains("retry_key_in") && !newest.contains(&key_hash),
+        "the newest snapshot keeps a key that its owner ended"
+    );
+}
+
+#[test]
+fn the_way_back_to_a_key_is_read_off_what_the_team_keeps_whatever_a_snapshot_says_of_it() {
+    // As this build writes a snapshot: nothing of the way back. As a 0.7.0 of before this rule wrote
+    // it: the team, on the principal. And two that disagree: another team, and no team at all.
+    let snapshots = [
+        ("way-back-not-written", None),
+        ("way-back-written", Some(ELSEWHERE)),
+        (
+            "way-back-to-another-team",
+            Some("a-team-that-keeps-no-key-for-it"),
+        ),
+        ("way-back-to-nothing", Some("")),
+    ];
+    for (name, way_back) in snapshots {
+        a_server_starts_from_a_snapshot_that_says_this_of_the_way_back(name, "file", way_back, true);
+    }
+    // The positive control: a server that starts from such a snapshot keeps the key.
+    a_server_starts_from_a_snapshot_that_says_this_of_the_way_back(
+        "way-back-control",
+        "file",
+        Some("a-team-that-keeps-no-key-for-it"),
+        false,
+    );
+}
+
+#[cfg(feature = "cavalry")]
+#[test]
+fn the_way_back_to_a_key_is_read_off_what_the_team_keeps_on_the_cavalry_feed() {
+    a_server_starts_from_a_snapshot_that_says_this_of_the_way_back(
+        "way-back-not-written-cavalry",
+        "cavalry",
+        None,
+        true,
+    );
+    a_server_starts_from_a_snapshot_that_says_this_of_the_way_back(
+        "way-back-to-another-team-cavalry",
+        "cavalry",
+        Some("a-team-that-keeps-no-key-for-it"),
+        true,
+    );
 }
 
 /// The conformance suite through the bundled `rest` adapter: the contract's section 6.

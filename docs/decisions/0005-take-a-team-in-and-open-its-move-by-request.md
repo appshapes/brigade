@@ -82,7 +82,9 @@ A running server takes a team in, and opens and closes its move, by request.
      acted, or is one that only the team's owner is answered for, and the two records of a move say whether its
      owner asked for them. The contract asks a server for no less than this and allows no more: no later than
      the first such request that changes what the server holds, and no earlier than the first that carries the
-     credential.
+     credential. Of a key the state holds one fact, what the team keeps (`Team::take_in_retry`, the hash and
+     the principal): the way from that principal back to the team (`Principal::retry_key_in`) is read off it
+     whenever a state is read, and is written to no snapshot.
    - The key lives in a file with the protection of the credential it stands in for, on the machine that owns
      the team. The `rest` adapter mints it before the request, or uses the one an earlier attempt for the same
      server and the same team left. It keeps it in `take-in-key.json` beside `credential.json` (mode 0600,
@@ -323,7 +325,7 @@ no hosted project was asked.
   - Mutation of the server: 36 one-line changes to `state.rs` and `execute.rs`, 35 caught. The one that is
     not ends a key at `session.resumed`, which changes nothing a request can show. A `session.opened` that
     ends no key was caught by two tests and not by the walk as it first stood; the walk catches it now, and a
-    snapshot that leaves out the key or the way back to it. Three more to the journal's lines, each caught.
+    snapshot that leaves out the key. Three more to the journal's lines, each caught.
   - Mutation of the adapter, the stand-in server and the probe: 43 one-line changes, 39 caught.
     One that let the stand-in end a key when its owner lists the sessions was caught by none, and a line of a
     test catches it now. The four that are left change nothing that stays or that a test can reach: a join
@@ -347,6 +349,20 @@ no hosted project was asked.
     name the owner. And `brigade team revoke-credentials` acts for the team a checkout's file names: in a
     checkout that still names the backend the team leaves it revokes the membership there. Both by runs of
     the built `brigade` against the stand-in server.
+  - One fact of a key. The way back was a member of the snapshot as well, and a snapshot that held the key
+    and not the way back started a server on which the owner's own session did not end the key: shown on the
+    built server, with the member taken out of a snapshot and its checksum made right, where the same take-in
+    was then answered for the owner and made its credential unknown. A state is now read through one
+    function that reads the way back off the teams, and the member is neither written nor read. A test of the
+    rules reads the state from five snapshots (as this build writes it, as the earlier one did, with a way
+    back to another team, to no team, and on a principal no team keeps a key for): each is the state a replay
+    makes, and the owner's session ends the key. A snapshot in which two teams keep a key for one principal
+    reads to a state in which the last of them does. The built server starts from four such snapshots on the
+    file log and two on the Cavalry feed, each written again with its checksum, and the same take-in is a
+    stranger's join after the owner's session and after a kill. The walk's 99 starts and its replay from an
+    empty state hold as before. Six one-line changes to the reading, each caught, two of them against the
+    server as a process as well. 0.6.0 and 0.5.0 read the snapshots without the member: 76 checks each, on
+    the file log and on the Cavalry feed.
 - Not measured: a move of a real team from a hosted project by these requests, and an answer lost by a real
   proxy or a real timeout. The command that makes the requests from the administrator's machine is the next
   part of work item 328.
@@ -380,8 +396,8 @@ no hosted project was asked.
   keeps the key file through that answer and says what to do: `profile revoke-credentials`, and the take-in
   again, which is then answered for the owner. It says so on its own stderr. A caller that keeps an adapter's
   stderr in a log, as `brigade team move --to` does, shows the person nothing of it.
-- A server keeps one hash more for a team that was taken in with a key, and one reference more for its owner,
-  until that owner's first request that leaves a record.
+- A server keeps one hash more for a team that was taken in with a key, and in memory one reference more for
+  its owner, until that owner's first request that leaves a record.
 - The rule is as whole as the list of records it reads. A request of the owner's that leaves a record
   `State::apply` does not read for it would not end the key. There is none today: each request that can be an
   owner's first is held to the rule in the tests, and a request that is added later needs its arm there and its

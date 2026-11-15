@@ -90,8 +90,10 @@ more that is written only for a team that was taken in, and the record of a join
 written only when the take-in carried a retry key: the key's hash. A take-in made again is the records of a
 credential made unknown, a credential issued and a join, which carries the hash again. The records of a move
 that is opened and closed have one member more, written only when the team's owner asked by request. There is no
-new kind of record and the snapshot's format stays 3; a team that keeps a key, and the owner it keeps it for,
-have one member more in it until the key ends. A 0.6.0 starts on a 0.7.0 directory and a 0.7.0 on a 0.6.0 one. A
+new kind of record and the snapshot's format stays 3; a team that keeps a key has one member more in it until
+the key ends, the key's hash and the owner it is kept for. That is all a snapshot holds of a key: the way from
+the owner back to the team is read off it when a snapshot is read, so no snapshot can hold a key that its
+owner's own request does not end. A 0.6.0 starts on a 0.7.0 directory and a 0.7.0 on a 0.6.0 one. A
 0.6.0 reads past the members it does not know and writes no key in its own snapshot, so a take-in whose answer
 was lost, made again after a 0.6.0 wrote one, joins as a member. The operator's commands are unchanged, and
 `--import-team` writes the record it always wrote.

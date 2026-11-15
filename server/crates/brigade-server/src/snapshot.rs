@@ -37,10 +37,11 @@ use serde::{Deserialize, Serialize};
 /// a team or opened a session in that hour.
 ///
 /// What a team keeps of a take-in that carried a retry key, since server 0.7.0, is in the state without a
-/// format of its own as well: the hash of the key and the principal the take-in made, on the team, and the
-/// team, on that principal, for as long as the key is kept. A build before that drops both, and it answers
-/// no take-in at all, so it has nothing to hold against them; a snapshot without them reads as a team whose
-/// take-in can be made again by nobody.
+/// format of its own as well: the hash of the key and the principal the take-in made, on the team, for as
+/// long as the key is kept. That is the one fact of a key and all a snapshot holds of one: the way from the
+/// principal back to the team is read off it when the snapshot is read, and is not written. A build before
+/// 0.7.0 drops the team's member, and it answers no take-in at all, so it has nothing to hold against it; a
+/// snapshot without it reads as a team whose take-in can be made again by nobody.
 const FORMAT: u32 = 3;
 
 /// The oldest snapshot format this build reads. A snapshot of format 1 holds no secret version and no ban,

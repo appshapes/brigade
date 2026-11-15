@@ -169,6 +169,10 @@ owner. The operator's three commands stay as they are, and call the same functio
   (`retry_key_hash`, written only when it is not empty) when the request made a principal and made it the
   team's owner, in either branch, and applying that record sets `Team.take_in_retry` to the hash and the
   principal, and `Principal.retry_key_in` to the team: the way back from a record that names the principal.
+  The team's member is the one fact of a key and all a snapshot holds of one. The principal's is never
+  written and never read: `State` is read through `Written`, which reads it off the teams
+  (`find_the_ways_back`), so a snapshot of any build starts a server on which the owner's own record ends
+  the key.
   `repeated_take_in` tells a take-in made again: no credential the state knows, the team's current secret
   and the kept hash. `join` then acts for that principal, and `reissue_credential` writes a
   `credential.revoked` for every credential that names it and one `credential.issued`, in the entry of the
