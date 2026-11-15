@@ -8,11 +8,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/policy"
+	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
@@ -251,9 +254,14 @@ func TestAFollowsLineIsSaidByAStartThatThenKeepsTheSession(t *testing.T) {
 		// asked is true when a prompt started the follow as a child before
 		// the start: the start then finds the pin written and the mark left.
 		asked bool
+		// old is true for a session whose map names no checkout, written
+		// before the map named one: the checkout that followed is the one
+		// its next prompt gives it, so the line is its own all the same.
+		old bool
 	}{
-		{"the start follows in its own run", false},
-		{"the start finds the mark a child left", true},
+		{"the start follows in its own run", false, false},
+		{"the start finds the mark a child left", true, false},
+		{"the start follows for a session whose map names no checkout", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -268,6 +276,9 @@ func TestAFollowsLineIsSaidByAStartThatThenKeepsTheSession(t *testing.T) {
 				if got := f.prompted(); !slices.Equal(got, []string{movedLine}) || !exists(mark) {
 					t.Fatalf("the prompt that started the follow: %q; a mark is left: %v", got, exists(mark))
 				}
+			}
+			if tc.old {
+				f.withoutCheckout()
 			}
 			missing := config.OptionFrameFile + "=" + filepath.Join(t.TempDir(), "no-such-clause.txt")
 			f.nativeID = otherConversation
@@ -336,5 +347,91 @@ func TestAFollowOfAnotherCheckoutIsSaidAndOwesTheSessionsOwnNothing(t *testing.T
 	want := []string{followedLine(tf, &before, false, "brigade"), startLine("payments-api", "brigade-sess-2", teamName, "accept")}
 	if got := f.prompted(); !slices.Equal(got, want) {
 		t.Fatalf("the prompt that moved the session:\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestAStartThatKeepsASessionFilesItAsAnyStartDoes: what a start that keeps
+// a session files for the conversation that begins is the session's, as a
+// start that continues files it. In a project that shares a state folder
+// the session's entry is stamped by the start. The team's Brigade Board is
+// in the line of the file sync the session has, which is how the
+// conversation that begins learns that the board exists. And the notice of
+// a move whose hook was stopped has nothing left to tell once the start has
+// said the context line: it goes.
+func TestAStartThatKeepsASessionFilesItAsAnyStartDoes(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	doc := fileOf(f.checkoutPin())
+	doc["sync"] = map[string]any{"folders": []string{".brigade"}, "state": ".brigade/state", "board": true}
+	if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), mustJSON(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registerSeam(t, f)
+	startMember(t, f)
+	before, oldPin := f.mustMap(), f.checkoutPin()
+	if before.StateFolder == "" || before.BoardFolder == "" {
+		t.Fatalf("the session's map before the start: state folder %q, board %q", before.StateFolder, before.BoardFolder)
+	}
+	store := state.Store{StateDir: f.stateDir, Folder: before.StateFolder}
+	started := f.now
+	// What a hook that was stopped after a move leaves: its notice.
+	notice := config.MovedNotice(f.stateDir, f.key())
+	if err := os.WriteFile(notice, []byte(`{"version":1,"was":"a-session-before","from":"`+teamstore.Key("rest", movedURL, "team-9")+`"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.memberOf("team-1")
+	other, _ := f.addCheckout("on-the-server", otherSettings(serverFile("team-1")), serverPin("team-1", oldPin.URL))
+	f.now = started.Add(time.Hour)
+	f.nativeID, f.cwd = otherConversation, other
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("clear"))
+	want := []string{
+		startLine("payments-api", "brigade-sess-1", teamName, "accept"),
+		"Brigade: file sync on: 1 folder(s) and the team's Brigade Board of work items (`brigade work-item list`) through syncthing.",
+	}
+	if exit != 0 || !slices.Equal(lines(out), want) {
+		t.Fatalf("exit %d, lines\n%q\nwant\n%q\n%s", exit, lines(out), want, errOut)
+	}
+	if e, err := store.Load("brigade-sess-1"); err != nil || !e.UpdatedAt.Equal(f.now) || !e.EndedAt.IsZero() {
+		t.Fatalf("the session's entry after the start that kept it: %+v, %v", e, err)
+	}
+	if exists(notice) {
+		t.Fatalf("the notice of a move outlived a start that said the context line")
+	}
+}
+
+// TestAStartThatKeepsASessionWithNoWatcherSaysItsFileSyncIsOff: file sync
+// runs in the watcher. A session whose watcher is gone is kept by a start
+// that names its own conversation, while a message is held for it; its map
+// still lists folders, and nothing syncs them until a prompt starts the
+// watcher again. The start says so, as a start that resolved says it, and
+// not that file sync is on.
+func TestAStartThatKeepsASessionWithNoWatcherSaysItsFileSyncIsOff(t *testing.T) {
+	t.Parallel()
+	f := newMemberFixture(t)
+	doc := fileOf(f.checkoutPin())
+	doc["sync"] = map[string]any{"folders": []string{"docs/shared", "notes"}}
+	if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), mustJSON(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registerSeam(t, f)
+	startMember(t, f)
+	f.memberOf("team-1")
+	if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), mustJSON(otherSettings(serverFile("team-1"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tf := f.movedFile()
+	f.addCheckoutPin(f.canon(), serverPin("team-1", ""))
+	if err := pendingStoreOf(f).Save(inbound.PendingFile{Entries: heldEntries(1, "payments-api"), UpdatedAt: fixedTime}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(f.pidfilePath()); err != nil {
+		t.Fatal(err)
+	}
+	// The same conversation: with no watcher alive, that is what shows the
+	// map to be this process's.
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+	want := []string{rejoinedLineOf(thisCheckout, tf), moveWaitsLine(1), startLine("payments-api", "brigade-sess-1", teamName, "accept"), syncOffLine(syncOffNoWatcher)}
+	if exit != 0 || !slices.Equal(lines(out), want) {
+		t.Fatalf("exit %d, lines\n%q\nwant\n%q\n%s", exit, lines(out), want, errOut)
 	}
 }
