@@ -322,9 +322,11 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 		return err
 	}
 	// destHost names the backend the team goes to for a reader, and destFrom
-	// is what follows --from in a command a line prints to be run: the host,
-	// and the whole address where the host names two backends of the team
-	// (backendName).
+	// is what follows --from in a command a line prints to be run on this
+	// machine: the host, and the whole address where the host names two
+	// backends of the team (backendName). A command printed for the owner of
+	// a record there is for a machine of theirs, whose memberships this one
+	// cannot see: it carries the whole address (ownersFrom).
 	destHost, destFrom := attrLine(hostOf(f.URL)), addressLine(backendNameIn(configDir, f.TeamRef, f.URL))
 	line := "record that team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ") moved from " + attrLine(hostOf(source.URL)) +
 		" to " + moveDestination(f.Adapter, f.URL, f.Certificate)
@@ -386,7 +388,7 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 			": the answer to the clear of that record did not arrive (`brigade team move --show --from "+destFrom+"` says; `brigade team move --clear --from "+destFrom+"` clears it)")
 	case held != nil:
 		lines = append(lines, destHost+" still records that the team left it for "+moveDestination(held.Adapter, held.URL, held.Certificate)+
-			": that record is its owner's to clear there, with `brigade team move --clear --from "+destFrom+"`")
+			": that record is its owner's to clear there, with `brigade team move --clear --from "+ownersFrom(f.URL)+"`")
 	}
 	return writeLines(inv.Out, append(lines,
 		"recorded on "+attrLine(hostOf(source.URL))+": team \""+nameLine(f.TeamName)+"\" ("+sanitizeID(f.TeamRef)+") moved to "+
@@ -396,6 +398,15 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 			"` stops this backend from saying where the team went)",
 	)...)
 }
+
+// ownersFrom is what follows --from in a command a line prints for the
+// owner of a record to run, in a checkout of the team on a machine of
+// their own: the backend's whole address, always. backendName names a
+// backend by its host where this machine has joined the team on one
+// backend of that host; the owner's machine may have joined it on two, and
+// there the host is refused as naming more than one (work item 341). The
+// whole address names one backend on every machine.
+func ownersFrom(url string) string { return addressLine(url) }
 
 // reasonBackendsNameEachOther: recording a move would leave the backend
 // the team goes to and the one it leaves each saying that the team is on
@@ -482,7 +493,7 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 		Code: protocol.CodeConflict,
 		Message: destHost + " records that this team left it for " + sourceHost + ", and that record could not be cleared (" + why + "). " +
 			"Recording the move on " + sourceHost + " would leave the two each saying that the team is on the other, and a session could be sent back and forth. " +
-			"The team's owner on " + destHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + destFrom + "`; then run this again. Nothing was recorded",
+			"The team's owner on " + destHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + ownersFrom(f.URL) + "`; then run this again. Nothing was recorded",
 		Details: map[string]string{"reason": reasonBackendsNameEachOther},
 	}
 }

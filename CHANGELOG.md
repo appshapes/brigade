@@ -166,7 +166,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   names both, so every command a move prints carries the backend's whole
   address after `--from` there, and runs as it is printed. An address
   in a printed command, and one that tells two backends apart, is never
-  cut, however long: it used to be cut at 64 characters. The same
+  cut, however long: it used to be cut at 64 characters. And a command
+  printed for the owner of a record to run on a machine of their own
+  always carries the whole address, since this machine cannot see what
+  that one has joined. The same
   `--to` command run again on a machine that has joined the team on more
   than one other backend finds the one the team is leaving where the
   checkout says which it is: the backend its pin still names, after a

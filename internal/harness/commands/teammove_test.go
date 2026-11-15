@@ -524,7 +524,9 @@ func TestTeamMoveClearsTheServersOwnRecordBeforeItRecords(t *testing.T) {
 	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeConflict, reasonBackendsNameEachOther)
 	for _, need := range []string{
 		r.newHost + " records that this team left it for " + r.oldHost, "each saying that the team is on the other",
-		"`brigade team move --clear --from " + r.newHost + "`", "Nothing was recorded",
+		// The command is for the owner of that record, on a machine of
+		// theirs: it names the server by its whole address (work item 341).
+		"`brigade team move --clear --from " + r.newURL + "`", "Nothing was recorded",
 	} {
 		if !strings.Contains(perr.Message, need) {
 			t.Errorf("the refusal lacks %q: %s", need, perr.Message)
@@ -863,5 +865,44 @@ func TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole(t *testing.T) {
 	}
 	if need := "(`brigade team move --show --from " + long + "` says; `brigade team move --clear --from " + long + "` clears it)"; !strings.Contains(r.f.out.String(), need) {
 		t.Errorf("the line of a record that may stand lacks %q:\n%s", need, r.f.out.String())
+	}
+}
+
+// TestACommandPrintedForTheOwnersMachineCarriesTheWholeAddress (work item
+// 341): two of the commands the record's own form prints are not for the
+// machine that printed them. The record a server holds of a team's
+// leaving is its owner's to clear, and the line names the command for the
+// owner to run, in a checkout of the team on a machine of their own. It
+// named the server as this machine would: by its host, where this machine
+// has joined the team on one backend of that host. The owner's machine
+// may have joined it on two, and there the host is refused as naming more
+// than one. A command printed for another machine carries the whole
+// address, which names one backend on every machine.
+func TestACommandPrintedForTheOwnersMachineCarriesTheWholeAddress(t *testing.T) {
+	t.Parallel()
+	left := func(adapter, url string) string {
+		return `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"` + adapter + `","url":"` + url + `","recorded_at":"2026-11-10T12:00:00Z"}`
+	}
+	refused := failAnswer(protocol.CodeUnauthorized, "not an active member of this team")
+
+	// The server's record names the backend the team is leaving, and its
+	// clear is refused: nothing is recorded, and the owner clears it.
+	r := newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", refused)
+	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket)), protocol.CodeConflict, reasonBackendsNameEachOther)
+	if need := "The team's owner on " + r.newHost + " clears it, in a checkout of the team: `brigade team move --clear --from " + r.newURL + "`"; !strings.Contains(perr.Message, need) {
+		t.Errorf("the refusal lacks %q: %s", need, perr.Message)
+	}
+
+	// The record names a third place: the move is recorded, and the line
+	// names the command for the owner of the record that stands.
+	r = newMoveRig(t, true)
+	r.there.on("team moved", okAnswer(left("rest", "https://third.example.test"))).on("team move", refused)
+	r.f.rec.on("team move", okAnswer(r.recorded()))
+	if err := Team(r.inv(true, "--ticket-file", r.ticket)); err != nil {
+		t.Fatal(err)
+	}
+	if need := "that record is its owner's to clear there, with `brigade team move --clear --from " + r.newURL + "`"; !strings.Contains(r.f.out.String(), need) {
+		t.Errorf("the line of a record that stands lacks %q:\n%s", need, r.f.out.String())
 	}
 }
