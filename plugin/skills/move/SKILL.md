@@ -77,8 +77,11 @@ move itself is not one of them: it meets the session's own permission rule, as a
 - If it stopped **after** the team was taken in, it says `Run the same command again`: do that once the cause is
   gone. Every step is safe to repeat.
 - If it says that this machine has joined the team on more than one other backend, the team moved before and
-  nothing says which backend it is leaving now. The refusal names them. Ask the user which one, and run the
-  same command with `--from <host>`: that is their answer, not a second try of yours.
+  nothing in this checkout says which backend it is leaving now. The refusal names them and prints the command
+  once for each, with its `--from`. Ask the user which backend the team is on, and run that one: that is their
+  answer, not a second try of yours.
+- If it says that the address is the server this team is on, relay it and stop: a team is not moved onto its
+  own server, and a server's new certificate is a change of `.brigade.json` and a join, which the message says.
 - If it says that the server is the same server under another address, or a copy of its data, relay it and
   stop: a team is not moved to either, and the server's address is its operator's to change.
 - If it says that the option `team_move_in_session` is off, the user turned moves off for their sessions:

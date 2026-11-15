@@ -120,6 +120,17 @@ func TestThePagesOfAMoveSayWhatTheCommandDoes(t *testing.T) {
 			need:  []string{"the command its last line named", "--from <host>"},
 		},
 		{
+			why:   "a record alone does not choose the backend a command that is run again leaves: the checkout does, and the refusal prints the command for each backend",
+			files: []string{admin, "CHANGELOG.md"},
+			gone:  []string{"finds the backend the team is leaving by itself: the one whose record names the server", "by the record that names the server, or by the checkout's own pin"},
+			need:  []string{"A record alone does not choose"},
+		},
+		{
+			why:   "a team is not moved onto the server it is on, whatever the certificate: a new certificate is a change of the team file and a join",
+			files: []string{admin},
+			need:  []string{"is the server this team is on", "not a move"},
+		},
+		{
 			why:   "a server's journal has no line for a rotation or a revocation: what shows them is what each command prints",
 			files: []string{operator},
 			gone:  []string{"your journal has the rotation and the revocations"},

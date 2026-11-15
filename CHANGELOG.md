@@ -57,7 +57,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   leaving, it records nothing and names the command that clears it. A
   stop after the record was cleared says that it is gone, and a clear
   whose answer did not arrive says that the record may be cleared and
-  that `brigade team move --show --from <host>` reads it.
+  that `brigade team move --show --from <host>` reads it, in either form
+  of the command.
+- **A team is not moved onto the server it is on.** `brigade team move
+  --to` with the address `.brigade.json` already names, under another
+  `--certificate` or none, is refused before anything is asked: it used
+  to repoint the machine's membership to the pin that was typed and have
+  the server record that the team had moved to itself. A server's new
+  certificate is a change of the team file and a `brigade team join`.
+- **`--on` names two backends of one team apart by their url.** Where a
+  host and port name two servers of the team, under two paths, the
+  refusal names both urls; it used to say to add `--team`, which was
+  given.
 - **A session goes nowhere between two backends that name each other.**
   No command leaves two backends each recording that the team moved to
   the other, and a session does not rely on that: when the backend it
@@ -120,13 +131,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   an earlier move or an attempt that left it joined elsewhere, that line
   is now `brigade team move --clear --from <host>`: without `--from` the
   command asks which backend is meant. The same `--to` command run again
-  on such a machine no longer asks: it finds the backend the team is
-  leaving by the record that names the server, or by the checkout's own
-  pin when a run was stopped before it wrote it. Where neither says, as
-  after `--clear`, it changes nothing and names the backends and the
-  flag; and where one of those backends does not answer what it records,
-  it chooses none, because that one may be the backend the team is
-  leaving, and says to run it again when it answers or with `--from`.
+  on such a machine finds the backend the team is leaving where the
+  checkout says which it is: the backend its pin still names, after a
+  run that was stopped before it wrote the pin, or the one a session
+  there followed from. A record alone does not choose, because a backend
+  the team left long ago for the same server still says so. Where the
+  checkout says nothing, as in the one the command itself joined to the
+  server, it changes nothing, names the backends and prints itself for
+  each with its `--from`; and where one of those backends does not
+  answer what it records, it chooses none either, and says to run it
+  again when it answers.
   The line either refusal prints is the whole command: it carries
   `--certificate sha256:…` for a server that made its own certificate,
   as does the address the command prints for a move back to an earlier

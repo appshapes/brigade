@@ -73,9 +73,12 @@ What it does, in this order:
 
 Run the same command again after a failure: every step is safe to repeat, and the command says so when it stops
 part way. On a machine that has joined the team on more than one earlier backend, which is every machine whose
-team moved before, the command run again finds the backend the team is leaving by itself: the one whose record
-names the server, or the one this checkout was last joined to. When neither says, as after `--clear`, it changes
-nothing, names them and the flag, and you run it again with `--from <host>`. Each run opens the move again, which replaces its ticket on the server, so run a move that is finished
+team moved before, the command run again has to know which of them the team is leaving. The checkout says: the
+backend it is still joined to, where a run stopped after it wrote `.brigade.json`, or the backend a session
+there followed from. A record alone does not choose: a backend the team left long ago for this same server
+still says so. In the checkout the command itself joined to the server nothing says, so it changes nothing,
+names them and the flag, prints itself once for each with its `--from`, and you run the one that names the
+backend the team is on. Each run opens the move again, which replaces its ticket on the server, so run a move that is finished
 again only for a reason: if that run stops before it has recorded the new ticket, the record hands out the one
 that was replaced, and a member who has not followed yet does not follow until you run the command once more.
 Move at a quiet moment: messages that are waiting on the old backend stay there, and a running session that
@@ -105,7 +108,8 @@ was already there.
 | the server this team is on keeps no record of where a team goes | It is older than 0.8.0. Its operator updates it ([Keep the server](../../project-owner/server/keep-the-server.md#update-it)); then run the command again. Until then each member joins the new server with the secret file. |
 | the team is taken in on the server, and it still records that the team left it | The team was on that server before, and its record of the leaving could not be cleared or read. Nothing was recorded on the backend the team is leaving, so no session follows yet. Remove the cause the refusal names and run the same command again. |
 | the answer to the clear of that record did not arrive, so the record may be cleared all the same | The same stop, when the server did not answer the clear: it may have cleared the record, and `brigade team move --show --from <that server's host>` says. Run the same command again either way. |
-| this machine has joined this team on more than one other backend | You ran a move again whose `.brigade.json` already names the server, and nothing says which backend the team is leaving. The refusal names them: run the same command with `--from <host>`. Where it says that one of them did not answer what it records, that backend may be the one the team is leaving, so nothing was chosen: run the command again when it answers, or with `--from <host>`. The line the refusal prints is the whole command, with `--certificate sha256:…` for a server that made its own certificate. |
+| is the server this team is on | You named the server `.brigade.json` already names, with another `--certificate` than the file has, or with none. A team is moved to another server, not onto its own. A server's new certificate is a change of `certificate` in `.brigade.json` and a `brigade team join` in each checkout, not a move; a move to that server that you are running again takes the `--certificate` the file has, which the refusal prints. |
+| this machine has joined this team on more than one other backend | You ran a move again whose `.brigade.json` already names the server, and nothing in this checkout says which backend the team is leaving; a record that names the server does not say it by itself. The refusal names them and prints the command for each: run the one whose `--from` is the backend the team is on. Where it says that one of them did not answer what it records, that backend may be the one the team is leaving, so nothing was chosen: run the command again when it answers, or with `--from <host>`. The line the refusal prints is the whole command, with `--certificate sha256:…` for a server that made its own certificate. |
 | the same server under another address, or a copy of its data | The server you named holds the team with a membership your machine has: on the server the team is on, or on one it was on before. A team is not moved to the server it is on, nor to a copy; to move it back to a server it was on before, name that server by the address your machine knows, which the refusal prints with the certificate's fingerprint where that server made its own. The command ended the membership it had made there; when it could not, it names the one command that does. To change a server's address, its operator starts a fresh server at the new one ([Move it](../../project-owner/server/keep-the-server.md#move-it)). |
 | the old backend holds a record of a move already, and a private file for its ticket could not be written | The command names the directory under Brigade's state directory: make it one you can write, and run the command again. |
 | the record was cleared while this command was checking it | Someone cleared it from another machine. Run the command again. |
@@ -215,7 +219,8 @@ server's side, and you do yours in three steps.
    that the team left it, a team that comes back, the record's own form clears that record first, as the one
    command does, and says so. When it cannot, and that record names the backend the team is leaving, it
    records nothing and names the command that clears it: the two would otherwise each say that the team is on
-   the other. The ticket is read from the file: it is never an
+   the other. When the clear got no answer it says that instead, because the record may be cleared all the
+   same, and that `brigade team move --show --from <host>` reads it. The ticket is read from the file: it is never an
    argument, and nothing printed repeats it. Keep the file outside the repository, and delete it once the move
    is recorded. Then [push the team file](#2-push-the-team-file).
 
