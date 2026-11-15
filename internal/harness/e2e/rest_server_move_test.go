@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
@@ -263,14 +266,18 @@ func TestATeamMovesFromOneServerToAnotherByOneCommandThroughTheRealBinary(t *tes
 //  2. The owner runs the one command in a terminal. Neither session moves.
 //  3. The member's first prompt says that the file names another backend
 //     and starts the follow; a later one says the follow's line and
-//     registers the session on the new server under the name it had. A
-//     third says nothing.
+//     registers the session on the new server under the name it had. The
+//     one after that says nothing.
 //  4. The owner's session moves at its next prompt on her own command:
 //     nothing is followed, and the line says so.
 //  5. A new watcher serves each session, the old ones are gone, and
 //     messages reach both on the new server, each once.
 //  6. The first server lists neither session as online any more, and still
 //     holds the team and its record.
+//
+// A session moves at a prompt that has time to register it, which on a
+// loaded machine is not always the first: steps 3 and 4 prompt until it has
+// moved (moved), and hold what those prompts said, each line once.
 func TestRunningSessionsFollowAMoveFromOneServerToAnotherThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	from, to := startRestBackend(t), startRestBackend(t)
@@ -314,6 +321,32 @@ func TestRunningSessionsFollowAMoveFromOneServerToAnotherThroughTheRealBinary(t 
 		m.said.WriteString(res.stdout + res.stderr)
 		return res
 	}
+	// moved prompts s until its session is registered on the new server, and
+	// returns what those prompts said. One prompt does it where the machine
+	// has time to spare. A prompt has a few seconds for the registration, and
+	// on a loaded machine an adapter child may not start within them: the
+	// session then says once that it could not be registered, stays where it
+	// is, and tries again at a later prompt, a minute later at the earliest.
+	// That is what its member sees, and the member prompts again; here the
+	// minute is made to pass by taking the stamp away. waitLong is the hang
+	// catcher for a session that never moves.
+	moved := func(s session) string {
+		t.Helper()
+		var said strings.Builder
+		testutil.Eventually(t, waitLong, pollEvery, func() bool {
+			res := prompt(s)
+			said.WriteString(res.stdout)
+			if r.mustMap(s).TeamKey == newKey {
+				return true
+			}
+			t.Logf("a prompt did not move the session, and it is prompted again: stdout %q\nstderr %s", res.stdout, res.stderr)
+			if err := os.Remove(config.RegisterRetryStamp(r.stateDirOf(s), s.pid)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("the registration's retry stamp: %v", err)
+			}
+			return false
+		})
+		return said.String()
+	}
 
 	// --- 2. the owner moves the team from her terminal ---------------------------------------------------
 	res := m.move(m.terminal, "y\n", moveArgs(to, r.secretFile)...)
@@ -341,30 +374,30 @@ func TestRunningSessionsFollowAMoveFromOneServerToAnotherThroughTheRealBinary(t 
 	if pin := m.pinOf(r.configDirB); pin.Adapter != "rest" || pin.Certificate != to.certificate || pin.MovedFrom != m.oldPin.URL {
 		t.Fatalf("the member's pin after the follow: %+v", pin)
 	}
-	res = prompt(bob)
+	said := moved(bob)
 	bobMap := r.mustMap(bob)
-	if !strings.Contains(res.stdout, `followed team "`+teamName+`" to `+where) || !strings.Contains(res.stdout, recorded+" on "+m.oldHost) ||
-		!strings.Contains(res.stdout, "with the move's ticket, under the label you had") ||
-		!strings.Contains(res.stdout, `this session is "`+bobName+`" (`+bobMap.BrigadeSessionID+`)`) || strings.Contains(res.stdout, bobLabel) {
-		t.Fatalf("the prompt that moved the member's session: stdout %q\nstderr %s", res.stdout, res.stderr)
+	if strings.Count(said, `followed team "`+teamName+`" to `+where) != 1 || !strings.Contains(said, recorded+" on "+m.oldHost) ||
+		!strings.Contains(said, "with the move's ticket, under the label you had") ||
+		strings.Count(said, `this session is "`+bobName+`" (`+bobMap.BrigadeSessionID+`)`) != 1 || strings.Contains(said, bobLabel) {
+		t.Fatalf("the prompts that moved the member's session: stdout %q", said)
 	}
 	if bobMap.TeamKey != newKey || bobMap.BrigadeSessionID == old[bob.pid] || bobMap.SessionName != bobName || !sessionmap.IsBundledRest(bobMap.AdapterCommand) {
-		t.Fatalf("the member's map after the second prompt: %+v", bobMap)
+		t.Fatalf("the member's map after it moved: %+v", bobMap)
 	}
 	if res := prompt(bob); strings.Contains(res.stdout, "followed") || strings.Contains(res.stdout, movedWords) {
 		t.Fatalf("the member's third prompt said the move again: stdout %q", res.stdout)
 	}
 
 	// --- 4. the owner's session moves on her own command ------------------------------------------------
-	res = prompt(alice)
+	said = moved(alice)
 	aliceMap := r.mustMap(alice)
-	if !strings.Contains(res.stdout, rejoined+where+" now, and this session moves there with it.") ||
-		!strings.Contains(res.stdout, `this session is "`+aliceName+`" (`+aliceMap.BrigadeSessionID+`)`) ||
-		strings.Contains(res.stdout, "followed") || strings.Contains(res.stdout, recorded) || strings.Contains(res.stdout, "not connected") {
-		t.Fatalf("the prompt of the owner's session: stdout %q\nstderr %s", res.stdout, res.stderr)
+	if strings.Count(said, rejoined+where+" now, and this session moves there with it.") != 1 ||
+		strings.Count(said, `this session is "`+aliceName+`" (`+aliceMap.BrigadeSessionID+`)`) != 1 ||
+		strings.Contains(said, "followed") || strings.Contains(said, recorded) || strings.Contains(said, "not connected") {
+		t.Fatalf("the prompts of the owner's session: stdout %q", said)
 	}
 	if aliceMap.TeamKey != newKey || aliceMap.BrigadeSessionID == old[alice.pid] || aliceMap.SessionName != aliceName {
-		t.Fatalf("the owner's map after her prompt: %+v", aliceMap)
+		t.Fatalf("the owner's map after it moved: %+v", aliceMap)
 	}
 
 	// --- 5. new watchers, the old ones gone, and messages on the new server ------------------------------
