@@ -356,13 +356,24 @@ fn private_dir(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("{} could not be created: {error}", path.display()))
 }
 
+/// The file of the data directory that holds the record key.
+const RECORD_KEY: &str = "record.key";
+
+/// Whether `data` holds a record key, which is what tells a server's data directory from any other: a
+/// server makes the key on its first start, before it makes anything else, and never starts without it.
+/// A command that must not make a directory into a server's asks this before it opens anything.
+#[must_use]
+pub fn holds_a_record_key(data: &Path) -> bool {
+    data.join(RECORD_KEY).is_file()
+}
+
 /// The key every entry is sealed under: read from `record.key` in the data directory, and made there on
 /// the first start. A second instance is given a copy of the file.
 ///
 /// A key is made only in a directory that holds nothing of a server's yet. A directory with a log and no
 /// key has lost it, and a new key would open nothing that is there.
 fn record_key(data: &Path) -> Result<[u8; KEY_BYTES], String> {
-    let path = data.join("record.key");
+    let path = data.join(RECORD_KEY);
     let malformed = || {
         format!(
             "{} is not a record key: it holds {} hexadecimal digits",

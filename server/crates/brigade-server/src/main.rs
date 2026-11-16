@@ -379,6 +379,19 @@ fn take_back(taken: &TakeBack) -> Result<(), String> {
 /// writes is the one account of what it removed, because the state holds nothing of the team afterwards:
 /// the team's name, how many members its roster showed, and who owned it.
 fn remove_team(removed: &RemoveTeam) -> Result<(), String> {
+    // Every command here makes the data directory when it is not there, with a key and a log, as a first
+    // start does. For a removal that would turn a path that was typed wrongly into a server's directory,
+    // and then say that the server holds no such team, of a command that cannot be undone. So this one
+    // makes nothing: it runs on a directory a server has run on, which its record key tells, or not at
+    // all.
+    let data = &removed.options.data;
+    if !engine::holds_a_record_key(data) {
+        return Err(format!(
+            "the team was not removed: {} is not a server's data directory: it holds no record.key, which \
+             a server makes on its first start",
+            data.display()
+        ));
+    }
     alone(&removed.options, |runtime, engine| {
         // A refusal is the rules' own fixed text, and repeats nothing the command line held.
         let result = runtime

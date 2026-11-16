@@ -7074,10 +7074,19 @@ fn the_operator_removes_a_team_with_everything_it_holds_and_frees_its_reference(
         (Code::Conflict, "other_join_secret")
     );
 
-    // A team the server does not hold is refused, and nothing is made. A reference is held as it was
-    // given: another spelling of it is another reference.
+    // A team the server does not hold is refused, and nothing is made. A reference is compared as it
+    // was given, byte for byte: another case, a space before it or after it, and the end of a line after
+    // it, are each another reference, which names no team.
     let (before, entries) = (rig.state.clone(), rig.log.len());
-    for no_such in ["no-such-team", &ELSEWHERE.to_uppercase(), ""] {
+    for no_such in [
+        "no-such-team",
+        "",
+        &ELSEWHERE.to_uppercase(),
+        &format!(" {ELSEWHERE}"),
+        &format!("{ELSEWHERE} "),
+        &format!("{ELSEWHERE}\n"),
+        &format!("\t{ELSEWHERE}\r\n"),
+    ] {
         let nowhere = rig.remove_team(no_such).unwrap_err();
         assert_eq!(wire(&nowhere), wire(&Error::no_such_team()), "{no_such:?}");
     }

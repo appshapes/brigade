@@ -89,8 +89,10 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
                                where it went. For a reference that was taken in by someone who is not the
                                team, on a server that asks for no creation token: the reference is free
                                again, and the team's own take-in is answered as on a server that never held
-                               it. Nothing brings the removed team back. Nothing is served, so it goes with
-                               --data and the log's options, and with no other
+                               it. Nothing brings the removed team back, so the option is given once, and
+                               --data names a directory a server has run on: nothing is made in any other.
+                               Nothing is served, so it goes with --data and the log's options, and with no
+                               other
   --open-move <team_ref>       open the move of a team's members from another backend, and end: the team
                                gets a move ticket, a second join secret that lets a member in until it ends
                                and never makes the team's owner. The team's admin records the ticket on the
@@ -302,7 +304,14 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
             "--ticket-file" => ticket_file = Some(PathBuf::from(value("--ticket-file")?)),
             "--ticket-days" => ticket_days = Some(value("--ticket-days")?),
             "--close-move" => close_move = Some(value("--close-move")?),
-            "--remove-team" => remove_team = Some(value("--remove-team")?),
+            "--remove-team" => {
+                // A removal cannot be undone, so a second reference is never dropped without a word,
+                // and neither is the first: the option is given once.
+                if remove_team.is_some() {
+                    return Err("--remove-team is given once: one run removes one team".to_owned());
+                }
+                remove_team = Some(value("--remove-team")?);
+            }
             _ => return Err("an argument is not one the server knows".to_owned()),
         }
     }
@@ -1112,10 +1121,67 @@ mod tests {
             remove_team(&["--data", "d", "--remove-team", "the-team", "--secret-file", "/f"]).unwrap_err(),
             "--take-back and --secret-file go together"
         );
+        // The reference is handed on as it was typed, with whatever white space it has: it is compared
+        // with the references the server holds, and one that differs by a space names no team.
+        for typed in [" the-team", "the-team ", "the-team\n", "The-Team"] {
+            let removed = remove_team(&["--data", "d", "--remove-team", typed]).unwrap();
+            assert_eq!(removed.team_ref, typed);
+        }
         assert!(super::USAGE.contains("--remove-team <team_ref>"));
         assert!(
             super::USAGE.contains("brigade-server --data <dir> --remove-team <team_ref> [the log's options]")
         );
+    }
+
+    #[test]
+    fn a_team_to_remove_is_named_once() {
+        // A removal cannot be undone. Given twice, the option is refused whichever references it names
+        // and wherever on the command line the two stand: neither is kept and neither is dropped without
+        // a word. The refusal repeats neither.
+        for arguments in [
+            &[
+                "--data",
+                "d",
+                "--remove-team",
+                "one-team",
+                "--remove-team",
+                "another-team",
+            ][..],
+            &[
+                "--data",
+                "d",
+                "--remove-team",
+                "one-team",
+                "--remove-team",
+                "one-team",
+            ][..],
+            &[
+                "--remove-team",
+                "one-team",
+                "--data",
+                "d",
+                "--log",
+                "file",
+                "--remove-team",
+                "another-team",
+            ][..],
+            &["--data", "d", "--remove-team", "one-team", "--remove-team"][..],
+        ] {
+            let refused = remove_team(arguments).unwrap_err();
+            assert_eq!(refused, "--remove-team is given once: one run removes one team");
+            assert!(!refused.contains("one-team") && !refused.contains("another-team"));
+        }
+        // Only this option: the others are read as they always were, and the last one given stands.
+        let closed = close_move(&[
+            "--data",
+            "d",
+            "--close-move",
+            "one-team",
+            "--close-move",
+            "another-team",
+        ]);
+        assert_eq!(closed.unwrap().team_ref, "another-team");
+        assert!(super::USAGE.contains("so the option is given once"));
     }
 
     #[test]

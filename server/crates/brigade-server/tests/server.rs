@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 mod common;
 
-use common::{Scratch, Server, log_arguments, parse, remove_team, request, text};
+use common::{Scratch, Server, import_team, log_arguments, parse, remove_team, request, text};
 
 /// A member of a team on a server: its credential, its team and one session.
 struct Member {
@@ -796,26 +796,6 @@ fn secret_file(scratch: &Scratch, team_ref: &str, random: &str) -> (PathBuf, Str
     (file, secret)
 }
 
-/// Runs the command that takes a team in on `scratch`'s data directory, and returns its status and
-/// everything it wrote.
-fn take_in(scratch: &Scratch, log: &[String], name: &str, secret_file: &Path) -> (Option<i32>, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
-        .arg("--data")
-        .arg(scratch.path("data"))
-        .args(log)
-        .args(["--import-team", name, "--join-secret-file"])
-        .arg(secret_file)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    let wrote = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    (output.status.code(), wrote)
-}
-
 #[test]
 fn a_team_that_lives_elsewhere_is_taken_in_and_joined_with_the_secret_it_has() {
     let scratch = Scratch::new("import");
@@ -824,7 +804,7 @@ fn a_team_that_lives_elsewhere_is_taken_in_and_joined_with_the_secret_it_has() {
 
     // On a directory that holds nothing yet, the command takes the team in, says so and ends. It listens on
     // nothing, and the engine leaves its snapshot behind as it does at every stop.
-    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", &file);
     assert_eq!(status, Some(0), "{wrote}");
     assert!(
         wrote.contains(&format!("took in team \"ops\" ({ELSEWHERE})")),
@@ -870,7 +850,7 @@ fn a_team_that_lives_elsewhere_is_taken_in_and_joined_with_the_secret_it_has() {
         "1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e",
         "never-taken-in-anywhere",
     );
-    let (status, wrote) = take_in(&scratch, &arguments, "other", &other_file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "other", &other_file);
     assert_eq!(status, Some(1), "{wrote}");
     assert!(wrote.contains("another server is running"), "{wrote}");
     assert!(!wrote.contains("took in team"), "{wrote}");
@@ -886,7 +866,7 @@ fn a_team_that_lives_elsewhere_is_taken_in_and_joined_with_the_secret_it_has() {
     server.stop();
 
     // The same secret again, under whatever name: the team is already here, and it is left as it is.
-    let (status, wrote) = take_in(&scratch, &arguments, "renamed", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "renamed", &file);
     assert_eq!(status, Some(0), "{wrote}");
     assert!(
         wrote.contains(&format!("team \"ops\" ({ELSEWHERE}) is already here")),
@@ -912,7 +892,7 @@ fn a_team_is_not_taken_in_from_a_file_that_holds_no_join_secret_for_it() {
     let scratch = Scratch::new("import-refused");
     let arguments = log_arguments("file", &scratch);
     let refused = |file: &Path, why: &str| {
-        let (status, wrote) = take_in(&scratch, &arguments, "ops", file);
+        let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", file);
         assert_eq!(status, Some(1), "{wrote}");
         assert!(wrote.contains(why), "{wrote}");
         assert!(!wrote.contains("took in team"), "{wrote}");
@@ -935,7 +915,7 @@ fn a_team_is_not_taken_in_from_a_file_that_holds_no_join_secret_for_it() {
 
     // A team that is here under one secret is not taken in under another, and neither secret is repeated.
     let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
-    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", &file);
     assert_eq!(status, Some(0), "{wrote}");
     let (other_file, other) = secret_file(&scratch, ELSEWHERE, "another-secret-for-the-reference");
     let wrote = refused(
@@ -1347,7 +1327,7 @@ fn the_first_to_join_a_team_that_was_taken_in_owns_it_and_the_operator_can_name_
     let scratch = Scratch::new("owner");
     let arguments = log_arguments("file", &scratch);
     let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
-    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", &file);
     assert_eq!(status, Some(0), "{wrote}");
     let team = json!({"team_ref": ELSEWHERE});
 
@@ -1497,7 +1477,7 @@ fn the_operator_takes_back_a_team_whose_first_joiner_put_everyone_else_out() {
     let scratch = Scratch::new("take-back");
     let arguments = log_arguments("file", &scratch);
     let (file, first) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
-    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", &file);
     assert_eq!(status, Some(0), "{wrote}");
     let team = json!({"team_ref": ELSEWHERE});
 
@@ -1679,6 +1659,27 @@ fn newest_snapshot(scratch: &Scratch) -> PathBuf {
     files.pop().expect("a snapshot")
 }
 
+/// Everything under a directory: each path with its length and the time it was last written.
+fn listing(dir: &Path) -> Vec<(PathBuf, u64, std::time::SystemTime)> {
+    let mut found = Vec::new();
+    let mut left = vec![dir.to_path_buf()];
+    while let Some(next) = left.pop() {
+        for entry in std::fs::read_dir(&next).unwrap() {
+            let path = entry.unwrap().path();
+            let about = std::fs::symlink_metadata(&path).unwrap();
+            let length = if about.is_dir() {
+                left.push(path.clone());
+                0
+            } else {
+                about.len()
+            };
+            found.push((path, length, about.modified().unwrap()));
+        }
+    }
+    found.sort();
+    found
+}
+
 /// One team as a snapshot holds it.
 fn team_in(snapshot: &str, team_ref: &str) -> String {
     let state: Value = serde_json::from_str(snapshot.split_once('\n').unwrap().1).unwrap();
@@ -1760,8 +1761,15 @@ fn the_operator_frees_a_reference_that_a_stranger_took_in(log: &str) {
     server.stop();
 
     // A team the server does not hold is refused in one line, which repeats nothing that was typed. A
-    // reference is held as it was given: another spelling of it is another reference.
-    for no_such in ["typed-no-such-team", ELSEWHERE.to_uppercase().as_str()] {
+    // reference is compared as it was given, byte for byte: another case, a space before it or after it
+    // and the end of a line after it are each another reference, which names no team.
+    for no_such in [
+        "typed-no-such-team",
+        ELSEWHERE.to_uppercase().as_str(),
+        format!(" {ELSEWHERE}").as_str(),
+        format!("{ELSEWHERE} ").as_str(),
+        format!("{ELSEWHERE}\n").as_str(),
+    ] {
         let (status, wrote) = remove_team(&data, &arguments, no_such);
         assert_eq!(status, Some(1), "{wrote}");
         let refusal: Vec<&str> = wrote
@@ -1800,6 +1808,61 @@ fn the_operator_frees_a_reference_that_a_stranger_took_in(log: &str) {
         assert_eq!(output.status.code(), Some(2), "{others:?}");
         assert!(!scratch.path("untouched").exists());
     }
+    // The option is given once. Given twice it is a usage error, whichever references the two name:
+    // neither team is removed, nothing is said of either, and nothing in the directory is touched.
+    let held = listing(&data);
+    for [first, second] in [
+        [ELSEWHERE, alice.team_ref.as_str()],
+        [alice.team_ref.as_str(), ELSEWHERE],
+        [ELSEWHERE, ELSEWHERE],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+            .arg("--data")
+            .arg(&data)
+            .args(&arguments)
+            .args(["--remove-team", first, "--remove-team", second])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let wrote = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{wrote}");
+        assert!(
+            wrote.starts_with("brigade-server: --remove-team is given once: one run removes one team\n"),
+            "{wrote}"
+        );
+        // The usage follows the refusal. No line says that a team was removed, and neither reference
+        // is repeated.
+        assert!(
+            !wrote.contains("removed team \"") && !wrote.contains(first) && !wrote.contains(second),
+            "{wrote}"
+        );
+    }
+    assert_eq!(listing(&data), held);
+    // A directory that is no server's is refused before anything is made in it, in one line that names
+    // the path and does not blame the reference. A path that was typed wrongly is not there afterwards,
+    // and a directory that holds something else is as it was.
+    let mistyped = scratch.path("data-mistyped");
+    let not_a_servers = scratch.path("not-a-servers");
+    std::fs::create_dir(&not_a_servers).unwrap();
+    std::fs::write(not_a_servers.join("notes"), "kept as it is").unwrap();
+    let kept = listing(&not_a_servers);
+    for no_servers in [&mistyped, &not_a_servers] {
+        let (status, wrote) = remove_team(no_servers, &arguments, ELSEWHERE);
+        assert_eq!(status, Some(1), "{wrote}");
+        let refusal = format!(
+            "brigade-server: the team was not removed: {} is not a server's data directory: it holds no \
+             record.key, which a server makes on its first start",
+            no_servers.display()
+        );
+        assert_eq!(wrote.lines().count(), 1, "{wrote}");
+        assert!(wrote.trim_end().ends_with(&refusal), "{wrote}");
+        assert!(
+            !wrote.contains("not_found") && !wrote.contains("removed team"),
+            "{wrote}"
+        );
+    }
+    assert!(!mistyped.exists());
+    assert_eq!(listing(&not_a_servers), kept);
 
     // The team is removed: one line that says what was removed, the team's name, how many members its
     // roster showed and who owned it, by the reference and the label the roster showed. Nothing is
@@ -2088,10 +2151,10 @@ fn a_freed_reference_is_kept_for_its_team_by_the_operators_take_in_or_by_a_creat
     removed(&format!(
         "with its 1 member: it was owned by {mallory_ref}, and its reference is free"
     ));
-    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", &file);
     assert_eq!(status, Some(0), "{wrote}");
     removed("with no member: it had no owner, and its reference is free");
-    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", &file);
     assert_eq!(status, Some(0), "{wrote}");
     // The reference is the team's own when the server starts: the stranger's take-in is the one that is
     // refused, and the admin's joins the team it finds and owns it, as the first to join a team the
@@ -2225,7 +2288,7 @@ fn a_team_that_moves_is_joined_with_its_ticket_until_the_move_is_replaced_or_clo
     let scratch = Scratch::new("move");
     let arguments = log_arguments("file", &scratch);
     let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
-    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", &file);
     assert_eq!(status, Some(0), "{wrote}");
     let team = json!({"team_ref": ELSEWHERE});
     let first_file = scratch.path("ops.move-ticket");
@@ -2497,7 +2560,7 @@ fn a_gateway_that_joins_a_team_that_was_taken_in_first_does_not_own_it() {
     let scratch = Scratch::new("gateway-first");
     let mut arguments = log_arguments("file", &scratch);
     let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
-    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    let (status, wrote) = import_team(&scratch.path("data"), &arguments, "ops", &file);
     assert_eq!(status, Some(0), "{wrote}");
 
     // A Slack gateway for the team. Every secret is an obvious fake, and its Slack is an address nothing
