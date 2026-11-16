@@ -67,11 +67,20 @@ a server's own address changes without a join on every machine: [Move it](keep-t
   team wrote stays in the data directory until the directory goes.
 - **From 0.9.0 you can remove the team there**, when the Team Admin says that every member has followed:
   `--remove-team <team_ref>`, between a stop and a start ([Remove a team](name-the-owner.md#remove-a-team)). It
-  takes the record with the team, so a member who has not followed by then has nothing to follow: the old
-  server answers their session `unauthorized`, as it answers a member who was revoked there, and they join the
-  new one with the secret file. It cannot be undone, and the team does not come back to that server as the team
-  it was: a team that returns is taken in anew. Until two more snapshots have been written, and for as long as
-  the log keeps its earlier entries, the data directory still holds what the team wrote.
+  takes the record with the team, so a member who has not followed by then has nothing to follow. The old
+  server answers that member's machine `unauthorized` for the team, and for a session it had in the team as
+  well, unless the member is still in another team on that server, where the session is answered `not_found`.
+  Such a member joins the new server with the secret file. It cannot be undone, and the team does not come
+  back to that server as the team it was: a team that returns is taken in anew. Until two more snapshots have
+  been written, and for as long as the log keeps its earlier entries, the data directory still holds what the
+  team wrote.
+- **Tell the Team Admin before you remove it.** The Team Admin's machine still holds its membership of the team
+  on this server, and from the removal on this server refuses to say what it records of the team to that
+  machine, as to any former member. That matters when the team moves again: a `brigade team move --to` that
+  stopped after it rewrote `.brigade.json` and is run again looks for the backend the team is leaving among
+  the ones the machine joined the team on, and chooses none while one of them refuses. It changes nothing,
+  says which server refuses, and prints the same command with `--from` for each backend: the Team Admin runs
+  the one that names the backend the team is on. This is read from the command's code and was not run.
 
 ## A team with gateways on the server it leaves
 
