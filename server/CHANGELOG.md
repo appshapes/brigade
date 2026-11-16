@@ -54,19 +54,19 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
   joins nothing, and `/v1/team/leave` answers `left: true` as it always does.
 - **The gateways.** The command reads no gateway configuration and leaves what the gateways keep for
   themselves, in `gateway/` of the data directory, as it is. There are two cases.
-  - **The stranger's.** The configuration's entries are the real team's: its gateways were never members of the
-    stranger's team, and nothing of theirs is removed. The entries stay. While no team of the reference opens
-    to their secret, the server says one line for each gateway, which names the team by its reference: `the
-    slack gateway of team <reference> could not finish a turn: unauthorized: join secret rejected`. They join
-    by themselves once the real team is there: at the start after `--import-team`, and within a minute of its
-    admin's take-in on a server that runs.
+  - **The stranger's.** The configuration's entries are the real team's: its gateways were never members of
+    the stranger's team, and nothing of theirs is removed. The entries stay. While no team of the reference
+    opens to their secret, the server says one line for each gateway, which names the team by its reference:
+    `the slack gateway of team <reference> could not finish a turn: unauthorized: join secret rejected`. They
+    join by themselves once the real team is there: at the start after `--import-team`, and within a minute
+    of its admin's take-in on a server that runs.
   - **Gateways that were members of the removed team**, where no team of that reference is coming back. They
     go with the team, as the members they are. The operator takes the team's entries out of the configuration
     before the start, and changes the request URLs at Slack and the webhook at the mail provider: leaving an
     entry out of the file changes nothing there. With the entries left in, the server starts and serves
     everything else, and says for each gateway `the slack gateway of team ops could not finish a turn:
-    unauthorized: not an active member of this team` and `the slack gateway of team ops could not join its team
-    again: unauthorized: join secret rejected`.
+    unauthorized: not an active member of this team` and `the slack gateway of team ops could not join its
+    team again: unauthorized: join secret rejected`.
 - **It frees a reference and erases nothing.** The command writes a snapshot that holds nothing of the team.
   The snapshots before it that are still kept, until two later ones have replaced them, and the log's earlier
   entries go on holding the team, its messages and the ticket of a move it recorded: the file log keeps every
@@ -90,10 +90,10 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
     ends, so this is the directory as the command leaves it.
   - **Where the snapshot of the removal is missing, a 0.8.0 does not start.** It goes back to the snapshot
     before it, meets the entry and ends with status 1: `the log could not be read from the snapshot's
-    position, <n>: not an entry: unknown variant `team.removed`, expected one of …`. The line names no version
-    to run, because 0.8.0 was released before there was one: it is 0.9.0 or later. To go back all the same:
-    start a 0.9.0 once on that directory, which reads the entry and writes the snapshot as it starts, stop it,
-    and then start the 0.8.0.
+    position, <n>: not an entry: unknown variant `team.removed`, expected one of …`. The line names no
+    version to run, because 0.8.0 was released before there was one: it is 0.9.0 or later. To go back all the
+    same: start a 0.9.0 once on that directory, which reads the entry and writes the snapshot as it starts,
+    stop it, and then start the 0.8.0.
   Measured on 2026-11-15 with a 0.8.0 built from the commit this release's work started from, whose `server/`
   is the tree of the tag `server-v0.8.0`, on directories this build wrote, on the file log and on the Cavalry
   feed: it started and took a team in on a directory as the command left it; it ended as above on one whose
