@@ -274,8 +274,11 @@ server's side, and you do yours in three steps.
   the server the team lives on, and the two commands would close the move and put out the members who
   followed. Where one host names two servers the team is joined on, under two paths, the line carries the
   whole address in the host's place. Neither clears the record. A member you revoke there reads no record from then on, so revoke only
-  those who have followed, in every checkout they have. What the team wrote stays on that server until its
-  operator removes the team there, from server 0.9.0, or the data directory.
+  those who have followed, in every checkout they have. What the team wrote stays on that server. A removal
+  by its operator, from server 0.9.0, frees the team's reference there and erases nothing: what the team wrote
+  stays in that server's log and in the snapshots it still keeps until it lets them go, and in every copy of
+  its data directory ([Remove a team](../../project-owner/server/name-the-owner.md#remove-a-team);
+  [Security, section 20](../../security.md#20-a-team-on-a-brigade-server)).
 
 ## What you are deciding for your members
 
