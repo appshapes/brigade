@@ -4,6 +4,85 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.9.0] — 2026-11-15
+
+### Added
+
+- **The operator removes a team from a server** (work item 332, ADR 0011). A team's reference is public: every
+  committed team file carries it. On a server that asks for no creation token, a stranger could take a team in
+  under a reference that is not theirs, with a join secret of their own invention; the team whose reference it
+  is was then answered `conflict`, and no command of the operator's helped. `--set-owner` names a member, and
+  the real team had none there; `--take-back` gives the team a new secret, and the real team comes in under
+  its own. Now `brigade-server --data <dir> --remove-team <team_ref>`, run between a stop and a start as those
+  two are, removes the team that holds the reference, and the reference is free: the real team's take-in is
+  answered as on a server that never held it. A server that asks for a creation token was never exposed.
+- **What it removes.** The team with everything the server holds of it: its name, the hash of its join secret,
+  its owner, every membership it ever had, with the bans among them, every session with the messages it held,
+  the ticket of its open move, the retry key it kept, and the record of where it went. It is one entry of the
+  log with one record, `team.removed`, so the log holds all of it or none. Nothing brings the team back: copy
+  the data directory first where there is doubt.
+- **It says what it removed**, in one line: `removed team "ops" (<reference>) with its 2 members: it was owned
+  by <principal reference> ("mallory"), and its reference is free`. The members are the ones its roster
+  showed. A team that recorded where it went adds `and the record of where it went`, a team nobody owned says
+  `it had no owner`, and one with no member says `with no member`. The line is on the terminal of whoever ran
+  the command and not in the service's journal, and the server holds nothing of the team afterwards: it is the
+  one account of what was removed. No secret and no hash of one is in it.
+- **What it refuses.** A reference the server does not hold, spelled as the team file has it: `the team was
+  not removed: not_found: the server holds no team of that reference`, status 1, and nothing changes. A server
+  that runs on the directory: `another server is running on <dir>`, status 1. Any other of the operator's
+  commands beside it, and any option that serving takes: the usage and status 2, before the directory is
+  touched.
+- **The reference is then free for anyone**, the stranger included, for as long as the server asks for no
+  creation token. Before the start, set one (`--create-token-file`), or take the real team in yourself with
+  the secret file its admin sends (`--import-team`, between the removal and the start): the reference is then
+  that team's when the server serves again, and its admin's take-in joins the team it finds and owns it.
+- **What a member of the removed team is answered.** The server still knows its credential: a credential names
+  a principal, which may be a member of other teams on the server, and those are untouched. That principal is
+  no member of the removed team, and reads what any caller reads about a team that does not exist:
+  `unauthorized` (403), `not an active member of this team`, for the team and for a session it had there, and
+  the uniform `not_found` for such a session where it is still a member of another team. The team's secret
+  joins nothing, and `/v1/team/leave` answers `left: true` as it always does.
+- **Its gateways go with it**, as the members they are. The command reads no gateway configuration and leaves
+  what the gateways keep for themselves, in `gateway/` of the data directory, as it is. A server that is
+  started with a configuration that still names the team starts and serves everything else. It says once for
+  each gateway `the slack gateway of team ops could not finish a turn: unauthorized: not an active member of
+  this team` and `the slack gateway of team ops could not join its team again: unauthorized: join secret
+  rejected`, and the gateway asks again each minute. Take the team out of the configuration before the start.
+  A gateway whose entry stays joins a team of the same reference again, with the credential it kept, once one
+  is there.
+- **It frees a reference and erases nothing.** The command writes a snapshot that holds nothing of the team.
+  The snapshots before it that are still kept, until two later ones have replaced them, and the log's earlier
+  entries go on holding the team, its messages and the ticket of a move it recorded: the file log keeps every
+  entry, and the feed lets a recording go only once later snapshots cover it. Every copy of the directory made
+  before the removal holds all of it.
+- **A team that moved away can be removed from the server it left**, once every member has followed. The
+  record of where it went goes with the team, so a member who has not followed by then follows nothing.
+- No request removes a team: the contract (`docs/backend-rest-v1.md`) is unchanged, and `/v1/info` lists what
+  it listed.
+
+### Changed
+
+- **Going back to 0.8.0 after a team was removed.** The removal is a record of a kind a server before 0.9.0
+  does not know, and it changes no snapshot's format: a state after a removal holds nothing of the team, so
+  its snapshot is of the format it would be anyway, 3, or 4 where another team records a move. Exactly when an
+  older binary starts:
+  - **On a directory on which no team was removed, 0.8.0 and 0.9.0 start on each other's.** Nothing about the
+    directory has changed.
+  - **Where the newest snapshot was written after the removal, a 0.8.0 starts**, and holds what the 0.9.0
+    held: no team of that reference. It never reads the entry. The command writes that snapshot itself as it
+    ends, so this is the directory as the command leaves it.
+  - **Where no snapshot covers the removal, a 0.8.0 does not start.** That is a directory on which the
+    command's snapshot could not be written, which the command says, or does not read. The 0.8.0 goes back to
+    the snapshot before it, meets the entry and ends with status 1: `the log could not be read from the
+    snapshot's position, <n>: not an entry: unknown variant `team.removed`, expected one of …`. The line
+    names no version to run, because 0.8.0 was released before there was one: it is 0.9.0 or later. A 0.9.0
+    started once on that directory reads the entry and writes the snapshot.
+  Measured on 2026-11-15 with a 0.8.0 built from the commit this release's work started from, whose `server/`
+  is the tree of the tag `server-v0.8.0`, on directories this build wrote, on the file log and on the Cavalry
+  feed: it started and took a team in on a directory as the command left it, ended as above on one whose
+  newest snapshot was taken away, and this build then started on that directory and read the one entry. 0.9.0
+  reads the snapshots and the log of every earlier release as they are.
+
 ## [0.8.0] — 2026-11-15
 
 ### Added
