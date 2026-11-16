@@ -19,6 +19,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0009. Name every ADR that supersedes a part in the Status line](0009-name-every-adr-that-supersedes-a-part-in-the-status-line.md)
 - [0010. Keep the record of a team's move on the server it leaves](0010-keep-the-record-of-a-teams-move-on-the-server-it-leaves.md)
 - [0011. Remove a team from a server by the operator's command](0011-remove-a-team-from-a-server-by-the-operators-command.md)
+- [0012. Show the board in a browser from a page on the member's own machine](0012-show-the-board-in-a-browser-from-a-page-on-the-members-own-machine.md)
 
 ## Record a decision
 

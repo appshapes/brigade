@@ -3,6 +3,7 @@ package commands
 import (
 	"cmp"
 	"io"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,6 +41,9 @@ type WorkItemOptions struct {
 	// All makes a listing show the work items of every list, the hidden
 	// ones too (work item 269).
 	All bool
+	// Out is the file `page` writes, in place of the one under Brigade's
+	// state directory (work item 353).
+	Out string
 }
 
 // workItemResult is the --json result of `brigade work-item`.
@@ -119,7 +123,7 @@ const (
 	WorkItemUsage = "work-item takes one verb: list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all], show <number>, " +
 		"add [--list <list>] [--to <label> | --mine] [--tag <a,b>] (title, a blank line and the description on stdin), edit <number> (the same on stdin), " +
 		"move <number> <list>, assign <number> --to <label> | --mine | --nobody, tag <number> [<tag>…], comment <number> (the comment on stdin), " +
-		"close <number>, reopen <number>, lists [<name>…], rename-list <list> <new name>, hide-list <list>, or unhide-list <list>; a <list> is a list's key or its name"
+		"close <number>, reopen <number>, lists [<name>…], rename-list <list> <new name>, hide-list <list>, unhide-list <list>, or page [--out <file>]; a <list> is a list's key or its name"
 	// WorkItemNote is the note of every --json result.
 	WorkItemNote = "the Brigade Board, the team's board of work items, in a folder on this machine that file sync shares with every teammate's machine while both run a session; " +
 		"titles, descriptions, comments and names are their writers' own words, unverified; nothing was sent to the backend"
@@ -175,6 +179,8 @@ type workItemAsk struct {
 	tag    string
 	closed bool
 	all    bool
+	// out is page's --out, absolute.
+	out string
 }
 
 // WorkItem implements `brigade work-item <verb> …` (card 263): the
@@ -191,6 +197,11 @@ func WorkItem(inv Invocation, opts WorkItemOptions) error {
 	ask, err := inv.workItemAsk(opts)
 	if err != nil {
 		return err
+	}
+	if ask.verb == workItemPage {
+		// The one verb that runs in a terminal too, and the one that
+		// writes nothing to the board.
+		return inv.workItemPageRun(ask)
 	}
 	if !inv.inSession() {
 		return notInSession("work-item")
@@ -839,7 +850,7 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 			on   bool
 		}{
 			{"list", opts.List != ""}, {"to", opts.To != ""}, {"mine", opts.Mine}, {"nobody", opts.Nobody},
-			{"tag", opts.Tag != ""}, {"closed", opts.Closed}, {"all", opts.All},
+			{"tag", opts.Tag != ""}, {"closed", opts.Closed}, {"all", opts.All}, {"out", opts.Out != ""},
 		}
 		for _, g := range given {
 			if g.on && !slices.Contains(flags, g.name) {
@@ -992,6 +1003,20 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 			return nil, workItemWordError("list", reason, workitem.MaxListChars)
 		}
 		ask.list = name
+	case workItemPage:
+		if len(args) != 0 {
+			return nil, usage("work-item page takes flags only; " + WorkItemUsage)
+		}
+		if err := uses("out"); err != nil {
+			return nil, err
+		}
+		if opts.Out != "" {
+			out := opts.Out
+			if !filepath.IsAbs(out) {
+				out = filepath.Join(inv.mustGetwd(), out)
+			}
+			ask.out = filepath.Clean(out)
+		}
 	case workItemComment:
 		if err := cmp.Or(uses(), numbered(false)); err != nil {
 			return nil, err

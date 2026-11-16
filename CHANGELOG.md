@@ -9,6 +9,26 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **The Brigade Board in a browser** (work item 353, ADR 0012).
+  `brigade work-item page` writes the whole board as one read-only HTML
+  page and prints its `file:` URL. Each list is a column. Each open work
+  item is a card with its number, its whole title, its assignee and its
+  tags. A click on a card shows its description and its comments.
+- **Filters.** Filter by assignee, by tag and by list. Two switches add
+  the lists the team hid and the closed work items. The filters stay in
+  the page's address, so a reload keeps them.
+- **No network.** The page carries its own style, script and data. Its
+  Content-Security-Policy lets it load nothing else.
+- **Where it goes.** The page goes under `pages/` in Brigade's state
+  directory, and only you can read it. `--out <file>` writes it
+  elsewhere, but never into the board folder.
+- **In a terminal too.** Run it in a checkout whose `.brigade.json`
+  turns the board on. In a session, ask to "show the board in a
+  browser", or run `/brigade:work-items page`. The page is a snapshot:
+  run the command again for later changes.
+
 ## [0.57.0] — 2026-11-15
 
 ### Added

@@ -12,12 +12,12 @@ Brigade: file sync on: 1 folder(s) and the team's Brigade Board of work items (`
 ## Ask in words, or with a command
 
 Your session runs `brigade work-item` when you ask it to: "show me the brigade board", "put that on the board",
-"what is assigned to me", "move 41 to Doing". It knows the board by its name and as "the board". Four skills are the short forms; on Claude Code they are slash commands, and the other
+"what is assigned to me", "move 41 to Doing", "show me the board in a browser". It knows the board by its name and as "the board". Four skills are the short forms; on Claude Code they are slash commands, and the other
 harnesses name them their own way ([the skills, by harness](../../agent/in-a-team/README.md)).
 
 | Command | What it does |
 | --- | --- |
-| `/brigade:work-items` | prints the board verbatim; `mine`, `nobody`, `closed`, `for <member>`, `tag <tag>` or a list narrows it, `all` includes the lists the team hid, and `lists` prints the board's lists |
+| `/brigade:work-items` | prints the board verbatim; `mine`, `nobody`, `closed`, `for <member>`, `tag <tag>` or a list narrows it, `all` includes the lists the team hid, `lists` prints the board's lists, and `page` writes the board as one page to open in a browser ([See the board in a browser](#see-the-board-in-a-browser)) |
 | `/brigade:work-item <number>` | shows one work item; `add <title>`, and `<number> move <list>`, `assign me`, `comment <text>`, `tag <tags>`, `edit`, `close`, `reopen`, add one or change it |
 | `/brigade:work-item-start <number> [<session>…]` | has the session take the work item and work it through: it assigns it to you, moves it to the list for work in progress, names itself after the work item, does the work, comments what it did and moves it on; with other sessions of yours named, it [leads them](#start-a-work-item-alone-or-with-your-other-sessions) |
 | `/brigade:work-item-next` | says which work item to take next and why, read from the board and the team's roster: your own unfinished one in the list for work in progress first, then the unassigned ones; one another session holds is shown as taken; `tag <tag>` narrows it and a count lists that many; it changes nothing and ends with the command that starts the top one |
@@ -86,9 +86,10 @@ brigade work-item lists Backlog Doing Review Done   # names them anew: all of th
 brigade work-item rename-list doing 'In progress'   # another name for a list; its key and its work items stay
 brigade work-item hide-list hibernating      # leaves a list out of the listing; its work items stay in it
 brigade work-item unhide-list hibernating    # shows it in the listing again
+brigade work-item page                       # the whole board as one read-only page to open in a browser
 ```
 
-Every verb runs inside a session and takes `--json`. A title, a description and a comment travel on stdin; the
+Every verb runs inside a session, `page` in a terminal too, and every verb takes `--json`. A title, a description and a comment travel on stdin; the
 first line of an `add` or an `edit` is the title and the description follows a blank line. A title holds 200
 characters, a description 65,536 and a comment 16,384. A text that carries a credential's shape is refused.
 
@@ -101,6 +102,31 @@ Todo   43      Add a board             -                 -
 Doing  41      Fix the login redirect  rjae@example.com  bug, web
 open by list: Todo (1), Doing (1), Done (0)
 ```
+
+## See the board in a browser
+
+```
+$ brigade work-item page
+wrote: file:///Users/you/.local/state/brigade/pages/board-6f0f2b41a3c5d7e9f1a2b3c4d5e6f708.html
+the Brigade Board as one read-only page: 12 open and 30 closed work items in 4 lists; open it in a browser, and run brigade work-item page again for later changes
+```
+
+- **One file, read-only.** Each list is a column. Each open work item is a card with its number, its whole
+  title, its assignee and its tags. A click on a card shows its description and its comments. Nothing on the
+  page changes the board: `brigade work-item` does that.
+- **Filters.** Filter by assignee (or nobody), by tag and by list. Two switches add the lists the team hid and
+  the closed work items. The filters stay in the page's address, so a reload keeps them.
+- **No network.** The page carries its own style, script and data. Its Content-Security-Policy lets it load
+  nothing else, so it opens with the backend down and the machine offline.
+- **A snapshot.** The page shows the board as this machine had it when the command ran. Its footer gives that
+  time and the time of the newest change in this machine's copy. For later changes, run the command again and
+  reload the page.
+- **Where it goes.** The page goes under `pages/` in Brigade's state directory, outside every checkout and
+  outside the board folder. Only you can read it. `--out <file>` writes it elsewhere, but never into the board
+  folder. The page holds the whole board, with the comments. Give it only to a person who can see the board.
+- **In a session or in a terminal.** In a terminal, run it in a checkout whose `.brigade.json` turns the board
+  on. It reads the board folder that file sync keeps on this machine. It refuses when no session of the team
+  has run on this machine yet.
 
 ## What a work item is
 
@@ -227,12 +253,16 @@ Where both set the same field, the later change wins.
 
 | The refusal | What it means |
 | --- | --- |
-| `config`, `no_board` | the team has not turned its board on, or file sync is off for this session |
-| `config`, `not_in_session` | the command was run outside a session |
+| `config`, `no_board` | the team has not turned its board on, or file sync is off for this session; for `page` in a terminal, the checkout's `.brigade.json` does not turn it on |
+| `config`, `board_not_here` | `page` in a terminal: the team has a board, but no session of the team has run on this machine yet, so it has no copy |
+| `config`, `team_file_missing` | `page` in a terminal outside a checkout of the team |
+| `config`, `not_in_session` | a verb other than `page` was run outside a session |
 | `config`, `label_needed` | `--mine` in a session with no roster label: name the member with `--to` |
 | `not_found`, `no_such_work_item` | no work item carries that number |
 | `invalid_input`, `no_such_list` | the board has no list of that name or key; the message names the ones it has |
 | `invalid_input`, `name_taken` | a list cannot take a name another list answers to |
+| `invalid_input`, `out_in_board` | `page --out` named a file in the board folder, which file sync shares with every teammate |
+| `invalid_input`, `no_directory` | `page --out` named a directory, or a file in a directory that does not exist |
 | `invalid_input`, `empty`, `too_long`, `not_utf8`, `secret_shaped` | the text: nothing there, past its cap, not UTF-8, or carrying a credential's shape |
 | `conflict`, `number_taken_twice` | two work items still carry one number: run the command again |
 | `conflict`, `board_full` | the work item, or the board, is at its limit and takes no further change |
