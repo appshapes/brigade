@@ -772,4 +772,5 @@ items 354, 357 and 359 are new from its verification: a join whose answer is los
 server, an address with shell characters is printed in a command as it stands, and 359 holds the low findings
 that were left so that the feature could land. Work item 332 followed on 2026-11-16 (execution log P104-6): a server's
 operator removes a team with `--remove-team`, so that a reference a stranger took in is freed (ADR 0011); it was
-released that day as server 0.9.0, which the owner's host runs since then (execution log P104-7).
+released that day as server 0.9.0, which the owner's host and the thinktech team's server run since then
+(execution log P104-7).
