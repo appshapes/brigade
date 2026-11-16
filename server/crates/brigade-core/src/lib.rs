@@ -12,10 +12,11 @@
 //! - [`JoinFailures`] is the one count no record holds, a principal's failed joins: [`answer`] is handed it
 //!   beside the state.
 //! - [`import_team`] takes in a team that exists elsewhere, [`set_owner`] names a team's owner,
-//!   [`take_back`] takes a team from whoever holds it, and [`open_move`] and [`close_move`] open and close
-//!   the move of a team's members from another backend, for the operator. A request takes a team in for
-//!   the caller that then owns it, and opens and closes a move for the team's owner; no request names an
-//!   owner or takes a team back.
+//!   [`take_back`] takes a team from whoever holds it, [`remove_team`] removes a team with everything the
+//!   server holds of it, and [`open_move`] and [`close_move`] open and close the move of a team's members
+//!   from another backend, for the operator. A request takes a team in for the caller that then owns it,
+//!   and opens and closes a move for the team's owner; no request names an owner, takes a team back or
+//!   removes one.
 //! - [`state::State::apply`] is what a restart and a standby run over the same records.
 
 pub mod attempts;
@@ -33,7 +34,7 @@ pub use attempts::JoinFailures;
 pub use error::{Code, Error, envelope_error, envelope_ok};
 pub use execute::{
     MOVE_TICKET_DEFAULT_DAYS, MOVE_TICKET_MAX_DAYS, Outcome, Request, answer, close_move, execute,
-    import_team, open_move, set_owner, take_back,
+    import_team, open_move, remove_team, set_owner, take_back,
 };
 pub use hash::Entropy;
 pub use record::{Entry, Record};

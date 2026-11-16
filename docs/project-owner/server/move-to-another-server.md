@@ -48,11 +48,12 @@ a server's own address changes without a join on every machine: [Move it](keep-t
   of the directory holds it. No line of the journal does.
 - **Only the team's owner writes the record or clears it.** `brigade team move --clear`, run by the Team Admin,
   clears it. You have no command that writes one. One of yours clears it: `--take-back`, which takes the team
-  from whoever holds it ([Take a team back](name-the-owner.md#take-a-team-back)).
+  from whoever holds it ([Take a team back](name-the-owner.md#take-a-team-back)). And from 0.9.0 the record goes
+  with the team when you remove it ([Remove a team](name-the-owner.md#remove-a-team)).
 - **Do not go back to 0.7.0** on its data directory once a move is recorded there: an older server does not
   start on it until the record is cleared and the server has stopped once since
   ([Update it](keep-the-server.md#update-it)).
-- **Ending the team there is a later step, and not yours.** No command removes a team from a server. Once every
+- **Ending the team there is a later step.** Once every
   member has followed, the Team Admin can close the old server to it: rotate the join secret there, to a new
   file, so that nobody new joins, and revoke the members, each with `--on <the old server's url or host>`
   ([Move the team to a server](../../team-admin/members/move-the-team.md#undo-it-and-end-it)). The flag matters:
@@ -64,6 +65,22 @@ a server's own address changes without a join on every machine: [Move it](keep-t
   command, as the member they were; an installation that was banned here stays out, and a ban holds for that
   installation and no further ([Revoke or ban a member](../../team-admin/members/revoke-a-member.md)). What the
   team wrote stays in the data directory until the directory goes.
+- **From 0.9.0 you can remove the team there**, when the Team Admin says that every member has followed:
+  `--remove-team <team_ref>`, between a stop and a start ([Remove a team](name-the-owner.md#remove-a-team)). It
+  takes the record with the team, so a member who has not followed by then has nothing to follow. The old
+  server answers that member's machine `unauthorized` for the team, and for a session it had in the team as
+  well, unless the member is still in another team on that server, where the session is answered `not_found`.
+  Such a member joins the new server with the secret file. It cannot be undone, and the team does not come
+  back to that server as the team it was: a team that returns is taken in anew. Until two more snapshots have
+  been written, and for as long as the log keeps its earlier entries, the data directory still holds what the
+  team wrote.
+- **Tell the Team Admin before you remove it.** The Team Admin's machine still holds its membership of the team
+  on this server, and from the removal on this server refuses to say what it records of the team to that
+  machine, as to any former member. That matters when the team moves again: a `brigade team move --to` that
+  stopped after it rewrote `.brigade.json` and is run again looks for the backend the team is leaving among
+  the ones the machine joined the team on, and chooses none while one of them refuses. It changes nothing,
+  says which server refuses, and prints the same command with `--from` for each backend: the Team Admin runs
+  the one that names the backend the team is on. This is read from the command's code and was not run.
 
 ## A team with gateways on the server it leaves
 

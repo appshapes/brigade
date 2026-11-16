@@ -9,24 +9,26 @@
 //! adapter (`internal/adapters/fs`) is the worked example they were written against, and the stand-in
 //! server (`internal/adapters/rest/stub`) the order a request is checked in.
 //!
-//! Five changes are the operator's own, made from the command line with no request. [`import_team`] takes
+//! Six changes are the operator's own, made from the command line with no request. [`import_team`] takes
 //! in a team that exists on another backend, with the join secret it has there, [`set_owner`] names the
-//! owner of a team, [`take_back`] takes a team from whoever holds it, and [`open_move`] and [`close_move`]
-//! open and close the move of a team's members from another backend. Each makes its entry as a request
-//! does, and the caller appends and syncs that entry in the same way.
+//! owner of a team, [`take_back`] takes a team from whoever holds it, [`remove_team`] removes a team with
+//! everything the server holds of it, and [`open_move`] and [`close_move`] open and close the move of a
+//! team's members from another backend. Each makes its entry as a request does, and the caller appends
+//! and syncs that entry in the same way.
 //!
 //! Three of them a request asks for as well (the contract's section 3b). `/v1/team/take-in` takes a team
 //! in for whoever presents its join secret and may create a team here, and makes that caller its owner in
 //! the entry that takes it in; `/v1/team/open-move` and `/v1/team/close-move` open and close a move for
-//! the team's owner. Naming an owner and taking a team back stay the operator's alone: [`answer`] has no
-//! path to either.
+//! the team's owner. Naming an owner, taking a team back and removing a team stay the operator's alone:
+//! [`answer`] has no path to any of the three.
 //!
 //! A team that leaves this server for another backend has that recorded here by its owner, by request
 //! alone (the contract's section 3c): `/v1/team/move` records where the team went and the move ticket
 //! that admits a member there, or clears the record, and `/v1/team/moved` answers it to every active
 //! member, whose session follows the team on it. The record changes nothing else: the team, its members
 //! and its sessions are as they were, and nothing is refused for it. The operator has no command that
-//! writes it, and one that clears it: [`take_back`], which takes a team from whoever holds it.
+//! writes it, and two that end it: [`take_back`], which takes a team from whoever holds it and clears
+//! the record, and [`remove_team`], with which the record goes as everything of the team does.
 //!
 //! A take-in needs no credential, and the credential of the owner it makes rides its answer. When that
 //! answer is lost, nobody holds the credential, and the same request made again would join as a stranger.
@@ -359,6 +361,56 @@ pub fn take_back(
     if moved {
         result["move_cleared"] = json!(true);
     }
+    Ok(Outcome { result, entry })
+}
+
+/// Removes a team from the server, for the server's operator, with everything the server holds of it.
+///
+/// A team's reference is public: every committed team file carries it. So on a server that asks for no
+/// creation token, anyone can take in a team under a reference that is not theirs, with a join secret of
+/// their own invention, and the team whose reference it is then finds it taken: its own take-in is
+/// refused as a `conflict`. Taking that team back would not help, because it gives the team a new secret,
+/// and the team whose reference it is comes in under the secret its members hold. The server cannot tell
+/// which of the two is the team: it cannot ask the backend the team lives on. Its operator can, and this
+/// is the operator's way to free the reference. It is one entry of one record, so the log holds all of it
+/// or none:
+///
+/// - the team is gone, with everything the state held of it: its name, the hash of its join secret, its
+///   owner, every membership it ever had, active, left, revoked or banned, every session with the
+///   messages it held, the ticket of its move, the record of where it went and the retry key it kept;
+/// - the reference is free: a take-in under it is answered as on a server that never held the team, and
+///   whoever takes it in owns it;
+/// - the principals that were its members stay, with their credentials. They are the server's and not the
+///   team's: a principal may be a member of other teams, and those are untouched. A principal that is a
+///   member of nothing any more is answered what any caller is answered about a team that does not
+///   exist.
+///
+/// Nothing brings the team back. The answer is `team_ref`, `team_name` and `members`, the number of its
+/// active members, which is what its roster showed; `owner`, the owner's principal, and `owner_label`, the
+/// label the roster showed for it, when the team had an owner; and `move_recorded: true` when a record of
+/// where the team went was removed with it.
+///
+/// # Errors
+/// `not_found` when the server holds no team of that reference. The state is unchanged.
+pub fn remove_team(state: &mut State, team_ref: &str, now: Timestamp) -> Result<Outcome, Error> {
+    let team = state.teams.get(team_ref).ok_or_else(Error::no_such_team)?;
+    let members = team.members.values().filter(|member| member.active).count();
+    let mut result = json!({
+        "team_ref": team.team_ref,
+        "team_name": team.team_name,
+        "members": members,
+    });
+    if let Some(owner) = team.owner() {
+        result["owner"] = json!(owner);
+        result["owner_label"] = json!(team.label(owner));
+    }
+    if team.moved_to.is_some() {
+        result["move_recorded"] = json!(true);
+    }
+    let removed = Event::TeamRemoved {
+        team_ref: team_ref.to_owned(),
+    };
+    let entry = commit(state, now, vec![removed]);
     Ok(Outcome { result, entry })
 }
 

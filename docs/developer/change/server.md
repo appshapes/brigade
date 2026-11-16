@@ -115,6 +115,7 @@ gives everyone else exactly what `member_team` gives a stranger.
   as the import is, and no request reaches it. **`--take-back <team_ref> --secret-file <path>`** is another: one
   entry of a rotation, a revocation by version of everyone and an owner change to nobody, so that the first
   member to join with the new secret owns the team. The file's place is held before the entry is appended.
+  **`--remove-team <team_ref>`**, from 0.9.0, is the third ([Removing a team](#removing-a-team)).
 - **Snapshot format 2** came with them. A 0.3.0 passes a format 2 snapshot over and then refuses a log that
   holds a record it does not know, so it never reads a state whose bans it would drop.
 - **A gateway reads its join secret file again** before each attempt to join, at most one a minute after a
@@ -270,6 +271,58 @@ moves **to**; this one is the server a team **leaves**. BAP/1 does not change.
   rule was reached. Adding a request to its list is another walk: when the assertions name a rule it did not
   reach, give it a seed from which it does, as work item 341 did.
 
+## Removing a team
+
+From 0.9.0 the operator removes a team with everything the server holds of it (work item 332, ADR 0011). It is
+the way to free a reference that was taken in by someone who is not the team, which a server that asks for no
+creation token allows anyone: the team's own take-in is then a `conflict`, and `--take-back` would give the team
+a secret its members do not hold. The contract does not change, and no request reaches the command.
+
+- **`--remove-team <team_ref>`** is a job of its own kind between a stop and a start, as the import is
+  (`Work::RemoveTeam`, `brigade_core::remove_team`). It refuses a team the state does not hold with
+  `Error::no_such_team`, and the reference is compared as it was typed: nothing trims it, on the command
+  line, in `main.rs` or in the rules, and a test holds each of the three. Its answer is what the command's
+  line says: the team's name, the number of its active members, its owner with the label the roster showed,
+  and `move_recorded` when a record of where the team went was there.
+- **Two refusals are this command's alone**, because it cannot be undone. `options.rs` refuses the option
+  given twice, where every other option keeps the last value it was given. And `main.rs` asks
+  `engine::holds_a_record_key` before it locks or opens anything: the other commands make the data directory,
+  with a key and a log, as a first start does, and this one makes nothing in a directory that is no server's.
+- **One record**, `team.removed`, which names the team and holds nothing else of it: what goes is what the
+  state holds of the team when the record is applied, as with a revocation by version. Applying it takes the
+  team out of `State.teams`, and with it its memberships, sessions, messages, `move_ticket`, `moved_to` and
+  `take_in_retry`. From the team that was taken out it then takes each of the team's own sessions out of
+  `State.session_teams`, with no pass over the server's other sessions, and clears `Principal.retry_key_in` of
+  the principal the team kept a key for. `State.principals` and `State.credentials` are left as they are: a
+  credential names a principal that may be a member of other teams, as a revocation leaves them (the plan's
+  section 4.8).
+- **What a member is answered afterwards** takes no code. `member_team` refuses a team that is not there as it
+  refuses a membership that is not, and `owned_session` tells a principal that is a member of nothing
+  `unauthorized`, and one that is still a member of another team the uniform `not_found`.
+- **No snapshot format.** The state after a removal holds nothing of the team, so `snapshot::format_of` reads
+  as before: 3, or 4 when another team records a move. A 0.8.0 therefore starts on a directory on which a team
+  was removed whenever the newest snapshot was written after the removal, which the command's own end does,
+  and holds the state this build holds; where it has to read the entry, it refuses it as a kind it does not
+  know. Measured with a build of 0.8.0 on 2026-11-15 (`server/CHANGELOG.md`, section 0.9.0). A record that
+  leaves nothing in the state needs no format; one that leaves a member an older build must not drop does (the
+  section above).
+- **The gateways.** A gateway that was a member goes with the team, and nothing under `gateway/` is told. One
+  whose configuration still names the team finds itself refused when it takes its place at the start, joins
+  again and is refused, and says both (`turns.rs`). Its row in `<data>/gateway/state.json` stays, with its
+  credential, and brings it back as the principal it was once a team of that reference is there again. In
+  the stranger's case the configuration names the real team, whose gateways hold no row: their first join is
+  refused for as long as no team of the reference opens to their secret, said in one line by the reference,
+  and asked again each minute, so they join by themselves once the real team is there.
+- **The line** is `main.rs`'s (`remove_team`), written through `note` as the other commands' lines are.
+  `said.rs` has none: no request makes the record.
+- **Tests.** `rules.rs` has the removal's two tests, and the walk removes teams among its requests: where a
+  team is gone it holds that the entry is the removal alone, that no session is in the team, and that there are
+  as many ways back to a key as keys. `tests/server.rs` has the stranger's take-in, the refusals, the removal,
+  a start from the command's snapshot and a start that reads the entry from the log, on both logs, and what
+  keeps a freed reference for its team. `tests/gateway.rs` has a removed team whose gateways were its members
+  and are still configured, and the stranger's case with the real team's gateways configured; `turns.rs` has
+  that case with the turns in the test's hands, for the minute a process test would have to wait.
+
 ## The gateways
 
 From 0.2.0 the mail and Slack gateways are part of the server (the plan's section 4.6), off until
@@ -392,16 +445,22 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
   with no credential is a new principal each time and is held by none of them, and nothing bounds the
   principals a join secret or a move ticket makes or the teams a server holds: a limit by address is the
   proxy's.
-- A team that moved away stays on the server it left, with its messages and its gateways, until someone ends
-  it there, and nothing ends one (ADR 0010). The record of where it went is followed one move at a time: a
-  member whose machine missed a move does not follow the next.
+- A team that moved away stays on the server it left, with its messages and its gateways, until the server's
+  operator removes it there (`--remove-team`, from 0.9.0; ADR 0011): no request ends a team, and its owner
+  cannot (ADR 0010). The record of where it went is followed one move at a time: a member whose machine missed
+  a move does not follow the next.
 - Nothing bounds how often a team's owner records where the team went: ADR 0004 counts no record, each one is
   an entry of the log, of 17,649 bytes at the caps (measured on the file log on 2026-11-15), and only the state
   keeps one. A bound needs a `rate_limited` reason that BAP/1 4.6 does not list and a count in the state, so
   work item 341 built none.
-- Nothing removes a team from a server. On one that asks for no creation token, a stranger can take in a team
-  under a reference that is not theirs, with a secret of their own, and the real team's take-in then answers
-  `conflict` (ADR 0006; `docs/security.md`, section 20). A creation token keeps a stranger from it.
+- On a server that asks for no creation token, a stranger can take in a team under a reference that is not
+  theirs, with a secret of their own, and the real team's take-in then answers `conflict` (ADR 0006;
+  `docs/security.md`, section 20). A creation token keeps a stranger from it. From 0.9.0 the operator removes
+  such a team (ADR 0011), and the reference is then free for the stranger too, until the server asks for a
+  token or holds the real team.
+- What a removed team held stays in the data directory after the removal: in the snapshots that are still
+  kept, until two later ones have replaced them, and in the log's earlier entries, which the file log keeps for
+  good and the feed lets go with its recordings. Nothing rewrites a log.
 - A take-in whose answer is lost is made again with its retry key and owns the team (ADR 0006). Without the
   key, from a client that sends none or a machine that lost the file, the request made again joins as a
   member, and the operator names the owner with `--set-owner`.

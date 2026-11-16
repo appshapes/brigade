@@ -368,6 +368,19 @@ pub enum Event {
         /// The team.
         team_ref: String,
     },
+    /// The server's operator removed a team, with everything the server held of it: its name, the hash of
+    /// its join secret, its owner, every membership it ever had, every session with the messages it held,
+    /// the ticket of its move, the record of where it went and the retry key it kept. The server holds no
+    /// team of that reference from now on, so the reference is free: a team is taken in under it as under
+    /// one the server never held. The principals that were its members stay, with their credentials: they
+    /// are the server's, and a principal may be a member of other teams. It is one record however much
+    /// the team held, because an entry has a longest size: what goes is what the state holds of the team
+    /// when the record is applied. No request makes it.
+    #[serde(rename = "team.removed")]
+    TeamRemoved {
+        /// The team.
+        team_ref: String,
+    },
     /// A principal became an active member of a team: a new membership, or one that was revoked and is
     /// active again with the day it first joined. It joined with the secret the team has now, whose
     /// version the membership keeps.
@@ -617,6 +630,7 @@ mod tests {
                 ticket: KeptTicket::new("brg1.t.ticket"),
             },
             Event::TeamMoveCleared { team_ref: "t".into() },
+            Event::TeamRemoved { team_ref: "t".into() },
             Event::TeamSecretRotated {
                 team_ref: "t".into(),
                 join_secret_hash: "s2".into(),
@@ -771,6 +785,29 @@ mod tests {
             Record::decode(cleared.as_bytes()).unwrap().event,
             Event::TeamMoveCleared { team_ref: "t".into() }
         );
+    }
+
+    #[test]
+    fn the_record_of_a_removed_team_is_named_as_the_log_keeps_it() {
+        // A build that does not know this kind refuses the entry that holds one, so the name and the one
+        // member are held here: a server before 0.9.0 does not read a log's entry that removes a team. The
+        // record holds the reference and nothing else of the team: what goes is what the state holds.
+        let removed = Event::TeamRemoved { team_ref: "t".into() };
+        let written = r#"{"version":1,"at":5,"kind":"team.removed","team_ref":"t"}"#;
+        assert_eq!(
+            String::from_utf8(Record::new(Timestamp(5), removed.clone()).encode()).unwrap(),
+            written
+        );
+        assert_eq!(Record::decode(written.as_bytes()).unwrap().event, removed);
+        let entry = Entry {
+            sequence: 7,
+            records: vec![Record::new(Timestamp(5), removed)],
+        };
+        assert_eq!(
+            String::from_utf8(entry.encode()).unwrap(),
+            format!(r#"{{"sequence":7,"records":[{written}]}}"#)
+        );
+        assert_eq!(Entry::decode(&entry.encode()).unwrap(), entry);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -189,6 +189,46 @@ impl Drop for Server {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Runs the operator's command that takes a team in on the data directory `data`, with the log's options
+/// `log`, under `name` and with the join secret `secret_file` holds, and returns its status and everything
+/// it wrote.
+pub fn import_team(data: &Path, log: &[String], name: &str, secret_file: &Path) -> (Option<i32>, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+        .arg("--data")
+        .arg(data)
+        .args(log)
+        .args(["--import-team", name, "--join-secret-file"])
+        .arg(secret_file)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let wrote = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.code(), wrote)
+}
+
+/// Runs the operator's command that removes a team on the data directory `data`, with the log's options
+/// `log`, and returns its status and everything it wrote.
+pub fn remove_team(data: &Path, log: &[String], team_ref: &str) -> (Option<i32>, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+        .arg("--data")
+        .arg(data)
+        .args(log)
+        .args(["--remove-team", team_ref])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let wrote = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.code(), wrote)
 }
 
 /// One `POST` as the bytes of HTTP/1.1.

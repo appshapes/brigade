@@ -6,12 +6,12 @@
 //! disk. The jobs that are waiting when the thread looks share one sync.
 //!
 //! A team the operator takes in from another backend is a job too, of a kind of its own, and so are the
-//! owner the operator names for a team, the team the operator takes back, and the move of a team's members
-//! that the operator opens or closes: each changes the state through the same queue, the same append and
-//! the same sync, and none of these kinds is reached by a request. A request has its own way to three of
-//! them, as any request has (the contract's section 3b): it takes a team in for the caller that then owns
-//! it, and opens and closes a move for the team's owner. Naming an owner and taking a team back are the
-//! operator's alone.
+//! owner the operator names for a team, the team the operator takes back, the team the operator removes,
+//! and the move of a team's members that the operator opens or closes: each changes the state through the
+//! same queue, the same append and the same sync, and none of these kinds is reached by a request. A
+//! request has its own way to three of them, as any request has (the contract's section 3b): it takes a
+//! team in for the caller that then owns it, and opens and closes a move for the team's owner. Naming an
+//! owner, taking a team back and removing a team are the operator's alone.
 //!
 //! A failed append ends the process: the state already holds what the log does not, and nothing may be
 //! answered from it.
@@ -26,7 +26,7 @@ use brigade_core::hash::hex;
 use brigade_core::record::LONGEST_ENCODED_BYTES;
 use brigade_core::{
     Entropy, Entry, Error, JoinFailures, Request, State, Timestamp, answer, close_move, import_team,
-    open_move, set_owner, take_back,
+    open_move, remove_team, set_owner, take_back,
 };
 use brigade_log::{FileLog, KEY_BYTES, Log, LogError, Position, Sealer};
 use hyper::body::Bytes;
@@ -102,8 +102,15 @@ enum Work {
         /// The team.
         team_ref: String,
     },
+    /// To remove a team with everything the server holds of it: its members, their sessions and messages,
+    /// its move and the record of where it went. The reference is free from then on. It is the operator's
+    /// alone, as the three before it are.
+    RemoveTeam {
+        /// The team.
+        team_ref: String,
+    },
     /// To open the move of a team's members from another backend: a ticket that a join is let in with for
-    /// a number of days. It is the operator's alone, as the three before it are.
+    /// a number of days. It is the operator's alone, as the four before it are.
     OpenMove {
         /// The team.
         team_ref: String,
@@ -205,6 +212,20 @@ impl Client {
             team_ref: team_ref.to_owned(),
         };
         self.hand(taken).await
+    }
+
+    /// Has the engine remove the team `team_ref` with everything the server holds of it. The record it
+    /// makes is appended and synced before the answer comes, as a request's is. The answer says what was
+    /// removed: the team's name, how many members its roster showed and who owned it.
+    ///
+    /// # Errors
+    /// The failure the rules refuse it with, a team the server does not hold; `unavailable` when the
+    /// server is stopping.
+    pub async fn remove_team(&self, team_ref: &str) -> Result<Value, Error> {
+        let removed = Work::RemoveTeam {
+            team_ref: team_ref.to_owned(),
+        };
+        self.hand(removed).await
     }
 
     /// Has the engine open the move of the team `team_ref` for `days` days. The record it makes is appended
@@ -335,13 +356,24 @@ fn private_dir(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("{} could not be created: {error}", path.display()))
 }
 
+/// The file of the data directory that holds the record key.
+const RECORD_KEY: &str = "record.key";
+
+/// Whether `data` holds a record key, which is what tells a server's data directory from any other: a
+/// server makes the key on its first start, before it makes anything else, and never starts without it.
+/// A command that must not make a directory into a server's asks this before it opens anything.
+#[must_use]
+pub fn holds_a_record_key(data: &Path) -> bool {
+    data.join(RECORD_KEY).is_file()
+}
+
 /// The key every entry is sealed under: read from `record.key` in the data directory, and made there on
 /// the first start. A second instance is given a copy of the file.
 ///
 /// A key is made only in a directory that holds nothing of a server's yet. A directory with a log and no
 /// key has lost it, and a new key would open nothing that is there.
 fn record_key(data: &Path) -> Result<[u8; KEY_BYTES], String> {
-    let path = data.join("record.key");
+    let path = data.join(RECORD_KEY);
     let malformed = || {
         format!(
             "{} is not a record key: it holds {} hexadecimal digits",
@@ -576,6 +608,7 @@ impl Engine {
                     Work::TakeBack { team_ref } => {
                         take_back(&mut self.state, team_ref, now, &mut self.entropy)
                     }
+                    Work::RemoveTeam { team_ref } => remove_team(&mut self.state, team_ref, now),
                     Work::OpenMove { team_ref, days } => {
                         open_move(&mut self.state, team_ref, *days, now, &mut self.entropy)
                     }

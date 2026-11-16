@@ -51,8 +51,10 @@ name. It is the first step of `brigade team move --to`, which then opens the tea
   another backend, and owns it`. No line holds the secret.
 - **Decide about the creation token first.** A team's reference is in its committed `.brigade.json`, so it is
   public. On a server with no creation token a stranger can take in a team under your team's reference, with a
-  secret of their own, and your team's take-in is then refused. A creation token closes that. No command removes
-  such a team yet ([Security, section 20](../../security.md#20-a-team-on-a-brigade-server)).
+  secret of their own, and your team's take-in is then refused. A creation token closes that. From 0.9.0 you
+  remove such a team with `--remove-team`, between a stop and a start, and the reference is free again
+  ([Remove a team](name-the-owner.md#remove-a-team);
+  [Security, section 20](../../security.md#20-a-team-on-a-brigade-server)).
 
 ## Take the team in yourself
 

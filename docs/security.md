@@ -1387,6 +1387,19 @@ what differs. The server is experimental in its 0.1.0.
   for no creation token, a stranger can take in a team under that reference with a secret of their own
   invention, and the real team's take-in is then refused as a conflict. A creation token closes that, because
   the stranger takes nothing in without it. No command of the operator's removes such a team yet.
+  From server 0.9.0 one does (work item 332;
+  [ADR 0011](decisions/0011-remove-a-team-from-a-server-by-the-operators-command.md)): on the server's data
+  directory, while the server is stopped, the operator removes the team that holds the reference, with
+  everything the server holds of it, and the reference is free. Four things about that, stated plainly. The
+  server cannot tell which of two teams a reference belongs to, because it cannot ask the backend the team
+  lives on, so the command removes whichever team the operator names: whoever runs the server can end any team
+  on it, as they can read everything in it. The reference is then free for anyone, the stranger included,
+  until the operator starts the server with a creation token or takes the real team in before the server
+  serves again. Removing takes the team out of what the server holds now and not off the disk: the snapshots
+  that are still kept and the log's earlier entries go on holding what its members wrote, and the ticket of a
+  move it recorded, for as long as the bullet "A team that moves away" says of a cleared ticket. And the
+  credentials of its members are not ended, as a revocation ends none: each still names a principal, which is
+  no member of the removed team and is a member of every other team it was in.
 - **A take-in that is made again.** The answer to a take-in carries the credential of the owner it made, and
   nothing else holds it: an answer that is lost on the way would leave the team with an owner nobody can be.
   So the member's adapter mints a retry key before it asks, from 256 random bits, keeps it in a file of mode
@@ -1422,7 +1435,9 @@ what differs. The server is experimental in its 0.1.0.
   end. No line the server writes holds it. And the server the team leaves keeps the team as it is: nothing is
   ended, closed or refused there because the team moved, so that a member who has not followed can still read
   the record, and nothing removes the team afterwards. What its members wrote stays on that server for as long
-  as its data directory does.
+  as its data directory does. From 0.9.0 the server's operator can remove the team there, and the record goes
+  with it: a member who has not followed by then follows nothing, and joins the backend the team went to with
+  the secret file.
 - **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
   here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
   revokes or bans a member and transfers the team. Three things differ from section 9. A team that the operator
@@ -1445,7 +1460,9 @@ what differs. The server is experimental in its 0.1.0.
   there is now a way to redirect it. A team that its Team Admin took in by request has that Team Admin as its
   owner from the first, and no join changes that; for a team the operator took in, the operator sees to it
   that the Team Admin joins first, or names the owner. The operator's command that takes a team back clears
-  such a record with everything else the owner held.
+  such a record with everything else the owner held. From 0.9.0 a third command of the operator's removes a
+  team with everything it holds: the bullet "What a take-in by request opens" says what it is for and what
+  follows from it.
 - **What it does not have yet.** One instance and no standby, so the server's disk is the team's only copy.
 
 ## 21. A team that moves to another backend
@@ -1557,7 +1574,9 @@ for it, with that server where it says the old backend or the project.
   saying where the team went; it does not end the ticket. Ending the team on the old backend removes the record
   with it. A server has no command that ends a team: there the record stands until the team's owner clears it
   or the server's operator takes the team back, and the team stays on that server with what its members wrote.
-  Clearing the record moves nobody back: a member who followed stays where the team went.
+  Clearing the record moves nobody back: a member who followed stays where the team went. From server 0.9.0
+  its operator can remove the team there, which takes the record with it and moves nobody back either
+  (section 20).
 - **What does not come over.** Messages that were waiting on the old backend stay there until their retention
   ends, so an administrator moves a team at a quiet moment. A running session that holds messages for your
   review stays on the old backend until you release them, and says so once: a held message does not move with

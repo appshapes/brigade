@@ -869,6 +869,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_gateway_of_a_team_whose_reference_a_stranger_holds_joins_once_the_team_is_there() {
+        // The stranger's case of work item 332. The operator configured the Slack gateway for a team that
+        // is to come, with the secret file its admin sent, and a stranger took that team's reference in
+        // under a secret of their own. The secrets are put together here: no file of the repository holds
+        // the shape of one.
+        const REFERENCE: &str = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
+        let real = format!("brg1.{REFERENCE}.kept-from-the-other-backend");
+        let invented = format!("brg1.{REFERENCE}.invented-by-a-stranger");
+        let slack_api = StandIn::start(standin::slack);
+        let api = format!("{}/api", slack_api.url);
+        let mut world = World::new("turns-stranger", |_| config::Gateways {
+            slack: Some(slack(&api, &real)),
+            mail: None,
+        })
+        .await;
+        let take_in = |secret: &str, label: &str| {
+            let body = json!({"join_secret": secret, "team_name": "moved", "human_label": label});
+            Bytes::from(body.to_string())
+        };
+        let taken = world
+            .engine
+            .ask(
+                None,
+                true,
+                true,
+                "/v1/team/take-in",
+                take_in(&invented, "mallory"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(taken["owner"], json!(true));
+        let member = |world: &World| {
+            let store = world.gateways.store.try_lock().unwrap();
+            store.membership(REFERENCE, Kind::Slack).is_some()
+        };
+        // Makes the minute since the team last refused the gateway's first join be over.
+        let a_minute_later = |world: &mut World| {
+            let (at, _) = world.turns.slots[0]
+                .refused
+                .as_mut()
+                .expect("the refusal of the first join");
+            *at = Instant::now()
+                .checked_sub(HEARTBEAT_EVERY)
+                .expect("a machine that has been up for a minute");
+        };
+
+        // The gateway's secret is not the secret the reference is held under: its join is refused, and it
+        // says so once, in one line that names the team by its reference. It was never a member of the
+        // stranger's team.
+        world.pass().await;
+        world.pass().await;
+        assert!(!member(&world));
+        let said = world.turns.slots[0].said.clone();
+        assert_eq!(
+            said,
+            [format!(
+                "the slack gateway of team {REFERENCE} could not finish a turn: unauthorized: join secret \
+                 rejected"
+            )]
+        );
+
+        // The operator removes the stranger's team: its one member, and no gateway. With no team of the
+        // reference the gateway is refused as before when its minute is over, and says nothing new.
+        let removed = world.engine.remove_team(REFERENCE).await.unwrap();
+        assert_eq!(removed["members"], json!(1));
+        a_minute_later(&mut world);
+        world.pass().await;
+        assert!(!member(&world));
+        assert_eq!(world.turns.slots[0].said, said);
+
+        // The team's admin takes the team in on the server that runs, with the secret the gateway's file
+        // holds, and owns it. Within the minute the gateway does not ask; when the minute is over it joins
+        // by itself, as a member and never as the owner, and has its session. Nothing was changed in its
+        // configuration, and the server was not started again for it.
+        let taken = world
+            .engine
+            .ask(
+                None,
+                true,
+                true,
+                "/v1/team/take-in",
+                take_in(&real, "alice@example.com"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            (&taken["taken_in"], &taken["owner"]),
+            (&json!(true), &json!(true))
+        );
+        let admin = sha256_hex(taken["credential"].as_str().unwrap());
+        world.pass().await;
+        assert!(!member(&world));
+        a_minute_later(&mut world);
+        world.pass().await;
+        assert!(member(&world));
+        assert!(world.turns.slots[0].refused.is_none());
+        let ask = |path: &'static str| {
+            let body = json!({"team_ref": REFERENCE, "include_offline": true});
+            world.engine.ask(
+                Some(admin.clone()),
+                false,
+                true,
+                path,
+                Bytes::from(body.to_string()),
+            )
+        };
+        let roster = ask("/v1/team/members").await.unwrap();
+        assert_eq!(roster["members"].as_array().unwrap().len(), 2, "{roster}");
+        let listed = ask("/v1/session/list").await.unwrap();
+        let sessions = listed["sessions"].as_array().unwrap();
+        assert_eq!(gateway_rows(sessions, "gateway-slack").len(), 1, "{listed}");
+        // The admin owns the team still: it rotates the team's secret.
+        let rotated = ask("/v1/team/rotate-secret").await.unwrap();
+        assert_eq!(rotated["secret_version"], json!(2));
+    }
+
+    #[tokio::test]
     async fn a_join_secret_file_that_does_not_read_is_said_without_its_path_and_the_secret_is_kept() {
         let slack_api = StandIn::start(standin::slack);
         let api = format!("{}/api", slack_api.url);

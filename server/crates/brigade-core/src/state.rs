@@ -669,7 +669,8 @@ impl State {
     /// that gets another owner keeps none, and neither does one whose join secret is rotated. A take-in
     /// made again makes a credential unknown as well, and its join keeps the key again in the same
     /// entry, so an answer that is lost twice is still made again. A record of anybody else, and the
-    /// operator's commands that name no owner, end nothing.
+    /// operator's commands that name no owner, end nothing. The operator's removal of a team ends the
+    /// key that team kept, as it ends everything else of the team.
     pub fn apply(&mut self, record: &Record) {
         let at = record.at;
         self.latest_at = self.latest_at.max(at);
@@ -891,6 +892,24 @@ impl State {
                     // The owner's request, or the operator's take-back, whose rotation ends the key in
                     // the same entry.
                     self.end_retry_key_of_team(team_ref);
+                }
+            }
+            Event::TeamRemoved { team_ref } => {
+                if let Some(team) = self.teams.remove(team_ref) {
+                    // With the team went everything it held: its memberships, its sessions and their
+                    // messages, its move and the record of where it went. No session of its own is in a
+                    // team from now on. The principals that were its members stay, and so do their
+                    // credentials: they are the server's, and each may be a member of other teams.
+                    for session_id in team.sessions.keys() {
+                        self.session_teams.remove(session_id);
+                    }
+                    // The key the team kept went with it, and with it goes the way back to it: a
+                    // principal names no team that is not there.
+                    if let Some(kept) = &team.take_in_retry
+                        && let Some(principal) = self.principals.get_mut(&kept.principal_ref)
+                    {
+                        principal.retry_key_in.clear();
+                    }
                 }
             }
             Event::SessionOpened {

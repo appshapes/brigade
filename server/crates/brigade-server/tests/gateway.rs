@@ -22,7 +22,7 @@ mod common;
 #[path = "common/standin.rs"]
 mod standin;
 
-use common::{Scratch, Server, log_arguments, parse, request, text};
+use common::{Scratch, Server, import_team, log_arguments, parse, remove_team, request, text};
 use standin::{Asked, Said, StandIn};
 
 const BOT_TOKEN: &str = "xoxb-FAKE-BOT-TOKEN-MUST-NOT-LEAK";
@@ -87,6 +87,57 @@ fn seconds_now() -> String {
         .unwrap()
         .as_secs()
         .to_string()
+}
+
+/// Writes a secret to a file of the test's own, as its one line, and answers the file's path.
+fn put(scratch: &Scratch, name: &str, secret: &str) -> String {
+    let path = scratch.path(name);
+    std::fs::write(&path, format!("{secret}\n")).unwrap();
+    path.display().to_string()
+}
+
+/// Writes the configuration of a Slack and a mail gateway that speak to two stand-ins and serve one team,
+/// the one whose join secret `join_secret_file` holds, with every other secret in a file beside it, and
+/// answers the configuration's path.
+fn gateways_file(
+    scratch: &Scratch,
+    slack: &StandIn,
+    mail: &StandIn,
+    provider: &str,
+    allowed_senders: &str,
+    join_secret_file: &str,
+) -> String {
+    let hook = if provider == "resend" {
+        RESEND_HOOK
+    } else {
+        POSTMARK_HOOK
+    };
+    let config = json!({
+        "slack": {
+            "bot_token_file": put(scratch, "slack-bot-token", BOT_TOKEN),
+            "signing_secret_file": put(scratch, "slack-signing-secret", SIGNING_SECRET),
+            "bot_handle": "brigade",
+            "workspace": "example.slack.com",
+            "api": format!("{}/api", slack.url),
+            "teams": [{"join_secret_file": join_secret_file}],
+        },
+        "mail": {
+            "provider": provider,
+            "api_key_file": put(scratch, "mail-key", API_KEY),
+            "webhook_secret_file": put(scratch, "mail-webhook-secret", hook),
+            "api": mail.url,
+            "teams": [{
+                "join_secret_file": join_secret_file,
+                "inbox": "ops@in.example.com",
+                "public_address": "ops@example.com",
+                "from": "Ops <ops@example.com>",
+                "allowed_senders": serde_json::from_str::<Value>(allowed_senders).unwrap(),
+            }],
+        },
+    });
+    let file = scratch.path("gateways.json");
+    std::fs::write(&file, config.to_string()).unwrap();
+    file.display().to_string()
 }
 
 /// A team named `ops` on a server whose Slack and mail gateways speak to two stand-ins.
@@ -154,42 +205,9 @@ impl World {
         server.stop();
 
         let (slack, mail) = (StandIn::start(slack_answers), StandIn::start(mail_answers));
-        let put = |name: &str, secret: &str| {
-            let path = scratch.path(name);
-            std::fs::write(&path, format!("{secret}\n")).unwrap();
-            path.display().to_string()
-        };
-        let hook = if provider == "resend" {
-            RESEND_HOOK
-        } else {
-            POSTMARK_HOOK
-        };
-        let config = json!({
-            "slack": {
-                "bot_token_file": put("slack-bot-token", BOT_TOKEN),
-                "signing_secret_file": put("slack-signing-secret", SIGNING_SECRET),
-                "bot_handle": "brigade",
-                "workspace": "example.slack.com",
-                "api": format!("{}/api", slack.url),
-                "teams": [{"join_secret_file": put("ops.secret", &join_secret)}],
-            },
-            "mail": {
-                "provider": provider,
-                "api_key_file": put("mail-key", API_KEY),
-                "webhook_secret_file": put("mail-webhook-secret", hook),
-                "api": mail.url,
-                "teams": [{
-                    "join_secret_file": scratch.path("ops.secret").display().to_string(),
-                    "inbox": "ops@in.example.com",
-                    "public_address": "ops@example.com",
-                    "from": "Ops <ops@example.com>",
-                    "allowed_senders": serde_json::from_str::<Value>(allowed_senders).unwrap(),
-                }],
-            },
-        });
-        let file = scratch.path("gateways.json");
-        std::fs::write(&file, config.to_string()).unwrap();
-        arguments.extend(["--gateway-config".to_owned(), file.display().to_string()]);
+        let secret_file = put(&scratch, "ops.secret", &join_secret);
+        let file = gateways_file(&scratch, &slack, &mail, provider, allowed_senders, &secret_file);
+        arguments.extend(["--gateway-config".to_owned(), file]);
         let server = Server::start(&scratch, &arguments);
         let registration = json!({
             "team_ref": team_ref, "harness": "claude-code", "harness_version": "2.1.0",
@@ -1458,6 +1476,301 @@ fn the_gateways_join_again_by_themselves_once_their_file_holds_the_rotated_secre
         new_secret.rsplit('.').next().unwrap(),
         "still here after the rotation",
     ]);
+}
+
+/// The operator removes a team whose gateways were its members, and the configuration still names it
+/// (work item 332). The gateways' memberships and sessions go with the team; the command leaves the
+/// gateways' own state and the configuration as they are. The server that starts then says of each
+/// gateway that it is no member any more and that its join is refused, and serves everything else. Once a
+/// team of that reference is there again, the gateways join it with the credentials they kept. That a
+/// gateway says a line once and not at every turn is held where the turns are in the test's hands
+/// (`turns.rs`).
+#[test]
+fn the_gateways_of_a_removed_team_are_out_until_a_team_of_its_reference_is_there_again() {
+    let world = World::start("removed", "postmark", "[]", standin::postmark);
+    let (data, team_ref) = (world.scratch.path("data"), world.team_ref.clone());
+    let log = ["--log".to_owned(), "file".to_owned()];
+    let state_file = world.scratch.path("data/gateway/state.json");
+    // Another team on the server, which has no gateway.
+    let (status, created) = world.server.post(
+        None,
+        "/v1/team/create",
+        &json!({"team_name": "other", "human_label": "bob@example.com"}),
+    );
+    assert_eq!(status, 200, "{created}");
+    let (other_ref, bob) = (
+        text(&created["result"], "team_ref"),
+        text(&created["result"], "credential"),
+    );
+
+    // The operator stops the server and removes the team: its creator and its two gateways were its
+    // members. The command reads no gateway configuration and changes nothing the gateways keep for
+    // themselves. The server is then started as it was, with a configuration that still names the team.
+    let world = world.started_again(|server| {
+        server.stop();
+        let kept = std::fs::read(&state_file).unwrap();
+        let (status, wrote) = remove_team(&data, &log, &team_ref);
+        assert_eq!(status, Some(0), "{wrote}");
+        assert!(
+            wrote.contains(&format!(
+                "removed team \"ops\" ({team_ref}) with its 3 members: it was owned by"
+            )),
+            "{wrote}"
+        );
+        assert_eq!(std::fs::read(&state_file).unwrap(), kept);
+    });
+
+    // The server starts and listens. Each gateway holds the credential it was a member by, finds that it
+    // is no member, reads its join secret file again and is refused the join, because no team of that
+    // reference is there: it says both, by the name the team had.
+    let lines = |gateway: &str| {
+        [
+            format!(
+                "the {gateway} of team ops could not finish a turn: unauthorized: not an active member of \
+                 this team"
+            ),
+            format!(
+                "the {gateway} of team ops could not join its team again: unauthorized: join secret rejected"
+            ),
+        ]
+    };
+    until("both gateways to say that they are out", || {
+        let said = world.said();
+        ["slack gateway", "mail gateway"]
+            .iter()
+            .all(|gateway| lines(gateway).iter().all(|line| said.contains(line)))
+            .then_some(())
+    });
+    // Everything else is served: the other team as it was, a team that is created now, and the removed
+    // team's creator, who reads what anyone reads about a team that is not there.
+    let roster = world
+        .server
+        .ok(&bob, "/v1/team/members", &json!({"team_ref": other_ref}));
+    assert_eq!(roster["members"].as_array().unwrap().len(), 1, "{roster}");
+    let (status, created) = world
+        .server
+        .post(None, "/v1/team/create", &json!({"team_name": "new"}));
+    assert_eq!(status, 200, "{created}");
+    let (status, envelope) = world.server.post(
+        Some(&world.credential),
+        "/v1/team/members",
+        &json!({"team_ref": world.team_ref}),
+    );
+    assert_eq!(
+        (status, text(&envelope["error"], "code").as_str()),
+        (403, "unauthorized")
+    );
+    // Nothing is carried for the removed team. It was the one team of each gateway, so a request to
+    // either address is answered a failure, which Slack and the mail provider take as a delivery to make
+    // again: what the operator ends by taking the team out of the configuration.
+    assert_eq!(
+        world.direct_message("Ev0001", "1700000001.000100", "sessions"),
+        (
+            500,
+            json!({"error": "the gateway could not carry the request; it can be delivered again"})
+        )
+    );
+    let basic = format!("Basic {}", base64(format!("brigade:{POSTMARK_HOOK}").as_bytes()));
+    assert_eq!(
+        world.post(
+            "/gateway/mail/postmark",
+            &postmark_mail("pm-in-1", "pat@example.com", "hello", "sessions"),
+            &[("Authorization", &basic)],
+        ),
+        (502, json!({"error": "the gateway core answered 500"}))
+    );
+    // Neither gateway became a member of anything, and nothing was carried.
+    let said = world.said();
+    assert!(!said.contains("gateway joined team"), "{said}");
+    assert!(!said.contains("registered its session"), "{said}");
+    world.nothing_leaked(&[]);
+
+    // A team of that reference is on the server again: here the operator takes it in, between a stop and
+    // a start, with the secret file the gateways are configured with. Each gateway joins it at the start
+    // with the credential it kept, so as the principal it was and never as its owner, and registers a
+    // session there: nothing of the gateways' own state had to be mended.
+    let secret_file = world.scratch.path("ops.secret");
+    let world = world.started_again(|server| {
+        server.stop();
+        let (status, wrote) = import_team(&data, &log, "ops", &secret_file);
+        assert_eq!(status, Some(0), "{wrote}");
+    });
+    let said = until("both gateways to say that they joined again", || {
+        let said = world.said();
+        (said.contains("the slack gateway joined team ops again")
+            && said.contains("the mail gateway joined team ops again"))
+        .then_some(said)
+    });
+    assert!(!said.contains("as a new member"), "{said}");
+    let (status, joined) = world.server.post(
+        None,
+        "/v1/team/join",
+        &json!({"join_secret": world.join_secret, "human_label": "carol@example.com"}),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let carol = text(&joined["result"], "credential");
+    let rows = until(
+        "both gateways on the roster of the team that was taken in",
+        || {
+            let listed = world.server.ok(
+                &carol,
+                "/v1/session/list",
+                &json!({"team_ref": world.team_ref, "include_offline": true}),
+            );
+            let harnesses: Vec<String> = listed["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| text(row, "harness"))
+                .collect();
+            (harnesses.len() == 2).then_some(harnesses)
+        },
+    );
+    assert!(rows.contains(&"gateway-slack".to_owned()) && rows.contains(&"gateway-email".to_owned()));
+    // The member that joined over HTTP owns the team, however early the gateways joined.
+    world.server.ok(
+        &carol,
+        "/v1/team/rotate-secret",
+        &json!({"team_ref": world.team_ref}),
+    );
+    world.nothing_leaked(&[]);
+}
+
+/// The stranger's case with gateways configured (work item 332). The operator's configuration names the
+/// real team: its reference, in the secret file its admin sent. A stranger holds that reference under a
+/// secret of their own. The gateways were never members of the stranger's team, so the removal takes none
+/// of them, and their entries stay in the configuration: each says in one line, by the reference, that it
+/// could not join, and joins by itself once the real team is there. Here that is at the start after the
+/// operator's own take-in; that a gateway whose first join was refused asks again each minute, and so
+/// joins a team that is taken in while the server runs, is held where the turns are in the test's hands
+/// (`turns.rs`).
+#[test]
+fn the_real_teams_gateways_stay_configured_and_join_once_the_strangers_team_is_removed() {
+    const REFERENCE: &str = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
+    let scratch = Scratch::new("gateway-stranger");
+    let log = log_arguments("file", &scratch);
+    let data = scratch.path("data");
+    let (slack, mail) = (StandIn::start(standin::slack), StandIn::start(standin::postmark));
+    // The secrets are put together here: no file of the repository holds the shape of one.
+    let real = format!("brg1.{REFERENCE}.kept-from-the-other-backend");
+    let invented = format!("brg1.{REFERENCE}.invented-by-a-stranger");
+    let secret_file = put(&scratch, "real.secret", &real);
+    let config = gateways_file(&scratch, &slack, &mail, "postmark", "[]", &secret_file);
+    let configured = std::fs::read(&config).unwrap();
+    let mut arguments = log.clone();
+    arguments.extend(["--gateway-config".to_owned(), config.clone()]);
+    let said = || std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    // What a gateway says when the team its secret names is not there, or is there under another secret:
+    // one line, which names the team by its reference, the one name the gateway has for it.
+    let refused = |gateway: &str| {
+        format!(
+            "the {gateway} of team {REFERENCE} could not finish a turn: unauthorized: join secret rejected"
+        )
+    };
+    let both_refused = || {
+        until("both gateways to say that their join was refused", || {
+            let said = said();
+            (said.contains(&refused("slack gateway")) && said.contains(&refused("mail gateway")))
+                .then_some(said)
+        })
+    };
+
+    // The server starts with the gateways configured for a team that has not come yet.
+    let server = Server::start(&scratch, &arguments);
+    both_refused();
+    // A stranger takes the reference in under a secret of their own. The gateways are no members of that
+    // team: its roster is the stranger alone. The real team's take-in is the conflict.
+    let (status, taken) = server.post(
+        None,
+        "/v1/team/take-in",
+        &json!({"join_secret": invented, "team_name": "ops", "human_label": "mallory"}),
+    );
+    assert_eq!(status, 200, "{taken}");
+    let mallory = text(&taken["result"], "credential");
+    let team = json!({"team_ref": REFERENCE});
+    let roster = server.ok(&mallory, "/v1/team/members", &team);
+    assert_eq!(roster["members"].as_array().unwrap().len(), 1, "{roster}");
+    let admins = json!({"join_secret": real, "team_name": "ops", "human_label": "alice@example.com"});
+    let (status, _) = server.post(None, "/v1/team/take-in", &admins);
+    assert_eq!(status, 409);
+    server.stop();
+
+    // The operator removes the stranger's team: its one member, and no gateway. Started as it is, with
+    // no team of the reference, the server says of each gateway what it said before, and nothing of a
+    // membership that ended: there was none.
+    let (status, wrote) = remove_team(&data, &log, REFERENCE);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(wrote.contains("with its 1 member:"), "{wrote}");
+    let server = Server::start(&scratch, &arguments);
+    let journal = both_refused();
+    assert!(
+        !journal.contains("could not join its team again") && !journal.contains("not an active member"),
+        "{journal}"
+    );
+    server.stop();
+
+    // The operator takes the real team in before the start, with the file the gateways are configured
+    // with, and leaves the configuration as it is. Both gateways join at the start, as new members.
+    let (status, wrote) = import_team(&data, &log, "ops", std::path::Path::new(&secret_file));
+    assert_eq!(status, Some(0), "{wrote}");
+    let server = Server::start(&scratch, &arguments);
+    let journal = until("both gateways to say that they joined", || {
+        let said = said();
+        (said.contains("the slack gateway joined team ops")
+            && said.contains("the mail gateway joined team ops"))
+        .then_some(said)
+    });
+    assert!(!journal.contains("could not"), "{journal}");
+    // The Team Admin's take-in joins the team it finds and owns it, however early the gateways joined,
+    // and the gateways are on its roster. The stranger's take-in is the conflict now.
+    let (status, taken) = server.post(None, "/v1/team/take-in", &admins);
+    assert_eq!(status, 200, "{taken}");
+    assert_eq!(
+        (&taken["result"]["taken_in"], &taken["result"]["owner"]),
+        (&json!(false), &json!(true))
+    );
+    let admin = text(&taken["result"], "credential");
+    let roster = server.ok(&admin, "/v1/team/members", &team);
+    assert_eq!(roster["members"].as_array().unwrap().len(), 3, "{roster}");
+    let harnesses = until("both gateways' sessions on the roster", || {
+        let listed = server.ok(
+            &admin,
+            "/v1/session/list",
+            &json!({"team_ref": REFERENCE, "include_offline": true}),
+        );
+        let harnesses: Vec<String> = listed["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| text(row, "harness"))
+            .collect();
+        (harnesses.len() == 2).then_some(harnesses)
+    });
+    assert!(
+        harnesses.contains(&"gateway-slack".to_owned()) && harnesses.contains(&"gateway-email".to_owned())
+    );
+    let (status, _) = server.post(
+        Some(&mallory),
+        "/v1/team/take-in",
+        &json!({"join_secret": invented, "team_name": "ops"}),
+    );
+    assert_eq!(status, 409);
+    // The configuration is the bytes it was, and nothing the server wrote holds a secret.
+    assert_eq!(std::fs::read(&config).unwrap(), configured);
+    let journal = said();
+    for secret in [
+        BOT_TOKEN,
+        SIGNING_SECRET,
+        API_KEY,
+        POSTMARK_HOOK,
+        "kept-from-the-other-backend",
+        "invented-by-a-stranger",
+        admin.as_str(),
+        mallory.as_str(),
+    ] {
+        assert!(!journal.contains(secret), "the server wrote a secret:\n{journal}");
+    }
+    server.stop();
 }
 
 #[test]
