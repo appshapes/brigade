@@ -89,6 +89,10 @@ removes the team that holds the reference
 ```sh
 sudo systemctl stop brigade-server
 sudo -u brigade brigade-server --data /var/lib/brigade-server --remove-team <team_ref>
+# The reference is now free for anyone who can reach the server, the stranger included.
+# Keep it for your team before the start: take the team in with the secret file its Team Admin sent.
+# Leave the next line out only on a server that is started with --create-token-file.
+sudo -u brigade brigade-server --data /var/lib/brigade-server --import-team <name> --join-secret-file <file>
 sudo systemctl start brigade-server
 ```
 
@@ -104,29 +108,39 @@ sudo systemctl start brigade-server
   A team that recorded where it went adds `and the record of where it went`, and a team nobody owned says `it
   had no owner`. The line is not in the service's journal, and the server holds nothing of the team afterwards,
   so keep the line if you want an account of what was removed.
-- **What it refuses.** A reference the server does not hold: `the team was not removed: not_found: the server
-  holds no team of that reference`, and nothing changes. A server that runs on the directory: `another server is
-  running on <dir>`. And it is one command: with another of the commands on this page, with `--import-team`,
-  `--open-move` or `--close-move`, or with an option that serving takes, it is refused before it touches the
-  directory.
-- **The reference is then free for anyone**, the stranger included, for as long as the server asks for no
-  creation token. So before the start, do one of two things. Start the server with `--create-token-file <file>`
-  from now on, and give the token's file to the Team Admin ([Hand over the values](hand-over-the-values.md)).
-  Or take your team in yourself, between the removal and the start, with the secret file the Team Admin sends:
-  `--import-team <name> --join-secret-file <file>`
-  ([Take the team in yourself](take-in-a-team.md#take-the-team-in-yourself)). The reference is then your
-  team's when the server starts, and the Team Admin's command joins the team it finds and owns it, as the first
-  to join.
-- **Then the Team Admin runs the move again**, `brigade team move --to <url> --secret-file <path>`: the server
-  takes the team in as one it never held, with the Team Admin as its owner.
+- **The step after the removal keeps the reference for your team.** A server that asks for no creation token
+  takes the reference in again for the first caller that asks, the stranger included. `--import-team` puts your
+  team there, under its own secret, before the server serves; `<name>` is the team's name as its
+  `.brigade.json` has it in `team_name`
+  ([Take the team in yourself](take-in-a-team.md#take-the-team-in-yourself)). The stranger's take-in is then the
+  one that is refused, and the Team Admin's take-in is answered that the team is there and that their machine
+  owns it, as the first to join it. A server that is started with `--create-token-file` takes nothing in
+  without the token, so there the step can be left out: give the token's file to the Team Admin
+  ([Hand over the values](hand-over-the-values.md)), whose take-in then takes the team in and owns it.
+- **Then the Team Admin runs the move again**: `brigade team move --to <url> --secret-file <path>`, with
+  `--create-token-file <path>` where the server asks for a token.
+- **What it refuses**, with no team removed:
+  - a reference the server does not hold: `the team was not removed: not_found: the server holds no team of
+    that reference`. The reference is compared exactly as it is typed: another case, or a space before or
+    after it, names no team;
+  - a `--data` that is not a server's data directory: `the team was not removed: <dir> is not a server's data
+    directory: it holds no record.key, which a server makes on its first start`. Nothing is made there: a path
+    that was typed wrongly does not become a directory;
+  - a server that runs on the directory: `another server is running on <dir>`;
+  - `--remove-team` given twice: `--remove-team is given once: one run removes one team`, and neither team is
+    removed;
+  - another of the commands on this page, `--import-team`, `--open-move` or `--close-move`, or an option that
+    serving takes, on the same command line.
 - **A member of the removed team is a member of nothing there.** The server still knows the credential of
   their machine: a credential names an installation, which may be a member of other teams on the server, and
-  those are untouched. Whatever they ask about the removed team, and about a session they had in it, is answered
-  `unauthorized`, `not an active member of this team`, as for a team that does not exist. So a session of
-  theirs stops receiving and says to run `brigade team join` again, as after a revocation, and the secret they
-  hold joins nothing.
-- **Its gateways go with it**, as the members they are. The command reads no gateway file and changes nothing the
-  gateways keep for themselves, so take the team's entries out of the file before the start
+  those are untouched. Whatever they ask about the removed team is answered `unauthorized`, `not an active member
+  of this team`, as for a team that does not exist. A session they had in it is answered the same, unless they
+  are still a member of another team on the server: there it is answered `not_found`, as a session that was
+  never theirs is. The secret they hold joins nothing.
+- **The gateways.** The command reads no gateway file and changes nothing the gateways keep for themselves. In
+  the case above the file's entries are your team's, whose gateways were never members of the stranger's team:
+  leave them as they are, and the gateways join by themselves once your team is there. Entries for a team that
+  was removed and is not coming back are yours to take out
   ([After a team is removed](gateways.md#after-a-team-is-removed)).
 - **What stays on the disk.** The command writes a snapshot that holds nothing of the team. The snapshots before
   it and the log's earlier entries still hold the team, its messages and, where it recorded a move, that move's
@@ -140,6 +154,7 @@ sudo systemctl start brigade-server
 
 It also removes a team that is yours and is no longer wanted, such as one that moved to another server and whose
 members have all followed ([The server the team leaves](move-to-another-server.md#the-server-the-team-leaves)).
+There the block is the stop, the removal and the start: nothing is taken in after it.
 
 ## When an owner is lost
 

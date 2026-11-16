@@ -163,31 +163,52 @@ file holds. Banned, it stays out until the owner lifts the ban: that is how a te
 
 ## After a team is removed
 
-When you remove a team from the server ([Remove a team](name-the-owner.md#remove-a-team), from 0.9.0), its
-gateways are removed with it, as the members they are. The command reads no gateway file, and leaves what the
-gateways keep for themselves in `gateway/` of the data directory as it is.
+`--remove-team` ([Remove a team](name-the-owner.md#remove-a-team), from 0.9.0) reads no gateway file and leaves
+what the gateways keep for themselves, in `gateway/` of the data directory, as it is. What you do with the
+configuration depends on whose entries it holds.
+
+**The entries are your team's, and the team you removed was a stranger's.** That is the case the command is for:
+someone took your team's reference in under a secret of their own, and the file names your team's join secret
+file. The gateways were never members of the stranger's team, so nothing of theirs is removed. Leave the entries
+as they are.
+
+- While no team of that reference opens to their secret, before the removal and after it, the server says one
+  line for each gateway, which names the team by its reference:
+
+  ```
+  the slack gateway of team 6f0f2b41-… could not finish a turn: unauthorized: join secret rejected
+  the mail gateway of team 6f0f2b41-… could not finish a turn: unauthorized: join secret rejected
+  ```
+- They join by themselves once your team is there: at the start, where you took the team in with
+  `--import-team` before it, and within a minute of the Team Admin's take-in on a server that runs. The server
+  then says `the slack gateway joined team <name>` and `the slack gateway of team <name> registered its
+  session`, and the same of the mail gateway. A gateway never becomes the team's owner, however early it joins:
+  the Team Admin's take-in still owns the team.
+
+**The gateways were members of the team you removed, and no team of that reference is coming back**: a team of
+your own that is no longer wanted. Their memberships and their sessions went with the team.
 
 1. Before the start, take the team's entry out of `teams` under `slack` and under `mail` in the configuration
    file. A gateway that serves no other team is taken out whole, by leaving `slack` or `mail` out: the server
-   refuses a gateway that names no team. Its Slack app's request URLs and its mail provider's webhook then no
-   longer point at the server.
-2. If you leave the entries in, the server starts and serves everything else. It says once for each gateway,
-   by the name the team had:
+   refuses a gateway that names no team.
+2. Change the Slack app's two request URLs and the mail provider's webhook yourself, at Slack and at the
+   provider. Leaving an entry out of the file changes nothing there: they go on calling the server until you do.
+3. If you leave the entries in, the server starts and serves everything else. It says for each gateway, by the
+   name the team had:
 
    ```
    the slack gateway of team ops could not finish a turn: unauthorized: not an active member of this team
    the slack gateway of team ops could not join its team again: unauthorized: join secret rejected
    ```
 
-   and the gateway asks again each minute, with the file's secret, and is refused: no team of that reference is
-   there. Nothing is carried for that team. A mail to it is answered with an error, and so is a Slack request
-   where it was the Slack gateway's only team: the provider and Slack deliver again, and go on doing so. Where
-   the Slack gateway serves other teams they are served as before, and someone who writes to a session of the
-   removed team is told that one team's sessions cannot be reached.
-3. When a team of the same reference is on the server again, taken in by its Team Admin or by you, a gateway
-   whose entry names a file that holds that team's join secret joins it with the credential it kept, as a
-   member and never as its owner: at the start when the team is there by then, and otherwise at its next try,
-   which comes each minute.
+   Nothing is carried for that team. A mail to its inbox is answered with an error (502), and so is a Slack
+   request where it was the Slack gateway's only team (500, `the gateway could not carry the request; it can be
+   delivered again`). Where the gateways serve another team as well, that team is served as before, and someone
+   on Slack who asks for the sessions, or writes to one of the removed team's, is told that one team's gateway
+   is not connected at the moment, so its sessions cannot be reached.
+4. Entries you left in bring the gateways back if a team of that reference is on the server at a later start,
+   such as one you took in with `--import-team`: each joins it with the credential it kept, and the server
+   says `the slack gateway joined team <name> again`.
 
 ## What it does and does not do
 

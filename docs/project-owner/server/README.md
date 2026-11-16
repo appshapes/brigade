@@ -167,9 +167,10 @@ Details: [Let a team's members follow it](open-a-move.md).
    of step 3 gives the team a new secret in that file, ends every membership and leaves it to the first member
    who joins with the file. From 0.8.0 it also clears the record of where the team went, if its owner made one.
 5. If the team is not yours at all, because on a server with no creation token someone took your team's
-   reference in under a secret of their own and your Team Admin's move is refused: from 0.9.0,
-   `--remove-team <team_ref>` in place of step 3 removes that team with everything it holds and frees the
-   reference. Before the start, set a creation token or take your team in yourself, or the reference is free
-   for anyone again.
+   reference in under a secret of their own and your Team Admin's move is refused: from 0.9.0, stop the
+   server, then `--remove-team <team_ref>`, which removes that team with everything it holds and frees the
+   reference, then `--import-team <name> --join-secret-file <file>` with your team's secret file, then start
+   it. Only a server that is started with a creation token can leave the take-in out: on any other, the
+   reference is free for the stranger again.
 
 Details: [Name a team's owner](name-the-owner.md).
