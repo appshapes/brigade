@@ -3,9 +3,9 @@
 //! Nothing secret is ever an argument: the creation token and the TLS key are files, named by path, and so is
 //! every secret of the gateways, by the configuration that is itself a file, and the join secret of a team
 //! the server takes in. A team's reference and a principal's are no secrets: every member's roster shows
-//! them, so the commands that name a team's owner and take a team back take them as arguments. The join
-//! secret a team gets when it is taken back goes to a file the operator names, and to nothing else, and so
-//! does the ticket of a team's move.
+//! them, so the commands that name a team's owner, take a team back and remove a team take them as
+//! arguments. The join secret a team gets when it is taken back goes to a file the operator names, and to
+//! nothing else, and so does the ticket of a team's move.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -33,6 +33,7 @@ Usage: brigade-server --data <dir> [options]
        brigade-server --data <dir> --import-team <name> --join-secret-file <file> [the log's options]
        brigade-server --data <dir> --set-owner <team_ref> --principal <principal_ref> [the log's options]
        brigade-server --data <dir> --take-back <team_ref> --secret-file <file> [the log's options]
+       brigade-server --data <dir> --remove-team <team_ref> [the log's options]
        brigade-server --data <dir> --open-move <team_ref> --ticket-file <file> [--ticket-days <days>]
                       [the log's options]
        brigade-server --data <dir> --close-move <team_ref> [the log's options]
@@ -83,6 +84,13 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
   --secret-file <file>         the file --take-back writes the team's new join secret to, readable by its
                                owner alone: an absolute path of a file that is not there, in a directory that
                                is
+  --remove-team <team_ref>     remove a team from the server with everything the server holds of it, and
+                               end: its members, their sessions and messages, its move and the record of
+                               where it went. For a reference that was taken in by someone who is not the
+                               team, on a server that asks for no creation token: the reference is free
+                               again, and the team's own take-in is answered as on a server that never held
+                               it. Nothing brings the removed team back. Nothing is served, so it goes with
+                               --data and the log's options, and with no other
   --open-move <team_ref>       open the move of a team's members from another backend, and end: the team
                                gets a move ticket, a second join secret that lets a member in until it ends
                                and never makes the team's owner. The team's admin records the ticket on the
@@ -188,6 +196,16 @@ pub struct TakeBack {
     pub options: Options,
 }
 
+/// What the command that removes a team is told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoveTeam {
+    /// The team.
+    pub team_ref: String,
+    /// The directory and the log, read as a start reads them. Like the import, the command serves nothing,
+    /// and the command line refuses every option that serving takes.
+    pub options: Options,
+}
+
 /// What the command that opens a team's move is told.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenMove {
@@ -223,6 +241,8 @@ pub enum Asked {
     SetOwner(Box<SetOwner>),
     /// To take a team back from whoever holds it, and end.
     TakeBack(Box<TakeBack>),
+    /// To remove a team with everything the server holds of it, and end.
+    RemoveTeam(Box<RemoveTeam>),
     /// To open the move of a team's members from another backend, and end.
     OpenMove(Box<OpenMove>),
     /// To close the move of a team, and end.
@@ -249,6 +269,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
     let (mut take_back, mut secret_file) = (None, None);
     let (mut open_move, mut ticket_file, mut ticket_days) = (None, None, None);
     let mut close_move = None;
+    let mut remove_team = None;
     let mut tls_in_front = false;
     let mut tls_self_signed = false;
     while let Some(flag) = arguments.next() {
@@ -281,6 +302,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
             "--ticket-file" => ticket_file = Some(PathBuf::from(value("--ticket-file")?)),
             "--ticket-days" => ticket_days = Some(value("--ticket-days")?),
             "--close-move" => close_move = Some(value("--close-move")?),
+            "--remove-team" => remove_team = Some(value("--remove-team")?),
             _ => return Err("an argument is not one the server knows".to_owned()),
         }
     }
@@ -317,13 +339,14 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
                 format!("--ticket-days takes a number of days from 1 to {MOVE_TICKET_MAX_DAYS}")
             })?,
     };
-    // Each of the five commands ends when it is done, and one run of the program is one of them.
+    // Each of the six commands ends when it is done, and one run of the program is one of them.
     let given: Vec<(&str, &str)> = [
         ("--import-team", "takes a team in", import.is_some()),
         ("--set-owner", "names a team's owner", owner.is_some()),
         ("--take-back", "takes a team back", taken.is_some()),
         ("--open-move", "opens a team's move", opened.is_some()),
         ("--close-move", "closes a team's move", close_move.is_some()),
+        ("--remove-team", "removes a team", remove_team.is_some()),
     ]
     .into_iter()
     .filter(|(_, _, given)| *given)
@@ -424,7 +447,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         snapshot_every,
         feed_roll_bytes,
     };
-    // At most one of the five was given.
+    // At most one of the six was given.
     Ok(if let Some((team_name, join_secret_file)) = import {
         Asked::Import(Box::new(Import {
             team_name,
@@ -452,6 +475,8 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         }))
     } else if let Some(team_ref) = close_move {
         Asked::CloseMove(Box::new(CloseMove { team_ref, options }))
+    } else if let Some(team_ref) = remove_team {
+        Asked::RemoveTeam(Box::new(RemoveTeam { team_ref, options }))
     } else {
         Asked::Run(Box::new(options))
     })
@@ -459,7 +484,9 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{Asked, CloseMove, Import, LogKind, OpenMove, Options, SetOwner, TakeBack, Tls, parse};
+    use super::{
+        Asked, CloseMove, Import, LogKind, OpenMove, Options, RemoveTeam, SetOwner, TakeBack, Tls, parse,
+    };
 
     fn run(arguments: &[&str]) -> Result<Options, String> {
         match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
@@ -1043,6 +1070,116 @@ mod tests {
             parse(both.iter().map(|argument| (*argument).to_owned())).unwrap_err(),
             "--open-move and --close-move are two commands, and each ends when it is done: give one"
         );
+    }
+
+    fn remove_team(arguments: &[&str]) -> Result<RemoveTeam, String> {
+        match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
+            Asked::RemoveTeam(removed) => Ok(*removed),
+            other => Err(format!("{other:?}")),
+        }
+    }
+
+    #[test]
+    fn a_team_is_removed_by_its_reference_alone() {
+        let removed = remove_team(&["--data", "/srv/brigade", "--remove-team", "the-team"]).unwrap();
+        assert_eq!(removed.team_ref, "the-team");
+        // The directory and the log are read as a start reads them, and the log's options go with it.
+        assert_eq!(removed.options, run(&["--data", "/srv/brigade"]).unwrap());
+        let on_a_file = remove_team(&[
+            "--data",
+            "d",
+            "--remove-team",
+            "the-team",
+            "--log",
+            "file",
+            "--snapshot-every",
+            "7",
+        ])
+        .unwrap();
+        assert_eq!(
+            (on_a_file.options.log, on_a_file.options.snapshot_every),
+            (LogKind::File, 7)
+        );
+        // The directory is as required as it always is, and the reference is the option's one value.
+        let no_directory = remove_team(&["--remove-team", "the-team"]).unwrap_err();
+        assert!(no_directory.contains("--data"), "{no_directory}");
+        assert_eq!(
+            remove_team(&["--data", "d", "--remove-team"]).unwrap_err(),
+            "--remove-team needs a value"
+        );
+        // It takes no file: the file of another command beside it is told as that command's half.
+        assert_eq!(
+            remove_team(&["--data", "d", "--remove-team", "the-team", "--secret-file", "/f"]).unwrap_err(),
+            "--take-back and --secret-file go together"
+        );
+        assert!(super::USAGE.contains("--remove-team <team_ref>"));
+        assert!(
+            super::USAGE.contains("brigade-server --data <dir> --remove-team <team_ref> [the log's options]")
+        );
+    }
+
+    #[test]
+    fn removing_a_team_serves_nothing_and_is_one_command_of_its_own() {
+        let command = ["--data", "d", "--remove-team", "the-team"];
+        let with = |others: &[&'static str]| {
+            let mut arguments = command.to_vec();
+            arguments.extend_from_slice(others);
+            parse(arguments.iter().map(|argument| (*argument).to_owned()))
+        };
+        // Everything that serving takes is refused by its own name, and no value is repeated.
+        for (others, named) in [
+            (&["--listen", "127.0.0.1:9000"][..], "--listen"),
+            (&["--tls-cert", "c.pem", "--tls-key", "k.pem"][..], "--tls-cert"),
+            (&["--tls-self-signed"][..], "--tls-self-signed"),
+            (&["--tls-in-front"][..], "--tls-in-front"),
+            (&["--create-token-file", "token"][..], "--create-token-file"),
+            (&["--address-file", "address"][..], "--address-file"),
+            (&["--gateway-config", "gateways.json"][..], "--gateway-config"),
+        ] {
+            assert_eq!(
+                with(others).unwrap_err(),
+                format!(
+                    "--remove-team removes a team and ends, and serves nothing: it does not go with {named}"
+                )
+            );
+        }
+        // It is none of the other five commands, whichever is given beside it and in whichever order,
+        // and the refusal names the two that were given and nothing that was typed beside them.
+        for (others, first) in [
+            (
+                &["--import-team", "ops", "--join-secret-file", "f"][..],
+                "--import-team",
+            ),
+            (
+                &["--set-owner", "another-team", "--principal", "the-member"][..],
+                "--set-owner",
+            ),
+            (
+                &["--take-back", "another-team", "--secret-file", "/g"][..],
+                "--take-back",
+            ),
+            (
+                &["--open-move", "another-team", "--ticket-file", "/g"][..],
+                "--open-move",
+            ),
+            (&["--close-move", "another-team"][..], "--close-move"),
+        ] {
+            let both = format!(
+                "{first} and --remove-team are two commands, and each ends when it is done: give one"
+            );
+            assert_eq!(with(others).unwrap_err(), both);
+            let mut before = vec!["--data", "d"];
+            before.extend_from_slice(others);
+            before.extend_from_slice(&["--remove-team", "the-team"]);
+            assert_eq!(
+                parse(before.iter().map(|argument| (*argument).to_owned())).unwrap_err(),
+                both
+            );
+            assert!(
+                !both.contains("the-team") && !both.contains("the-member"),
+                "{both}"
+            );
+        }
     }
 
     #[test]

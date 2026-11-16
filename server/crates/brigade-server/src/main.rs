@@ -27,7 +27,9 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 
 use crate::note::note;
-use crate::options::{Asked, CloseMove, Import, LogKind, OpenMove, Options, SetOwner, TakeBack, Tls};
+use crate::options::{
+    Asked, CloseMove, Import, LogKind, OpenMove, Options, RemoveTeam, SetOwner, TakeBack, Tls,
+};
 
 /// How long the requests that are being answered are given once the server is told to stop.
 const DRAIN: Duration = Duration::from_secs(5);
@@ -46,6 +48,7 @@ fn main() -> ExitCode {
         Ok(Asked::Import(import)) => ended(take_in(&import)),
         Ok(Asked::SetOwner(named)) => ended(name_owner(&named)),
         Ok(Asked::TakeBack(taken)) => ended(take_back(&taken)),
+        Ok(Asked::RemoveTeam(removed)) => ended(remove_team(&removed)),
         Ok(Asked::OpenMove(opened)) => ended(open_move(&opened)),
         Ok(Asked::CloseMove(closed)) => ended(close_move(&closed)),
         Err(why) => {
@@ -97,7 +100,7 @@ fn join_secret(path: &Path) -> Result<String, String> {
 /// Makes the data directory when it is not there, and locks it for as long as the lock is held.
 ///
 /// One server on one directory: a second would write a second order into the same log, and so would a team
-/// taken in or taken back, an owner named, or a move opened or closed, beside a server that runs.
+/// taken in, taken back or removed, an owner named, or a move opened or closed, beside a server that runs.
 fn lock(options: &Options) -> Result<File, String> {
     DirBuilder::new()
         .recursive(true)
@@ -360,6 +363,50 @@ fn take_back(taken: &TakeBack) -> Result<(), String> {
             "took back team {team_name:?} ({team_ref}): ended {ended}{cleared}, and its new join secret is \
              in {:?}",
             taken.secret_file
+        ))
+    })
+}
+
+/// Removes a team from the server with everything the server holds of it, and ends.
+///
+/// It is the way to free a reference that was taken in by someone who is not the team: on a server that
+/// asks for no creation token anyone can take a reference in with a join secret of their own, and the team
+/// whose reference it is then finds it taken. The team, its memberships, its sessions with their messages,
+/// its move and the record of where it went go in one entry of the log, and the reference is free. The
+/// principals that were its members keep their credentials, and are members of that team no more.
+///
+/// It is for whoever can run the server on its data directory, and no request can do it. The line it
+/// writes is the one account of what it removed, because the state holds nothing of the team afterwards:
+/// the team's name, how many members its roster showed, and who owned it.
+fn remove_team(removed: &RemoveTeam) -> Result<(), String> {
+    alone(&removed.options, |runtime, engine| {
+        // A refusal is the rules' own fixed text, and repeats nothing the command line held.
+        let result = runtime
+            .block_on(engine.remove_team(&removed.team_ref))
+            .map_err(|error| format!("the team was not removed: {error}"))?;
+        let text = |member: &str| result[member].as_str().unwrap_or_default();
+        let (team_ref, team_name) = (text("team_ref"), text("team_name"));
+        let members = match result["members"].as_u64().unwrap_or_default() {
+            0 => "with no member".to_owned(),
+            1 => "with its 1 member".to_owned(),
+            count => format!("with its {count} members"),
+        };
+        // The record of where a team went is what its members' sessions follow it on: one that is gone
+        // with the team is said.
+        let moved = if result["move_recorded"].as_bool().unwrap_or_default() {
+            " and the record of where it went"
+        } else {
+            ""
+        };
+        // The references are the server's own, read back from the team it found. The name and the label
+        // are a member's words, and are written as quoted strings so that neither writes a second line.
+        let owner = match (text("owner"), text("owner_label")) {
+            ("", _) => "it had no owner".to_owned(),
+            (principal_ref, "") => format!("it was owned by {principal_ref}"),
+            (principal_ref, human_label) => format!("it was owned by {principal_ref} ({human_label:?})"),
+        };
+        Ok(format!(
+            "removed team {team_name:?} ({team_ref}) {members}{moved}: {owner}, and its reference is free"
         ))
     })
 }
