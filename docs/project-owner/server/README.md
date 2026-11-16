@@ -20,7 +20,7 @@ Admin runs: you run nothing. From 0.8.0 a team moves from one server to another 
 | have a team move from one server to another, or change a server's URL without a join on every machine | [Move a team to another server](#move-a-team-to-another-server) |
 | take a team in yourself: on a server older than 0.7.0, or before its Team Admin acts | [Take in a team that exists](#take-in-a-team-that-exists) |
 | open, replace or close a team's move yourself | [Let a team's members follow it](#let-a-teams-members-follow-it) |
-| say who administers a team, name a new owner, or take a team back | [Name a team's owner](#name-a-teams-owner) |
+| say who administers a team, name a new owner, take a team back, or remove a team whose reference was taken in wrongly | [Name a team's owner](#name-a-teams-owner) |
 
 ## Install the server
 
@@ -166,5 +166,10 @@ Details: [Let a team's members follow it](open-a-move.md).
 4. If whoever holds the team has locked the others out: `--take-back <team_ref> --secret-file <path>` in place
    of step 3 gives the team a new secret in that file, ends every membership and leaves it to the first member
    who joins with the file. From 0.8.0 it also clears the record of where the team went, if its owner made one.
+5. If the team is not yours at all, because on a server with no creation token someone took your team's
+   reference in under a secret of their own and your Team Admin's move is refused: from 0.9.0,
+   `--remove-team <team_ref>` in place of step 3 removes that team with everything it holds and frees the
+   reference. Before the start, set a creation token or take your team in yourself, or the reference is free
+   for anyone again.
 
 Details: [Name a team's owner](name-the-owner.md).

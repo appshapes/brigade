@@ -161,6 +161,33 @@ be reached. A rotation alone, with no eviction, changes nothing for a gateway.
 A team's owner can also put a gateway out by itself. Revoked, it joins again within a minute with the secret its
 file holds. Banned, it stays out until the owner lifts the ban: that is how a team says it wants no gateway.
 
+## After a team is removed
+
+When you remove a team from the server ([Remove a team](name-the-owner.md#remove-a-team), from 0.9.0), its
+gateways are removed with it, as the members they are. The command reads no gateway file, and leaves what the
+gateways keep for themselves in `gateway/` of the data directory as it is.
+
+1. Before the start, take the team's entry out of `teams` under `slack` and under `mail` in the configuration
+   file. A gateway that serves no other team is taken out whole, and its Slack app's request URLs and its mail
+   provider's webhook no longer point at the server.
+2. If you leave the entries in, the server starts and serves everything else. It says once for each gateway,
+   by the name the team had:
+
+   ```
+   the slack gateway of team ops could not finish a turn: unauthorized: not an active member of this team
+   the slack gateway of team ops could not join its team again: unauthorized: join secret rejected
+   ```
+
+   and the gateway asks again each minute, with the file's secret, and is refused: no team of that reference is
+   there. Nothing is carried for that team. A mail to it is answered with an error, and so is a Slack request
+   where it was the Slack gateway's only team: the provider and Slack deliver again, and go on doing so. Where
+   the Slack gateway serves other teams they are served as before, and someone who writes to a session of the
+   removed team is told that one team's sessions cannot be reached.
+3. When a team of the same reference is on the server again, taken in by its Team Admin or by you, a gateway
+   whose entry names a file that holds that team's join secret joins it with the credential it kept, as a
+   member and never as its owner: at the start when the team is there by then, and otherwise at its next try,
+   which comes each minute.
+
 ## What it does and does not do
 
 A gateway is a member of the team like any other: it can do what a member can, the same limits apply to it, and

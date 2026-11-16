@@ -117,7 +117,7 @@ was already there.
 | the server takes no team in by request | It is older than 0.7.0: [With an older server](#with-an-older-server). |
 | the server asks for a creation token, or refused the one you gave | Ask its operator for the token's file, and pass `--create-token-file <path>`. |
 | the team is held on the server and owned by someone else | Someone took the team in there before you, or this machine did in a run whose answer was lost and has joined the team as a member since. The server's operator names you its owner ([Name a team's owner](../../project-owner/server/name-the-owner.md)); then run the command again. The command says this only of another server: of the server the team is on, or a copy of it, it says the row above and names no owner. |
-| the server holds a team of this reference under another join secret | Tell the server's operator: this team cannot be taken in there. If the team was on that server before and its join secret was rotated since, on either side, name the file of the secret it has on that server. |
+| the server holds a team of this reference under another join secret | Tell the server's operator: this team cannot be taken in there. If the team was on that server before and its join secret was rotated since, on either side, name the file of the secret it has on that server. If the team was never there, someone took its reference in under a secret of their own, which a server that asks for no creation token allows anyone: from server 0.9.0 its operator removes that team, and you run the command again ([Remove a team](../../project-owner/server/name-the-owner.md#remove-a-team)). |
 | the server did not take the team in | It could not be reached, or its answer did not arrive. Run the same command again, on the same machine. |
 | `Run the same command again to finish the move` | It stopped after the server took the team in. Remove the cause and run it again. |
 
@@ -259,7 +259,9 @@ server's side, and you do yours in three steps.
   step 3 out: `team leave` and `team reset` take no `--on`, and in a checkout that followed they would leave
   the server the team lives on. And leave `.brigade.json` in the repositories. The record goes with the team.
 - **When the old backend is a server**, the move ends nothing there: the team stays as it was, and a member
-  who has not followed still reaches it. No command removes a team from a server. What you can do there, once
+  who has not followed still reaches it. No command of yours removes a team from a server; from server 0.9.0
+  its operator can, once every member has followed
+  ([Remove a team](../../project-owner/server/name-the-owner.md#remove-a-team)). What you can do there, once
   every member has followed, from any checkout of the team:
 
   ```sh
@@ -273,7 +275,7 @@ server's side, and you do yours in three steps.
   followed. Where one host names two servers the team is joined on, under two paths, the line carries the
   whole address in the host's place. Neither clears the record. A member you revoke there reads no record from then on, so revoke only
   those who have followed, in every checkout they have. What the team wrote stays on that server until its
-  operator removes the data directory.
+  operator removes the team there, from server 0.9.0, or the data directory.
 
 ## What you are deciding for your members
 

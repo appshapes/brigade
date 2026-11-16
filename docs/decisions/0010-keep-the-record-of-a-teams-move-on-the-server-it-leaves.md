@@ -1,6 +1,6 @@
 # 0010. Keep the record of a team's move on the server it leaves
 
-- **Status:** Accepted
+- **Status:** Accepted; superseded in part by 0011
 - **Date:** 2026-11-15
 - **Supersedes:** ADR 0003, in part: in its Decision point 3, that the `rest` adapter does not carry the two
   commands of a move's record. The rest of ADR 0003 stands.

@@ -404,6 +404,14 @@ adapter had them. Work item 274 fixes their shapes and brings them to the server
   joiner rotated the secret and revoked the others could not be recovered. The second command gives the team a
   new secret in a file, ends every membership and clears the owner, and the first member to join with the file
   owns the team.
+- **`--remove-team`** (work item 332, 2026-11-15, server 0.9.0; ADR 0011). A team's reference is public, so on
+  a server that asks for no creation token a stranger can take it in with a secret of their own, and the real
+  team's take-in is then a `conflict`. `--set-owner` has no member to name and `--take-back` gives a secret the
+  real team does not hold. The third command removes the team with everything the server holds of it, in one
+  record, `team.removed`, and the reference is free. The principals that were its members keep their
+  credentials, as after a revocation. The state holds nothing of the team afterwards, so there is no snapshot
+  format: a 0.8.0 starts on a directory on which a team was removed whenever the newest snapshot was written
+  after the removal, and refuses the log's entry where it has to read it.
 - **A revocation does not end the credential**, where the work item's text said it would: a credential names a
   principal that may be a member of other teams on the server. It ends the membership and the sessions.
 - **The gateways are members.** A revocation by version after a rotation evicts them with everyone who joined
