@@ -895,15 +895,21 @@ impl State {
                 }
             }
             Event::TeamRemoved { team_ref } => {
-                // The key the team kept goes with the team, and with it the way back to it: a principal
-                // names no team that is not there.
-                self.end_retry_key_of_team(team_ref);
-                if self.teams.remove(team_ref).is_some() {
+                if let Some(team) = self.teams.remove(team_ref) {
                     // With the team went everything it held: its memberships, its sessions and their
-                    // messages, its move and the record of where it went. No session is in it from now
-                    // on, whatever was said of one. The principals that were its members stay, and so do
-                    // their credentials: they are the server's, and each may be a member of other teams.
-                    self.session_teams.retain(|_, of_team| of_team != team_ref);
+                    // messages, its move and the record of where it went. No session of its own is in a
+                    // team from now on. The principals that were its members stay, and so do their
+                    // credentials: they are the server's, and each may be a member of other teams.
+                    for session_id in team.sessions.keys() {
+                        self.session_teams.remove(session_id);
+                    }
+                    // The key the team kept went with it, and with it goes the way back to it: a
+                    // principal names no team that is not there.
+                    if let Some(kept) = &team.take_in_retry
+                        && let Some(principal) = self.principals.get_mut(&kept.principal_ref)
+                    {
+                        principal.retry_key_in.clear();
+                    }
                 }
             }
             Event::SessionOpened {
