@@ -168,8 +168,9 @@ gateways are removed with it, as the members they are. The command reads no gate
 gateways keep for themselves in `gateway/` of the data directory as it is.
 
 1. Before the start, take the team's entry out of `teams` under `slack` and under `mail` in the configuration
-   file. A gateway that serves no other team is taken out whole, and its Slack app's request URLs and its mail
-   provider's webhook no longer point at the server.
+   file. A gateway that serves no other team is taken out whole, by leaving `slack` or `mail` out: the server
+   refuses a gateway that names no team. Its Slack app's request URLs and its mail provider's webhook then no
+   longer point at the server.
 2. If you leave the entries in, the server starts and serves everything else. It says once for each gateway,
    by the name the team had:
 
