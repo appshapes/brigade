@@ -102,11 +102,11 @@ From 0.9.0: the removal of a team ([Remove a team](name-the-owner.md#remove-a-te
 server before 0.9.0 does not know, and it changes no snapshot's format, because a server that removed a team
 holds nothing of it. So a 0.8.0 starts on a directory on which a team was removed whenever the newest snapshot
 was written after the removal, and holds what the 0.9.0 held: the team is gone. The command writes that snapshot
-itself as it ends. Where it could not be written, or does not read, the 0.8.0 goes back to the snapshot before
-it, meets the entry and ends with status 1: `the log could not be read from the snapshot's position, <n>: not
-an entry: unknown variant `team.removed`, expected one of …`. Start the 0.9.0 on that directory: it reads the
-entry and writes the snapshot as it starts. On a directory on which no team was removed, 0.8.0 and 0.9.0 start
-on each other's.
+itself as it ends. Where that snapshot is missing, the 0.8.0 goes back to the snapshot before it, meets the
+entry and ends with status 1: `the log could not be read from the snapshot's position, <n>: not an entry:
+unknown variant `team.removed`, expected one of …`. To go back all the same, in this order: start the 0.9.0
+once on that directory, which reads the entry and writes the snapshot as it starts; stop it; then start the
+0.8.0. On a directory on which no team was removed, 0.8.0 and 0.9.0 start on each other's.
 
 ## Move it
 
