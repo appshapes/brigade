@@ -27,29 +27,46 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
   `it had no owner`, and one with no member says `with no member`. The line is on the terminal of whoever ran
   the command and not in the service's journal, and the server holds nothing of the team afterwards: it is the
   one account of what was removed. No secret and no hash of one is in it.
-- **What it refuses.** A reference the server does not hold, spelled as the team file has it: `the team was
-  not removed: not_found: the server holds no team of that reference`, status 1, and nothing changes. A server
-  that runs on the directory: `another server is running on <dir>`, status 1. Any other of the operator's
-  commands beside it, and any option that serving takes: the usage and status 2, before the directory is
-  touched.
+- **What it refuses**, with no team removed:
+  - A reference the server does not hold: `the team was not removed: not_found: the server holds no team of
+    that reference`, status 1. The reference is compared exactly as it was typed: another case, and a space
+    before or after it, name no team.
+  - A `--data` that is not a server's data directory: `the team was not removed: <dir> is not a server's data
+    directory: it holds no record.key, which a server makes on its first start`, status 1. Nothing is made
+    there, so a path that was typed wrongly does not become a server's directory, and the refusal does not
+    blame the reference. The other commands make the directory, as they did.
+  - A server that runs on the directory: `another server is running on <dir>`, status 1.
+  - `--remove-team` given twice: `--remove-team is given once: one run removes one team`, with the usage and
+    status 2, and neither team is removed. The other options are read as they were.
+  - Any other of the operator's commands beside it, and any option that serving takes: the usage and status
+    2.
 - **The reference is then free for anyone**, the stranger included, for as long as the server asks for no
-  creation token. Before the start, set one (`--create-token-file`), or take the real team in yourself with
-  the secret file its admin sends (`--import-team`, between the removal and the start): the reference is then
-  that team's when the server serves again, and its admin's take-in joins the team it finds and owns it.
+  creation token. So the removal is followed, before the start, by the operator's own take-in of the real
+  team with the secret file its admin sent (`--import-team`): the reference is then that team's when the
+  server serves again, the stranger's take-in is the one that is refused, and its admin's take-in is answered
+  that the team is there and that it owns it. Only a server that is started with `--create-token-file` can
+  leave that step out. The Project Owner's page carries the step in the command block itself.
 - **What a member of the removed team is answered.** The server still knows its credential: a credential names
   a principal, which may be a member of other teams on the server, and those are untouched. That principal is
   no member of the removed team, and reads what any caller reads about a team that does not exist:
   `unauthorized` (403), `not an active member of this team`, for the team and for a session it had there, and
   the uniform `not_found` for such a session where it is still a member of another team. The team's secret
   joins nothing, and `/v1/team/leave` answers `left: true` as it always does.
-- **Its gateways go with it**, as the members they are. The command reads no gateway configuration and leaves
-  what the gateways keep for themselves, in `gateway/` of the data directory, as it is. A server that is
-  started with a configuration that still names the team starts and serves everything else. It says once for
-  each gateway `the slack gateway of team ops could not finish a turn: unauthorized: not an active member of
-  this team` and `the slack gateway of team ops could not join its team again: unauthorized: join secret
-  rejected`, and the gateway asks again each minute. Take the team out of the configuration before the start.
-  A gateway whose entry stays joins a team of the same reference again, with the credential it kept, once one
-  is there.
+- **The gateways.** The command reads no gateway configuration and leaves what the gateways keep for
+  themselves, in `gateway/` of the data directory, as it is. There are two cases.
+  - **The stranger's.** The configuration's entries are the real team's: its gateways were never members of the
+    stranger's team, and nothing of theirs is removed. The entries stay. While no team of the reference opens
+    to their secret, the server says one line for each gateway, which names the team by its reference: `the
+    slack gateway of team <reference> could not finish a turn: unauthorized: join secret rejected`. They join
+    by themselves once the real team is there: at the start after `--import-team`, and within a minute of its
+    admin's take-in on a server that runs.
+  - **Gateways that were members of the removed team**, where no team of that reference is coming back. They
+    go with the team, as the members they are. The operator takes the team's entries out of the configuration
+    before the start, and changes the request URLs at Slack and the webhook at the mail provider: leaving an
+    entry out of the file changes nothing there. With the entries left in, the server starts and serves
+    everything else, and says for each gateway `the slack gateway of team ops could not finish a turn:
+    unauthorized: not an active member of this team` and `the slack gateway of team ops could not join its team
+    again: unauthorized: join secret rejected`.
 - **It frees a reference and erases nothing.** The command writes a snapshot that holds nothing of the team.
   The snapshots before it that are still kept, until two later ones have replaced them, and the log's earlier
   entries go on holding the team, its messages and the ticket of a move it recorded: the file log keeps every
@@ -71,17 +88,18 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
   - **Where the newest snapshot was written after the removal, a 0.8.0 starts**, and holds what the 0.9.0
     held: no team of that reference. It never reads the entry. The command writes that snapshot itself as it
     ends, so this is the directory as the command leaves it.
-  - **Where no snapshot covers the removal, a 0.8.0 does not start.** That is a directory on which the
-    command's snapshot could not be written, which the command says, or does not read. The 0.8.0 goes back to
-    the snapshot before it, meets the entry and ends with status 1: `the log could not be read from the
-    snapshot's position, <n>: not an entry: unknown variant `team.removed`, expected one of …`. The line
-    names no version to run, because 0.8.0 was released before there was one: it is 0.9.0 or later. A 0.9.0
-    started once on that directory reads the entry and writes the snapshot.
+  - **Where the snapshot of the removal is missing, a 0.8.0 does not start.** It goes back to the snapshot
+    before it, meets the entry and ends with status 1: `the log could not be read from the snapshot's
+    position, <n>: not an entry: unknown variant `team.removed`, expected one of …`. The line names no version
+    to run, because 0.8.0 was released before there was one: it is 0.9.0 or later. To go back all the same:
+    start a 0.9.0 once on that directory, which reads the entry and writes the snapshot as it starts, stop it,
+    and then start the 0.8.0.
   Measured on 2026-11-15 with a 0.8.0 built from the commit this release's work started from, whose `server/`
   is the tree of the tag `server-v0.8.0`, on directories this build wrote, on the file log and on the Cavalry
-  feed: it started and took a team in on a directory as the command left it, ended as above on one whose
-  newest snapshot was taken away, and this build then started on that directory and read the one entry. 0.9.0
-  reads the snapshots and the log of every earlier release as they are.
+  feed: it started and took a team in on a directory as the command left it; it ended as above on one whose
+  newest snapshot was taken away; this build then started on that directory, read the one entry and was
+  stopped; and the 0.8.0 then started on it and held no team of that reference. 0.9.0 reads the snapshots and
+  the log of every earlier release as they are.
 
 ## [0.8.0] — 2026-11-15
 

@@ -280,16 +280,22 @@ a secret its members do not hold. The contract does not change, and no request r
 
 - **`--remove-team <team_ref>`** is a job of its own kind between a stop and a start, as the import is
   (`Work::RemoveTeam`, `brigade_core::remove_team`). It refuses a team the state does not hold with
-  `Error::no_such_team`. Its answer is what the command's line says: the team's name, the number of its active
-  members, its owner with the label the roster showed, and `move_recorded` when a record of where the team went
-  was there.
+  `Error::no_such_team`, and the reference is compared as it was typed: nothing trims it, on the command
+  line, in `main.rs` or in the rules, and a test holds each of the three. Its answer is what the command's
+  line says: the team's name, the number of its active members, its owner with the label the roster showed,
+  and `move_recorded` when a record of where the team went was there.
+- **Two refusals are this command's alone**, because it cannot be undone. `options.rs` refuses the option
+  given twice, where every other option keeps the last value it was given. And `main.rs` asks
+  `engine::holds_a_record_key` before it locks or opens anything: the other commands make the data directory,
+  with a key and a log, as a first start does, and this one makes nothing in a directory that is no server's.
 - **One record**, `team.removed`, which names the team and holds nothing else of it: what goes is what the
   state holds of the team when the record is applied, as with a revocation by version. Applying it takes the
   team out of `State.teams`, and with it its memberships, sessions, messages, `move_ticket`, `moved_to` and
-  `take_in_retry`; takes its sessions out of `State.session_teams`; and clears `Principal.retry_key_in` of the
-  principal the team kept a key for (`end_retry_key_of_team`). `State.principals` and `State.credentials` are
-  left as they are: a credential names a principal that may be a member of other teams, as a revocation leaves
-  them (the plan's section 4.8).
+  `take_in_retry`. From the team that was taken out it then takes each of the team's own sessions out of
+  `State.session_teams`, with no pass over the server's other sessions, and clears `Principal.retry_key_in` of
+  the principal the team kept a key for. `State.principals` and `State.credentials` are left as they are: a
+  credential names a principal that may be a member of other teams, as a revocation leaves them (the plan's
+  section 4.8).
 - **What a member is answered afterwards** takes no code. `member_team` refuses a team that is not there as it
   refuses a membership that is not, and `owned_session` tells a principal that is a member of nothing
   `unauthorized`, and one that is still a member of another team the uniform `not_found`.
@@ -300,19 +306,22 @@ a secret its members do not hold. The contract does not change, and no request r
   know. Measured with a build of 0.8.0 on 2026-11-15 (`server/CHANGELOG.md`, section 0.9.0). A record that
   leaves nothing in the state needs no format; one that leaves a member an older build must not drop does (the
   section above).
-- **The gateways** are members and go with the team. Nothing under `gateway/` is told. A gateway whose
-  configuration still names the team finds itself refused when it takes its place at the start, joins again and
-  is refused, says both once and asks each minute (`turns.rs`). Its row in `<data>/gateway/state.json` stays,
-  with its credential, and brings it back as the principal it was once a team of that reference is there
-  again.
+- **The gateways.** A gateway that was a member goes with the team, and nothing under `gateway/` is told. One
+  whose configuration still names the team finds itself refused when it takes its place at the start, joins
+  again and is refused, and says both (`turns.rs`). Its row in `<data>/gateway/state.json` stays, with its
+  credential, and brings it back as the principal it was once a team of that reference is there again. In
+  the stranger's case the configuration names the real team, whose gateways hold no row: their first join is
+  refused for as long as no team of the reference opens to their secret, said in one line by the reference,
+  and asked again each minute, so they join by themselves once the real team is there.
 - **The line** is `main.rs`'s (`remove_team`), written through `note` as the other commands' lines are.
   `said.rs` has none: no request makes the record.
 - **Tests.** `rules.rs` has the removal's two tests, and the walk removes teams among its requests: where a
   team is gone it holds that the entry is the removal alone, that no session is in the team, and that there are
   as many ways back to a key as keys. `tests/server.rs` has the stranger's take-in, the refusals, the removal,
   a start from the command's snapshot and a start that reads the entry from the log, on both logs, and what
-  keeps a freed reference for its team. `tests/gateway.rs` has a removed team whose gateways are still
-  configured.
+  keeps a freed reference for its team. `tests/gateway.rs` has a removed team whose gateways were its members
+  and are still configured, and the stranger's case with the real team's gateways configured; `turns.rs` has
+  that case with the turns in the test's hands, for the minute a process test would have to wait.
 
 ## The gateways
 

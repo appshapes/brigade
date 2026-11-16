@@ -69,16 +69,25 @@ one.
 7. **What the command refuses.** A reference the server does not hold, compared as it was given: `not_found`,
    status 1, and nothing changes. A server that runs on the directory: the directory's lock, status 1. Any
    other of the operator's commands and any option that serving takes beside it: the usage, status 2, before
-   the directory is touched. It asks no question and takes no second argument.
+   the directory is touched. It asks no question and takes no second argument. Two refusals more came of its
+   verification, because the command cannot be undone: the option given twice is the usage and status 2, with
+   neither team removed; and a `--data` that holds no record key is no server's directory, status 1, with
+   nothing made in it.
 8. **It says what it removed in one line**, on its own standard error: the team's name, its reference, how many
    members its roster showed, its owner's principal reference with the label the roster showed, and that a
    record of where it went was removed when one was. No secret and no hash of one is in it. It is the one
    account of the removal outside the log: the service's journal has none, because the command is not the
    service.
-9. **Its gateways go with it**, as the members they are. The command reads no gateway configuration and leaves
-   what the gateways keep for themselves as it is. A server that is started with a configuration that still
-   names the team starts, says once for each gateway that it is no member and that its join is refused, asks
-   again each minute, and serves everything else; the operator takes the team out of the configuration.
+9. **Gateways that were members of the team go with it**, as the members they are. The command reads no
+   gateway configuration and leaves what the gateways keep for themselves as it is, so what becomes of the
+   configuration is the operator's, and it depends on whose entries the file holds. In the stranger's case
+   the entries are the real team's: its gateways were never members of the stranger's team, the entries stay,
+   the server says of each gateway in one line, by the reference, that its join is refused, and the gateways
+   join by themselves once the real team is there. Where the gateways were members of the removed team and no
+   team of that reference is coming back, the operator takes the entries out, and changes the request URLs at
+   Slack and the webhook at the mail provider, which leaving an entry out of the file does not do; a server
+   that is started with the entries left in starts, says of each gateway that it is no member and that its
+   join is refused, and serves everything else.
 10. **It does not close the way the reference was taken.** On a server that still asks for no creation token,
     the reference is free for the stranger too. The operator's page says what closes it before the server
     serves again: a creation token, or the operator's own `--import-team` of the real team.
@@ -138,24 +147,36 @@ All on 2026-11-15, on this machine (macOS, Apple silicon), in the worktree of wo
   start from the command's snapshot and a start that reads the entry from the log reach the same state, and
   the real take-in then owns the team. A second test holds what keeps a freed reference for its team: the
   operator's `--import-team` before the start, and a creation token.
-- A team with gateways (`server/crates/brigade-server/tests/gateway.rs`): the server that is started with the
-  configuration as it was says the two lines once for each gateway and serves the rest; a Slack request is
-  answered 500 and a mail 502 where the removed team was the gateway's only one; and the gateways join a team
-  of the same reference again with the credentials they kept.
+- A team with gateways (`server/crates/brigade-server/tests/gateway.rs`). Where they were its members: the
+  server that is started with the configuration as it was says the two lines for each gateway and serves the
+  rest; a Slack request is answered 500 and a mail 502 where the removed team was the gateway's only one; and
+  the gateways join a team of the same reference again with the credentials they kept. In the stranger's case,
+  where the configuration names the real team: the gateways are no members of the stranger's team, say one
+  line each by the reference before the removal and after it, and join at the start once the operator took
+  the real team in. That a gateway joins within a minute of a take-in on a server that runs is held with the
+  turns in the test's hands (`turns.rs`), and took 55 seconds through the built server by hand.
+- A removed team whose gateways serve another team as well, through the built server by hand: the other team
+  was served, a mail to its inbox was answered 200 and one to the removed team's 502, and a person on Slack was
+  told that one team's gateway is not connected at the moment, so its sessions cannot be reached.
+- The two refusals that came of the verification, through the built server on both logs: the option given
+  twice ended with status 2 and removed neither team, with nothing in the directory touched; a path that was
+  not there was not made, and a directory that held something else was as it was.
 - A server 0.8.0, built from the commit this work started from, whose `server/` is the tree of the tag
   `server-v0.8.0`, run by hand on data directories this build wrote, on both logs. On a directory as the
   command left it, it started, held no team of the reference and took one in. With the snapshot the command
   wrote taken away, it wrote `the log could not be read from the snapshot's position, 730: not an entry:
   unknown variant `team.removed`, expected one of …` (768 on the feed) and ended with status 1; this build
   then started on that directory, read the one entry, wrote the snapshot again and held no team of the
-  reference.
+  reference; stopped, it left a directory on which the 0.8.0 started.
 - Each test was run against the one change it exists to catch, and failed: a removal that leaves the team's
   sessions named, one that leaves the retry key's way back, a record under another name, a command that is not
   counted among the commands that end, an entry that is not handed to the log, credentials made unknown with
-  the team, and a line that names an owner where there was none.
-- Not measured: what a member's own `brigade` session prints once its team is removed, which is read here from
-  the refusal being the one a revocation gives; a removal on Linux; and a team whose gateway serves other teams
-  as well.
+  the team, a line that names an owner where there was none, a reference that is trimmed in the rules, in the
+  command or on the command line, the option read twice with the last one standing, and a directory that is
+  opened before its record key is looked for.
+- Not measured: what a member's own `brigade` session prints once its team is removed; what the Team Admin's
+  `brigade team move --to` prints when it is run again after a team was removed from a server it left, which
+  is read from the command's code; and a removal on Linux.
 
 ## Consequences
 
@@ -166,7 +187,10 @@ All on 2026-11-15, on this machine (macOS, Apple silicon), in the worktree of wo
   already read everything in it and take any team from its owner; `docs/security.md` section 20 states the
   addition.
 - A team that moved away can be removed from the server it left. The record goes with it, so the operator
-  removes it once every member has followed.
+  removes it once every member has followed. The Team Admin's machine keeps its membership of the team there,
+  and is refused from then on as any former member is: a later move that is run again after it stopped then
+  needs the backend it leaves named with `--from`, which its refusal prints (read from
+  `internal/harness/commands/teammoveto.go`, not run).
 - The log has a kind of record that a server before 0.9.0 does not read. Going back to 0.8.0 works where the
   newest snapshot was written after the removal, and stops with the record's name where it was not.
 - What a removed team held stays in the data directory, in the snapshots that are still kept and in the log's
