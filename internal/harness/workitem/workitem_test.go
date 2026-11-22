@@ -376,6 +376,63 @@ func TestRepairRenumbersTheItemCreatedLater(t *testing.T) {
 	}
 }
 
+// The work item that was given another number keeps the one it had, in
+// the fold and so on every machine that holds its changes, whichever of
+// them repaired: the number names the other work item now, and whoever
+// wrote it down before meant this one (work item 391).
+func TestARenumberedItemKeepsTheNumberItHad(t *testing.T) {
+	c := newClock()
+	a := Store{Folder: t.TempDir(), Now: c.now}
+	b := Store{Folder: t.TempDir(), Now: c.now}
+	first := add(t, a, "Created first", alice)
+	second := add(t, b, "Created second", bob)
+	merge(t, a.Folder, b.Folder)
+	merge(t, b.Folder, a.Folder)
+	// Only a repairs: b learns of it from the folder alone.
+	if done, err := a.Repair(read(t, a.Folder), alice); err != nil || len(done) != 1 {
+		t.Fatalf("repair = %+v, %v", done, err)
+	}
+	merge(t, a.Folder, b.Folder)
+	for _, folder := range []string{a.Folder, b.Folder} {
+		board := read(t, folder)
+		moved := board.ByID(second)
+		if moved.Number != 2 || len(moved.Former) != 1 || moved.Former[0] != 1 {
+			t.Errorf("%s: the renumbered item is %d and had %v, want 2 and [1]", folder, moved.Number, moved.Former)
+		}
+		if kept := board.ByID(first); kept.Number != 1 || len(kept.Former) != 0 {
+			t.Errorf("%s: the item that kept its number is %d and had %v", folder, kept.Number, kept.Former)
+		}
+		if had := board.Formerly(1); len(had) != 1 || had[0].ID != second {
+			t.Errorf("%s: Formerly(1) = %+v, want the renumbered item", folder, had)
+		}
+		if had := board.Formerly(2); len(had) != 0 {
+			t.Errorf("%s: Formerly(2) = %+v, want none: 2 is the number it has", folder, had)
+		}
+	}
+
+	// A number carried twice is told once, and the one it has now never:
+	// two repairs that disagreed, and a third that went back.
+	change(t, a, second, &Fields{Number: ptr(5)}, "", alice)
+	change(t, a, second, &Fields{Number: ptr(2)}, "", alice)
+	change(t, a, second, &Fields{Number: ptr(5)}, "", alice)
+	board := read(t, a.Folder)
+	if it := board.ByID(second); it.Number != 5 || len(it.Former) != 2 || it.Former[0] != 1 || it.Former[1] != 2 {
+		t.Errorf("after 1, 2, 5, 2, 5 the item is %d and had %v, want 5 and [1 2]", it.Number, it.Former)
+	}
+	if had := board.Formerly(2); len(had) != 1 || had[0].ID != second || len(board.ByNumber(2)) != 0 {
+		t.Errorf("Formerly(2) = %+v with %d items numbered 2, want the item that left it and none", had, len(board.ByNumber(2)))
+	}
+	// A new work item takes no number that was another's, though none
+	// has it now: after 5 comes 6, and after a step back to 3 still 6.
+	if next := board.NextNumber(); next != 6 {
+		t.Errorf("the next number = %d, want 6", next)
+	}
+	change(t, a, second, &Fields{Number: ptr(3)}, "", alice)
+	if board := read(t, a.Folder); board.NextNumber() != 6 || len(board.Formerly(5)) != 1 {
+		t.Errorf("after the step back to 3 the next number = %d and Formerly(5) = %+v, want 6 and the item", board.NextNumber(), board.Formerly(5))
+	}
+}
+
 func TestTheBoardsListsAreTheLastOnesNamed(t *testing.T) {
 	c := newClock()
 	s := Store{Folder: t.TempDir(), Now: c.now}

@@ -68,6 +68,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   and the minute. It now covers the message a reply answers and the
   summary too. The same reply to the same message inside a minute is
   still one message. Nothing changes on a backend.
+- **A number that two work items had says so** (work item 391). Two
+  machines that add a work item at the same moment both take one
+  number, and the one created later is given another. Only the command
+  that found the two said `renumbered:`, once. The session that added
+  the renumbered work item on the other machine went on calling it by
+  the old number, and so did every commit and comment. That number is
+  the other work item's now, so a comment or a move meant for one landed
+  on the other. A command that names such a number now prints a
+  `was <number>:` line before its output, on every machine and every
+  time: the other work item's title, and the number it has now. The
+  command still acts on the work item that has the number. The
+  `work-item` skill in the four packages says what a session does when
+  it meant the other one, and `work-item-start` asks which of the two
+  is meant before it takes one.
 
 ## [0.57.0] — 2026-11-15
 

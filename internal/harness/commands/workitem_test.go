@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -537,6 +538,196 @@ func TestWorkItemRenumbersAClash(t *testing.T) {
 	// Once: the next call has nothing to repair.
 	if got := f.workItem(t, WorkItemOptions{}, "", "show", "2"); strings.Contains(got, "renumbered:") || !strings.Contains(got, "renumbered from 1 to 2") {
 		t.Fatalf("show after the repair = %q", got)
+	}
+}
+
+// syncBoards copies every file of each board folder into the other, as a
+// sync engine does between two machines: files are only ever added.
+func syncBoards(t *testing.T, a, b string) {
+	t.Helper()
+	for _, pair := range [][2]string{{a, b}, {b, a}} {
+		from, to := pair[0], pair[1]
+		err := filepath.WalkDir(from, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, err := filepath.Rel(from, path)
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(path) //nolint:gosec // G304: a path under the test's own directory
+			if err != nil {
+				return err
+			}
+			dst := filepath.Join(to, rel)
+			if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+				return err
+			}
+			return os.WriteFile(dst, data, 0o600) //nolint:gosec // G703: a path under the test's own directory
+		})
+		if err != nil {
+			t.Fatalf("sync the boards: %v", err)
+		}
+	}
+}
+
+// TestWorkItemSaysWhenANumberWasAnotherWorkItemsToo (work item 391): two
+// machines add a work item before either has the other's, and both take
+// number 1. The one created later is given another number by the next
+// verb on a machine that holds both, and only that call prints
+// `renumbered:`. The session that added the renumbered work item on the
+// other machine, and everything written down under the number, still
+// names it 1, which is the other work item now. So a verb that names 1
+// says, on both machines and every time, that another work item had the
+// number too and what its number is now; and it still acts on the work
+// item that has the number, as it was asked.
+func TestWorkItemSaysWhenANumberWasAnotherWorkItemsToo(t *testing.T) {
+	t.Parallel()
+	a, b := newFixture(t), newFixture(t)
+	folderA, folderB := a.withBoard(t), b.withBoard(t)
+	if got := a.workItem(t, WorkItemOptions{}, "Added on a\n\nWhat a asks.", "add"); got != "added: 1 \"Added on a\" in Todo\n" {
+		t.Fatalf("add on a = %q", got)
+	}
+	if got := b.workItem(t, WorkItemOptions{}, "Added on b\n\nWhat b asks.", "add"); got != "added: 1 \"Added on b\" in Todo\n" {
+		t.Fatalf("add on b = %q", got)
+	}
+	syncBoards(t, folderA, folderB)
+
+	// a's next verb repairs. It names the number itself, and its
+	// `renumbered:` line is the one word on it in that call.
+	repaired := a.workItem(t, WorkItemOptions{}, "", "show", "1")
+	board := readBoard(t, folderA)
+	if len(board.ByNumber(1)) != 1 || len(board.ByNumber(2)) != 1 {
+		t.Fatalf("after the repair: %d and %d", len(board.ByNumber(1)), len(board.ByNumber(2)))
+	}
+	kept, moved := board.ByNumber(1)[0], board.ByNumber(2)[0]
+	q := strconv.Quote
+	if want := "renumbered: " + q(moved.Title) + " is now 2; 1 stays with " + q(kept.Title) + "\nwork item 1: " + kept.Title + "\n"; !strings.HasPrefix(repaired, want) {
+		t.Fatalf("the call that repairs =\n%s\nwant it to begin\n%s", repaired, want)
+	}
+	syncBoards(t, folderA, folderB)
+
+	was := "was 1: " + q(moved.Title) + " had the number 1 too, and is 2 now; 1 is " + q(kept.Title) + "\n"
+	for _, m := range []struct {
+		name   string
+		f      *fixture
+		folder string
+	}{{"the machine that repaired", a, folderA}, {"the machine that was never told", b, folderB}} {
+		// Every time, not once.
+		for range 2 {
+			if got := m.f.workItem(t, WorkItemOptions{}, "", "show", "1"); !strings.HasPrefix(got, was+"work item 1: "+kept.Title+"\n") {
+				t.Fatalf("%s: show 1 =\n%s\nwant it to begin\n%s", m.name, got, was)
+			}
+		}
+		// A verb that changes acts on the work item that has the number,
+		// and says the same.
+		if got := m.f.workItem(t, WorkItemOptions{}, "Meant for one of the two.", "comment", "1"); got != was+"commented: 1 "+q(kept.Title)+"\n" {
+			t.Fatalf("%s: comment 1 = %q", m.name, got)
+		}
+		if got := m.f.workItem(t, WorkItemOptions{}, "", "move", "1", "doing"); !strings.HasPrefix(got, was) {
+			t.Fatalf("%s: move 1 = %q", m.name, got)
+		}
+		after := readBoard(t, m.folder)
+		if len(after.ByID(kept.ID).Comments) != 1 || len(after.ByID(moved.ID).Comments) != 0 || after.ByID(moved.ID).List != "todo" {
+			t.Errorf("%s: the comment and the move did not land on the work item that has the number", m.name)
+		}
+		// The number the other one has now is its own: nothing to say.
+		if got := m.f.workItem(t, WorkItemOptions{}, "", "show", "2"); !strings.HasPrefix(got, "work item 2: "+moved.Title+"\n") {
+			t.Fatalf("%s: show 2 = %q", m.name, got)
+		}
+		// A listing names no number.
+		if got := m.f.workItem(t, WorkItemOptions{}, "", "list"); strings.Contains(got, "was 1:") {
+			t.Errorf("%s: list = %q", m.name, got)
+		}
+		// The description alone is what `edit` reads: the line goes to
+		// the log, with the two numbers and no title.
+		m.f.errb.Reset()
+		if got := m.f.workItem(t, WorkItemOptions{Description: true}, "", "show", "1"); !strings.HasPrefix(got, kept.Title+"\n\nWhat ") {
+			t.Fatalf("%s: show 1 --description = %q", m.name, got)
+		}
+		if logged := m.f.errb.String(); !strings.Contains(logged, `"had":1`) || !strings.Contains(logged, `"now":2`) || strings.Contains(logged, "Added on") {
+			t.Errorf("%s: the log of show 1 --description = %q", m.name, logged)
+		}
+		// --json carries it.
+		m.f.out.Reset()
+		inv := m.f.inv(m.f.sessionEnv(), "", "show", "1")
+		inv.JSON = true
+		if err := WorkItem(inv, WorkItemOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		_, result := envelopeOf(t, m.f.out.String())
+		formerly, _ := result["formerly"].([]any)
+		if len(formerly) != 1 {
+			t.Fatalf("%s: show 1 --json formerly = %v", m.name, result["formerly"])
+		}
+		if f := formerly[0].(map[string]any); f["id"] != moved.ID || f["title"] != moved.Title || f["number"] != float64(2) || f["had"] != float64(1) || f["holder"] != kept.Title || result["formerly_more"] != nil {
+			t.Errorf("%s: formerly = %v, more %v", m.name, f, result["formerly_more"])
+		}
+		if item := result["item"].(map[string]any); item["former_numbers"] != nil {
+			t.Errorf("%s: the work item that kept its number carries former numbers: %v", m.name, item["former_numbers"])
+		}
+		// An edit that gives the work item another title still names it
+		// by the one it had: the caller who meant the other reads there
+		// what it overwrote.
+		if got := m.f.workItem(t, WorkItemOptions{}, "Retitled by mistake", "edit", "1"); !strings.HasPrefix(got, was+"edited: 1 \"Retitled by mistake\"") {
+			t.Fatalf("%s: edit 1 = %q, want the line with the title it had, %q", m.name, got, kept.Title)
+		}
+	}
+
+	// A number a work item carried and none has now: the refusal says
+	// where it went. Two repairs that disagreed leave one.
+	s := workitem.Store{Folder: folderA, Now: func() time.Time { return fixtureNow.Add(time.Minute) }}
+	seven := 7
+	if err := s.Change(readBoard(t, folderA).ByID(moved.ID), &workitem.Fields{Number: &seven}, "", workitem.Author{}); err != nil {
+		t.Fatal(err)
+	}
+	perr := wantCodeErr(t, WorkItem(a.inv(a.sessionEnv(), "", "show", "2"), WorkItemOptions{}), protocol.CodeNotFound, ReasonNoSuchWorkItem)
+	if want := "the board has no work item 2 now: " + q(moved.Title) + " had that number and is 7 (brigade work-item list shows the open ones, and --closed the closed)"; perr.Message != want {
+		t.Errorf("a number no work item has now: %q, want %q", perr.Message, want)
+	}
+}
+
+// TestWorkItemSaysWasOnTheCallThatRenumbersFromAnotherNumber: the call
+// that gives a work item another number leaves the `was` line out only
+// for the number it took the work item off, which its `renumbered:` line
+// names. A number the work item left earlier is still said.
+func TestWorkItemSaysWasOnTheCallThatRenumbersFromAnotherNumber(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	folder := f.withBoard(t)
+	at := fixtureNow.Add(-time.Hour)
+	list := "todo"
+	ids := map[string]string{}
+	for i, it := range []struct {
+		title  string
+		number int
+	}{{"Older", 2}, {"Kept", 1}, {"Moved", 1}} {
+		s := workitem.Store{Folder: folder, Now: func() time.Time { return at.Add(time.Duration(i) * time.Minute) }}
+		// Each written against an empty board, as a machine that holds
+		// none of the others would.
+		id, err := s.AddNumbered(&workitem.Board{}, it.number, workitem.Fields{Title: &it.title, List: &list}, workitem.Author{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[it.title] = id
+	}
+	// An earlier repair, on a machine that did not hold "Older", gave
+	// "Moved" the number 2.
+	s := workitem.Store{Folder: folder, Now: func() time.Time { return at.Add(10 * time.Minute) }}
+	two := 2
+	if err := s.Change(readBoard(t, folder).ByID(ids["Moved"]), &workitem.Fields{Number: &two}, "", workitem.Author{}); err != nil {
+		t.Fatal(err)
+	}
+	want := "renumbered: \"Moved\" is now 3; 2 stays with \"Older\"\n" +
+		"was 1: \"Moved\" had the number 1 too, and is 3 now; 1 is \"Kept\"\n" +
+		"work item 1: Kept\n"
+	if got := f.workItem(t, WorkItemOptions{}, "", "show", "1"); !strings.HasPrefix(got, want) {
+		t.Fatalf("show 1 on the call that renumbers =\n%s\nwant it to begin\n%s", got, want)
+	}
+	// The number it was taken off in that call is the `renumbered:`
+	// line's; from the next call on it is a `was` line's too.
+	if got := f.workItem(t, WorkItemOptions{}, "", "show", "2"); !strings.HasPrefix(got, "was 2: \"Moved\" had the number 2 too, and is 3 now; 2 is \"Older\"\nwork item 2: Older\n") {
+		t.Fatalf("show 2 after it = %q", got)
 	}
 }
 

@@ -239,7 +239,22 @@ created first keeps the number, the other gets the next free one, and the comman
 renumbered: "Add a board" is now 44; 43 stays with "Fix the login redirect"
 ```
 
-The work item's history keeps the line `renumbered from 43 to 44`. A commit made in between still names 43.
+The work item's history keeps the line `renumbered from 43 to 44`. A commit made in between still names 43, and
+so does the session that added "Add a board" on the other machine, which was never told. So from then on a
+command that names 43 says, on every machine and every time, that another work item had the number too:
+
+```
+$ brigade work-item comment 43 <<'EOF'
+The board's lists are in.
+EOF
+was 43: "Add a board" had the number 43 too, and is 44 now; 43 is "Fix the login redirect"
+commented: 43 "Fix the login redirect"
+```
+
+The command acts on the work item that has the number now, which the line names by the title it had before the
+command. Read the two titles: a comment or a move meant for the other one landed here, and is made again under
+44. A session's skill tells it to put back what it changed by mistake, and `/brigade:work-item-start 43` says
+both titles and asks which is meant. A new work item never takes a number that was another's.
 
 Two members who change one work item at the same moment both keep what they wrote: each change is its own file.
 Where both set the same field, the later change wins.
