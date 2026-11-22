@@ -1,8 +1,10 @@
 # Update
 
 A release can change what the hosted project runs: a migration under `supabase/migrations/`, or a gateway
-function under `supabase/functions/`. The release's section in `CHANGELOG.md` says so when it does; a release that
-says nothing about either needs nothing from you.
+function under `supabase/functions/`. The release's section in `CHANGELOG.md` says so when it does. From the
+release after 0.57.0 its first lines, "Who must act", have a line for a Project Owner: do what it says, and
+`nothing` there means nothing. A section up to 0.57.0 has no such line, and one that says nothing about a
+migration or a gateway function needs nothing from you.
 
 ## If you want to
 

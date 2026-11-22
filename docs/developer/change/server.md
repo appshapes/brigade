@@ -390,6 +390,9 @@ The server is released apart from the plugin, by a tag of its own that `release.
 2. Add the `## [<version>]` section to `server/CHANGELOG.md`, or give that heading to its `## [Unreleased]`
    section, where work that landed between releases waits: it becomes the release's text. `make server-tag`
    refuses while an `## [Unreleased]` section is left, so that a release's text carries all the release does.
+   The section opens with who must act, the operator among them: read those lines against its entries, because
+   they are the first thing the published release says (the rule is in
+   [documentation.md](../../agent/repository/documentation.md)).
 3. Land it on `master` with a green `server` job.
 4. `make server-tag`. It checks the three places agree, that the tree is clean and is `origin/master`'s head, and
    that `ci.yml`'s run on that head is green, waiting for one in progress; then it pushes the tag

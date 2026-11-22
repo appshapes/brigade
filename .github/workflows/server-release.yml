@@ -4,7 +4,9 @@
 #
 #   1. bump server/VERSION and the workspace's version in server/Cargo.toml, refresh server/Cargo.lock
 #   2. add the `## [<version>]` section to server/CHANGELOG.md, or give that heading to its `## [Unreleased]`
-#      section (`make server-tag` refuses while one is left), land it on master with a green `server` job
+#      section (`make server-tag` refuses while one is left), land it on master with a green `server` job.
+#      The section opens with who must act (docs/agent/repository/documentation.md): the release's text is the
+#      section, so those lines are the first thing it says
 #   3. make server-tag          (checks the three, tags master's head and pushes the tag)
 #
 # What a release is: three binaries and their checksums on a GitHub release that is not marked latest (the

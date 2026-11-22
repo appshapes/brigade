@@ -50,7 +50,12 @@ empty.
    ```` ```an email to a session ````; the block holds the words and nothing else. When a group has a
    step-by-step page, end its text with the link, written `[Step by step →](https://…)`.
 4. `## Before you update` — only what a release in the window asks of the reader: every member of a team updating
-   together, a migration an administrator applies, a default that changed under them. One bullet each.
+   together, a migration an administrator applies, a default that changed under them. One bullet each. A
+   release's section in the changelog opens with `**Who must act**` and one line each for a Team Member, a Team
+   Admin and a Project Owner (every release after 0.57.0): take this section from those lines, in the reader's
+   words, and leave out a line that says `nothing`. Say whom each bullet is for, the persona and the harness or
+   backend the line names, because most readers are not the one it asks. A link in those lines is absolute
+   already; drop one that is not.
 5. `## Update` — the exact words to type, in a fenced block labelled `in claude code`, and one line for someone who
    has not installed yet with a link to `https://github.com/appshapes/brigade#install`.
 
@@ -85,7 +90,8 @@ Assume each sentence is wrong until you have seen it right in the sources. A fin
 what is wrong with it. Check, in this order:
 
 1. Every change described is in the sources, for a release in the window, and means what the email says it means.
-2. Nothing the reader must act on is missing: read every `Changed`, `Removed` and `Security` entry of the window.
+2. Nothing the reader must act on is missing: read the `**Who must act**` lines that open a release's section,
+   where it has them, and every `Changed`, `Removed` and `Security` entry of the window.
 3. Every command, skill and option named exists today, by the listings above.
 4. The shape and the rules above, the word limits included: every `###` heading carries its version in
    parentheses, every fenced block has a label, every image names a file a source points at, and nothing

@@ -37,7 +37,9 @@ Details: [Update in Codex CLI](codex.md).
 
 ## Know what an update changes
 
-1. Read the version's section in `CHANGELOG.md`: it says when a release changes what your sessions share.
+1. Read the first lines of the version's section in `CHANGELOG.md`, "Who must act": the Team Member line says
+   what you have to do before or after the update, or `nothing`. A section up to 0.57.0 has no such lines: read
+   its `Changed` entries, which say when a release changes what your sessions share.
 2. The VERSION column of `brigade sessions` shows who on the team is behind.
 
 Details: [Know what an update changes](what-an-update-changes.md).

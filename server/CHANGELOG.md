@@ -6,6 +6,18 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
 ## [Unreleased]
 
+**Who must act**
+
+- **Team Member:** nothing.
+- **Team Admin:** nothing.
+- **Project Owner:** as the server's operator, stop the server and copy its data directory before the first
+  start of this release. Nothing promises that a 0.9.0 starts again on a directory this release has written
+  to, so that copy, with the 0.9.0 binary, is the way back
+  ([Update it](https://github.com/appshapes/brigade/blob/master/docs/project-owner/server/keep-the-server.md#update-it)).
+  Leave the room where the driver
+  directory is as it was, 201 MiB or `--shm-size=256m`: the server needs it for as long as its data
+  directory holds what 0.9.0 recorded, and 21 MiB after that ("The server runs on a later Cavalry", below).
+
 ### Changed
 
 - **The server runs on a later Cavalry, and its log is smaller** (work item 387). The Cavalry the feed is

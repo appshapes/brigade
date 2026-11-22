@@ -88,8 +88,9 @@
      other is a routine call, made and said.
   3. **Build** after `brigade sessions --here` and a clean `git status` (the commit chain stages every
      working-tree change, another session's edits included), then `make pull`. The changelog entry under
-     `## [Unreleased]` (none when nothing ships, such as a repository skill) and the execution-log row are written
-     as part of the work.
+     `## [Unreleased]` (none when nothing ships, such as a repository skill), with the section's opening lines
+     where the change asks something of someone ([documentation.md](documentation.md)), and the execution-log
+     row are written as part of the work.
   4. **Prove** it: the acceptance gate and the checks [gates.md](gates.md) names for what changed, then every done
      criterion held against the running thing, a green build proving nothing: a command through its real
      invocation on the built `bin/brigade`, a plugin change through a live session (`make plugin-dev`), a gateway

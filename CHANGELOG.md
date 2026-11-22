@@ -9,6 +9,19 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+**Who must act**
+
+- **Team Member:** on Muse Code, Codex CLI or Grok Build, where a Claude
+  account is signed in on the machine and the team holds no label for
+  you: your sessions will send that account's email address as your
+  label. To send none, or a text of your own, set `label` in the
+  harness's options file before you update ("The Claude account's email
+  is the default label on every harness", below;
+  [Choose your label](https://github.com/appshapes/brigade/blob/master/docs/team-member/join/your-label.md)).
+  Everyone else: nothing.
+- **Team Admin:** nothing.
+- **Project Owner:** nothing.
+
 ### Added
 
 - **The Brigade Board in a browser** (work item 353, ADR 0012).

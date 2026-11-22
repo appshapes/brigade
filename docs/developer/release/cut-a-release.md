@@ -11,7 +11,10 @@ is still accepted with the same meaning; given both, they must agree. `scripts/r
    expected branch, the manifests, `bin/goreleaser`, the Muse catalog `marketplace.json` current
    (`brigade-muse-digest check`) and no file git does not track under `muse/brigade/` (step 4 rewrites the
    catalog's digest, which counts every file there; no Muse Code is needed since card 114), a
-   selectable `go<go.mod line>` toolchain, a `## [<v>]` section in `CHANGELOG.md`, `make docs-check` green, no
+   selectable `go<go.mod line>` toolchain, a `## [<v>]` section in `CHANGELOG.md` (the `## [Unreleased]` section
+   given the version and the date; read its "Who must act" lines against its entries first, because they are what
+   a member reads before an update and what the release-notes email's "Before you update" is taken from),
+   `make docs-check` green, no
    tag `v<v>` yet, here or on origin, `git pull --no-edit`, and a head that origin has. Then **the commit's CI**: `ci.yml`'s run on the commit the release
    starts from must be green ([The two CI checks](#the-two-ci-checks)); otherwise it stops with nothing changed.
 1. **Bump the pins**: `plugin/bin/VERSION`, `plugin/.claude-plugin/plugin.json`, `muse/brigade/.muse-plugin/plugin.json`,
