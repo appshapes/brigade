@@ -59,9 +59,12 @@ with the rule's message: add the column, or, when it is more than a value, add a
 
 ## The checks and the release
 
-- A `scripts/ci/<harness>-plugin-check.sh` like `muse-plugin-check.sh` or `codex-plugin-check.sh` (allowlist,
-  manifest, hooks, assets equal to `plugin/bin`'s), its Go test, a Makefile target and a step in `ci.yml`'s `fast`
-  job.
+- Its rules in the one package check, `internal/packagecheck`: a file of its own beside `muse.go` and `codex.go`
+  for what only this package has (its manifest's form, how its hooks are worded, its marketplace file), calling
+  what the packages share (the allow-list, assets equal to `plugin/bin`'s, the bootstrap's mode in git, the
+  version, the shells, no skill that takes the model's reach away). It is registered under the harness's id in
+  `docs/harnesses.json`, with its cases in `scripts/ci`, a Makefile target (`go run ./cmd/brigade-packages check
+  <id>`) and a step in `ci.yml`'s `fast` job.
 - `scripts/release-prep.sh` bumps the manifest's version and copies the pins into the package's `bin/`;
   `checksums-check.sh` rule (a) and `release.yml`'s guard compare them.
 - A harness that installs from a catalog carries it at the repository root (`.claude-plugin/marketplace.json`,

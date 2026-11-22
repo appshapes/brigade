@@ -30,7 +30,7 @@ const maxBareDocument = 64 << 20
 //
 // The Claude Code package's hooks are in the exec form, the binary in
 // `command` and its words in `args`, on purpose (plan 6.3;
-// scripts/ci/plugin-check.sh holds it). A host that loads Claude Code's
+// `make plugin-check` holds it). A host that loads Claude Code's
 // plugins and drops `args` runs the bare binary for every hook. The bare
 // binary's usage error exits 2, which is the status a hook blocks with,
 // so every prompt of such a host was blocked. A bare call that carries a

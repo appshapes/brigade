@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/harness/hook"
+	"github.com/appshapes/brigade/internal/packagecheck"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
@@ -61,7 +61,7 @@ func (tr *tree) codexTree() {
 	}
 }
 
-// codexHooksCommand is the exact command form check 6 of codex-plugin-check.sh
+// codexHooksCommand is the exact command form check 6 of the Codex CLI package check
 // pins, for one subcommand.
 func codexHooksCommand(sub string) string {
 	return `"\"${PLUGIN_ROOT}/bin/brigade\" hook ` + sub + ` --host codex --plugin-root \"${PLUGIN_ROOT}\""`
@@ -72,8 +72,9 @@ func TestCodexPluginCheck(t *testing.T) {
 
 	t.Run("the real repository passes", func(t *testing.T) {
 		t.Parallel()
+		onceInCI(t, "make codex-plugin-check")
 		root := testutil.RepoRoot(t)
-		r := runScript(t, "codex-plugin-check.sh", root, baseEnv(t, t.TempDir()))
+		r := runPackageCheck(t, "codex", root, baseEnv(t, t.TempDir()))
 		wantPass(t, r, "all checks passed", "exact command form", "names the brigade plugin at ./codex/brigade")
 	})
 
@@ -81,7 +82,7 @@ func TestCodexPluginCheck(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.codexTree()
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantPass(t, r, "all checks passed")
 	})
 
@@ -90,7 +91,7 @@ func TestCodexPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.codexTree()
 		tr.write("codex/brigade/hooks/.DS_Store", "junk\n")
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "not allow-listed under codex/brigade/")
 	})
 
@@ -99,7 +100,7 @@ func TestCodexPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.codexTree()
 		tr.write("codex/brigade/bin/VERSION", "0.0.0\n# drift\n")
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "differs from plugin/bin/VERSION")
 	})
 
@@ -112,7 +113,7 @@ func TestCodexPluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("codex/brigade/.codex-plugin/plugin.json", replaceVersion(string(manifest), "9.9.9"))
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "!= codex/brigade/bin/VERSION")
 	})
 
@@ -125,7 +126,7 @@ func TestCodexPluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("codex/brigade/.codex-plugin/plugin.json", replaceOnce(string(manifest), `"skills": "./skills/",`, `"skills": "./skills/", "mcpServers": {},`))
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "this package must not")
 	})
 
@@ -139,7 +140,7 @@ func TestCodexPluginCheck(t *testing.T) {
 		}
 		// The host dropped: the hook would key nothing and the session never connect.
 		tr.write("codex/brigade/hooks/hooks.json", replaceOnce(string(hooks), codexHooksCommand("prompt"), `"\"${PLUGIN_ROOT}/bin/brigade\" hook prompt"`))
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "not of the exact form")
 	})
 
@@ -152,7 +153,7 @@ func TestCodexPluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("codex/brigade/hooks/hooks.json", replaceOnce(string(hooks), codexHooksCommand("prompt"), codexHooksCommand("start")))
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "'start'", "does not implement")
 	})
 
@@ -165,7 +166,7 @@ func TestCodexPluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("codex/brigade/hooks/hooks.json", replaceOnce(string(hooks), codexHooksCommand("prompt"), codexHooksCommand("session-start")))
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "UserPromptSubmit block does not run `hook prompt`")
 	})
 
@@ -179,7 +180,7 @@ func TestCodexPluginCheck(t *testing.T) {
 		}
 		tr.write("codex/brigade/hooks/hooks.json", replaceOnce(string(hooks), `    "SessionEnd": [`, `    "Stop": [{"hooks": [{"type": "command", "command": "echo"}]}],
     "SessionEnd": [`))
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "want exactly 3")
 	})
 
@@ -192,7 +193,7 @@ func TestCodexPluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("codex/brigade/hooks/hooks.json", replaceOnce(string(hooks), `"timeout": 3`, `"timeout": 10`))
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "caps a SessionEnd hook at 3 s")
 	})
 
@@ -201,7 +202,7 @@ func TestCodexPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.codexTree()
 		tr.write(".agents/plugins/marketplace.json", `{"name": "brigade", "plugins": []}`+"\n")
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "names no plugin brigade")
 	})
 
@@ -210,7 +211,7 @@ func TestCodexPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.codexTree()
 		tr.write("codex/brigade/skills/update/SKILL.md", "---\nname: upgrade\ndescription: x\n---\n# x\n")
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "not named after its directory")
 	})
 
@@ -219,7 +220,7 @@ func TestCodexPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.codexTree()
 		tr.write("codex/brigade/skills/update/SKILL.md", "---\nname: update\ndisable-model-invocation: true\n---\n# x\n")
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "disable-model-invocation")
 	})
 
@@ -233,33 +234,23 @@ func TestCodexPluginCheck(t *testing.T) {
 		if err := os.Symlink("../../plugin/README.md", filepath.Join(tr.root, "codex/brigade/README.md")); err != nil {
 			t.Fatal(err)
 		}
-		r := runScript(t, "codex-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "codex", tr.root, tr.env())
 		wantFail(t, r, "symlink")
 	})
 }
 
-// codexSubcommandList is the `hook_subcommands="…"` line of codex-plugin-check.sh.
-var codexSubcommandList = regexp.MustCompile(`(?m)^hook_subcommands="([^"]*)"`)
-
 // TestCodexHookSubcommandListMatchesTheGoConstants is the Codex twin of
 // TestHookSubcommandListMatchesTheGoConstants: check 6's authority is the
-// hook package's three subcommands.
+// hook package's three subcommands, which Muse Code's wrappers are held to
+// as well.
 func TestCodexHookSubcommandListMatchesTheGoConstants(t *testing.T) {
 	t.Parallel()
-	data, err := os.ReadFile(filepath.Join(testutil.RepoRoot(t), "scripts", "ci", "codex-plugin-check.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := codexSubcommandList.FindSubmatch(data)
-	if m == nil {
-		t.Fatal("codex-plugin-check.sh has no `hook_subcommands=\"…\"` line: check 6 has lost its authority")
-	}
-	got := strings.Fields(string(m[1]))
+	got := slices.Clone(packagecheck.PointedHookSubcommands)
 	want := []string{hook.SubSessionStart, hook.SubPrompt, hook.SubSessionEnd}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Errorf("codex-plugin-check.sh hook_subcommands = %v, want %v", got, want)
+		t.Errorf("the package check's hook subcommands for Muse Code and Codex CLI = %v, want %v", got, want)
 	}
 }
 

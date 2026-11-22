@@ -93,7 +93,7 @@ jobs:
             go.sum
             tools.sum
       # What the IMAGE provides, printed. Four steps below depend on tools no workflow installs: `shellcheck`
-      # (plugin-check.sh check 9, which DIES when CI is set), `curl` and `jq` (scripts/ci/keepalive.sh's preflight
+      # (`make plugin-check` check 9, which DIES when CI is set), `curl` and `jq` (scripts/ci/keepalive.sh's preflight
       # -- keepalive.yml runs on the same label and has no CI coverage at all, so a missing tool there surfaces a
       # day later by e-mail), `docker` (the `supabase` and `e2e` jobs) and `gh` (checksums-check.sh rule (c),
       # release.yml's Publish step). GitHub publishes its image's contents and Blacksmith says its images carry
@@ -131,7 +131,11 @@ jobs:
       # limit, a hang was cancelled by the job with no test named (run 43896319385, attempt 1). The slowest
       # package took 97 s to 121 s on the runs measured, so 5m is a hang and not a slow day. It must stay UNDER
       # the job's `timeout-minutes` by the sum the comment there gives.
+      # BRIGADE_PACKAGE_CHECKS_FOLLOW: the four package checks run on the real tree as steps of their own
+      # below, so the tests that would run them here a first time leave it to those (work item 382;
+      # scripts/ci/package_check_test.go). No other job and no agent sets it, and for them the tests are the check.
       - run: make build test go_test_p=4 go_test_timeout=5m
+        env: {BRIGADE_PACKAGE_CHECKS_FOLLOW: "1"}
       - run: go tool cover -func=cover.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
       - run: make vuln deps-check schema-check
       # `checksums-check` depends on `cross`, so all six targets are still rebuilt with the release flags and
@@ -142,7 +146,7 @@ jobs:
       # What this host built, for a reader to hold against a `make cross` of the same commit on another machine:
       # since card 245 no job compares two hosts (the header's (g)).
       - run: cat dist-cross/checksums.txt >> "$GITHUB_STEP_SUMMARY"
-      # scripts/ci/plugin-check.sh then scripts/ci/no-secrets.sh: the plugin/ file allowlist, mode 100755 in
+      # The package check for plugin/ (internal/packagecheck) then scripts/ci/no-secrets.sh: the file allowlist, mode 100755 in
       # git for the bootstrap and 100644 for everything else, VERSION == plugin.json, no .mcp.json/mcpServers/
       # channels, exec-form hooks whose commands exist, sh/bash/zsh syntax, shellcheck (a hard failure here
       # because CI is set), and the secret scan.

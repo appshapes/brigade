@@ -33,7 +33,7 @@ var (
 )
 
 // catalogJSON is marketplace.json as the repository writes it: one entry, each key on its own line, because
-// muse-plugin-check.sh and release.yml read "version" with an anchored sed and brigade-muse-digest rewrites the
+// the package check and release.yml read "version" anchored to its line and brigade-muse-digest rewrites the
 // "version" and "digest" lines in place.
 func catalogJSON(version, digest string) string {
 	return `{
@@ -91,7 +91,7 @@ func TestMuseDigestIsWiredWithoutMuse(t *testing.T) {
 	}
 	for _, want := range []struct{ file, line, why string }{
 		{"Makefile", "muse-plugin-check:", "the target exists"},
-		{"Makefile", "\tsh scripts/ci/muse-plugin-check.sh\n\tgo run ./cmd/brigade-muse-digest check\n", "make muse-plugin-check verifies the digest's value after the catalog's shape (CI's fast job runs it)"},
+		{"Makefile", "\tgo run ./cmd/brigade-packages check muse-code\n\tgo run ./cmd/brigade-muse-digest check\n", "make muse-plugin-check verifies the digest's value after the catalog's shape (CI's fast job runs it)"},
 		{"Makefile", "\tgo run ./cmd/brigade-muse-digest write\n", "make muse-digest rewrites the catalog"},
 		{"scripts/release-prep.sh", "  go run ./cmd/brigade-muse-digest check >/dev/null || die ", "a release checks the catalog before it mutates anything"},
 		{"scripts/release-prep.sh", "[ ! -f \"$muse_json\" ] || go run ./cmd/brigade-muse-digest write\n", "step 4 of a release rewrites the catalog once the package's bin/ is final"},
@@ -101,7 +101,7 @@ func TestMuseDigestIsWiredWithoutMuse(t *testing.T) {
 			t.Errorf("%s does not contain %q: %s", want.file, want.line, want.why)
 		}
 	}
-	for _, file := range []string{"Makefile", "scripts/release-prep.sh", "scripts/ci/muse-plugin-check.sh", ".github/workflows/release.yml"} {
+	for _, file := range []string{"Makefile", "scripts/release-prep.sh", "internal/packagecheck/muse.go", ".github/workflows/release.yml"} {
 		for _, gone := range []string{"command -v muse", "MUSE_DIGEST_REQUIRE", "muse-digest.sh"} {
 			if strings.Contains(read(file), gone) {
 				t.Errorf("%s still contains %q: the digest is computed without Muse since card 114", file, gone)

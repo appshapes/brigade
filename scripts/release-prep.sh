@@ -34,7 +34,7 @@
 # is green (`gh run rerun <id> --failed` for a flake) or with the override: step 1 is then a no-op, steps 2 and 3
 # build again, step 4 finds nothing to commit and goes on from 4b.
 #
-# POSIX sh, no process substitution, `shellcheck -s sh` clean (plugin-check.sh check 7 enforces it). Never
+# POSIX sh, no process substitution, `shellcheck -s sh` clean (`make plugin-check` enforces it). Never
 # `CDPATH= cd` -- that empty prefix assignment is SC1007; this script does not cd at all.
 #
 # Failure and recovery (7.7): if the release job's verification fails the draft is deleted and nothing is
@@ -70,8 +70,8 @@ plugin_json=plugin/.claude-plugin/plugin.json
 version_file=plugin/bin/VERSION
 committed=plugin/bin/checksums.txt
 # The Muse Code package (card 88) and the Codex CLI package (card 107) carry the same pin: their manifests are bumped
-# with the Claude one and their three bin/ assets are copies of plugin/bin's, which scripts/ci/muse-plugin-check.sh,
-# scripts/ci/codex-plugin-check.sh and checksums-check.sh rule (a) hold.
+# with the Claude one and their three bin/ assets are copies of plugin/bin's, which `make muse-plugin-check`,
+# `make codex-plugin-check` and checksums-check.sh rule (a) hold.
 muse_json=muse/brigade/.muse-plugin/plugin.json
 muse_bin=muse/brigade/bin
 codex_json=codex/brigade/.codex-plugin/plugin.json
@@ -277,7 +277,7 @@ cp dist/checksums.txt "$committed"
 [ ! -f "$muse_json" ] || cp "$committed" "$muse_bin/checksums.txt"
 [ ! -f "$codex_json" ] || cp "$committed" "$codex_bin/checksums.txt"
 [ ! -f "$grok_json" ] || cp "$committed" "$grok_bin/checksums.txt"
-[ ! -f "$grok_json" ] || sh scripts/ci/grok-plugin-check.sh
+[ ! -f "$grok_json" ] || go run ./cmd/brigade-packages check grok
 # The package's bin/ is final now, so its digest is the release's (card 115); step 4's `make push` verifies the
 # written catalog again through `make test`.
 [ ! -f "$muse_json" ] || go run ./cmd/brigade-muse-digest write

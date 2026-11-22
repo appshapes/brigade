@@ -514,7 +514,7 @@ the three: it reaches one read-only verb, where `Bash(brigade:*)` reaches every 
 
 **Every skill is model-invocable from 0.9.0.** `join`, `sessions` and `update` carried
 `disable-model-invocation: true` until then; the key is gone from the tree, `user-invocable: true` stays so the
-slash commands are unchanged, and `scripts/ci/plugin-check.sh` check 10 fails if any skill declares it again.
+slash commands are unchanged, and `make plugin-check` check 10 fails if any skill declares it again.
 Be plain about what that trades. No permission boundary fell: a message cannot load a skill — the model decides
 what to load, and an untrusted body can never widen what this session may do — and the `brigade` CLI is on PATH
 whether or not a skill wraps it. What changed is **who can reach the grant**. Each skill's `allowed-tools`

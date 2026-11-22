@@ -9,7 +9,7 @@ Two adaptations of that shape, both deliberate:
 - **It lives beside the scripts themselves, rather than under `.github/`.** Brigade's CI scripts are not
   workflow-only: ten of the seventeen shell scripts are reached through `make`, only five are reached from a
   workflow without a target of their own, and the remaining two are reached by nothing at all. Moving them would
-  break `scripts/ci/plugin-check.sh`'s shellcheck glob (`scripts/ci/*.sh scripts/*.sh`), the `make` recipes that
+  break `make plugin-check`'s shellcheck glob (`scripts/ci/*.sh scripts/*.sh`), the `make` recipes that
   name them by path, `ci.yml`'s steps, and the ten Go drift tests that open them by path.
 - **It also carries the workflow table** that the house keeps in `thinktech-app/.github/workflows/README.md`,
   rather than a second index over there. Brigade has twelve workflows and sixteen scripts in a near-1:1
@@ -49,7 +49,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/release-ci-check.sh` | `scripts/release-prep.sh` (twice: the commit it starts from, and the release commit before the tag) and `scripts/server-tag.sh` (the head, before the tag); by hand before a tag pushed by hand |
 | `scripts/server-tag.sh` | `make server-tag` |
 | `cmd/brigade-muse-digest` (`go run`) | `make muse-digest` (`write`); `scripts/release-prep.sh`'s precondition (`check`) and step 4 (`write`); `make muse-plugin-check`'s second step and `release.yml`'s guard (`check`) |
-| `scripts/ci/plugin-check.sh` | `make plugin-check` → `ci.yml`'s `fast` job |
+| `cmd/brigade-packages` (Go, not a script; work item 382) | `make plugin-check`, `make muse-plugin-check`, `make codex-plugin-check` and `make grok-plugin-check`, each `go run ./cmd/brigade-packages check <harness id>` → `ci.yml`'s `fast` job; `scripts/release-prep.sh` runs Grok Build's. The Muse target then runs `brigade-muse-digest check`, which verifies the Muse catalog's digest on every machine (card 114). Until work item 382 these were four shell scripts here, `plugin-check.sh`, `muse-plugin-check.sh`, `codex-plugin-check.sh` and `grok-plugin-check.sh` |
 | `scripts/ci/no-secrets.sh` | `make plugin-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/checksums-check.sh` | `make checksums-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/advisor-lints.sql` | `make advisor-lints` → `ci.yml`'s `supabase` job |
@@ -62,8 +62,6 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/conformance-setup-supabase.sh` | nothing — passed by an adapter author to `--setup`, see its section |
 | `scripts/ci/pr-guard.sh` | `.github/workflows/review-pull-request.yml` (not `make`) |
 | `scripts/ci/agent-leftover.sh` | `.github/workflows/claude.yml`'s `agent` job, after the agent step of a work order, read from the commit the run started on (`git show`), never from the working tree (not `make`) |
-| `scripts/ci/muse-plugin-check.sh` | `make muse-plugin-check` → `ci.yml`'s `fast` job (the target then runs `brigade-muse-digest check`, which verifies the Muse catalog's digest on every machine, card 114) |
-| `scripts/ci/codex-plugin-check.sh` | `make codex-plugin-check` → `ci.yml`'s `fast` job |
 | `cmd/brigade-docs` (Go, not a script) | `make docs-check` and `make docs-generate` (which writes `docs/developer/reference/make-targets.md` from the Makefile's help lines and `docs/developer/reference/commands.md` from `internal/cli`'s command table) → `ci.yml`'s `fast` job, `release.yml`'s guard, `scripts/release-prep.sh`; the same rules run in `make test` through `docs_check_test.go` |
 
 `release-verify.sh` and `keepalive.sh` have no `make` target on purpose, and the house does the same with its own
@@ -208,15 +206,30 @@ git checkout -- plugin/ && git switch master && git branch -D rehearsal/local
 make checksums-check          # must be green again, with VERSION back at 0.0.0
 ```
 
-## `scripts/ci/plugin-check.sh`
+## The package check: `internal/packagecheck`, `cmd/brigade-packages`
 
-The static checks of the shipped plugin tree: the `plugin/` file allowlist, mode `100755` in git for
+One check of the four harness packages (work item 382), in Go: what the packages share is written once (the
+allow-list of files, the three assets equal to `plugin/bin`'s, the bootstrap's mode in git, the version the
+manifest declares, the shells the scripts parse under, and that no skill declares `disable-model-invocation`), and
+what a package has of its own is in a file of its own (`claude.go`, `muse.go`, `codex.go`, `grok.go`). It was four
+shell scripts in this directory, and each refusal kept its words and its test: the cases of `checks_test.go`,
+`muse_plugin_check_test.go`, `codex_plugin_check_test.go` and `grok_plugin_check_test.go` run it in process on
+fixture trees. `go run ./cmd/brigade-packages check <harness id>` checks one package, with the id of
+`docs/harnesses.json`; with no id it checks every package the registry lists, and a test fails while the registry
+lists a harness the check has no rules for.
+
+The plugin's checks keep the numbers the script gave them, which the rule files, `docs/security.md` and the tests
+name them by ("check 9", "check 10"); the comment at the head of `internal/packagecheck/claude.go` lists them.
+The check prints no number.
+
+For `plugin/`, the static checks of the shipped plugin tree: the `plugin/` file allowlist, mode `100755` in git for
 `plugin/bin/brigade`, `plugin/bin/VERSION` == `plugin/.claude-plugin/plugin.json`'s `"version"`, no `.mcp.json`
 and no `mcpServers`/`channels`, exec-form hooks whose command paths exist and are executable, `sh -n` on the
 bootstrap under `sh`, `bash` and `zsh`, and `shellcheck -s sh` over `plugin/bin/brigade`, `scripts/ci/*.sh` and
 `scripts/*.sh`. It exits on the first failure and prints one `ok:` line per check.
 
-Invoked by `make plugin-check` (which then runs `no-secrets.sh`) → `ci.yml`'s `fast` job.
+Invoked by `make plugin-check` (which then runs `no-secrets.sh`) → `ci.yml`'s `fast` job. `make test` runs the
+same check on the real repository on a developer's machine, and leaves it to that step where `CI` is set.
 
 Needs `shellcheck` for check 9. Without it the check warns and skips locally, but **dies** when `CI` is set — the
 Ubuntu runner preinstalls it, so a missing shellcheck there is a real failure. CI's runner (Blacksmith's
@@ -468,7 +481,7 @@ procedure.
 
 **Nothing invokes it, and that is deliberate.** A `make` target would put a Docker dependency in the Makefile
 that `make test` must never acquire — `make test` staying Docker-free is one of the constraints no convention
-may override — while CI already shellchecks the file through `plugin-check.sh`'s glob. It is run by hand:
+may override — while CI already shellchecks the file through `make plugin-check`'s glob. It is run by hand:
 
 ### Run locally
 
@@ -496,7 +509,7 @@ to come out joined: a and b in one team, c in another.
 recipe in the Makefile and on the corresponding step of `ci.yml`'s `e2e` job. The file survives because it
 stores the out-of-band
 procedure an adapter author would otherwise have to reconstruct, and because deleting it would quietly shrink
-`plugin-check.sh`'s shellchecked set.
+`make plugin-check`'s shellchecked set.
 
 ### Run locally
 
@@ -512,7 +525,7 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 
 | Test file | What it guards |
 | --- | --- |
-| `checks_test.go` | The four POSIX-sh gates — `plugin-check.sh`, `no-secrets.sh`, `checksums-check.sh`, `release-verify.sh` — each proved able to FAIL against a fixture tree built under `t.TempDir()`, plus a read-only pass over the real repository. |
+| `checks_test.go` | The plugin's package check (`internal/packagecheck`, a shell script until work item 382) and the three POSIX-sh gates — `no-secrets.sh`, `checksums-check.sh`, `release-verify.sh` — each proved able to FAIL against a fixture tree built under `t.TempDir()`, plus a read-only pass over the real repository. |
 | `release_prep_test.go` | `release-prep.sh`: every refusal fires (dirty tree, wrong branch, a published tag, no changelog section, a red documentation gate, and beside a Muse package no catalog, a catalog that is not current, or a file git does not track); the dry run checks the catalog first, announces its write and leaves it alone. |
 | `release_ci_check_test.go` | `release-ci-check.sh` (work item 399) against a stand-in `gh` that answers from a file: eighteen answers and overrides (green, red, cancelled, none, in progress then ended, a run that appears late, one that never ends, a `gh` that fails once and one that cannot ask at all, each override that fits and each that does not, a word for another commit among them), what it refuses before asking, the `--jq` filter run through a real `jq`, and seven mutations of the script, each caught by its case. |
 | `release_prep_ci_test.go` | The two release scripts obey that check, run for real to their last step in fixtures whose `origin` is a bare repository: `release-prep.sh` stops with nothing changed on a red start, tags only after the release commit's run is green, stops over a red one with the commit pushed and no tag, and goes on from there on a second run, green or with the override, refuses a tag only origin has and a head origin does not have, and does not take the word for its start as a word for its release commit; `server-tag.sh` in nine cases, a dry run among them; `make` hands both the override, quoted; and two mutations show that a script that tags past the check is caught. |
@@ -520,15 +533,15 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | `send_release_notes_test.go` | `send-release-notes.sh`: the window and the adoption of an earlier run's draft against a fake GitHub API, the list of recipients and the footer, that no address is printed outside a mask line and that the token stays off argv, and a join of the send step's name and the secrets to `send-release-notes.yml`. |
 | `keepalive_test.go` | `keepalive.sh`: the four rungs against a fake endpoint, and a join of its endpoints to `gotrue.go`, `postgrest.go` and the schema migration. |
 | `gateway_install_test.go` | `scripts/gateway-install.sh`'s Resend inbox step (card 175): the real script run to its end against one fake playing Resend, the Management API and the project. A fresh team's first run reads the new inbox back by its id and completes, and so does one whose create answer carries no id (the list settles it); a refused create, a create answer that is not JSON and an inbox without a receiving address (just created, or already there, which is never created again) each stop saying what was checked, on one line with Resend's reason, with nothing done after; the card's second run, a re-run of an installed gateway and a dry run create nothing; no credential in the output or on argv. |
-| `manifests_test.go` | `plugin/.claude-plugin/plugin.json`, `plugin/hooks/hooks.json` and `.claude-plugin/marketplace.json` parsed as JSON — `plugin-check.sh` is textual by design and `claude plugin validate` never runs in CI. |
+| `manifests_test.go` | `plugin/.claude-plugin/plugin.json`, `plugin/hooks/hooks.json` and `.claude-plugin/marketplace.json` parsed as JSON — the plugin's package check is textual by design and `claude plugin validate` never runs in CI. |
 | `proof_test.go` | `proof.sh`'s delimited constants block, joined against the Go and SQL sources. |
 | `proof_headless_test.go` | `proof-headless.sh judge`, over `testdata/proof-headless/`. |
 | `proof_idle_wake_test.go` | `proof-idle-wake.sh wake`, over `testdata/proof-idle-wake/`, plus the frame literals it shares with `proof.sh`. |
 | `proof_crash_resume_test.go` | `proof-crash-resume.sh catchup`, over `testdata/proof-crash-resume/`, plus the shared frame literals and the lease and liveness budgets. |
 | `fixtures_test.go` | The ignore rules around the fixture trees, and that no compiled Python is tracked. |
-| `muse_plugin_check_test.go` | `muse-plugin-check.sh` (card 88): the Muse Code package's allowlist, native manifest, one wrapper per hook and assets equal to `plugin/bin`'s, a package file git does not track (card 114), and (card 115) the marketplace catalog's shape and version, each proved able to fail. |
+| `muse_plugin_check_test.go` | The Muse Code package check (card 88; `internal/packagecheck`): the Muse Code package's allowlist, native manifest, one wrapper per hook and assets equal to `plugin/bin`'s, a package file git does not track (card 114), and (card 115) the marketplace catalog's shape and version, each proved able to fail. |
 | `muse_digest_test.go` | The Muse catalog's digest (cards 115, 114): the committed `marketplace.json` is what `make muse-digest` writes, the package digest of `muse/brigade/` and its version (`internal/musedigest`, whose own tests pin the digests Muse reported); the Makefile, `release-prep.sh` and `release.yml` still write and verify it and never ask for Muse; and where `muse` is on PATH, Muse installs the package from the catalog in a throwaway root. |
-| `codex_plugin_check_test.go` | `codex-plugin-check.sh` (card 107): the Codex CLI package's allowlist, native manifest, the three exact hook commands, the marketplace file and assets equal to `plugin/bin`'s, each proved able to fail; the manifest, `hooks/hooks.json` and `.agents/plugins/marketplace.json` parsed as JSON. |
+| `codex_plugin_check_test.go` | The Codex CLI package check (card 107; `internal/packagecheck`): the Codex CLI package's allowlist, native manifest, the three exact hook commands, the marketplace file and assets equal to `plugin/bin`'s, each proved able to fail; the manifest, `hooks/hooks.json` and `.agents/plugins/marketplace.json` parsed as JSON. |
 | `setup_docs_test.go` | The setup copies join: the invocation forms of create, join, leave and reset must read the same in both setup skills and the member's and admin's pages (`docs/team-admin/create/create-the-team.md`, `docs/team-member/join/muse-code.md`, `docs/team-member/join/codex.md`, `docs/team-member/leave/leave-the-team.md`). |
 | `docs_check_test.go` | The documentation gate of card 110 (`internal/docscheck`, `make docs-check`): green on the repository, and every rule proved able to fail against a copy of the tree with one violation planted — the README shape, a three-sentence persona section, a missing `Details:` line, an orphan leaf, a broken link and anchor, an unreachable page, an unindexed experiment, a harness without its pages, an unregistered package, an unlisted skill, an unimported rule file, an undocumented option, a stale make-target page, a stale command page, a command named on no page (card 112), a pinned version with no changelog section, and for the ADRs (work item 309): a bad name, a reused number, a title line of another number, a Proposed or missing Status, a superseding ADR that does not exist, no Decision section, one missing from the index, one the index links outside its list, an index with no list section, a misspelt Corrected entry, one outside the header, no index. The copy is never a repository: a worktree's `.git` file is left out. |
 | `docs_decisions_test.go` | The half of the gate's `decisions` check that reads git (ADR 0001, work item 309), against a copy of the tree that is a repository with a planted ADR committed, git run with the from-scratch `baseEnv`. `TestDocsGateHoldsACommittedADR`: with no remote branch what is committed has landed; a Status line, a fact corrected under a Corrected entry and a repointed link (plain, titled, by reference) are allowed, and every other edit, a removal, a rename and a second change with no entry of its own are refused. `TestDocsGateHoldsWhatLanded`: with a remote default branch, an ADR a branch added may be revised commit after commit, a landed one is held even once the edit or the removal is committed, and putting the landed text back passes. `TestDocsGateLetsANumberClashBeRepaired`: of two ADRs landed under one number, one may take a number of its own with nothing else changed, and no other rename passes. `TestDocsGateTakesAnADRsOwnWords`: a fenced example and a sentence that starts with "Corrected" are no fault. `TestDocsGateSkipsHistoryInAPlainTree`: no `.git`, no history half. |

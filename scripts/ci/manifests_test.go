@@ -1,6 +1,6 @@
 //go:build !windows
 
-// The manifest gate. `scripts/ci/plugin-check.sh` is textual by design (no jq on every host) and
+// The manifest gate. The plugin check (internal/packagecheck) is textual by design, as the shell script it replaced was, and
 // `claude plugin validate` never runs in CI, because CI has no `claude` binary — so nothing else parses
 // plugin/.claude-plugin/plugin.json, plugin/hooks/hooks.json and .claude-plugin/marketplace.json as JSON and
 // asserts what is IN them. This file does, against the real committed tree, and then proves each assertion can
@@ -33,7 +33,7 @@ const (
 )
 
 // versionLine is the Go spelling of the anchored sed the three shell readers use to pull the manifest's
-// version — scripts/ci/plugin-check.sh, scripts/ci/checksums-check.sh and .github/workflows/release.yml all
+// version — the plugin check, scripts/ci/checksums-check.sh and .github/workflows/release.yml all
 // run `sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p'`, and scripts/release-prep.sh REWRITES
 // that line in place. A minified manifest reads as "declares no version" to all four, so the on-its-own-line
 // rule is a real constraint and this pattern is what enforces it here.
@@ -193,7 +193,7 @@ func checkPluginForbiddenKeys(r reporter, root string) {
 		return
 	}
 	// mcpServers and channels: D34 (the plugin is a CLI, never an MCP server — the owner's own decision), and
-	// scripts/ci/plugin-check.sh check 4 fails on either anywhere under plugin/. Nothing else is forbidden: what
+	// the plugin check's check 4 fails on either anywhere under plugin/. Nothing else is forbidden: what
 	// the manifest may otherwise declare is the plugin's to decide (open by default, Rjae's ruling 2026-09-08).
 	for _, key := range []string{"mcpServers", "channels"} {
 		if _, present := m[key]; present {

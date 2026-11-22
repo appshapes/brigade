@@ -620,7 +620,7 @@ func TestBackendSettingsScriptIsExecutableAndParses(t *testing.T) {
 		t.Fatalf("reading %s: %v", backendSettingsScriptRel, err)
 	}
 	if !strings.HasPrefix(string(data), "#!/bin/sh\n") {
-		t.Errorf("%s does not start with #!/bin/sh: plugin-check.sh check 9 shellchecks it with -s sh",
+		t.Errorf("%s does not start with #!/bin/sh: make plugin-check check 9 shellchecks it with -s sh",
 			backendSettingsScriptRel)
 	}
 	//nolint:gosec // G204: a fixed path under the repository under test
@@ -676,7 +676,7 @@ func TestBackendSettingsMakefileAgrees(t *testing.T) {
 func TestBackendSettingsShellcheck(t *testing.T) {
 	t.Parallel()
 	if !haveShellcheck() {
-		t.Skip("shellcheck is not installed; CI enforces it (plugin-check.sh check 9 globs scripts/*.sh)")
+		t.Skip("shellcheck is not installed; CI enforces it (make plugin-check check 9 globs scripts/*.sh)")
 	}
 	//nolint:gosec // G204: a fixed path under the repository under test
 	cmd := exec.CommandContext(t.Context(), "shellcheck", "-s", "sh",

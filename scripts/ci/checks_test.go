@@ -4,19 +4,19 @@
 // are shell, and this file is the thing that proves each of them can FAIL, which is the only property a check
 // really has. Every case builds its own fixture tree under t.TempDir() — with its own `git init` where the
 // check reads the index — and runs the real script against it through `sh`. Two cases deliberately run
-// read-only against the repository itself: plugin-check.sh and no-secrets.sh must pass on the real tree.
+// read-only against the repository itself: the plugin check and no-secrets.sh must pass on the real tree.
 package ci_test
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/harness/hook"
+	"github.com/appshapes/brigade/internal/packagecheck"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
@@ -172,15 +172,16 @@ func haveShellcheck() bool {
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// plugin-check.sh
+// the plugin check (internal/packagecheck; scripts/ci/plugin-check.sh until work item 382)
 
 func TestPluginCheck(t *testing.T) {
 	t.Parallel()
 
 	t.Run("the real repository passes", func(t *testing.T) {
 		t.Parallel()
+		onceInCI(t, "make plugin-check")
 		root := testutil.RepoRoot(t)
-		r := runScript(t, "plugin-check.sh", root, baseEnv(t, t.TempDir()))
+		r := runPackageCheck(t, "claude-code", root, baseEnv(t, t.TempDir()))
 		wantPass(t, r, "all checks passed", "100755")
 	})
 
@@ -188,7 +189,7 @@ func TestPluginCheck(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.pluginTree()
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantPass(t, r, "all checks passed", "skip:", "(P3-1)")
 	})
 
@@ -197,7 +198,7 @@ func TestPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.pluginTree()
 		tr.write("plugin/bin/.DS_Store", "junk\n")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "not allow-listed", ".DS_Store")
 	})
 
@@ -207,7 +208,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/skills/teammsg/reference.md", "# supporting material\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantPass(t, r, "allow-listed paths")
 	})
 
@@ -216,7 +217,7 @@ func TestPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.pluginTree()
 		tr.git("update-index", "--chmod=-x", "plugin/bin/brigade")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "must be 100755")
 	})
 
@@ -227,7 +228,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.write("plugin/README.md", "# brigade\n")
 		tr.git("add", "plugin")
 		tr.git("update-index", "--add", "--chmod=+x", "plugin/README.md")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantPass(t, r, "100755")
 	})
 
@@ -236,7 +237,7 @@ func TestPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.pluginTree()
 		tr.write("plugin/bin/VERSION", "0.1.0\nand more\n")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "exactly one line")
 	})
 
@@ -246,7 +247,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/.claude-plugin/plugin.json", "{\n  \"name\": \"brigade\",\n  \"version\": \"9.9.9\"\n}\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "!= plugin/bin/VERSION")
 	})
 
@@ -256,7 +257,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/.claude-plugin/plugin.json", "{\n  \"name\": \"brigade\",\n  \"version\": \"0.0.0\"\n}\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantPass(t, r, "matches plugin/.claude-plugin/plugin.json")
 	})
 
@@ -266,7 +267,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/.claude-plugin/plugin.json", "{\n  \"version\": \"0.0.0\",\n  \"mcpServers\": {}\n}\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "mcpServers or channels")
 	})
 
@@ -276,7 +277,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/README.md", "run `brigade send --channels team`\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "--channels")
 	})
 
@@ -286,7 +287,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/hooks/hooks.json", `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/does-not-exist", "args": ["hook", "session-start"], "timeout": 60}]}]}}`+"\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "does not exist")
 	})
 
@@ -296,7 +297,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/hooks/hooks.json", `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade hook session-start", "timeout": 60}]}]}}`+"\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "shell string")
 	})
 
@@ -306,7 +307,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/hooks/hooks.json", `{"hooks": {"SessionStart": [{"hooks": [{"type": "shell", "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade", "args": []}]}]}}`+"\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "not \"command\"")
 	})
 
@@ -323,7 +324,7 @@ func TestPluginCheck(t *testing.T) {
 }
 `)
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantPass(t, r, "exec form and every hook command exists")
 	})
 
@@ -335,7 +336,7 @@ func TestPluginCheck(t *testing.T) {
 		// occurrences made this pass, which is the one shape check 5 exists to catch.
 		tr.write("plugin/hooks/hooks.json", `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade", "args": []}, {"type": "command"}]}]}}`+"\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "every hook must be exec form")
 	})
 
@@ -345,7 +346,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/hooks/hooks.json", `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/bin/brigade","args":["hook","session-start"]}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/bin/brigade","args":["hook","session-end"]}]}]}}`+"\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantPass(t, r, "exec form and every hook command exists")
 	})
 
@@ -354,7 +355,7 @@ func TestPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.pluginTree()
 		tr.write("plugin/.mcp.json", "{}\n")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		// Caught by check 1: .mcp.json is not on the allowlist and check 1 runs first, which is why check 4
 		// carries no `[ ! -e plugin/.mcp.json ]` guard of its own. The message is asserted, not just the
 		// exit code, so that moving the file onto the allowlist could not silently keep this case green.
@@ -366,7 +367,7 @@ func TestPluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.pluginTree()
 		tr.write("plugin/bin/brigade", "#!/bin/sh\n) unbalanced\n")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "-n plugin/bin/brigade failed")
 	})
 
@@ -380,7 +381,7 @@ func TestPluginCheck(t *testing.T) {
 		// SC1007: `CDPATH= cd` is valid sh and is what plan 6.2 prints, so it is also the finding this
 		// script exists to keep out of the shipped bootstrap.
 		tr.write("plugin/bin/brigade", "#!/bin/sh\nCDPATH= cd /tmp || true\n")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "shellcheck reported problems")
 	})
 
@@ -388,14 +389,14 @@ func TestPluginCheck(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.pluginTree()
-		// git, find, sort, awk, sed, head, grep and sh are everything plugin-check.sh runs that is not a
-		// shell builtin. shellcheck is deliberately absent from this PATH.
+		// git and sh are everything the plugin check runs that is not Go. find, sort, awk, sed, head and grep
+		// were the shell script's, and stay on this PATH as they were. shellcheck is deliberately absent from it.
 		dir := restrictedPath(t, tr.root, "git", "find", "sort", "awk", "sed", "head", "grep", "sh")
 
-		local := runScript(t, "plugin-check.sh", tr.root, tr.env("PATH="+dir))
+		local := runPackageCheck(t, "claude-code", tr.root, tr.env("PATH="+dir))
 		wantPass(t, local, "shellcheck is not installed")
 
-		ci := runScript(t, "plugin-check.sh", tr.root, tr.env("PATH="+dir, "CI=true"))
+		ci := runPackageCheck(t, "claude-code", tr.root, tr.env("PATH="+dir, "CI=true"))
 		wantFail(t, ci, "shellcheck is not installed and CI is set")
 	})
 
@@ -409,7 +410,7 @@ func TestPluginCheck(t *testing.T) {
 		// can catch the typo. `start` is what a careless rename of `session-start` looks like.
 		tr.write(hooksRel, hooksJSON(`"args": ["hook", "start"]`))
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "names the hook subcommand 'start'", "does not implement")
 	})
 
@@ -419,7 +420,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write(hooksRel, hooksJSON(`"args": ["session-start"]`))
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "first element is 'session-start'")
 	})
 
@@ -431,7 +432,7 @@ func TestPluginCheck(t *testing.T) {
 		// do anything to check 6.
 		tr.write(hooksRel, `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade", "timeout": 60}]}]}}`+"\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantFail(t, r, "declares no \"args\" array")
 	})
 
@@ -445,7 +446,7 @@ func TestPluginCheck(t *testing.T) {
 		}
 		tr.write(hooksRel, string(body))
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantPass(t, r, "names a brigade hook subcommand that exists")
 	})
 
@@ -457,7 +458,7 @@ func TestPluginCheck(t *testing.T) {
 		tr.pluginTree()
 		tr.write("plugin/README.md", "# brigade\n\nNot runnable yet, and no Status section either.\n")
 		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "claude-code", tr.root, tr.env())
 		wantPass(t, r, "all checks passed")
 	})
 }
@@ -471,31 +472,19 @@ func hooksJSON(args string) string {
 	return `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade", ` + args + `, "timeout": 60}]}]}}` + "\n"
 }
 
-// subcommandList is the `hook_subcommands="…"` line of plugin-check.sh: the fixed list check 6 compares
-// hooks.json against.
-var subcommandList = regexp.MustCompile(`(?m)^hook_subcommands="([^"]*)"`)
-
-// TestHookSubcommandListMatchesTheGoConstants keeps the shell check honest about what the binary implements.
-// Check 6 cannot ask the Go code (plugin-check.sh runs on hosts with no toolchain and must stay textual), so
-// the list is a literal in the script — and a literal drifts. This test is the join: rename
-// hook.SubSessionStart in Go and this fails, which is the only way the shell list can be kept true.
+// TestHookSubcommandListMatchesTheGoConstants keeps the package check honest about what the binary implements.
+// Check 6 holds the plugin's hooks to a list of subcommands, and a list drifts. This test is the join: rename
+// hook.SubSessionStart in Go and this fails. (The list was a literal in a shell script until work item 382,
+// which could not ask the Go code; the check is Go now and the join stays, since the check does not link the
+// harness.)
 func TestHookSubcommandListMatchesTheGoConstants(t *testing.T) {
 	t.Parallel()
-	script := filepath.Join(testutil.RepoRoot(t), "scripts", "ci", "plugin-check.sh")
-	body, err := os.ReadFile(script)
-	if err != nil {
-		t.Fatalf("reading %s: %v", script, err)
-	}
-	m := subcommandList.FindStringSubmatch(string(body))
-	if m == nil {
-		t.Fatalf("plugin-check.sh has no `hook_subcommands=\"…\"` line: check 6 has lost its authority")
-	}
-	got := strings.Fields(m[1])
+	got := slices.Clone(packagecheck.ClaudeHookSubcommands)
 	slices.Sort(got)
 	want := []string{hook.SubSessionStart, hook.SubPrompt, hook.SubStop, hook.SubSessionEnd}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Errorf("plugin-check.sh hook_subcommands = %v, want the hook package's subcommands %v", got, want)
+		t.Errorf("the package check's hook subcommands = %v, want the hook package's %v", got, want)
 	}
 }
 

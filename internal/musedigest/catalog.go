@@ -30,7 +30,7 @@ const (
 var ErrStale = errors.New("the catalog is stale")
 
 // The catalog keeps "version" and "digest" each on a line of its own:
-// scripts/ci/muse-plugin-check.sh and release.yml read them with anchored
+// `make muse-plugin-check` and release.yml read them with anchored
 // seds, and Write rewrites exactly those two lines, leaving every other byte
 // of the hand-written file alone.
 var (

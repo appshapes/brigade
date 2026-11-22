@@ -460,14 +460,17 @@ advisor-lints: ## Security Advisor lint mirrors, run with the psql inside the lo
 
 # ========== Plugin ==========
 
+# The four package checks are names over one check (work item 382): internal/packagecheck, run by
+# cmd/brigade-packages for the harness's id in docs/harnesses.json. They were four shell scripts under scripts/ci/.
+# `go run ./cmd/brigade-packages check` with no id holds every package the registry lists.
 .PHONY: plugin-check
 plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSION == plugin.json, shellcheck, no secrets (CI)
-	scripts/ci/plugin-check.sh
+	go run ./cmd/brigade-packages check claude-code
 	scripts/ci/no-secrets.sh
 
 .PHONY: muse-plugin-check
 muse-plugin-check: ## Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's, the marketplace catalog and its digest (CI)
-	sh scripts/ci/muse-plugin-check.sh
+	go run ./cmd/brigade-packages check muse-code
 	go run ./cmd/brigade-muse-digest check
 
 .PHONY: muse-digest
@@ -476,7 +479,7 @@ muse-digest: ## Rewrite marketplace.json's digest and version from muse/brigade/
 
 .PHONY: codex-plugin-check
 codex-plugin-check: ## Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI)
-	sh scripts/ci/codex-plugin-check.sh
+	go run ./cmd/brigade-packages check codex
 
 .PHONY: docs-check
 docs-check: ## The documentation gate (cards 110, 112; work item 309): README and persona shapes, links and anchors, orphans, harness pages, options, the generated make-target and command pages, a page for every command, the changelog section, the ADRs and that a landed one keeps its text (CI)
@@ -484,7 +487,7 @@ docs-check: ## The documentation gate (cards 110, 112; work item 309): README an
 
 .PHONY: grok-plugin-check
 grok-plugin-check: ## Validate Grok native package, four hooks, fifteen skills and canonical release assets (CI)
-	sh scripts/ci/grok-plugin-check.sh
+	go run ./cmd/brigade-packages check grok
 
 .PHONY: docs-generate
 docs-generate: ## Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines and commands.md from internal/cli's command table (docs-check fails when either is stale)

@@ -83,8 +83,9 @@ func TestMusePluginCheck(t *testing.T) {
 
 	t.Run("the real repository passes", func(t *testing.T) {
 		t.Parallel()
+		onceInCI(t, "make muse-plugin-check")
 		root := testutil.RepoRoot(t)
-		r := runScript(t, "muse-plugin-check.sh", root, baseEnv(t, t.TempDir()))
+		r := runPackageCheck(t, "muse-code", root, baseEnv(t, t.TempDir()))
 		wantPass(t, r, "all checks passed", "their own wrapper")
 	})
 
@@ -92,7 +93,7 @@ func TestMusePluginCheck(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.museTree()
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantPass(t, r, "all checks passed")
 	})
 
@@ -101,7 +102,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("muse/brigade/hooks/.DS_Store", "junk\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "not allow-listed under muse/brigade/")
 	})
 
@@ -113,7 +114,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr.museTree()
 		tr.write(".gitignore", ".DS_Store\n")
 		tr.write("muse/brigade/skills/join/.DS_Store", "junk\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "git does not track these under muse/brigade/", "muse/brigade/skills/join/.DS_Store")
 	})
 
@@ -122,7 +123,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("muse/brigade/bin/VERSION", "0.0.0\n# drift\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "differs from plugin/bin/VERSION")
 	})
 
@@ -135,7 +136,7 @@ func TestMusePluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("muse/brigade/.muse-plugin/plugin.json", replaceVersion(string(manifest), "9.9.9"))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "!= muse/brigade/bin/VERSION")
 	})
 
@@ -148,7 +149,7 @@ func TestMusePluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("muse/brigade/.muse-plugin/plugin.json", replaceOnce(string(manifest), `"capabilities": {`, `"userConfig": {}, "capabilities": {`))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "member Muse does not run")
 	})
 
@@ -161,7 +162,7 @@ func TestMusePluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("muse/brigade/.muse-plugin/plugin.json", replaceOnce(string(manifest), `["hooks/prompt.sh"]`, `["hooks/session-start.sh"]`))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "share one source")
 	})
 
@@ -170,7 +171,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("muse/brigade/hooks/prompt.sh", "#!/bin/sh\nset -u\ncase $0 in */*) dir=${0%/*} ;; *) dir=. ;; esac\nexec \"$dir/../bin/brigade\" hook start \"$@\"\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "'start'", "does not implement")
 	})
 
@@ -186,7 +187,7 @@ func TestMusePluginCheck(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "symlink")
 	})
 
@@ -195,7 +196,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("muse/brigade/skills/update/SKILL.md", "---\nname: update\ndisable-model-invocation: true\n---\n# x\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "disable-model-invocation")
 	})
 
@@ -207,7 +208,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr.museTree()
 		tr.write("muse/brigade/skills/extra/SKILL.md", "---\nname: extra\n---\n# x\n")
 		tr.git("add", "muse/brigade/skills/extra/SKILL.md")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "does not name these skills", "skills/extra/SKILL.md")
 	})
 
@@ -230,7 +231,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		rewriteManifest(t, tr, `"id": "whoami"`, `"id": "who-ami"`)
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "with the id who-ami")
 	})
 
@@ -240,7 +241,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr.museTree()
 		rewriteManifest(t, tr, `{ "id": "whoami", "path": "skills/whoami/SKILL.md" }`,
 			`{ "id": "whoami", "path": "skills/whoami/SKILL.md" },`+"\n"+`      { "id": "whoami", "path": "skills/whoami/SKILL.md" }`)
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "more than once", "skills/whoami/SKILL.md")
 	})
 
@@ -253,7 +254,7 @@ func TestMusePluginCheck(t *testing.T) {
 		if err := os.Remove(filepath.Join(tr.root, "marketplace.json")); err != nil {
 			t.Fatal(err)
 		}
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "missing marketplace.json")
 	})
 
@@ -262,7 +263,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("marketplace.json", catalogJSON("9.9.9", digestA))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "marketplace.json version '9.9.9' != muse/brigade/bin/VERSION")
 	})
 
@@ -271,7 +272,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("marketplace.json", replaceOnce(catalogJSON("0.0.0", digestA), `"source": "muse/brigade"`, `"source": "codex/brigade"`))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, "does not point at muse/brigade")
 	})
 
@@ -280,7 +281,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("marketplace.json", catalogJSON("0.0.0", "sha256:tooshort"))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runPackageCheck(t, "muse-code", tr.root, tr.env())
 		wantFail(t, r, `carries no "digest"`)
 	})
 

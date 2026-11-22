@@ -57,7 +57,7 @@
   included (the owner ruling of 2026-10-17 put Muse there "for now"; card 114's done criterion ended that). Where `muse` is on PATH, `make test` also has Muse
   install the package from the catalog in a throwaway root: the cross-check that the reproduction still is what
   Muse computes. Every file under `muse/brigade/` counts, an ignored `.DS_Store` included, so
-  `muse-plugin-check.sh` and `release-prep.sh` refuse a file there that git does not track. Never hand-edit the
+  `make muse-plugin-check` and `release-prep.sh` refuse a file there that git does not track. Never hand-edit the
   digest.
 - **Package checks.** `make plugin-check` carries the Claude Code plugin tree's checks: the `plugin/` file
   allowlist, mode 100755 in git for `plugin/bin/brigade`, `VERSION == plugin.json`, no `.mcp.json`, `mcpServers`
@@ -70,8 +70,11 @@
   allowlist, native manifest, one wrapper per hook, assets equal to `plugin/bin`'s; `make codex-plugin-check` for
   `codex/brigade/`: allowlist, native manifest, the three exact hook commands, `.agents/plugins/marketplace.json`,
   assets equal; `make grok-plugin-check` for `grok/brigade/`: allowlist, native manifest, the four exact hook
-  commands, `.grok-plugin/marketplace.json`, assets equal. A new harness package gets a check of its own in
-  `scripts/ci/` and a job step in `ci.yml`.
+  commands, `.grok-plugin/marketplace.json`, assets equal. The four targets are names over one check
+  (work item 382): `internal/packagecheck`, run by `go run ./cmd/brigade-packages check <harness id>`, with what the
+  packages share written once and each package's own rules in a file of its own. A new harness package gets an entry
+  in `docs/harnesses.json`, its rules there (a test fails while the registry lists a harness the check has no rules
+  for), a `make` target and a job step in `ci.yml`.
 - **shellcheck is pinned.** CI's Ubuntu runner (Blacksmith's `blacksmith-4vcpu-ubuntu-2404` image since P5-17)
   has shellcheck **0.9.0**, printed by `ci.yml`'s `fast` job in its "Runner image inventory" step (run
   33998830833); this machine has 0.11, and versions disagree (0.10 reported SC2317 for a trap-invoked function's

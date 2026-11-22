@@ -815,12 +815,12 @@ func TestKeepaliveScriptIsExecutableAndParses(t *testing.T) {
 	}
 }
 
-// TestKeepaliveShellcheck runs the same check CI runs (plugin-check.sh check 9 shellchecks every
+// TestKeepaliveShellcheck runs the same check CI runs (`make plugin-check` check 9 shellchecks every
 // scripts/ci/*.sh with `-s sh`), and skips like TestPluginCheck when shellcheck is not installed.
 func TestKeepaliveShellcheck(t *testing.T) {
 	t.Parallel()
 	if !haveShellcheck() {
-		t.Skip("shellcheck is not installed; CI's plugin-check.sh check 9 enforces it")
+		t.Skip("shellcheck is not installed; CI's `make plugin-check` check 9 enforces it")
 	}
 	//nolint:gosec // G204: a fixed path under the repository under test
 	cmd := exec.CommandContext(t.Context(), "shellcheck", "-s", "sh", filepath.Join(testutil.RepoRoot(t), keepaliveScriptRel))
