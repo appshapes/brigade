@@ -35,6 +35,61 @@ func TestRunDispatchesToTheCommandTable(t *testing.T) {
 	}
 }
 
+// TestABareCallInAHooksPlaceDoesNothing is work item 402 (GitHub issue 59,
+// ADR 0017). The Claude Code package's hooks are in the exec form,
+// `brigade` in `command` and its words in `args`; a host that drops `args`
+// runs the bare binary on every hook. Its usage error exits 2, the status
+// a hook blocks with, and every prompt of that host was blocked. With
+// either mark of a hook, the plugin's root in the environment or a hook's
+// document on stdin, the bare call exits 0 and writes nothing: not to
+// stdout, which a hook's host reads, and not to stderr.
+func TestABareCallInAHooksPlaceDoesNothing(t *testing.T) {
+	t.Parallel()
+	const document = `{"session_id":"s-1","cwd":"/work","hook_event_name":"UserPromptSubmit","prompt":"hello"}`
+	for name, tc := range map[string]struct {
+		environ []string
+		stdin   string
+	}{
+		"the plugin's root in the environment": {[]string{"HOME=/home/x", "CLAUDE_PLUGIN_ROOT=/plugins/brigade"}, ""},
+		"a hook's document on stdin":           {[]string{"HOME=/home/x"}, document},
+		"both":                                 {[]string{"HOME=/home/x", "CLAUDE_PLUGIN_ROOT=/plugins/brigade"}, document},
+	} {
+		if exit, stdout, stderr := runIn(t, tc.environ, tc.stdin); exit != 0 || stdout != "" || stderr != "" {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want exit 0 and nothing written", name, exit, stdout, stderr)
+		}
+	}
+}
+
+// TestABareCallElsewhereKeepsItsUsageError: with neither mark, as at a
+// terminal or in a session's own shell tool, a bare `brigade` says so on
+// stderr and exits 2 as it always did. And the marks change nothing for a
+// call that has arguments: a hook that arrives whole is dispatched as it
+// was, and a wrong word in a hook's place is still a usage error.
+func TestABareCallElsewhereKeepsItsUsageError(t *testing.T) {
+	t.Parallel()
+	hooked := []string{"HOME=/home/x", "CLAUDE_PLUGIN_ROOT=/plugins/brigade"}
+	const document = `{"hook_event_name":"UserPromptSubmit","prompt":"hello"}`
+	for name, tc := range map[string]struct {
+		environ []string
+		stdin   string
+		args    []string
+		want    string
+	}{
+		"no mark":                          {[]string{"HOME=/home/x"}, "", nil, "no command given"},
+		"a session's shell tool":           {[]string{"HOME=/home/x", "CLAUDE_PID=4242", "CLAUDECODE=1"}, "", nil, "no command given"},
+		"a stdin that is no hook document": {[]string{"HOME=/home/x"}, `{"prompt":"hello"}`, nil, "no command given"},
+		"a flag and no command, hooked":    {hooked, document, []string{"--json"}, "no command given"},
+		"an unknown command, hooked":       {hooked, document, []string{"no-such-command"}, "unknown command"},
+		"a hook with no subcommand":        {hooked, document, []string{"hook"}, "usage"},
+	} {
+		exit, stdout, stderr := runIn(t, tc.environ, tc.stdin, tc.args...)
+		out := stdout + stderr
+		if exit != 2 || !strings.Contains(out, tc.want) {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want exit 2 and %q", name, exit, stdout, stderr, tc.want)
+		}
+	}
+}
+
 // TestRunInterceptsMultiCallEntrypoints proves the seam is live and wired
 // (P3-4, P3-5): `hook` and `watch` are not unknown commands and no longer
 // placeholders — each reaches its own package with the real streams and

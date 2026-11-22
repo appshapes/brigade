@@ -59,6 +59,15 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []str
 		}
 	}
 
+	// No argument at all, in a hook's place: a host ran a hook and dropped
+	// its words (hook.BareCall, ADR 0017). A hook must never fail its
+	// session, so nothing is done and nothing is written, least of all to
+	// stdout, which a hook's host reads. Anywhere else the command table
+	// answers with its usage error.
+	if len(args) == 0 && hook.BareCall(stdin, environ) {
+		return cli.ExitOK
+	}
+
 	return cli.Dispatch(args, streams, environ)
 }
 

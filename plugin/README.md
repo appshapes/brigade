@@ -32,7 +32,10 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   the team's `idle_close_hours` without activity, because the extension keeps the `claude` process after a
   conversation is closed and fires no hook; its next prompt re-opens it. Before the binary is installed, the
   prompt and session-end hooks return at once and print nothing, and an install that fails for good is reported
-  once, on the next prompt, as a hook error beginning `Brigade: not installed:`.
+  once, on the next prompt, as a hook error beginning `Brigade: not installed:`. A program that loads this plugin
+  and runs a hook's `command` without its `args` runs `brigade` with no arguments: in a hook's place that does
+  nothing and exits 0, so Brigade is inactive in that program and its prompts are not blocked
+  ([ADR 0017](../docs/decisions/0017-do-nothing-when-brigade-runs-with-no-arguments-in-a-hooks-place.md)).
 - **Fifteen skills** under `skills/`: `team-messaging` (model-facing: the command surface, the sending rules, the
   inbound frame, the gateways, the roster line, the notes, decisions and digest of a project with a state folder),
   `setup` (human-facing: create, join, leave, uninstall), `join` (`/brigade:join <path>`), `move` (`/brigade:move`:

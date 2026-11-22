@@ -24,6 +24,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0014. Read the Claude account's email as the default label on every harness](0014-read-the-claude-accounts-email-as-the-default-label-on-every-harness.md)
 - [0015. Stop a release over a red or missing CI run, with an override](0015-stop-a-release-over-a-red-or-missing-ci-run-with-an-override.md)
 - [0016. Strike the promise of a new log started from a snapshot](0016-strike-the-promise-of-a-new-log-started-from-a-snapshot.md)
+- [0017. Do nothing when brigade runs with no arguments in a hook's place](0017-do-nothing-when-brigade-runs-with-no-arguments-in-a-hooks-place.md)
 
 ## Record a decision
 

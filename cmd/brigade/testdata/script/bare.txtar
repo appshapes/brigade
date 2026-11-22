@@ -1,0 +1,60 @@
+# `brigade` with no arguments at all, through the real binary (work item
+# 402, GitHub issue 59, ADR 0017).
+#
+# The Claude Code package's hooks are in the exec form: the binary in
+# `command`, its words in `args`. A host that loads Claude Code's plugins
+# and drops `args` runs the bare binary on every hook. Its usage error
+# exits 2, the status a hook blocks with, so every prompt of that host was
+# blocked. Where the call carries a hook's mark, the plugin's root in the
+# environment or a hook's document on stdin, it does nothing and exits 0;
+# with neither it keeps its usage error.
+
+# The `brigade` under test is the race-instrumented test binary too; without
+# this every exec spends TSan's 1 s atexit sleep.
+env GORACE=atexit_sleep_ms=0
+
+# --- the plugin's root in the environment, as Claude Code gives a hook ---
+# (every script has one: testutil's directories set CLAUDE_PLUGIN_ROOT.)
+# Nothing is written: stdout is what a hook's host reads.
+exec brigade
+! stdout .
+! stderr .
+
+# --- neither mark: a terminal, or a session's own shell tool --------------
+env CLAUDE_PLUGIN_ROOT=
+status 2 brigade
+! stdout .
+stderr '^brigade failed \(usage\): no command given; run `brigade help` for the command list$'
+
+# The same in a session's shell tool, whose environment names the session
+# and no plugin root.
+env CLAUDE_PID=4242
+status 2 brigade
+! stdout .
+stderr 'no command given'
+env CLAUDE_PID=
+
+# --- a hook's document on stdin, and no root -----------------------------
+stdin prompt.json
+exec brigade
+! stdout .
+! stderr .
+
+# A stdin that is no hook's document is no mark.
+stdin other.json
+! exec brigade
+! stdout .
+stderr 'no command given'
+
+# --- the marks change nothing for a call that has arguments --------------
+env CLAUDE_PLUGIN_ROOT=$WORK/.brigade/plugin-root
+status 2 brigade --json
+stdout '"code":"usage"'
+! stderr .
+status 2 brigade no-such-command
+stderr 'unknown command'
+
+-- prompt.json --
+{"session_id":"s-1","transcript_path":"/never/read.jsonl","cwd":"/work","hook_event_name":"UserPromptSubmit","prompt":"hello"}
+-- other.json --
+{"prompt":"hello"}

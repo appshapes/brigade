@@ -127,6 +127,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   and read by nobody. Stop it, join its member on the new backend with
   the team's secret file, and start it again: "When the team moves" on
   the gateway's page has the steps.
+- **A program that drops a hook's `args` no longer has its prompts
+  blocked** (work item 402, GitHub issue 59, ADR 0017). The Claude
+  Code plugin's hooks name `brigade` in `command` and its words in
+  `args`. A program that loads the plugin and runs the command without
+  the `args` ran `brigade` with no arguments on every hook. That is a
+  usage error with exit status 2, the status a hook blocks with, so
+  every prompt there was blocked with `no command given`. A `brigade`
+  with no arguments now does nothing and exits 0 where it was started
+  as a hook: the plugin's root is in its environment, or a hook's
+  document is on its stdin. Brigade is inactive in such a program. In
+  a terminal, and in a session's own shell, `brigade` with no
+  arguments still prints its usage error. The hooks keep their form.
 
 ## [0.57.0] — 2026-11-15
 
