@@ -22,6 +22,22 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   `internal/adapters/fs/README.md`, and the
   package page of every registered harness (`plugin/README.md`, `muse/brigade/README.md`,
   `codex/brigade/README.md`, `grok/brigade/README.md`).
+- **A changelog section opens with who must act** (work item 396; the owner's ruling of 2026-11-22: a rule, and
+  no check of `make docs-check`). In `CHANGELOG.md`, the first lines under `## [Unreleased]`, and so under
+  every `## [<version>]` after 0.57.0, are `**Who must act**` and three bullets in this order:
+  `**Team Member:**`, `**Team Admin:**` and `**Project Owner:**`. Each says what that persona has to do when
+  the release reaches them, or `nothing`: who exactly (which harness, which backend, which option), what,
+  before or after the update, by which date when one applies, and the entry or the page that has the detail.
+  It holds what must be done and what changes under someone unless they act, and never what a release merely
+  offers, which stays in its entries. A change whose entry asks something of one of the three changes that
+  persona's line in the same commit; three lines that read `nothing` say that no entry asks anything.
+  `server/CHANGELOG.md` has the same lines from the release after 0.9.0, the Project Owner there being the
+  server's operator. The lines are read outside the file: the release-notes email takes its "Before you
+  update" from them (`.claude/agents/release-notes-email.md`), the server's release text is its section and so
+  begins with them, and the plugin's release notes are drafted from the section that carries them. So a link
+  in them is absolute, under `https://github.com/appshapes/brigade/blob/master/`, and they name an entry by
+  its title and never by a work item's number. The sections of the releases before have none and are given
+  none: what each asked of whom is for whoever led that work to say.
 - **A decision is an ADR** (ADR 0001, work items 302 and 309): one file `docs/decisions/NNNN-short-title.md`,
   copied from `0000-template.md`, with the next number, listed in `docs/decisions/README.md`, in the same change
   as the code, the rule or the page it explains. Its Status is `Accepted`, `Accepted; superseded in part by NNNN`,

@@ -1,5 +1,13 @@
 # Know what an update changes
 
+## What you have to do
+
+A version's section in [CHANGELOG.md](../../../CHANGELOG.md) opens with "Who must act": one line each for a
+Team Member, a Team Admin and a Project Owner. Yours says what to do before or after the update, for which
+harness and by when, or `nothing`; the entries below it have the detail. When an update skips releases, read
+the line of each section between your version and the new one. The sections up to 0.57.0 have no such lines:
+read their `Changed` entries.
+
 ## What your sessions share
 
 An update can change what your sessions share, and the version's section in [CHANGELOG.md](../../../CHANGELOG.md)
