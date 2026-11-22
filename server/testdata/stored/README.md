@@ -55,16 +55,16 @@ up by the scenario.
 
 ## Writing the directory of a release
 
-After a server release, from the repository's root, with the version in place of `0.10.0`:
+After a server release, from the repository's root, with the version in place of `0.11.0`:
 
 ```sh
-git worktree add --detach ../brigade-server-0.10.0 server-v0.10.0
-(cd ../brigade-server-0.10.0/server && cargo build --release --locked -p brigade-server)
+git worktree add --detach ../brigade-server-0.11.0 server-v0.11.0
+(cd ../brigade-server-0.11.0/server && cargo build --release --locked -p brigade-server)
 cd server
-BRIGADE_RELEASED_SERVER="$PWD/../../brigade-server-0.10.0/server/target/release/brigade-server" \
-  BRIGADE_STORED_OUT="$PWD/testdata/stored/0.10.0" \
+BRIGADE_RELEASED_SERVER="$PWD/../../brigade-server-0.11.0/server/target/release/brigade-server" \
+  BRIGADE_STORED_OUT="$PWD/testdata/stored/0.11.0" \
   cargo test --locked -p brigade-server --test stored -- --ignored write_the_directory
-cd .. && git worktree remove ../brigade-server-0.10.0
+cd .. && git worktree remove ../brigade-server-0.11.0
 ```
 
 A binary from the GitHub release does as well as one built from the tag. Then run `make server-test` and
@@ -83,3 +83,7 @@ directories stay as they are.
   3. On the feed, written the same day by a second run of the writer, for work item 387: recordings 6 to 8 of
   nine with the last live, in the format of Cavalry at `620a2e29` and with its 16 MiB terms, three snapshots,
   and the feed's end at position 20416.
+- `0.10.0`: written on 2026-11-22 by the server built from the tag `server-v0.10.0` (commit `020dc2fd`) with
+  `cargo build --release --locked`, on macOS, arm64, by one run of the writer. On the file log, 45 entries and
+  three snapshots of format 3. On the feed: recordings 6 to 8 of nine with the last live, in the format of
+  Cavalry at `d265af82` and with its 1 MiB terms, three snapshots, and the feed's end at position 20416.
