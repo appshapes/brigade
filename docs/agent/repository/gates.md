@@ -22,7 +22,8 @@
   depend on it. Its gate is `make server-check server-test server-deps-check`; run it before pushing anything
   under `server/`. Every crate it links is named in `server/deny.toml`, and a new one is added there in the same
   change. Cavalry is a git dependency pinned to one commit in `server/crates/brigade-log/Cargo.toml`: a new pin
-  may need the feed started again from a snapshot, and `Shape` in `feed.rs` is the one place a pin's differences
+  has to open in place the directory the pin before it wrote, because no command starts a log again from a
+  snapshot (ADR 0016), and `Shape` in `feed.rs` is the one place a pin's differences
   go. CI's `server` job runs the gate and is required by the `master` ruleset since the first server release
   (the plan's ruling 5). The server is released apart from the plugin: `server/VERSION`, the workspace's version
   and a `## [<version>]` section of `server/CHANGELOG.md`, then `make server-tag`, whose tag `server-v<version>`

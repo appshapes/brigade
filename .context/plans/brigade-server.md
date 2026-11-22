@@ -183,8 +183,12 @@ at `0d28208`; the earlier plan's §3 has the table):
   of every team that instance serves.
 - **Snapshots.** The server writes its state in its own versioned format, with the feed position it stands for.
   A start reads the newest snapshot and replays the feed from that position. Recordings older than the retention
-  the operator sets are purged once a snapshot covers them. A change of Cavalry's log format before 0.1.0 is
-  survived the same way: new feeds start from the snapshot.
+  the operator sets are purged once a snapshot covers them. A change of Cavalry's log format before 0.1.0 was
+  to be survived the same way, new feeds starting from the snapshot. **Struck on 2026-11-22** (work item 386,
+  ADR 0016, the owner's ruling): no command does it, and none is built until a change of the format needs
+  one. An upgrade opens the directory in place, which Cavalry's gate holds for a directory written at the pin of
+  that day, `620a2e29`, under Cavalry's master (its work item 362; Brigade's own gate has no such test yet, work
+  item 387). A pin that cannot open it is not moved to, and operators stay on the release they have.
 - **Record format.** `{version, team, kind, at, payload}`, sealed with AES-256-GCM under a key the operator
   gives every instance in a file. The seal is for the link between instances, which Cavalry does not encrypt,
   and it lets a follower treat a record that fails as a hole to fetch again.
@@ -221,8 +225,10 @@ draining an inbox. So one instance writes at a time.
   a standby that returns within 5 s is handed the old replay, already past its position (measured: it would never
   see five records). The request has three answers: following; purged, so take the snapshot; and ahead, which
   means a wrong generation or a lost disk.
-- **The snapshot travels over the same HTTP path**, not over Cavalry: it must outlive a change of the log's
-  format. A feed's name carries a generation, raised whenever feeds start again from a snapshot.
+- **The snapshot travels over the same HTTP path**, not over Cavalry. A feed's name carries a generation,
+  raised whenever feeds start again from a snapshot. (This is the design for standbys, which are not built.
+  That a snapshot would also carry a directory across a change of the log's format was said here and is
+  struck: work item 386, ADR 0016.)
 
 The Cavalry session's advice of 2026-11-12 agrees with this shape: feed-and-follow for now and for as long as one
 or two instances are supported, with one writer by appointment, and an answer that waits for a standby as the

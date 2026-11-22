@@ -82,9 +82,10 @@ sudo install -m 0755 brigade-server_<version>_linux_amd64 /usr/local/bin/brigade
 sudo systemctl start brigade-server
 ```
 
-The data directory carries over. A release whose notes say that the log's format changed says there how to carry
-a directory across; until the log's own format is frozen, that can mean starting a new log from the newest
-snapshot.
+The data directory carries over: a new release opens it in place. Keep the earlier release's binary until the
+new one has started on the directory. No command carries a directory across a change of the log's format, and
+none is built until a change needs one: a release that could not open the directory of the release before it is
+held back until then, and you stay on the release you have.
 
 Going back to an earlier release is not always possible, and the release's notes say when. From 0.8.0: a server
 before 0.8.0 does not start on a data directory on which a team's owner has recorded that the team moved away

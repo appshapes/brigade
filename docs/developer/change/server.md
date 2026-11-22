@@ -413,7 +413,16 @@ from deletion and from being moved, as the plugin's are.
 ## Cavalry
 
 - The pin is one commit, named twice in `crates/brigade-log/Cargo.toml` (`cavalry` and `cavalry-log`). Nothing in
-  Cavalry is frozen before its 0.1.0: a new pin may need the feed started again from a snapshot.
+  Cavalry is frozen before its 0.1.0.
+- A new pin has to open, in place, the directory the pin before it wrote. Cavalry's own gate
+  (`conformance/upgrade/log-directory.sh`, Cavalry's work item 362) has one older tree write a directory and
+  holds that Cavalry's `master` opens it; on 2026-11-22 that older tree is this pin, `620a2e29`. Before a move
+  of the pin, check that the tree Cavalry's gate writes from is the pin being left: it covers no other.
+  Brigade's gate has no such test yet (work item 387).
+- A pin that cannot open the directory is not moved to, no release is made on it, and operators stay on the
+  release they have. No command starts a log again from a snapshot, and none is built until a change of the
+  format needs one (ADR 0016, the owner's ruling of 2026-11-22; the pages and the plan promised one until then,
+  and a start has only ever read the log from a snapshot's position).
 - `Shape` in `crates/brigade-log/src/feed.rs` is the one switch between pins. At the current pin a publication
   with no receiver refuses every append and a channel names no term length, so the server subscribes to its own
   feed and a log is three terms of 16 MiB. Cavalry's cards 271 and 272 change both; the comment on `Shape` says

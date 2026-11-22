@@ -1,8 +1,10 @@
 //! Snapshots: the state, written whole with the position of the log it stands for.
 //!
 //! A start reads the newest snapshot and applies the log's records after its position, so the log is read
-//! from its beginning only once. The format is the server's own and names its version: a snapshot outlives a
-//! change of the log's format, and it is what a new instance will be started from.
+//! from its beginning only once. The format is the server's own and names its version. A snapshot is only ever
+//! read with the log after its position: nothing starts a log again from one. A server that meets a log of an
+//! earlier format opens it in place or is not released, and its operators stay on the release before it (work
+//! item 386, ADR 0016: this comment promised the start from a snapshot until then, and no command did it).
 //!
 //! A snapshot file is one header line, `{"format", "position", "sha256"}`, and then the state as JSON. It is
 //! written beside its final name and renamed into place, so a file with a snapshot's name is always whole.
