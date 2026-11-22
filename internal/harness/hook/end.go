@@ -48,7 +48,7 @@ func (r *run) sessionEnd() int {
 		r.log.Debug("session-end: no usable session map", log.Err(merr))
 		m = nil
 	}
-	if f.host == config.HostGrok && !r.grokMatches(m, in) {
+	if f.host.BindsReceiver() && !r.grokMatches(m, in) {
 		return 0
 	}
 	// The state entry's end (card 162), before the map goes: the last
@@ -80,8 +80,8 @@ func (r *run) sessionEnd() int {
 	if f.pointed() {
 		if m != nil {
 			owned := true
-			if f.host == config.HostGrok {
-				p, err := store.ReadByHost("grok", m.ClaudeSessionID)
+			if f.host.BindsReceiver() {
+				p, err := store.ReadByHost(string(f.host), m.ClaudeSessionID)
 				owned = err == nil && p.HostPID == m.ClaudePID && p.BrigadeSessionID == m.BrigadeSessionID
 			}
 			if owned {
@@ -92,8 +92,8 @@ func (r *run) sessionEnd() int {
 		}
 		if in.SessionID != "" {
 			owned := true
-			if f.host == config.HostGrok {
-				key, err := store.ReadStartPointer("grok", in.SessionID)
+			if f.host.BindsReceiver() {
+				key, err := store.ReadStartPointer(string(f.host), in.SessionID)
 				owned = err == nil && key == f.pid
 			}
 			if owned {

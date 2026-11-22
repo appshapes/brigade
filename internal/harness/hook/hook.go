@@ -43,7 +43,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,7 +59,6 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/registry"
-	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
@@ -134,7 +132,7 @@ const (
 	// under 4 KiB).
 	maxStdinBytes = 1 << 20
 	// The `harness` member of a registration is the session's host
-	// (config.HostClaude or config.HostMuse, card 88): facts.host.
+	// (a config.Host, card 88): facts.host.
 	// museByteCap is the hook's stdout cap on Muse Code, in BYTES (card
 	// 88): Muse kills a hook's whole process tree over 16,384 bytes of
 	// stdout and parses nothing, so the cap stays well under it. Claude
@@ -416,8 +414,10 @@ func Run(args []string, streams cli.Streams, environ []string, deps Deps) int {
 	if a.sub == SubFollow {
 		return r.follow()
 	}
-	if a.host == config.HostGrok || config.HostOf(environ) == config.HostGrok {
-		return r.runGrok()
+	// A host whose hook protocol is its own runs the hook whole (the
+	// dialect, dialect.go); every other takes the shared path below.
+	if spoken := r.spokenHost(); spoken != "" {
+		return dialectOf(spoken).run(r)
 	}
 	switch a.sub {
 	case SubSessionStart:
@@ -491,8 +491,14 @@ func parseArgs(args []string) (hookArgs, string) {
 			}
 			a.level = value
 		case "--host":
-			if config.Host(value) != config.HostCodex && config.Host(value) != config.HostGrok {
-				return a, "--host names a host whose hooks carry no marker of their own; the recognized explicit hosts are codex and grok"
+			if !config.Host(value).NamedByHook() {
+				var named []string
+				for _, host := range config.Hosts() {
+					if host.NamedByHook() {
+						named = append(named, string(host))
+					}
+				}
+				return a, "--host names a host whose hooks carry no marker of their own; the recognized explicit hosts are " + strings.Join(named, " and ")
 			}
 			a.host = config.Host(value)
 		case "--plugin-root":
@@ -636,35 +642,21 @@ func newRun(streams cli.Streams, environ []string, deps Deps, a hookArgs) *run {
 		log:      log.New(streams.Err, lvl, redactor),
 		args:     a,
 	}
-	if config.HostOf(environ) == config.HostMuse {
-		r.byteCap = museByteCap
-	}
+	r.byteCap = dialectOf(config.HostOf(environ)).byteCap()
 	return r
 }
 
-// adoptHost gives a run whose host came from --host (Codex CLI, card 107)
-// the environment the config package keys on: the document's session_id
-// is the thread id the model's shell will carry as CODEX_THREAD_ID, so the
-// hook appends that very entry to its own environment once the document
-// is read, and from then on every config resolver — HostOf, Trusted, the
-// state and config directories, the options file — treats the run as the
-// Codex session it is. A document whose id is not a safe path component
-// is refused: nothing of this session could be keyed by it. Nothing
+// adoptHost gives a run whose host came from --host the environment the
+// config package keys on, as that host's dialect does it (Codex CLI's,
+// card 107, in dialect_codex.go: the document's session_id is the thread
+// id the model's shell will carry, so the hook appends that very entry to
+// its own environment once the document is read, and from then on every
+// config resolver — HostOf, Trusted, the state and config directories,
+// the options file — treats the run as the session it is). Nothing
 // happens for a host the environment already names, and CLAUDE_PID wins
-// in HostOf regardless, so a Codex flag can never relabel a Claude session.
+// in HostOf regardless, so a flag can never relabel a Claude session.
 func (r *run) adoptHost(in input) error {
-	if r.args.host != config.HostCodex {
-		return nil
-	}
-	if err := sessionmap.CheckNativeID(in.SessionID); err != nil {
-		return &protocol.Error{
-			Code:    protocol.CodeConfig,
-			Message: "the Codex hook document carries no usable thread id",
-			Details: map[string]string{"reason": config.ReasonInvalidNativeID, "variable": config.CodexThreadIDVar},
-		}
-	}
-	r.environ = append(slices.Clone(r.environ), config.CodexThreadIDVar+"="+in.SessionID)
-	return nil
+	return dialectOf(r.args.host).adopt(r, in)
 }
 
 // options resolves the plugin options for this host (cards 88, 107): on
@@ -696,8 +688,8 @@ const (
 // facts are the session facts every subcommand resolves from the
 // environment (6.5; cards 88 and 107 for the host).
 type facts struct {
-	// host is the session's harness (config.HostClaude, config.HostMuse or
-	// config.HostCodex).
+	// host is the session's harness, one of the host table's
+	// (config.Host).
 	host config.Host
 	// pid is what the session's state is keyed by: CLAUDE_PID on Claude
 	// Code, the hook's parent on Muse Code (the Muse process), and on Codex
@@ -726,33 +718,30 @@ type facts struct {
 func (r *run) facts() (facts, error) {
 	host := config.HostOf(r.environ)
 	var pid, hostProcess int
-	switch host {
-	case config.HostMuse, config.HostCodex, config.HostGrok:
+	if host.Pointed() {
 		nativeID, err := config.NativeID(host, r.environ)
 		if err != nil {
 			return facts{}, err
 		}
-		pid = r.deps.Getppid()
-		if pid <= 1 {
+		parent := r.deps.Getppid()
+		if parent <= 1 {
 			return facts{}, &protocol.Error{
 				Code:    protocol.CodeConfig,
 				Message: "the " + host.Name() + " hook has no usable parent process to key the session by",
 				Details: map[string]string{"reason": config.ReasonInvalidClaudePID},
 			}
 		}
-		if host == config.HostCodex {
-			// Measured on 0.163.0 with the hooks trusted: the parent is the
-			// shared app-server daemon, not the TUI, so the key is the
-			// thread's and the parent is kept for liveness only.
-			hostProcess, pid = pid, codexKey(nativeID)
-		}
-	case config.HostClaude, "":
-		// A terminal ("") gets ClaudePID's own not_in_session error.
+		// The key is the hook's parent, or what the host's dialect makes
+		// of its native id where the parent is not the session's own.
+		pid, hostProcess = dialectOf(host).key(nativeID, parent)
+	} else {
+		// Claude Code, whose marker is the key itself. A terminal ("")
+		// gets ClaudePID's own not_in_session error.
 		p, err := config.ClaudePID(r.environ)
 		if err != nil {
 			return facts{}, err
 		}
-		host, pid = config.HostClaude, p
+		pid = p
 	}
 	stateDir, err := config.BrigadeStateDir(r.environ)
 	if err != nil {
@@ -792,7 +781,7 @@ func (r *run) facts() (facts, error) {
 		f.pluginRoot = root
 		f.pluginBin = pluginBin(root)
 	}
-	if host == config.HostGrok {
+	if host.BindsReceiver() {
 		if _, err := r.grokProcess(); err != nil {
 			return facts{}, err
 		}
@@ -810,12 +799,6 @@ func codexKey(thread string) int {
 	_, _ = h.Write([]byte(thread))
 	return 1<<30 | int(h.Sum32()&(1<<29-1))
 }
-
-// muse reports whether the session runs in Muse Code (card 88).
-func (f facts) muse() bool { return f.host == config.HostMuse }
-
-// codex reports whether the session runs in Codex CLI (card 107).
-func (f facts) codex() bool { return f.host == config.HostCodex }
 
 // pointed reports whether the session runs in a host found through the
 // by-host pointer (Muse Code, Codex CLI, Grok Build): keyed by the hook's
@@ -855,8 +838,8 @@ func (r *run) readInput() (input, error) {
 	if err := json.Unmarshal(data, &in); err != nil {
 		return input{}, errors.New("hook stdin is not a valid JSON document")
 	}
-	if r.isGrok() {
-		if err := r.decodeGrok(data, &in); err != nil {
+	if spoken := r.spokenHost(); spoken != "" {
+		if err := dialectOf(spoken).decode(r, data, &in); err != nil {
 			return input{}, err
 		}
 	}
@@ -1423,21 +1406,14 @@ type identity struct {
 }
 
 // identity resolves the display name (registry → session_title →
-// basename(cwd); Grok, its summary title, otherwise "grok"), Grok's model
-// (summary current_model_id, otherwise empty), the activity (registry
-// status → idle), the harness version (registry version → unknown) and
-// the entrypoint (environment → registry; `kind` is ignored).
+// basename(cwd)), the activity (registry status → idle), the harness
+// version (registry version → unknown) and the entrypoint (environment →
+// registry; `kind` is ignored). A host whose dialect has an answer of its
+// own gives that instead: Grok Build's name and model are its summary's
+// (grok.go).
 func (r *run) identity(f facts, in input) identity {
-	if f.host == config.HostGrok {
-		// The title is local metadata, not the hook document. SessionStart
-		// blanks session_title. With no title yet the roster keeps "grok"
-		// until a later heartbeat sees one.
-		name := "grok"
-		title, model := r.grokFacts(in)
-		if title != "" {
-			name = title
-		}
-		return identity{name: name, activity: protocol.ActivityIdle, harnessVersion: unknownVersion, model: model}
+	if id, ok := dialectOf(f.host).identity(r, f, in); ok {
+		return id
 	}
 	entry := r.registryEntry(f)
 	id := identity{

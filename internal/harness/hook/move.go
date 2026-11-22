@@ -876,11 +876,12 @@ func (r *run) sayMoved(ctx context.Context, f facts, in input, m *sessionmap.ByP
 		}
 	}
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
-	switch {
-	case f.muse():
+	switch f.host.Delivery() {
+	case config.DeliverFollowedSink:
 		r.say(armLine(r.commandName(f)))
-	case f.codex():
+	case config.DeliverQueue:
 		r.say(codexLine(r.commandName(f)))
+	case config.DeliverSocket, config.DeliverPagedSink:
 	}
 	// What the hook that moved the session left undone when it was stopped:
 	// what the conversation was told of the move is over, no retry is owed,

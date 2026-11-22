@@ -133,8 +133,8 @@ linters:
       - path: ^internal/syncthing/engine\.go$
         linters: [forbidigo]
         text: "exec.Command"
-      # A host is named in the host table and nowhere else (work item 380, ADR 0019). Three kinds of file are
-      # not bound, and each is here by name: a file that is not on this list fails the lint when it names one.
+      # A host is named in the host table and nowhere else (work item 380, ADR 0019). Two kinds of file are not
+      # bound, and each is here by name: a file that is not on this list fails the lint when it names one.
       #   1. The table itself, and the tests, which say which host they are about.
       - path: ^internal/harness/config/host\.go$|_test\.go$
         linters: [forbidigo]
@@ -144,17 +144,10 @@ linters:
       - path: ^internal/harness/frame/frame\.go$
         linters: [forbidigo]
         text: "a host is named"
-      #   3. What is more than a value or a yes or a no, and waits for work item 381, which gives it a place
-      #      of its own. Until then each file below decides by host, and no other does:
-      #        (How a message reaches the model, delivery, left this list with the second part of work item 381:
-      #        one implementation a kind of delivery in the watcher, the kind the table's, and the hook and the
-      #        commands ask the table for the kind.)
-      #        (A session's name, model and context size from the host's own history, the local facts, left
-      #        this list with the first part of work item 381: one reader a kind of history, the kind the table's.)
-      #      - what a hook reads and prints, and how its session is keyed and claimed (the hook's dialect).
-      - path: ^internal/harness/hook/(hook|start|end|prompt|grok|grok_lock)\.go$
-        linters: [forbidigo]
-        text: "a host is named"
+      # There was a third kind until work item 381 (ADR 0020): sixteen files of the watcher, the hook and the
+      # commands that decided what is more than a value. Delivery, local facts and the hook's dialect are each
+      # an interface now, with an implementation a kind and the kind the table's, and none of those files
+      # names a host. A file added to this list wants a reason as good as the two above.
       - path: ^internal/syncthing/engine\.go$
         linters: [gosec]
         text: "G204"           # the syncthing path comes from exec.LookPath; argv is fixed apart from the home and port

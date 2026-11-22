@@ -73,6 +73,32 @@ const (
 	DeliverPagedSink DeliveryKind = "paged-sink"
 )
 
+// A DialectKind names what a host's hook is handed and may print, and how
+// its session is keyed: the hook's dialect. The hook has one
+// implementation a kind (internal/harness/hook); the table says which a
+// host has (work item 381).
+type DialectKind string
+
+// The kinds of dialect.
+const (
+	// DialectPlugin: a plugin's hook as Claude Code runs it. The host is
+	// told by its marker in the environment, the document is the shared
+	// one, and what the hook prints is lines of text. Also what a host
+	// the table does not hold is given.
+	DialectPlugin DialectKind = ""
+	// DialectMonitor: the same documents, and a cap in bytes on what the
+	// hook prints, for a host whose model reads the hook's lines through
+	// a monitor.
+	DialectMonitor DialectKind = "monitor"
+	// DialectThread: the hook carries no marker of its own, so its argv
+	// names the host, the document's id is adopted as the marker, and the
+	// session is keyed by that id and not by the hook's parent.
+	DialectThread DialectKind = "thread"
+	// DialectNative: the host's own protocol, JSON in and JSON out, which
+	// the hook speaks whole.
+	DialectNative DialectKind = "native"
+)
+
 // hostRow is what the table holds for one host. Every yes or no is worded
 // so that no is what a host the table does not know gets: a column added
 // for one host changes nothing for the others.
@@ -122,6 +148,11 @@ type hostRow struct {
 	history HistoryKind
 	// delivery is how a message reaches the host's model.
 	delivery DeliveryKind
+	// dialect is what the host's hook is handed and may print.
+	dialect DialectKind
+	// hookNamed: the host's hooks name it on their argv (`--host`),
+	// because they carry no marker the environment could be told by.
+	hookNamed bool
 	// rename: the host can be told a session's name from inside it.
 	rename bool
 	// stop: the host runs a Stop hook, so the prompt hook need not carry
@@ -163,6 +194,7 @@ var hosts = []struct {
 		historyDir:    []string{".local", "share", "muse"},
 		history:       HistoryDatedStore,
 		delivery:      DeliverFollowedSink,
+		dialect:       DialectMonitor,
 	}},
 	{HostCodex, hostRow{
 		name:           "Codex CLI",
@@ -176,6 +208,8 @@ var hosts = []struct {
 		historyDir:     []string{".codex"},
 		history:        HistoryRollouts,
 		delivery:       DeliverQueue,
+		dialect:        DialectThread,
+		hookNamed:      true,
 	}},
 	{HostGrok, hostRow{
 		name:            "Grok Build",
@@ -193,6 +227,8 @@ var hosts = []struct {
 		historyDir:      []string{".grok"},
 		history:         HistorySummaries,
 		delivery:        DeliverPagedSink,
+		dialect:         DialectNative,
+		hookNamed:       true,
 		stop:            true,
 		promptDiscarded: true,
 		staysOnMove:     true,
@@ -290,6 +326,20 @@ func (h Host) HistoryRoot(environ []string) string {
 	}
 	return filepath.Join(append([]string{home}, r.historyDir...)...)
 }
+
+// Dialect is what the host's hook is handed and may print: DialectPlugin
+// for Claude Code, and for a host the table does not hold.
+func (h Host) Dialect() DialectKind { return h.row().dialect }
+
+// NamedByHook reports whether the host's hooks name it on their argv
+// (`brigade hook <event> --host <name>`): Codex CLI and Grok Build, whose
+// hooks are given no marker of their own.
+func (h Host) NamedByHook() bool { return h.row().hookNamed }
+
+// BindsReceiver reports whether a session of the host has a receiver its
+// map must bind: one incarnation of one process, which the hook claims at
+// a start, holds a prompt and an end to, and retires. Grok Build.
+func (h Host) BindsReceiver() bool { return h.row().receiver }
 
 // Delivery is how a message reaches the host's model: DeliverSocket for
 // Claude Code, and for a host the table does not hold.

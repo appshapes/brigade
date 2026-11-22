@@ -69,7 +69,7 @@ func (r *run) prompt() int {
 		r.log.Warn("prompt: the session map cannot be trusted; nothing done", log.Err(err))
 		return 0
 	}
-	if f.host == config.HostGrok && !r.grokMatches(m, in) {
+	if f.host.BindsReceiver() && !r.grokMatches(m, in) {
 		return 0
 	}
 	// A pending name (card 174) is taken before anything prints: the title
@@ -163,8 +163,7 @@ func (r *run) currentName(f facts, in input, applied string) string {
 	if applied != "" {
 		return registeredName(applied)
 	}
-	if f.host == config.HostGrok {
-		title, _ := r.grokFacts(in)
+	if title, ok := dialectOf(f.host).title(r, in); ok {
 		return title
 	}
 	return titleOf(r.registryEntry(f), in)

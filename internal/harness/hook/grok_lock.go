@@ -17,7 +17,7 @@ import (
 // simultaneous claims of one UUID by different TUIs. Neither lock is per-hook.
 // Descriptors release on process death; stable sidecars are never unlinked.
 func (r *run) lockGrokHook() (func(), error) {
-	id, err := config.NativeID(config.HostGrok, r.environ)
+	id, err := config.NativeID(r.spokenHost(), r.environ)
 	if err != nil || !grokUUID(id) {
 		return nil, errors.New("invalid Grok hook identity")
 	}
