@@ -327,7 +327,8 @@ jobs:
                                           # half minute is the allowance for brigade-log's tests that kill a
                                           # process (work item 384), which `cargo test` runs before the Go
                                           # test: 7 s to 20 s on 18 cores, and 7 s of this step on run
-                                          # 45052780563. The tests that read what released servers left
+                                          # 45052780563; one of them waits for the recorder's own sync,
+                                          # which comes within a second (work item 387). The tests that read what released servers left
                                           # (work item 385) and start this build on the feed one left (work
                                           # item 387) run before it too, in under 3 s, inside the same
                                           # allowance. cargo's own tests have no timeout:

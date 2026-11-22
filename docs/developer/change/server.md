@@ -480,8 +480,9 @@ from deletion and from being moved, as the plugin's are.
 - The reader (`play` in `feed.rs`) takes a replay as read to its end when the last frame it was handed ends
   there, or when the replay's image has stood there in any pass of its loop. It keeps the image's position
   across the passes because the driver withdraws the image once it is read to the end of stream, and `replay
-  stopped` can reach the client after that. A recording that ends in a term's padding, as a feed leaves it that
-  is stopped or loses its client in the moment after an offer met a term's end, has no frame at its end, so
+  stopped` can reach the client after that. A recording ends in a term's padding when the feed is stopped or
+  loses its client in the moment after an offer met a term's end, or is killed there once the recorder's own
+  sync, a second after the last one, has covered the padding. Such a recording has no frame at its end, so
   only the image says that the end
   was read (work item 375: a reader that looked for both in one pass failed 9 of 12 starts on such a
   recording). A test in `feed.rs` writes such a recording and reads it back twice: with the replay's end
@@ -498,8 +499,13 @@ from deletion and from being moved, as the plugin's are.
   the one before it, which lies in the middle of a recording; at four moments of a roll; and right after a
   term's padding. Under the pin of 0.9.0 that last kill left a recording that ended in padding, which was work
   item 375 from a real kill. The driver of the current pin cuts a recording that a crash left live to the
-  last position a sync covered (Cavalry's ADR 0144), so the feed ends at the last record answered, and the
-  test holds that. A reader that drops a frame, one that ends a record with its poll and one that stops at a
+  last position a sync covered (Cavalry's ADR 0144), and its recorder syncs by itself one second after a
+  recording's last sync. So a kill before that sync leaves the feed ending at the last record answered, and
+  a kill after it at the term's end, which is work item 375 from a real kill again. The test kills twice. The
+  first kill comes as soon as the padding is written and is held to neither end, because the second runs from
+  the last append's sync. The second comes once the process has seen a sync cover the padding and is held to
+  the term's end. Both hold the same records and the catalog's stop where the read ended.
+  A reader that drops a frame, one that ends a record with its poll and one that stops at a
   term's end each turn them red. They take their sizes from `SHAPE`: they ran at 16 MiB terms under the pin
   of 0.9.0 and run at 1 MiB now. Like the server's process tests they put the driver directory in the
   temporary directory, which needs the driver's room (the number is above) for each test running at a time.
