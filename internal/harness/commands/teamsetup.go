@@ -967,7 +967,7 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 					return writeLines(inv.Out, head+"; this session stays on team \""+nameLine(m.TeamName)+"\" until you start a new session or exit and resume this one")
 				case m.TeamKey == teamstore.Key(f.Adapter, f.URL, f.TeamRef):
 					return writeLines(inv.Out, head+"; this session is already attached to it")
-				case config.HostOf(inv.Environ) == config.HostGrok:
+				case config.HostOf(inv.Environ).StaysOnMove():
 					return writeLines(inv.Out, head+"; this session stays on the backend the team left until you start a new session or exit and resume this one")
 				case m.Checkout != "" && m.Checkout != canon:
 					return writeLines(inv.Out, head+"; this session was started in another checkout and stays where it is: a session moves with the checkout it was started in")

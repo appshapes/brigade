@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
 )
 
@@ -68,35 +67,10 @@ func (w *watcher) pointedFacts(id string) localHostFacts {
 	return r.refresh()
 }
 
+// hostHistoryRoot is where the host keeps its own record of its sessions:
+// the table's (config.Host.HistoryRoot).
 func hostHistoryRoot(host config.Host, environ []string) string {
-	switch host {
-	case config.HostGrok:
-		return grokHistoryRoot(environ)
-	case config.HostClaude:
-		return ""
-	case config.HostCodex:
-		if dir := adapterkit.Getenv(environ, "CODEX_HOME"); dir != "" {
-			if filepath.IsAbs(dir) {
-				return filepath.Clean(dir)
-			}
-			return ""
-		}
-		home := adapterkit.HomeDir(environ)
-		if home == "" {
-			return ""
-		}
-		return filepath.Join(home, ".codex")
-	case config.HostMuse:
-		// Muse clears XDG_* from plugin hooks. As with Brigade's own
-		// pointed-host directories, never trust an inherited XDG override.
-		home := adapterkit.HomeDir(environ)
-		if home == "" {
-			return ""
-		}
-		return filepath.Join(home, ".local", "share", "muse")
-	default:
-		return ""
-	}
+	return host.HistoryRoot(environ)
 }
 
 func (r *hostFactsReader) refresh() localHostFacts {

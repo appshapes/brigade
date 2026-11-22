@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 )
@@ -47,19 +46,7 @@ func GrokEncodedCwd(cwd string) string {
 }
 
 func grokHistoryRoot(environ []string) string {
-	if dir := adapterkit.Getenv(environ, "GROK_HOME"); dir != "" {
-		if filepath.IsAbs(dir) {
-			return filepath.Clean(dir)
-		}
-		// A relative override must not be joined onto HOME and read some
-		// other tree. The same rule as CODEX_HOME.
-		return ""
-	}
-	home := adapterkit.HomeDir(environ)
-	if home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".grok")
+	return config.HostGrok.HistoryRoot(environ)
 }
 
 func grokCwdOf(m *sessionmap.ByPID) string {

@@ -802,7 +802,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		SessionID:   m.BrigadeSessionID,
 		TeamName:    m.TeamName,
 		Wrap:        !pointed,
-		Host:        m.Harness,
+		Host:        config.Host(m.Harness).Frame(),
 		Clock:       inbound.ClockFunc(d.Clock),
 		Seen:        inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, m.BrigadeSessionID)},
 		Pending: inbound.FilePendingStore{

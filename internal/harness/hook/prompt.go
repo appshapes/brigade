@@ -583,7 +583,7 @@ func (r *run) printNotice(f facts) {
 // only the printed ones are acknowledged, and the rest stay stamped in the
 // pending file for the next prompt.
 func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
-	if f.host == config.HostGrok {
+	if f.host.DiscardsPromptOutput() {
 		return
 	} // Native prompt hook stdout is discarded, never injection.
 	opts, err := r.options()

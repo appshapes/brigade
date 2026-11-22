@@ -19,14 +19,31 @@ fifteen skills worded for the harness, a `README.md`, and `bin/` copies of `plug
 
 ## The code
 
-- `internal/harness/config/environ.go`: the host marker (`HostOf`), the native session id, what the trusted
-  environment strips.
-- `internal/harness/hook`: what the session-start, prompt and session-end hooks print and cap for the host; the
-  options source when the harness runs no plugin settings.
-- `internal/harness/frame`: the frame variant, pinned by a golden file; one sentence may differ per host.
-- `internal/harness/watch`: the detached watcher (`brigade watch`): delivery (socket, sink file, `codex queue`) and what the
-  watcher owns when the hooks cannot.
-- `internal/harness/sessionmap`: the by-host pointer from the native id to the by-pid map.
+One binary serves every harness, and what differs between them is decided inside it. What is a value, or a yes or a
+no, is a column of one table, and `make lint` refuses a host's name anywhere else
+([ADR 0019](../../decisions/0019-keep-what-differs-between-the-harnesses-in-one-host-table.md)).
+
+- **A row of the table**, `internal/harness/config/host.go`: the harness's name, the variable that marks a session
+  of it, whether its session is found by its native id, its options file, where its hook learns the package's
+  root, which wording a message is framed in, where it keeps its own history of a session, and a yes or a no for
+  each of: it can be renamed from inside, it runs a Stop hook, it shows what a prompt hook prints, a running
+  session follows its team's move, `whoami` names it. A fact that comes to differ for the new harness is a new
+  column, with a no for the others. `host_test.go` reads the whole table.
+- **Its wording**, `internal/harness/frame`: the frame variant, pinned by a golden file; one sentence may differ
+  per host.
+- **What a table cannot hold**, in the files the lint rule lists by name in `.golangci.yml`, and in those alone,
+  until work item 381 gives each a place of its own:
+  - the hook's dialect, in six files of `internal/harness/hook`: what the session-start, prompt and session-end
+    hooks read and print for the host, and how its session is keyed and claimed;
+  - delivery (socket, sink file, `codex queue`, a monitor): four files of `internal/harness/watch`, the detached
+    watcher (`brigade watch`), with the hook's spawn of it, the two `inbox` commands and the monitor line of
+    `whoami`;
+  - a session's name, model and context size from the host's own history: two files of `internal/harness/watch`.
+- **The by-host pointer**, `internal/harness/sessionmap`: from the native id to the by-pid map. It sits below
+  `config` and names no host constant; where it must tell a host, it compares the map's `harness` string.
+
+A change that needs a host's name in a file that is not on that list fails `make lint` with the rule's message:
+add the column, or, when it is more than a value, say why the file joins the list.
 
 ## The checks and the release
 

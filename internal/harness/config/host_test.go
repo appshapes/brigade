@@ -1,0 +1,193 @@
+package config_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/frame"
+)
+
+// TestTheHostTable reads the table through what the tree asks of it (work
+// item 380, ADR 0019): one row a host, one column a fact. A harness added
+// later adds a row here, and its name to the lint rule's pattern in
+// .golangci.yml, which spells the names out; a fact that comes to differ
+// adds a column. Nothing else in the tree names a host for either. The
+// plugin root and the history root have tests of their own below, and so
+// have the three columns only this package asks. The receiver column is
+// held where Grok Build's receiver is, in grok_test.go.
+func TestTheHostTable(t *testing.T) {
+	t.Parallel()
+	type row struct {
+		name, nativeIDVar, optionsFile, frame string
+		pointed, rename, stop                 bool
+		discardsPrompt, staysOnMove, inWhoami bool
+	}
+	for host, want := range map[config.Host]row{
+		config.HostClaude: {name: "Claude Code", rename: true, stop: true},
+		config.HostMuse: {name: "Muse Code", nativeIDVar: "MUSE_SESSION_ID", optionsFile: "muse-options.json", frame: frame.HostMuse,
+			pointed: true, inWhoami: true},
+		config.HostCodex: {name: "Codex CLI", nativeIDVar: "CODEX_THREAD_ID", optionsFile: "codex-options.json", frame: frame.HostCodex,
+			pointed: true, inWhoami: true},
+		config.HostGrok: {name: "Grok Build", nativeIDVar: "GROK_SESSION_ID", optionsFile: "grok-options.json", frame: frame.HostGrok,
+			pointed: true, stop: true, discardsPrompt: true, staysOnMove: true, inWhoami: true},
+	} {
+		got := row{
+			name: host.Name(), nativeIDVar: host.NativeIDVar(), optionsFile: config.OptionsFile(host), frame: host.Frame(),
+			pointed: host.Pointed(), rename: host.CanRename(), stop: host.HasStop(),
+			discardsPrompt: host.DiscardsPromptOutput(), staysOnMove: host.StaysOnMove(), inWhoami: host.NamedInWhoami(),
+		}
+		if got != want {
+			t.Errorf("%s:\n got %+v\nwant %+v", host, got, want)
+		}
+	}
+}
+
+// TestAHostTheTableDoesNotHoldGetsNo: every yes or no is worded so that a
+// host with no row gets what it got when each was a condition on a host's
+// name, and its name is its own word.
+func TestAHostTheTableDoesNotHoldGetsNo(t *testing.T) {
+	t.Parallel()
+	for _, host := range []config.Host{"", "copilot"} {
+		if host.Name() != string(host) || host.NativeIDVar() != "" || config.OptionsFile(host) != "" || host.Frame() != "" ||
+			host.Pointed() || host.CanRename() || host.HasStop() || host.DiscardsPromptOutput() || host.StaysOnMove() ||
+			host.PluginRoot([]string{"CLAUDE_PLUGIN_ROOT=/c", "MUSE_PLUGIN_ROOT=/m", "GROK_PLUGIN_ROOT=/g"}, "/flag") != "" ||
+			host.HistoryRoot([]string{"HOME=/home/x", "CODEX_HOME=/c", "GROK_HOME=/g"}) != "" {
+			t.Errorf("host %q is given a fact of some row", host)
+		}
+		// The one fact whose "no" is a line: a session of a host that is
+		// not Claude Code says which.
+		if !host.NamedInWhoami() {
+			t.Errorf("host %q is left out of whoami as Claude Code is", host)
+		}
+	}
+}
+
+// TestThePluginRootIsNamedAsEachHostNamesIt: a variable of the hook's
+// environment, or the hook's --plugin-root where the host passes one, the
+// argument first.
+func TestThePluginRootIsNamedAsEachHostNamesIt(t *testing.T) {
+	t.Parallel()
+	env := []string{"CLAUDE_PLUGIN_ROOT=/claude", "MUSE_PLUGIN_ROOT=/muse", "GROK_PLUGIN_ROOT=/grok"}
+	for _, tc := range []struct {
+		host       config.Host
+		flag, want string
+	}{
+		{config.HostClaude, "", "/claude"},
+		{config.HostClaude, "/flag", "/claude"},
+		{config.HostMuse, "", "/muse"},
+		{config.HostMuse, "/flag", "/muse"},
+		{config.HostCodex, "/flag", "/flag"},
+		{config.HostCodex, "", ""},
+		{config.HostGrok, "/flag", "/flag"},
+		{config.HostGrok, "", "/grok"},
+	} {
+		if got := tc.host.PluginRoot(env, tc.flag); got != tc.want {
+			t.Errorf("%s with --plugin-root %q: %q, want %q", tc.host, tc.flag, got, tc.want)
+		}
+	}
+}
+
+// TestTheHistoryRootIsTheHostsOwn: the host's variable when it is set and
+// absolute, never a relative one joined onto HOME, else its directory
+// under HOME; none for Claude Code, and none without a HOME.
+func TestTheHistoryRootIsTheHostsOwn(t *testing.T) {
+	t.Parallel()
+	home := filepath.FromSlash("/home/x")
+	abs := filepath.FromSlash("/elsewhere/store")
+	for _, tc := range []struct {
+		name    string
+		host    config.Host
+		environ []string
+		want    string
+	}{
+		{"Claude Code keeps none Brigade reads", config.HostClaude, []string{"HOME=" + home}, ""},
+		{"Muse Code under HOME", config.HostMuse, []string{"HOME=" + home}, filepath.Join(home, ".local", "share", "muse")},
+		{"Muse Code never by XDG", config.HostMuse, []string{"HOME=" + home, "XDG_DATA_HOME=" + abs}, filepath.Join(home, ".local", "share", "muse")},
+		{"Codex CLI under HOME", config.HostCodex, []string{"HOME=" + home}, filepath.Join(home, ".codex")},
+		{"Codex CLI by CODEX_HOME", config.HostCodex, []string{"HOME=" + home, "CODEX_HOME=" + abs}, abs},
+		{"Codex CLI, a relative CODEX_HOME", config.HostCodex, []string{"HOME=" + home, "CODEX_HOME=store"}, ""},
+		{"Grok Build under HOME", config.HostGrok, []string{"HOME=" + home}, filepath.Join(home, ".grok")},
+		{"Grok Build by GROK_HOME", config.HostGrok, []string{"HOME=" + home, "GROK_HOME=" + abs}, abs},
+		{"Grok Build, a relative GROK_HOME", config.HostGrok, []string{"HOME=" + home, "GROK_HOME=store"}, ""},
+		{"Grok Build is not asked CODEX_HOME", config.HostGrok, []string{"HOME=" + home, "CODEX_HOME=" + abs}, filepath.Join(home, ".grok")},
+		{"no HOME", config.HostCodex, nil, ""},
+	} {
+		if got := tc.host.HistoryRoot(tc.environ); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestTheColumnsOnlyThisPackageAsks: directories from HOME alone (Trusted
+// drops XDG_* in a pointed host's session and keeps it in Claude Code's),
+// another host's marker refused and not resolved (Grok Build), and
+// inherited plugin options that are no defaults (Grok Build).
+func TestTheColumnsOnlyThisPackageAsks(t *testing.T) {
+	t.Parallel()
+	id := "0199c0de-0000-7000-8000-000000000042"
+	marker := map[config.Host]string{
+		config.HostClaude: "CLAUDE_PID=4242", config.HostMuse: "MUSE_SESSION_ID=" + id,
+		config.HostCodex: "CODEX_THREAD_ID=" + id, config.HostGrok: "GROK_SESSION_ID=" + id,
+	}
+	has := func(environ []string, entry string) bool {
+		for _, e := range environ {
+			if e == entry {
+				return true
+			}
+		}
+		return false
+	}
+	for _, tc := range []struct {
+		host                            config.Host
+		homeOnly, exclusive, ownOptions bool
+	}{
+		{config.HostClaude, false, false, false},
+		{config.HostMuse, true, false, false},
+		{config.HostCodex, true, false, false},
+		{config.HostGrok, true, true, true},
+	} {
+		environ := []string{marker[tc.host], "HOME=/home/x", "XDG_STATE_HOME=/elsewhere", "BRIGADE_PROFILE=other"}
+		trusted := config.Trusted(environ)
+		if has(trusted, "BRIGADE_PROFILE=other") {
+			t.Errorf("%s: an inherited BRIGADE_* is trusted in a session", tc.host)
+		}
+		if got := !has(trusted, "XDG_STATE_HOME=/elsewhere"); got != tc.homeOnly {
+			t.Errorf("%s: XDG_* dropped %v, want %v", tc.host, got, tc.homeOnly)
+		}
+		if tc.host.Pointed() {
+			// Another host's marker beside this one's own. Claude Code's
+			// would make it a Claude Code session, so a pointed host's is used.
+			other := marker[config.HostMuse]
+			if tc.host == config.HostMuse {
+				other = marker[config.HostCodex]
+			}
+			_, err := config.NativeID(tc.host, []string{marker[tc.host], other})
+			if got := err != nil; got != tc.exclusive {
+				t.Errorf("%s: a competing marker refused %v (%v), want %v", tc.host, got, err, tc.exclusive)
+			}
+		}
+		inherited := "CLAUDE_PLUGIN_OPTION_LABEL=inherited"
+		missing := func(string) ([]byte, error) { return nil, os.ErrNotExist }
+		out, _ := config.OptionsEnviron([]string{marker[tc.host], inherited}, "/nowhere/options.json", missing)
+		if got := !has(out, inherited); got != tc.ownOptions {
+			t.Errorf("%s: inherited plugin options dropped %v, want %v", tc.host, got, tc.ownOptions)
+		}
+	}
+}
+
+// TestHostOfAsksInTheTablesOrder: Claude Code first and Grok Build last,
+// whatever else the environment carries, and no host in a terminal.
+func TestHostOfAsksInTheTablesOrder(t *testing.T) {
+	t.Parallel()
+	all := []string{"GROK_SESSION_ID=g", "CODEX_THREAD_ID=c", "MUSE_SESSION_ID=m", "CLAUDE_PID=4242"}
+	for i, want := range []config.Host{config.HostGrok, config.HostCodex, config.HostMuse, config.HostClaude} {
+		if got := config.HostOf(all[:i+1]); got != want {
+			t.Errorf("with %v: %q, want %q", all[:i+1], got, want)
+		}
+	}
+	if got := config.HostOf([]string{"HOME=/home/x", "CLAUDE_PLUGIN_ROOT=/p"}); got != "" {
+		t.Errorf("a terminal is taken for %q", got)
+	}
+}

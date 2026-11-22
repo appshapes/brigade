@@ -164,7 +164,7 @@ func Whoami(inv Invocation) error {
 	if repo := workspaceLine(m.WorkspaceLabel); repo != "" {
 		out = append(out, "repo: "+repo)
 	}
-	if m.Harness != "" && m.Harness != string(config.HostClaude) {
+	if host := config.Host(m.Harness); host != "" && host.NamedInWhoami() {
 		// Card 88: a session of another host says so; a Claude Code
 		// session's line stays as it was.
 		out = append(out, "host: "+attrLine(m.Harness))

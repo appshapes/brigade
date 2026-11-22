@@ -26,6 +26,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0016. Strike the promise of a new log started from a snapshot](0016-strike-the-promise-of-a-new-log-started-from-a-snapshot.md)
 - [0017. Do nothing when brigade runs with no arguments in a hook's place](0017-do-nothing-when-brigade-runs-with-no-arguments-in-a-hooks-place.md)
 - [0018. Say in the webhook gateway's 202 why an accepted message waits](0018-say-in-the-webhook-gateways-202-why-an-accepted-message-waits.md)
+- [0019. Keep what differs between the harnesses in one host table](0019-keep-what-differs-between-the-harnesses-in-one-host-table.md)
 
 ## Record a decision
 

@@ -22,7 +22,7 @@ import (
 // sessionTitle field), and the name is not already the title. A missing
 // file is the common path and costs one stat.
 func (r *run) takeRename(f facts, in input) string {
-	if f.host != config.HostClaude {
+	if !f.host.CanRename() {
 		return ""
 	}
 	path := config.RenameStamp(f.stateDir, f.pid)
