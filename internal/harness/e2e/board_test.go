@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +58,11 @@ type boardResult struct {
 		From  int    `json:"from"`
 		To    int    `json:"to"`
 	} `json:"renumbered"`
+	Formerly []struct {
+		Title  string `json:"title"`
+		Number int    `json:"number"`
+		Had    int    `json:"had"`
+	} `json:"formerly"`
 }
 
 // TestABoardSpansTheTeamsRepositories is card 263 with the real binaries:
@@ -332,6 +338,20 @@ func (r *rig) aBoardSpansTheTeamsRepositories(syncthing string, b syncBackend) {
 		})
 		if last := item.History[len(item.History)-1].What; last != "renumbered from 2 to 3" {
 			t.Errorf("%s: work item 3's history ends %q", name, last)
+		}
+	}
+	// The number both took names one of the two now. The session that
+	// added the other still calls it 2, and only the call that repaired
+	// printed `renumbered:`; so a verb that names 2 says, on both
+	// machines, that another work item had the number too (work item 391).
+	for name, s := range map[string]session{"alice": alice, "bob": bob} {
+		two, three := board(s, "", "show", "2"), board(s, "", "show", "3")
+		if len(two.Formerly) != 1 || two.Formerly[0].Had != 2 || two.Formerly[0].Number != 3 || two.Formerly[0].Title != three.Item.Title || len(three.Formerly) != 0 {
+			t.Errorf("%s: show 2 names %+v as having had the number too, and show 3 %+v", name, two.Formerly, three.Formerly)
+		}
+		want := "was 2: " + strconv.Quote(three.Item.Title) + " had the number 2 too, and is 3 now; 2 is " + strconv.Quote(two.Item.Title) + "\n"
+		if got := r.mustRun(b.env(s), "", "work-item", "show", "2").stdout; !strings.HasPrefix(got, want) {
+			t.Errorf("%s: show 2 =\n%s\nwant it to begin\n%s", name, got, want)
 		}
 	}
 

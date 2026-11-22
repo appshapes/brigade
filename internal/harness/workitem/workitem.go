@@ -181,6 +181,11 @@ type Item struct {
 	// people and commits call it by.
 	ID     string `json:"id"`
 	Number int    `json:"number"`
+	// Former is the numbers the item carried before the one it has, oldest
+	// first: after two machines took one number, the item that was given
+	// another keeps the one it had here (work item 391). People, commits
+	// and plans that named it by that number name the other item now.
+	Former []int  `json:"former_numbers,omitzero"`
 	Title  string `json:"title"`
 	// Description is free text, line breaks kept.
 	Description string `json:"description,omitzero"`
@@ -583,6 +588,14 @@ func fold(id string, changes []*Change, lists []List) *Item {
 	if l, ok := byKey(lists, it.List); ok {
 		it.ListName = l.Name
 	}
+	// A number the item carries now, or carried twice, is told once.
+	former := it.Former[:0]
+	for _, n := range it.Former {
+		if n != it.Number && !slices.Contains(former, n) {
+			former = append(former, n)
+		}
+	}
+	it.Former = former
 	return it
 }
 
@@ -597,6 +610,7 @@ func (it *Item) apply(s *Fields, shown func(key string) string) []string {
 	if s.Number != nil && *s.Number != it.Number {
 		if it.Number != 0 {
 			what = append(what, "renumbered from "+strconv.Itoa(it.Number)+" to "+strconv.Itoa(*s.Number))
+			it.Former = append(it.Former, it.Number)
 		}
 		it.Number = *s.Number
 	}
@@ -672,12 +686,31 @@ func (b *Board) ByNumber(number int) []*Item {
 	return out
 }
 
+// Formerly is every work item that carried the number once and carries
+// another now, by the number it has: what Store.Repair leaves behind a
+// number two machines took at the same moment. The folder holds it, so
+// every machine reads the same, whichever of them repaired.
+func (b *Board) Formerly(number int) []*Item {
+	var out []*Item
+	for _, it := range b.Items {
+		if slices.Contains(it.Former, number) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
 // NextNumber is the number a new work item takes: the highest on the
-// board, closed items included, plus one.
+// board, closed items included, plus one. The highest a work item ever
+// had counts too, so a number that was one work item's is never a new
+// one's (Formerly would name the old one under it for good).
 func (b *Board) NextNumber() int {
 	highest := 0
 	for _, it := range b.Items {
 		highest = max(highest, it.Number)
+		for _, n := range it.Former {
+			highest = max(highest, n)
+		}
 	}
 	return highest + 1
 }

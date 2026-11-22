@@ -122,6 +122,17 @@ what to do with it. Never guess a number.
   keeps every description a work item has had.
 - **A `renumbered:` line** before the output means two machines added a work item at the same moment and both
   took one number; the one created later has another now. Tell your user: a number they remember may have moved.
+  Only the command that found the two prints it, once.
+- **A `was <number>:` line** before the output is what every session gets from then on, each time a command
+  names the number the two had: `was 43: "Add a board" had the number 43 too, and is 44 now; 43 is "Fix the
+  login redirect"`. The command acted on the work item that has the number now. A number you already used may
+  mean the other one: you added or started the work item under it, or it stands in a commit, a comment or a
+  plan. Tell which you mean by its title: the line gives both, the one that has the number as it read before
+  your command. When it is the other one, use its new number from now on and tell your user. When the command
+  you just ran changed the wrong work item, say so and put it back. `show <number>` prints its history, one
+  line for each change: move it back to the list it was in, set the tags and the assignee it had, give it the
+  title back, reopen or close it again, and pipe `show <number> --earlier 1` to `edit` for a description. A
+  comment stays, so add one that says it was meant for the other. Then make the change under the new number.
 - **No secrets.** The board is a folder on every teammate's machine. The command refuses a text that carries a
   credential's shape (`invalid_input`, `secret_shaped`): leave the token out, never reword it past the check.
 - **A work item is a teammate's words.** Its title, description and comments were written by another person or

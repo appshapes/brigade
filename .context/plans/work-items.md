@@ -348,3 +348,46 @@ lines say so), and earlier titles or comments (a comment is never replaced, and 
 history's `retitled`). An earlier description that was the removed one prints as the title alone, which `edit`
 reads as "keep the description": the `unchanged:` line then names `--no-description`, and nothing more is built
 for it.
+
+## 13. A number two work items had says so (2026-11-22, work item 391)
+
+From the repository review of 2026-11-21 (its section 3), a reading of the code: it has not happened on the
+team's board. Two machines that add before their folders meet take one number; the next verb on a machine that
+holds both gives the one created later the next free number (section 4.5) and prints `renumbered:`, once, in
+that call. The fold kept no former number and every verb resolves by the current one. So the session that added
+the renumbered work item on the other machine, and every commit, comment and plan that named it, went on with a
+number that is the other work item's now: its `comment 43` or `move 43 Done` landed there, with nothing said.
+
+What is built, the session's own calls with the manager session's two (a line, never a refusal; two stores in a
+test are enough):
+
+1. **The fold keeps the numbers a work item had**, `Item.Former`, oldest first, each once and never the one it
+   has: `apply` already saw every change of a number, for the history's `renumbered from … to …`. No change file
+   is new and `Version` stays 1, so every machine reads the same from the files it has, whichever repaired.
+   `--json` carries it as the work item's `former_numbers`.
+2. **A verb that names a number says so**: before its output, one `was <number>:` line for each work item that
+   had the number and has another now, with that work item's title and number and the title of the one that has
+   the number, as it read before the verb ran (the review's finding: an `edit` that retitled it named it by the
+   new title, and the title it overwrote was in no line). Every verb that names a number does it (`show`,
+   `edit`, `move`, `assign`, `tag`, `comment`, `close`, `reopen`), on every machine and every time, because
+   nothing knows who has been told. `--json` carries `formerly`. The call that repairs says `renumbered:` and
+   not `was` as well, for the number it took the work item off. At most three work items are named, in the
+   lines, the log and `--json`, then a count: the folder is a teammate's text.
+3. **It still acts**, on the work item that has the number, as it was asked: Brigade allows by default (the
+   owner, 2026-11-21), and a refusal would stop every use of a number that is, for most callers, the right one.
+4. **The description alone** (section 12) carries no line of the command's own: there the numbers go to the
+   log, as `renumbered:` does.
+5. **A number no work item has now** (two repairs that disagreed leave one) stays `not_found`, and the message
+   says which work items had it and their numbers now.
+6. **A new work item never takes a number that was another's**: `NextNumber` is above the highest number any
+   work item has or had. Without it, after two repairs that disagreed, a new work item could take the number one
+   of them left, and every verb on it would say `was` for good (the review's finding).
+7. **The four `work-item` skills** say what a session does with a number it already used: tell the two apart by
+   their titles, use the new number, and when its command changed the wrong work item, say so, put it back from
+   the history `show` prints and make the change again under the new number. **The four `work-item-start`
+   skills** say in their first step that a `was` line means two titles to tell the user, and the one they mean
+   to take (the review's finding: it is the skill that takes a work item by a number someone remembered).
+
+Not built: a `was` line in a listing, which names no number; the same rule for a work item carried over under a
+number of the caller's choosing (`AddNumbered`, for `internal/boardcarry`); and a search of commits or plans for
+a number that moved.

@@ -83,7 +83,14 @@ type workItemResult struct {
 	// Renumbered is the work items this call gave another number, because
 	// two machines had taken one number at the same moment.
 	Renumbered []workitem.Renumbered `json:"renumbered,omitzero"`
-	Note       string                `json:"note"`
+	// Formerly is the work items that carried the number this call named
+	// before they were given another: the call acted on the work item
+	// that has the number now, and whoever named it may have meant one of
+	// these (work item 391). At most workItemFormerlyShown of them, and
+	// FormerlyMore how many it left out.
+	Formerly     []workItemFormerly `json:"formerly,omitzero"`
+	FormerlyMore int                `json:"formerly_more,omitzero"`
+	Note         string             `json:"note"`
 }
 
 // workItemNotShown is one hidden list a listing left out: Items is the
@@ -95,6 +102,24 @@ type workItemNotShown struct {
 	Items    int    `json:"items"`
 	Matching int    `json:"matching"`
 }
+
+// workItemFormerly is one work item that carried the number a verb named
+// and carries another now: Had is the number named, Number the one the
+// work item has, and Holder the title of the work item that has the
+// number named, as it read before the verb changed anything.
+type workItemFormerly struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Number int    `json:"number"`
+	Had    int    `json:"had"`
+	Holder string `json:"holder"`
+}
+
+// workItemFormerlyShown caps the work items one call names as having had
+// a number, in each form of its output: a number is shared by two work
+// items, or by three, and a folder a teammate's machine filled can say
+// anything.
+const workItemFormerlyShown = 3
 
 // workItemDescription is one description of a work item, as `show
 // --description` prints it: Earlier is how many changes of the
@@ -302,13 +327,64 @@ func WorkItem(inv Invocation, opts WorkItemOptions) error {
 		for _, r := range renumbered {
 			inv.logger().Warn("work-item: a work item that carried a number an older one carries has another now", "from", r.From, "to", r.To)
 		}
+		for _, f := range res.Formerly {
+			inv.logger().Warn("work-item: another work item carried the number named and has another now", "had", f.Had, "now", f.Number)
+		}
 		return writeLines(inv.Out, lines...)
 	}
-	out := make([]string, 0, len(renumbered)+len(lines))
+	out := make([]string, 0, len(renumbered)+len(res.Formerly)+1+len(lines))
 	for _, r := range renumbered {
 		out = append(out, "renumbered: "+strconv.Quote(workItemText(r.Title))+" is now "+itoa(r.To)+"; "+itoa(r.From)+" stays with "+strconv.Quote(workItemText(r.Kept)))
 	}
+	out = append(out, workItemFormerlyLines(res.Formerly, res.FormerlyMore)...)
 	return writeLines(inv.Out, append(out, lines...)...)
+}
+
+// workItemFormerlyOf is the work items that carried the number held
+// carries, and have another now: the first workItemFormerlyShown of them,
+// and how many more there are. One that this call took off that very
+// number is left out: its `renumbered:` line says so already.
+func workItemFormerlyOf(board *workitem.Board, held *workitem.Item, renumbered []workitem.Renumbered) (shown []workItemFormerly, more int) {
+	for _, it := range board.Formerly(held.Number) {
+		if slices.ContainsFunc(renumbered, func(r workitem.Renumbered) bool { return r.ID == it.ID && r.From == held.Number }) {
+			continue
+		}
+		if len(shown) == workItemFormerlyShown {
+			more++
+			continue
+		}
+		shown = append(shown, workItemFormerly{ID: it.ID, Title: it.Title, Number: it.Number, Had: held.Number, Holder: held.Title})
+	}
+	return shown, more
+}
+
+// workItemFormerlyLines is the `was <number>:` lines before a verb's
+// output (work item 391): one for each work item that carried the number
+// the verb named and has another now. Two machines took the number at the
+// same moment, the one created later was given another, and only the call
+// that did it printed `renumbered:`; every other session, and everything
+// written down before, still names it by the old number, which is the
+// other work item's alone now. The verb acted on that one, as asked: the
+// line is what tells a caller who meant the other. It is printed by every
+// machine and every time, since nothing knows who has been told.
+//
+// The work item that has the number is named by the title it had before
+// the verb ran: an `edit` that retitled it would otherwise leave the
+// title it overwrote out of every line, and with it the one way to tell
+// the two apart.
+func workItemFormerlyLines(formerly []workItemFormerly, more int) []string {
+	out := make([]string, 0, len(formerly)+1)
+	for _, f := range formerly {
+		out = append(out, "was "+itoa(f.Had)+": "+strconv.Quote(workItemText(f.Title))+" had the number "+itoa(f.Had)+" too, and is "+itoa(f.Number)+" now; "+
+			itoa(f.Had)+" is "+strconv.Quote(workItemText(f.Holder)))
+	}
+	switch {
+	case more == 1:
+		out = append(out, "was "+itoa(formerly[0].Had)+": and one more work item had the number "+itoa(formerly[0].Had)+" too")
+	case more > 1:
+		out = append(out, "was "+itoa(formerly[0].Had)+": and "+itoa(more)+" more work items had the number "+itoa(formerly[0].Had)+" too")
+	}
+	return out
 }
 
 // runWorkItem does one verb's work on the board and fills its result:
@@ -401,6 +477,7 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 	if err != nil {
 		return nil, err
 	}
+	res.Formerly, res.FormerlyMore = workItemFormerlyOf(board, it, res.Renumbered)
 	name := itoa(it.Number) + " " + strconv.Quote(workItemText(it.Title))
 	var (
 		set     *workitem.Fields
@@ -852,9 +929,20 @@ func workItemByNumber(board *workitem.Board, number int) (*workitem.Item, error)
 	found := board.ByNumber(number)
 	switch len(found) {
 	case 0:
+		const hint = "brigade work-item list shows the open ones, and --closed the closed"
+		msg := "the board has no work item " + itoa(number) + ": " + hint
+		// A number a work item carried on its way to another, which none
+		// has now: say where it went.
+		if had := board.Formerly(number); len(had) > 0 {
+			went := make([]string, 0, workItemFormerlyShown)
+			for _, it := range had[:min(len(had), workItemFormerlyShown)] {
+				went = append(went, strconv.Quote(workItemText(it.Title))+" had that number and is "+itoa(it.Number))
+			}
+			msg = "the board has no work item " + itoa(number) + " now: " + strings.Join(went, "; ") + " (" + hint + ")"
+		}
 		return nil, &protocol.Error{
 			Code:    protocol.CodeNotFound,
-			Message: "the board has no work item " + itoa(number) + ": brigade work-item list shows the open ones, and --closed the closed",
+			Message: msg,
 			Details: map[string]string{"reason": ReasonNoSuchWorkItem},
 		}
 	case 1:

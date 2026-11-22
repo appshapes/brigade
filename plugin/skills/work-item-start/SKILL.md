@@ -27,7 +27,9 @@ through to the list for finished work, and go back to your user only where their
 
 1. **Read it.** Run `brigade work-item show <number>`. A refusal is final: print it and stop. A closed work
    item, or one assigned to another member, is not yours to take without a word: say what you found and ask
-   your user whether to go on.
+   your user whether to go on. A `was <number>:` line before it means another work item had that number too
+   and has another now (the `brigade:work-item` rules say more): tell your user the two titles and numbers, and
+   take the one they mean, which may be the other.
 2. **Take it.** Run `brigade work-item assign <number> --mine`, then move it to the board's list for work in
    progress with `brigade work-item move <number> <list>`. `brigade work-item lists` prints the board's lists
    in order, each one's key and its name: `doing` on a board with the lists it started with; on a team's own
