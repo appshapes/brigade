@@ -147,7 +147,8 @@ model (Bash tool)        brigade send (session-bound CLI)                adapter
   |                    | map := ${BRIGADE_STATE_DIR}/sessions/by-pid/<CLAUDE_PID>.json (0600, own uid) else exit 11 config
   |                    |   (details.reason = "not_registered": the hook failed or the plugin was enabled mid-session)
   |                    | sender_session_id := map.brigade_session_id; profile, config_dir, adapter_command from the map
-  |                    | idempotency_key := base64url(sha256(sender\0recipient\0body\0minute))
+  |                    | idempotency_key := base64url(sha256(sender\0recipient\0reply_to\0summary\0body\0minute))
+  |                    |   (D11; reply_to and summary since ADR 0013)
   |                    | spawn adapter [message send --profile p] stdin {sender_session_id, recipient_session_id,
   |                    |   body, summary, reply_to, idempotency_key}; 20 s timeout; argv only; allow-listed env (3.2)
   |                    |---------------------------------------------->| credentials (flock; in memory only if the config dir

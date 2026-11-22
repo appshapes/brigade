@@ -55,6 +55,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   that retitles a work item sends the title alone, and one that changes
   a description starts from `show --description`.
 
+### Fixed
+
+- **Two identical short replies inside a minute are both sent** (work
+  item 392, ADR 0013). A session that answered two messages of one
+  sender with the same words, a "Done." to each, inside one minute lost
+  the second answer. On a team on a Supabase project `brigade send`
+  printed `duplicate of an earlier send` and nothing was stored. On a
+  Brigade server it failed with `conflict`. The same happened to two
+  Slack threads answered through the gateway. The key that makes a
+  repeated send one message covered the sender, the recipient, the body
+  and the minute. It now covers the message a reply answers and the
+  summary too. The same reply to the same message inside a minute is
+  still one message. Nothing changes on a backend.
+
 ## [0.57.0] — 2026-11-15
 
 ### Added

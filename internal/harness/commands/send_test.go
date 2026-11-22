@@ -124,8 +124,9 @@ func TestSendHappyPath(t *testing.T) {
 		req.Summary != "migration" || req.ReplyTo != "m-0" {
 		t.Errorf("request = %+v", req)
 	}
-	if req.IdempotencyKey != IdempotencyKey(selfSessionID, recipientID, body, fixtureNow) {
-		t.Errorf("idempotency key = %q, want D11's derivation", req.IdempotencyKey)
+	want11 := &protocol.SendRequest{SenderSessionID: selfSessionID, RecipientSessionID: recipientID, Body: body, Summary: "migration", ReplyTo: "m-0"}
+	if req.IdempotencyKey != IdempotencyKey(want11, fixtureNow) {
+		t.Errorf("idempotency key = %q, want D11's derivation over the reply and the summary too", req.IdempotencyKey)
 	}
 	if err := req.Validate(); err != nil {
 		t.Errorf("the request does not validate: %v", err)
@@ -183,36 +184,108 @@ func TestSendBodyFile(t *testing.T) {
 }
 
 // TestIdempotencyKeyIsStableWithinAMinute is D11 with an injected clock:
-// the same inputs inside one minute give one key; the next minute, a
-// different sender, recipient or body each give another.
+// the same request inside one minute gives one key; the next minute, a
+// different sender, recipient or body each give another, and so do a
+// different message answered and a different summary (ADR 0013, work
+// item 392: the key left those two out, and the second of two identical
+// short replies of a minute was answered with the first).
 func TestIdempotencyKeyIsStableWithinAMinute(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
-	k := IdempotencyKey("s", "r", "b", base)
-	if got := IdempotencyKey("s", "r", "b", base.Add(59*time.Second)); got != k {
+	key := func(sender, recipient, replyTo, summary, body string, at time.Time) string {
+		return IdempotencyKey(&protocol.SendRequest{SenderSessionID: sender, RecipientSessionID: recipient, ReplyTo: replyTo, Summary: summary, Body: body}, at)
+	}
+	k := key("s", "r", "m", "u", "b", base)
+	if got := key("s", "r", "m", "u", "b", base.Add(59*time.Second)); got != k {
 		t.Errorf("key changed inside the minute: %q vs %q", got, k)
 	}
-	if got := IdempotencyKey("s", "r", "b", base.Add(60*time.Second)); got == k {
+	if got := key("s", "r", "m", "u", "b", base.Add(60*time.Second)); got == k {
 		t.Error("key did not change across the minute boundary")
 	}
 	for name, other := range map[string]string{
-		"sender":    IdempotencyKey("S", "r", "b", base),
-		"recipient": IdempotencyKey("s", "R", "b", base),
-		"body":      IdempotencyKey("s", "r", "B", base),
+		"sender":            key("S", "r", "m", "u", "b", base),
+		"recipient":         key("s", "R", "m", "u", "b", base),
+		"message answered":  key("s", "r", "M", "u", "b", base),
+		"no message at all": key("s", "r", "", "u", "b", base),
+		"summary":           key("s", "r", "m", "U", "b", base),
+		"no summary at all": key("s", "r", "m", "", "b", base),
+		"body":              key("s", "r", "m", "u", "B", base),
 	} {
 		if other == k {
 			t.Errorf("a different %s gave the same key", name)
 		}
 	}
-	// The separator is load-bearing: ("ab","c") and ("a","bc") differ.
-	if IdempotencyKey("ab", "c", "b", base) == IdempotencyKey("a", "bc", "b", base) {
-		t.Error("the NUL separator does not separate")
+	// The separator is load-bearing at every joint: moving a character
+	// across one gives another key.
+	for name, moved := range map[string]string{
+		"sender and recipient":     key("sr", "", "m", "u", "b", base),
+		"recipient and the answer": key("s", "rm", "", "u", "b", base),
+		"the answer and summary":   key("s", "r", "mu", "", "b", base),
+		"summary and body":         key("s", "r", "m", "", "ub", base),
+		"a NUL the body carries":   key("s", "r", "m", "", "u\x00b", base),
+	} {
+		if moved == k {
+			t.Errorf("the NUL separator does not separate %s", name)
+		}
+	}
+	// The request's own key is no part of it.
+	if got := IdempotencyKey(&protocol.SendRequest{SenderSessionID: "s", RecipientSessionID: "r", ReplyTo: "m", Summary: "u", Body: "b", IdempotencyKey: "another"}, base); got != k {
+		t.Error("the key a request already carries changed its key")
 	}
 	if len(k) != 43 || strings.ContainsAny(k, "+/=") {
 		t.Errorf("key %q is not unpadded base64url of a sha256", k)
 	}
 	if err := (&protocol.SendRequest{SenderSessionID: "s", RecipientSessionID: "r", Body: "b", IdempotencyKey: k}).Validate(); err != nil {
 		t.Errorf("the key does not validate as a request member: %v", err)
+	}
+}
+
+// TestSendKeysAReplyByTheMessageItAnswers (work item 392): one body sent
+// twice inside a minute in reply to two messages carries two keys, so a
+// backend stores both; the same body in reply to the same message
+// carries the first one's key again and stays one message; and a summary
+// is part of the key as the reply is.
+func TestSendKeysAReplyByTheMessageItAnswers(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.rec.on("session list", okAnswer(listResult()))
+	f.rec.on("message send", okAnswer(sendResultJSON("m-1", false)))
+	for _, opts := range []SendOptions{
+		{ReplyTo: "q-1"},
+		{ReplyTo: "q-2"},
+		{ReplyTo: "q-1"},
+		{},
+		{ReplyTo: "q-1", Summary: "the first one"},
+	} {
+		if err := Send(f.inv(f.sessionEnv(), "Done.", recipientID), opts); err != nil {
+			t.Fatalf("send %+v: %v", opts, err)
+		}
+	}
+	var keys []string
+	for _, spec := range f.rec.specsOf("message send") {
+		var req protocol.SendRequest
+		if err := json.Unmarshal(spec.Stdin, &req); err != nil {
+			t.Fatalf("send stdin: %v", err)
+		}
+		if req.Body != "Done." {
+			t.Fatalf("body = %q", req.Body)
+		}
+		keys = append(keys, req.IdempotencyKey)
+	}
+	if len(keys) != 5 {
+		t.Fatalf("%d sends reached the adapter, want 5", len(keys))
+	}
+	if keys[0] == keys[1] {
+		t.Error("one body in reply to two messages carries one key: a backend stores the first and answers the second with it")
+	}
+	if keys[2] != keys[0] {
+		t.Error("the same body in reply to the same message inside the minute carries another key: a retry would be a second message")
+	}
+	if keys[3] == keys[0] || keys[3] == keys[1] {
+		t.Error("the body sent in reply to nothing carries the key of a reply")
+	}
+	if keys[4] == keys[0] {
+		t.Error("a reply with a summary carries the key of the one without")
 	}
 }
 
@@ -444,7 +517,7 @@ func TestSendByShortID(t *testing.T) {
 			if req.RecipientSessionID != recipientID {
 				t.Errorf("recipient_session_id = %q, want the id in full", req.RecipientSessionID)
 			}
-			if req.IdempotencyKey != IdempotencyKey(selfSessionID, recipientID, "body", fixtureNow) {
+			if req.IdempotencyKey != IdempotencyKey(&protocol.SendRequest{SenderSessionID: selfSessionID, RecipientSessionID: recipientID, Body: "body"}, fixtureNow) {
 				t.Error("the idempotency key was not derived from the full id")
 			}
 			want := "accepted: message m-s to " + recipientID + ". " + AcceptedNote + "\n" +
@@ -865,7 +938,7 @@ func TestSendByMember(t *testing.T) {
 		if req.RecipientSessionID != patIdleNew {
 			t.Errorf("recipient_session_id = %q, want the idle session seen most recently", req.RecipientSessionID)
 		}
-		if req.IdempotencyKey != IdempotencyKey(selfSessionID, patIdleNew, "body", fixtureNow) {
+		if req.IdempotencyKey != IdempotencyKey(&protocol.SendRequest{SenderSessionID: selfSessionID, RecipientSessionID: patIdleNew, Body: "body"}, fixtureNow) {
 			t.Error("the idempotency key was not derived from the chosen id")
 		}
 		want := "accepted: message m-m to " + patIdleNew + ". " + AcceptedNote + "\n" +

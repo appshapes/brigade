@@ -144,10 +144,9 @@ func (w *watcher) releaseHold(ctx context.Context, store state.Store, id string,
 	sctx, cancel := context.WithTimeout(ctx, adapterclient.DefaultTimeout)
 	// The key is the hold's own time, so every attempt at this ask is one
 	// message however many ticks it takes.
-	resp, err := w.client.Send(sctx, &protocol.SendRequest{
-		SenderSessionID: w.sessionID, RecipientSessionID: route.SessionID, Body: body, Summary: summary,
-		IdempotencyKey: digest.IdempotencyKey(w.sessionID, route.SessionID, body, d.HeldUntil),
-	})
+	req := &protocol.SendRequest{SenderSessionID: w.sessionID, RecipientSessionID: route.SessionID, Body: body, Summary: summary}
+	req.IdempotencyKey = digest.IdempotencyKey(req, d.HeldUntil)
+	resp, err := w.client.Send(sctx, req)
 	cancel()
 	if err != nil {
 		if ctx.Err() == nil {

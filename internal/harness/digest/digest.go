@@ -768,18 +768,27 @@ func stateRank(state string) int {
 	return 2
 }
 
-// IdempotencyKey derives the key of one send: base64url, unpadded, of
-// sha256(sender NUL recipient NUL body NUL floor(unix seconds / 60)),
-// stable within a minute, so a retry inside the minute is one message.
-// `brigade send` (internal/harness/commands) derives its own from here.
-func IdempotencyKey(sender, recipient, body string, now time.Time) string {
+// IdempotencyKey derives the key of the send req makes at now, from
+// everything that makes the message the one it is: base64url, unpadded,
+// of sha256(sender NUL recipient NUL reply_to NUL summary NUL body NUL
+// floor(unix seconds / 60)). It is stable within a minute, so a retry
+// inside the minute is one message; and a message that differs from
+// another only in the message it answers, or in its summary, is a
+// message of its own (ADR 0013: the key left both out until work item
+// 392, so the second "Done." of a minute, sent in reply to another
+// message, carried the first one's key: a Supabase project answered it
+// as the first one's duplicate, and a Brigade server and the fs adapter
+// refused it as `conflict`). The body is the one part
+// that can carry a NUL, and it is the last before the minute, so no two
+// requests give one input. req's own key is not read. Every send of the
+// harness takes its key from here: `brigade send`, a decision's ask, the
+// digest and a held ask.
+func IdempotencyKey(req *protocol.SendRequest, now time.Time) string {
 	h := sha256.New()
-	h.Write([]byte(sender))
-	h.Write([]byte{0})
-	h.Write([]byte(recipient))
-	h.Write([]byte{0})
-	h.Write([]byte(body))
-	h.Write([]byte{0})
+	for _, part := range []string{req.SenderSessionID, req.RecipientSessionID, req.ReplyTo, req.Summary, req.Body} {
+		h.Write([]byte(part))
+		h.Write([]byte{0})
+	}
 	h.Write([]byte(strconv.FormatInt(now.Unix()/60, 10)))
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
@@ -807,10 +816,9 @@ func Deliver(ctx context.Context, client Sender, self string, s *state.Subscribe
 	if d.How != state.SentSession {
 		body = "to: " + d.To + "\n\n" + body
 	}
-	resp, err := client.Send(ctx, &protocol.SendRequest{
-		SenderSessionID: self, RecipientSessionID: d.SessionID, Body: body, Summary: summary,
-		IdempotencyKey: IdempotencyKey(self, d.SessionID, body, now),
-	})
+	req := &protocol.SendRequest{SenderSessionID: self, RecipientSessionID: d.SessionID, Body: body, Summary: summary}
+	req.IdempotencyKey = IdempotencyKey(req, now)
+	resp, err := client.Send(ctx, req)
 	if err != nil {
 		return Delivery{}, err
 	}

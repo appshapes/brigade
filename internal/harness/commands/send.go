@@ -279,8 +279,8 @@ func Send(inv Invocation, opts SendOptions) error {
 		Body:               body,
 		Summary:            opts.Summary,
 		ReplyTo:            opts.ReplyTo,
-		IdempotencyKey:     IdempotencyKey(self, recipient, body, inv.Deps.now()),
 	}
+	req.IdempotencyKey = IdempotencyKey(req, inv.Deps.now())
 
 	resp, err := call(func(ctx context.Context) (*protocol.SendResponse, error) { return t.client.Send(ctx, req) })
 	// One retry on `unavailable` (6.4), except when the first attempt was
@@ -752,13 +752,14 @@ func bodyError(reason string, actual int) *protocol.Error {
 	return &protocol.Error{Code: protocol.CodeInvalidInput, Message: msg, Details: details}
 }
 
-// IdempotencyKey derives D11's key: base64url, unpadded, of
-// sha256(sender + "\0" + recipient + "\0" + body + "\0" + floor(unix
-// seconds / 60)). Stable within a minute, different across minutes. The
-// derivation lives in internal/harness/digest, whose producer sends with
-// the same key (card 162).
-func IdempotencyKey(sender, recipient, body string, now time.Time) string {
-	return digest.IdempotencyKey(sender, recipient, body, now)
+// IdempotencyKey derives the key of the send req makes at now: D11's key
+// as ADR 0013 has it since work item 392, over the message it answers and
+// its summary as well as its sender, recipient and body. Stable within a
+// minute, different across minutes. The derivation lives in
+// internal/harness/digest, whose producer sends with the same key (card
+// 162).
+func IdempotencyKey(req *protocol.SendRequest, now time.Time) string {
+	return digest.IdempotencyKey(req, now)
 }
 
 // withRetryAfter appends "retry after <n> s" to a rate_limited failure so

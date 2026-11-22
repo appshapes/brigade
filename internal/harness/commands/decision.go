@@ -287,10 +287,8 @@ func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.De
 	}
 	body, summary := digest.AskMessage(d, route)
 	sent := decisionSent{How: route.How, To: route.To, SessionID: route.SessionID}
-	req := &protocol.SendRequest{
-		SenderSessionID: t.selfSessionID(), RecipientSessionID: sent.SessionID, Body: body, Summary: summary,
-		IdempotencyKey: IdempotencyKey(t.selfSessionID(), sent.SessionID, body, inv.Deps.now()),
-	}
+	req := &protocol.SendRequest{SenderSessionID: t.selfSessionID(), RecipientSessionID: sent.SessionID, Body: body, Summary: summary}
+	req.IdempotencyKey = IdempotencyKey(req, inv.Deps.now())
 	resp, err := call(func(ctx context.Context) (*protocol.SendResponse, error) { return t.client.Send(ctx, req) })
 	if err != nil && isCode(err, protocol.CodeUnavailable) && !isReason(err, "timeout") {
 		inv.Deps.sleep(RetryPause)

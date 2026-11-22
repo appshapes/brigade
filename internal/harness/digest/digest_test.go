@@ -428,7 +428,8 @@ func TestMarkerRoundTrip(t *testing.T) {
 	if err := digest.AdoptLegacyMarker(folder, "m@example.com"); err != nil {
 		t.Fatalf("a second adoption, nothing to do: %v", err)
 	}
-	if digest.IdempotencyKey("a", "b", "c", t0) != digest.IdempotencyKey("a", "b", "c", t0.Add(30*time.Second)) || digest.IdempotencyKey("a", "b", "c", t0) == digest.IdempotencyKey("a", "b", "c", t0.Add(time.Minute)) {
+	req := &protocol.SendRequest{SenderSessionID: "a", RecipientSessionID: "b", Body: "c"}
+	if digest.IdempotencyKey(req, t0) != digest.IdempotencyKey(req, t0.Add(30*time.Second)) || digest.IdempotencyKey(req, t0) == digest.IdempotencyKey(req, t0.Add(time.Minute)) {
 		t.Fatal("the key is stable within a minute and changes across one")
 	}
 }

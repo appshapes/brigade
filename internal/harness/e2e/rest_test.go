@@ -545,6 +545,14 @@ func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
 	if reply := jsonResult[sendResult](t, res.stdout); reply.HopCount != 1 || reply.RecipientSessionID != bobMap.BrigadeSessionID {
 		t.Errorf("reply: %+v, want hop 1 to bob's id in full", reply)
 	}
+	// One body in reply to two of bob's messages inside a minute is two
+	// messages on a server too, where the second carried the first one's
+	// key and was refused as `conflict` (work item 392).
+	res = r.mustRun(r.restEnv(bob), "and the index is built", "send", m.BrigadeSessionID, "--json")
+	twoIdenticalReplies(t, func(body string, args ...string) sendResult {
+		t.Helper()
+		return jsonResult[sendResult](t, r.mustRun(r.restEnv(alice), body, append([]string{"send"}, args...)...).stdout)
+	}, bobMap.BrigadeSessionID, sent.MessageID, jsonResult[sendResult](t, res.stdout).MessageID)
 	res = r.mustRun(r.restEnv(alice), "", "sessions", "--json")
 	var roster struct {
 		Result struct {
