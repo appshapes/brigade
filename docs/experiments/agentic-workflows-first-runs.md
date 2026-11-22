@@ -157,3 +157,36 @@ rather than the action's exit status (a missing review counts as `CHANGES_REQUES
 keep-log steps copy only their own agent's log, and the reviewer's read-only verbs (`git diff`, `git ls-files`,
 `head`, `wc`, `file`, `shasum`) are allowed. The re-dispatch, run **34583822028**: draft → lint clean → **APPROVED in
 round one** → published → issue **#6**. The next release is the one to watch for a fully unattended pass.
+
+### 2026-11-22 — the reviewer's login measured again, and compared whole (work item 397)
+
+**The measurement §5 (a) asks for, over every pull request.** `gh api repos/appshapes/brigade/pulls/<n>/reviews`
+for each of the repository's pull requests: 85 reviews, 79 by `claude[bot]` (account type `Bot`) and 6 by the
+owner. The reviewer agent has reviewed under no other login.
+
+**The change.** Until `83e001d6` the workflows took a review for the reviewer agent's when its login passed
+`startsWith(…, 'claude')`, in thirteen places of `auto-merge.yml`, `claude.yml` and `review-pull-request.yml`.
+A review from any account whose login begins with `claude` would have passed too. Each place now compares the
+whole login `claude[bot]`, and `scripts/ci/loop_login_test.go` holds every workflow to it. Whether GitHub hands
+such a stranger's review to these workflows was not tried: it needs a second account.
+
+**The writer half, by dispatch: no pull request, and a closing comment that is not true.** `gh workflow run
+update-documentation.yml` at 10:36:36 UTC → run 45013281133 (success) → issue #118 with the three labels → the
+`claude` workflow on the three `labeled` events. Run 45013295630 ran the agent. Runs 45013296437 and 45013297165
+were cancelled while pending in the issue's concurrency group, the second when the agent's own tracking comment
+queued run 45013325617 (an `issue_comment` by `claude[bot]`, which the job's `if:` skips). The agent step ended
+`success` after 135 turns and 9m04s, with `permission_denials_count` 12, and pushed no branch
+(`claude/issue-118-20261122-1037` is a 404). Its checklist on the issue names two pages it had edited,
+`docs/adapter-authors.md` and `docs/developer/change/layout.md`, and stops at "Run `make docs-check` and
+`make test`". `open-pr` then closed #118 with "The agent finished this run without changes". It had changes: to
+that step, an agent that ends without pushing its edits reads the same as one with nothing to change. FAIL for
+the monthly refresh. It is not work item 397's: an `issues` event meets no login comparison, and the four steps
+the fix gate holds back all ran. The cause is not known, because `show_full_output: false` keeps the session out
+of the log. Under the same action pin the fixer pushed twice on 2026-11-08 (pull request #105).
+
+**The review and the merge, by a pull request opened by hand** (the shape of §5 (c) (iii)). The pull request
+that carries this section is the drill: documentation only, labelled `auto-merge`, opened by a session with the
+owner's `gh`. What it has to show: a `review pr` run whose "Verify a review was submitted" step finds the review
+of `claude[bot]` at the head; on that review's approval, an `auto merge` run whose job is not skipped; and the
+squash merge into `master`. The run ids and the merge are in the execution log, row P106-1, written after the
+merge: a pull request cannot record its own.
