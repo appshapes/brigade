@@ -13,6 +13,10 @@ step; the only time a person steps in is the fix cap handing a PR back.
 
 - An issue labelled `claude` is a work order (`.github/workflows/claude.yml`). The hub approves the `ci` and
   `review pr` runs a fixer push raises at `action_required` with the owner's token the moment the fixer's job ends.
+- **Whose review counts.** The reviewer agent reviews as `claude[bot]`, the Claude GitHub App, and the workflows
+  compare that login whole, never by a prefix. Only its approval arms the merge of a pull request labelled
+  `auto-merge`, and only its requests for changes are counted against the fix cap of three. A person's `@claude`
+  in a comment or a review starts the agent when that person has write access.
 - **The number.** Title the issue `<number>: <title>` with its work item's number. The runner has no Brigade
   Board, so the agents never read one there and never invent a number: the workflow keeps the title as the pull
   request's, and the squash merge takes it. An issue whose title names no number is a maintenance work order (the

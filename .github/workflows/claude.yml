@@ -41,31 +41,39 @@ concurrency:
 
 jobs:
   agent:
-    # Seven clauses, ported unchanged in shape from the reference. The comment clauses exclude claude-authored
-    # comments (a recursion surface the moment `allowed_bots` admits the claude actor). The review clause admits
-    # claude* reviews ONLY in changes_requested state: an '@claude' that leaked into an approval must never race
-    # a fixer push against an arming auto-merge.
+    # Seven clauses, ported unchanged in shape from the reference. The comment clauses exclude the comments of
+    # `claude[bot]` (a recursion surface the moment `allowed_bots` admits the claude actor). The review clause
+    # admits a `claude[bot]` review ONLY in changes_requested state: an '@claude' that leaked into an approval
+    # must never race a fixer push against an arming auto-merge.
     #
-    # Read the review clause once more, because its asymmetry is deliberate: a review from a NON-claude login
+    # Read the review clause once more, because its asymmetry is deliberate: a review from any OTHER login
     # whose body contains '@claude' starts the fixer EVEN IN APPROVED STATE. That is by design — a human writing
     # '@claude ...' into a review is explicit re-authorization, and it is how a person restarts the loop after the
-    # fix cap has handed off. It cannot race auto-merge: auto-merge.yml arms only on a claude* approval, so a
-    # human's approval arms nothing to race.
+    # fix cap has handed off. It cannot race auto-merge: auto-merge.yml arms only on `claude[bot]`'s approval,
+    # so a human's approval arms nothing to race.
     #
     # The `pull_request: labeled` half of the last clause is likewise a real, human path: applying the `claude`
     # label to an EXISTING PR starts an agent on it. The action's write-access check gates it exactly as it gates
     # every other event, and the label is the human's authorization. §5 (i).
     #
-    # `startsWith(..., 'claude')` presumes the reviewing identity is the Claude GitHub App (claude[bot]). That is
-    # a PREREQUISITE, not an assumption: without that App installed the reviewer's `gh pr review` lands as
+    # `claude[bot]` is the Claude GitHub App, the identity the reviewer's `gh pr review` runs as. That is a
+    # PREREQUISITE, not an assumption: without that App installed the reviewer's `gh pr review` lands as
     # github-actions[bot], no clause here matches, and the fix loop silently never arms. §5 (a) prints the
-    # real login; re-pin this prefix to it if it differs.
+    # real login; re-pin every comparison to it if it differs.
+    #
+    # The login is compared WHOLE, here and in every step below, in auto-merge.yml and in
+    # review-pull-request.yml (work item 397, 2026-11-22). Until then each of the thirteen was a prefix test,
+    # `startsWith(…, 'claude')`, and anyone can register an account whose login begins with `claude`: its
+    # reviews would have been taken for the reviewer agent's, counted against the fix cap and, in
+    # auto-merge.yml, taken as the approval that arms a merge. A stranger's event that reaches the agent step
+    # still meets the action's write-access check, as it always did. Never a prefix again:
+    # scripts/ci/loop_login_test.go holds every workflow to the whole login.
     if: |
       (
         (github.event_name == 'workflow_dispatch') ||
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !startsWith(github.event.comment.user.login, 'claude')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !startsWith(github.event.comment.user.login, 'claude')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && (!startsWith(github.event.review.user.login, 'claude') || github.event.review.state == 'changes_requested')) ||
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && github.event.comment.user.login != 'claude[bot]') ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && github.event.comment.user.login != 'claude[bot]') ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && (github.event.review.user.login != 'claude[bot]' || github.event.review.state == 'changes_requested')) ||
         (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'claude') ||
         (github.event_name == 'issues' && github.event.action == 'assigned' && contains(join(github.event.issue.labels.*.name, ','), 'claude')) ||
         (github.event_name == 'pull_request' && contains(join(github.event.pull_request.labels.*.name, ','), 'claude'))
@@ -98,9 +106,10 @@ jobs:
     steps:
       # ---------------------------------------------------------------- brake 1: the derived fix cap
       # The reviewer ends a CHANGES_REQUESTED body with an '@claude ...' instruction, which lands here through
-      # pull_request_review. Each fix cycle is armed by exactly ONE claude* CHANGES_REQUESTED review, so counting
-      # those reviews IS the attempt counter: nothing to persist, nothing to reset, correct after a re-run.
-      # Scoped to claude-authored reviews — a HUMAN's '@claude' review is explicit re-authorization and bypasses
+      # pull_request_review. Each fix cycle is armed by exactly ONE `claude[bot]` CHANGES_REQUESTED review, so
+      # counting those reviews IS the attempt counter: nothing to persist, nothing to reset, correct after a
+      # re-run. Scoped to the reviews of `claude[bot]`, the whole login (a `claude`-prefixed stranger's reviews
+      # must not spend the cap) — a HUMAN's '@claude' review is explicit re-authorization and bypasses
       # the cap. The handoff comment is posted once, carries no @-mention (nothing re-triggers), and uses
       # GITHUB_TOKEN precisely because its events never start workflows. GH_REPO is required: this step runs
       # pre-checkout, where `gh` has no git context.
@@ -115,7 +124,7 @@ jobs:
       # stale review. No timestamps, no locks, no state to reset.
       - name: Gate autonomous fix attempts
         id: fix_gate
-        if: github.event_name == 'pull_request_review' && startsWith(github.event.review.user.login, 'claude')
+        if: github.event_name == 'pull_request_review' && github.event.review.user.login == 'claude[bot]'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -144,7 +153,7 @@ jobs:
             exit 0
           fi
           ids=$(gh_retry gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
-            --jq '.[] | select((.user.login // "" | startswith("claude")) and .state == "CHANGES_REQUESTED") | .id')
+            --jq '.[] | select(.user.login == "claude[bot]" and .state == "CHANGES_REQUESTED") | .id')
           count=$(printf '%s\n' "$ids" | grep -c . || true)
           if [ "$count" -gt "$MAX_ATTEMPTS" ]; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
@@ -157,16 +166,16 @@ jobs:
 
       # This `if:` is repeated verbatim on the next four steps rather than split into a second job: a second job
       # would need its own checkout, its own Go cache and its own timeout for no gain. It reads "run unless this
-      # is a claude review that the fix cap has stopped".
+      # is a `claude[bot]` review that the fix cap has stopped".
       - name: Checkout
-        if: github.event_name != 'pull_request_review' || !startsWith(github.event.review.user.login, 'claude') || steps.fix_gate.outputs.proceed == 'true'
+        if: github.event_name != 'pull_request_review' || github.event.review.user.login != 'claude[bot]' || steps.fix_gate.outputs.proceed == 'true'
         uses: actions/checkout@v7
         with:
           fetch-depth: 0        # `make checksums-check` rule (c) reads tags and the release listing; a shallow
                                 # clone makes the agent's own gate run lie about what it proved.
 
       - name: Setup Go
-        if: github.event_name != 'pull_request_review' || !startsWith(github.event.review.user.login, 'claude') || steps.fix_gate.outputs.proceed == 'true'
+        if: github.event_name != 'pull_request_review' || github.event.review.user.login != 'claude[bot]' || steps.fix_gate.outputs.proceed == 'true'
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod        # 1.27.0 from the `go` line; there is no toolchain line and none may be added
@@ -178,12 +187,12 @@ jobs:
       # than inside the agent's session keeps a ~40s network install out of the turn budget and out of the
       # agent's error surface: `make lint` then just works when the agent reaches for it.
       - name: Install the pinned linter
-        if: github.event_name != 'pull_request_review' || !startsWith(github.event.review.user.login, 'claude') || steps.fix_gate.outputs.proceed == 'true'
+        if: github.event_name != 'pull_request_review' || github.event.review.user.login != 'claude[bot]' || steps.fix_gate.outputs.proceed == 'true'
         run: make setup-lint
 
       - name: Code
         id: claude
-        if: github.event_name != 'pull_request_review' || !startsWith(github.event.review.user.login, 'claude') || steps.fix_gate.outputs.proceed == 'true'
+        if: github.event_name != 'pull_request_review' || github.event.review.user.login != 'claude[bot]' || steps.fix_gate.outputs.proceed == 'true'
         # Since 2026-09-16 this step's failure is not the job's verdict (the d684bca / P14-1 shape): the action
         # fails a step whose agent hit --max-turns even after it pushed its branch (run 35153548072 died at 61
         # turns with the fix written and unpushed; `open-pr` was skipped because this job had failed). The
@@ -208,6 +217,9 @@ jobs:
           # action's default write-access check without touching the bot filter at all. Earlier drafts carried a
           # second name for a GitHub App identity that no longer exists; do not re-add one.
           # '*' on a public repository would let ANY GitHub App invoke this agent with a prompt it controls.
+          # The name is not a prefix: the action drops a trailing `[bot]` from the actor and from each entry and
+          # compares the two whole, and consults the list only for an account that is not a User (read at this
+          # pin, src/github/validation/actor.ts, 2026-11-22, work item 397).
           allowed_bots: "claude"
           # NEVER set allowed_non_write_users. The action's default check — write access on the triggering actor,
           # verified for issue, PR, comment and review events — is the single control that keeps a stranger's
@@ -301,7 +313,7 @@ jobs:
       # The fixer can end green without its push landing: a narrated-only fix, or a remote rejection. No push
       # means no `synchronize`, no re-review, and a silently parked PR. Fail LOUD instead.
       - name: Verify the fix was pushed
-        if: ${{ !cancelled() && github.event_name == 'pull_request_review' && startsWith(github.event.review.user.login, 'claude') && steps.fix_gate.outputs.proceed == 'true' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request_review' && github.event.review.user.login == 'claude[bot]' && steps.fix_gate.outputs.proceed == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -318,7 +330,7 @@ jobs:
       # For the paths no verifier decides — a human's `@claude` comment or review — the agent step's own outcome
       # is the verdict; `continue-on-error` must not turn its death into a green job.
       - name: Fail on an undecided agent failure
-        if: ${{ !cancelled() && steps.claude.outcome == 'failure' && github.event_name != 'issues' && !(github.event_name == 'pull_request_review' && startsWith(github.event.review.user.login, 'claude')) }}
+        if: ${{ !cancelled() && steps.claude.outcome == 'failure' && github.event_name != 'issues' && !(github.event_name == 'pull_request_review' && github.event.review.user.login == 'claude[bot]') }}
         run: |
           echo "::error::The agent step failed (its log says why) and no downstream verifier decides this event"
           exit 1

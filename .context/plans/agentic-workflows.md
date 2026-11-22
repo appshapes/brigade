@@ -217,6 +217,15 @@ env:
 **Claude GitHub App** (`claude[bot]`, bot_id 41898282) and (b) issues and PRs are created by a **PAT belonging to
 a human**. Brigade now has exactly that arrangement. Three consequences:
 
+> **Since 2026-11-22 (work item 397) the login is compared whole, not by its prefix.** The repository review of
+> 2026-11-21 found that the prefix takes an approving review from any account whose login begins with `claude`,
+> and anyone can register one. The three workflows now compare `claude[bot]` whole in all thirteen places:
+> `github.event.….user.login == 'claude[bot]'` (or `!=`) in an `if:`, `.user.login == "claude[bot]"` in a jq
+> filter; `scripts/ci/loop_login_test.go` holds them to it. `allowed_bots: "claude"` was never a prefix: the
+> action drops a trailing `[bot]` and compares whole names. Read every `startsWith(…, 'claude')`,
+> `startswith("claude")` and `claude*` below, the copies of the three files in §4.1 to §4.3 included, as that
+> comparison: they are the brief as it was written.
+
 - **(a)** `allowed_bots` is **exactly `"claude"`** — one name, as Rjae's decision 2 says, with no widening. **Measured on the first live run (2026-09-10, PR #3): GitHub attributes the fixer's App-token push to `github-actions[bot]`, so the REVIEWER's list is `"claude,github-actions"` (§4.2); the hub's and release-notes' lists stay `"claude"`. Safe because `github-actions` events arise only from this repository's own workflow tokens.** An
   issue or a PR created with `GH_ACTIONS_TOKEN` is authored by **Rjae**, a human with write access, so it passes
   the action's default write-access check as a person rather than through the bot filter at all. The two-name
@@ -2425,7 +2434,9 @@ account, so it is authored by a human, not a `[bot]`); `review pr` runs on it (p
 raised `pull_request: opened`, i.e. the PAT-vs-`GITHUB_TOKEN` switch works); a review lands at head.
 *Record:* the two run ids; `gh pr view <n> --json title,author,labels`; **`gh api repos/appshapes/brigade/pulls/<n>/reviews
 --jq '.[].user.login'`** — this is the measurement that re-pins the `startsWith(login,'claude')` predicate of §4.1
-and §4.3. It should print `claude[bot]`: the Claude GitHub App was measured installed org-wide on `appshapes` on
+and §4.3 (since 2026-11-22, work item 397, the whole-login comparison with `claude[bot]`: §1.2's note; measured
+again that day over every review of the repository, 79 of them the agent's, all `claude[bot]`). It should print
+`claude[bot]`: the Claude GitHub App was measured installed org-wide on `appshapes` on
 2026-09-09 (§4.10 (2)), so this is an on-the-day re-check rather than a discovery. If it prints
 `github-actions[bot]` the Claude App has gone away since, and **(b) and (c) cannot pass** until it is back.
 

@@ -34,7 +34,7 @@ jobs:
     secrets:
       gh_actions_token: ${{ secrets.GH_ACTIONS_TOKEN }}
     with:
-      auto_merge: true      # a green bump merges itself; the reviewer agent and the four CI checks are the gate
+      auto_merge: true      # a green bump merges itself; the reviewer agent and the five required CI checks are the gate
       maintenance: true     # exempt from the execution-log-row rule
       title: Update the Go modules, the tool modules and the action pins
       # FOLDED (`>-`) like every other body in this brief: a plain scalar containing a colon-space is a YAML
