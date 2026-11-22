@@ -1059,7 +1059,8 @@ mod tests {
     ///   the live recording holds. Like the server it keeps two snapshots and then releases what lies before
     ///   the older one: `D <position>` once that release has returned, and `N <note>` for what the log tells
     ///   the operator about it.
-    /// - `L <length> <position>` for each record and then `P`, for a process that writes a term's padding.
+    /// - `L <length> <position>` for each record and then `P`, for a process that writes a term's padding,
+    ///   and `Y` once a sync covers the padding.
     #[test]
     fn the_process_that_appends_until_it_is_killed() {
         let Ok(dir) = std::env::var(APPENDS_IN) else {
@@ -1095,8 +1096,16 @@ mod tests {
                 say(format!("L {length} {after}\n"));
             }
             say("P\n".to_owned());
+            // And once more when a sync covers the padding: the recorder's own, a second after the last.
+            let term = i64::try_from(SHAPE.term_length).unwrap();
+            let mut covered = false;
             while wanted() {
-                std::thread::sleep(Duration::from_millis(50));
+                let synced = log.feed.as_ref().unwrap().recording.synced_position();
+                if !covered && synced >= term {
+                    covered = true;
+                    say("Y\n".to_owned());
+                }
+                std::thread::sleep(Duration::from_millis(20));
             }
             return;
         }
@@ -1141,9 +1150,11 @@ mod tests {
         released: usize,
         /// What its log told the operator.
         notes: Vec<String>,
-        /// The records of a process that wrote a term's padding, and whether it had written the padding.
+        /// The records of a process that wrote a term's padding, whether it had written the padding, and
+        /// whether a sync had covered it.
         before_the_padding: Vec<(usize, i64)>,
         padded: bool,
+        padding_synced: bool,
     }
 
     impl Answered {
@@ -1168,6 +1179,7 @@ mod tests {
                         .before_the_padding
                         .push((numbers[0].parse().unwrap(), number(1))),
                     "P" => answered.padded = true,
+                    "Y" => answered.padding_synced = true,
                     _ => answered.notes.push(rest.to_owned()),
                 }
             }
@@ -1471,44 +1483,62 @@ mod tests {
         }
     }
 
-    /// A process killed in the moment after an offer met a term's end. The kill leaves the recording live.
+    /// A process killed after an offer met a term's end and before the offer was made again. The kill leaves
+    /// the recording live, and the next start stops it at one of two positions, both right.
     ///
-    /// Under the Cavalry of server 0.9.0 the next start stopped it at the term's end, after the padding, and
-    /// this was work item 375 from a real kill: the reader as it was failed on it. The driver this build is
-    /// pinned to cuts a recording that a crash left live to the last position a sync covered (Cavalry's ADR
-    /// 0144), and the feed syncs after every append and not after the padding. So the padding the kill came
-    /// after is gone: the feed ends at the last record that was answered, and it is read back whole in both
-    /// orders in which a replay's end can reach the reader. A feed that is closed in that moment still ends
-    /// in padding, which the first test of this file holds.
+    /// The driver this build is pinned to cuts a recording that a crash left live to the last position a sync
+    /// covered (Cavalry's ADR 0144). The feed syncs after every append and not after the padding, and the
+    /// recorder syncs by itself one second after the recording's last sync while it has bytes no sync covers.
+    /// So a kill before that sync finds the padding unsynced, and the recording is cut to the last record
+    /// answered; a kill after it finds the padding synced, and the recording stops at the term's end, where
+    /// it is work item 375 from a real kill, as every such kill was under the Cavalry of server 0.9.0.
+    ///
+    /// The process is killed twice. The first kill comes as soon as the padding is written, and is held to
+    /// neither end: the recorder's second runs from the last append's sync, so on a machine slow enough its
+    /// sync has come already. The second kill comes once the process has seen a sync cover the padding, and
+    /// is held to the term's end. Both hold what the driver promises and what the reader owes: every record
+    /// answered is read back at its position, in both orders in which a replay's end can reach the reader, and
+    /// the catalog has the recording stopped where the read ended.
     #[test]
-    fn a_feed_whose_process_was_killed_right_after_a_terms_padding_ends_at_its_last_record() {
-        let scratch = Scratch::new("padded");
-        let options = options(&scratch);
-        let answered = appended_and_killed(&scratch, &options, true, Duration::ZERO, |answered| {
-            answered.padded
-        });
-        let last = answered.before_the_padding.last().unwrap().1;
-        assert!(last < i64::try_from(SHAPE.term_length).unwrap());
-        assert_eq!(held(&options), [(0, None)], "the kill leaves the recording live");
+    fn a_feed_whose_process_was_killed_after_a_terms_padding_ends_at_its_last_record_or_at_the_terms_end() {
+        let term = i64::try_from(SHAPE.term_length).unwrap();
+        for synced in [false, true] {
+            let scratch = Scratch::new(&format!("padded-{synced}"));
+            let options = options(&scratch);
+            let answered = appended_and_killed(&scratch, &options, true, Duration::ZERO, |answered| {
+                if synced {
+                    answered.padding_synced
+                } else {
+                    answered.padded
+                }
+            });
+            let last = answered.before_the_padding.last().unwrap().1;
+            assert!(last < term);
+            assert_eq!(held(&options), [(0, None)], "the kill leaves the recording live");
 
-        let read = read_back(&options, told_after_the_image_went).unwrap();
-        assert_eq!(
-            read,
-            (
-                answered.before_the_padding.clone(),
-                Position::try_from(last).unwrap()
-            )
-        );
-        assert_eq!(
-            held(&options),
-            [(0, Some(last))],
-            "the start cuts the recording at the last position a sync covered"
-        );
-        let read = read_back(&options, as_the_replay_says).unwrap();
-        assert_eq!(
-            read,
-            (answered.before_the_padding, Position::try_from(last).unwrap())
-        );
+            let (read, end) = read_back(&options, told_after_the_image_went).unwrap();
+            assert_eq!(read, answered.before_the_padding);
+            let stopped = i64::try_from(end).unwrap();
+            if synced {
+                assert_eq!(
+                    stopped, term,
+                    "a sync covered the padding, and the feed ends before it"
+                );
+            } else {
+                assert!(
+                    stopped == last || stopped == term,
+                    "killed after the padding, the feed ends at {stopped}: neither the last record answered, \
+                     {last}, nor the term's end, {term}"
+                );
+            }
+            assert_eq!(
+                held(&options),
+                [(0, Some(stopped))],
+                "the catalog has the recording stopped where the read ended"
+            );
+            let again = read_back(&options, as_the_replay_says).unwrap();
+            assert_eq!(again, (answered.before_the_padding, end));
+        }
     }
 
     /// The room the server asks of its driver directory is for the longest term a log there can have. The
