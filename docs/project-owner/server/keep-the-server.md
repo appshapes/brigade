@@ -110,12 +110,12 @@ unknown variant `team.removed`, expected one of …`. To go back all the same, i
 once on that directory, which reads the entry and writes the snapshot as it starts; stop it; then start the
 0.8.0. On a directory on which no team was removed, 0.8.0 and 0.9.0 start on each other's.
 
-From the release after 0.9.0: the log is kept by a later Cavalry, in a later format of its files. That release
+From 0.10.0: the log is kept by a later Cavalry, in a later format of its files. A 0.10.0
 opens the directory a 0.9.0 left, in place, stopped or killed, and its own tests start it on one. Going back
-is not held: nothing promises that a 0.9.0 starts on a directory the later release has written to. So for
+is not held: nothing promises that a 0.9.0 starts on a directory a 0.10.0 has written to. So for
 this update, take the copy first: stop the server, copy the data directory
 ([Back it up](#back-it-up)), then replace the binary and start. That copy, with the 0.9.0 binary, is the way
-back, and it holds nothing the later release answered after it.
+back, and it holds nothing the 0.10.0 answered after it.
 
 ## Move it
 

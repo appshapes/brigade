@@ -4,7 +4,7 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
-## [Unreleased]
+## [0.10.0] — 2026-11-22
 
 **Who must act**
 
