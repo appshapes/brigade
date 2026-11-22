@@ -47,7 +47,7 @@ const (
 
 // inboxFollow implements `brigade inbox follow`.
 func inboxFollow(inv Invocation, args []string) error {
-	if len(args) > 0 && config.HostOf(inv.Environ) != config.HostGrok {
+	if len(args) > 0 && config.HostOf(inv.Environ).Delivery() != config.DeliverPagedSink {
 		return usage("inbox follow takes no arguments")
 	}
 	if !config.InSession(inv.Environ) {
@@ -62,7 +62,7 @@ func inboxFollow(inv Invocation, args []string) error {
 		return err
 	}
 	f := &follower{inv: inv, stateDir: stateDir, sessionID: m.BrigadeSessionID, binding: m}
-	if m.Harness == string(config.HostGrok) {
+	if config.Host(m.Harness).Delivery() == config.DeliverPagedSink {
 		if len(args) != 2 || args[0] != "--incarnation" || !m.ValidGrokReceiver() || args[1] != m.Grok.Incarnation {
 			return usage("Grok inbox follow requires the exact --incarnation from this session's monitor command")
 		}
@@ -252,7 +252,7 @@ func (f *follower) write(text string) error {
 var errFollowConsumerClosed = errors.New("inbox consumer closed")
 
 func (f *follower) grok() bool {
-	return f.binding != nil && f.binding.Harness == string(config.HostGrok)
+	return f.binding != nil && config.Host(f.binding.Harness).Delivery() == config.DeliverPagedSink
 }
 func (f *follower) receiverValid() bool {
 	current, err := config.Session(f.inv.Environ, f.stateDir)

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
-	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/socketpost"
 )
@@ -197,28 +195,19 @@ func (in *injector) inject(ctx context.Context, item inbound.Item) error {
 		slog.String("message_id", item.MessageID),
 		slog.String("sender_session_id", item.SenderSessionID),
 		slog.String("excerpt", excerpt(item.Content)))
-	if in.w.harness == string(config.HostGrok) {
-		// Local injection requires this exact live receiver. Successful
-		// append/close is ACK parity with Muse, never model receipt.
-		if err := in.w.checkGrokReceiver(); err != nil {
-			return err
-		}
+	// How the item reaches the model is the host's delivery (deliver.go):
+	// whether this receiver is still the one to inject into, how its sink
+	// file is written, and what is done where there is none.
+	if err := in.w.delivery().ready(in.w); err != nil {
+		return err
 	}
 	if in.w.rc.sink != "" {
 		return in.appendSink(item)
 	}
-	if in.w.rc.host == string(config.HostCodex) {
-		return in.queueCodex(ctx, item)
-	}
-	target := in.w.state.snapshot().target
-	if target.Path == "" {
-		return &socketpost.Error{Kind: socketpost.KindPrecheck, Reason: socketpost.ReasonEmpty}
-	}
-	opts := in.w.deps.PostOptions
-	if opts.Logger == nil {
-		opts.Logger = in.w.log
-	}
-	return in.w.deps.Post(ctx, target, item.Content, opts)
+	// With no sink the item goes the way of the host `--host` names, the
+	// one the hook started this watcher to deliver into, and through the
+	// socket where it names none.
+	return deliveryOf(in.w.rc.host).direct(ctx, in, item)
 }
 
 // ensureSinkDir makes sure the sink's directory exists, 0700, as soon as
@@ -250,85 +239,11 @@ func (in *injector) appendSink(item inbound.Item) error {
 	if err != nil {
 		return err
 	}
-	var f *os.File
-	if in.w.harness == string(config.HostGrok) {
-		// Read-write, not O_APPEND: repairing a torn tail reads the end of
-		// the file, and ReadAt fails on a write-only or append-only
-		// descriptor. This watcher is the only writer. No symlink is
-		// followed (adapterkit.OpenNoFollow).
-		f, err = adapterkit.OpenNoFollow(in.w.rc.sink, os.O_CREATE|os.O_RDWR, 0o600)
-	} else {
-		f, err = os.OpenFile(in.w.rc.sink, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // 0600; the path is the test harness's argv flag
-	}
+	f, err := in.w.delivery().openSink(in.w.rc.sink)
 	if err != nil {
 		return err
-	}
-	if in.w.harness == string(config.HostGrok) {
-		info, serr := f.Stat()
-		if serr != nil {
-			_ = f.Close()
-			return serr
-		}
-		if !info.Mode().IsRegular() || !adapterkit.IsPrivate(info) {
-			_ = f.Close()
-			return errors.New("watch: inbox sink is not private")
-		}
-		if err := repairGrokTornTail(f); err != nil {
-			_ = f.Close()
-			return err
-		}
-		if _, err := f.Seek(0, io.SeekEnd); err != nil {
-			_ = f.Close()
-			return err
-		}
 	}
 	return appendRecord(f, append(line, '\n'))
-}
-
-// repairGrokTornTail drops a trailing prefix that has no newline. A failed
-// append is not acknowledged, and the retry must not concatenate onto it.
-func repairGrokTornTail(f *os.File) error {
-	info, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	size := info.Size()
-	if size == 0 {
-		return nil
-	}
-	last := make([]byte, 1)
-	if _, err := f.ReadAt(last, size-1); err != nil {
-		return err
-	}
-	if last[0] == '\n' {
-		return nil
-	}
-	const window = 64 << 20
-	start := int64(0)
-	if size > window {
-		start = size - window
-	}
-	buf := make([]byte, 64<<10)
-	pos := size
-	for pos > start {
-		n := int64(len(buf))
-		if n > pos-start {
-			n = pos - start
-		}
-		pos -= n
-		if _, err := f.ReadAt(buf[:n], pos); err != nil {
-			return err
-		}
-		for i := n - 1; i >= 0; i-- {
-			if buf[i] == '\n' {
-				return f.Truncate(pos + i + 1)
-			}
-		}
-	}
-	if start == 0 {
-		return f.Truncate(0)
-	}
-	return errors.New("watch: inbox sink tail has no record boundary")
 }
 
 // appendRecord returns failures at each local-injection boundary, including close.

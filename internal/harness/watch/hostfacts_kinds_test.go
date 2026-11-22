@@ -23,3 +23,18 @@ func TestEveryKindOfHistoryTheTableNamesHasAReader(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryKindOfDeliveryTheTableNamesHasAnImplementation: the same for
+// how a message reaches a host's model. A kind with no implementation
+// falls to the socket, which a host that has none cannot be reached by.
+func TestEveryKindOfDeliveryTheTableNamesHasAnImplementation(t *testing.T) {
+	t.Parallel()
+	for _, host := range config.Hosts() {
+		if kind := host.Delivery(); deliveries[kind] == nil {
+			t.Errorf("%s is reached by a %q delivery, and none is registered for that kind", host, kind)
+		}
+	}
+	if _, plain := deliveryOf("a-host-the-table-does-not-hold").(socket); !plain {
+		t.Errorf("a host the table does not hold is not given the socket")
+	}
+}

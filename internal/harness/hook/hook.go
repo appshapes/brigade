@@ -911,8 +911,10 @@ func (r *run) sinkFor(f facts, sessionID string) string {
 	if r.deps.Sink != "" {
 		return r.deps.Sink
 	}
-	if f.muse() || f.host == config.HostGrok {
+	switch f.host.Delivery() {
+	case config.DeliverFollowedSink, config.DeliverPagedSink:
 		return inbound.NewSinkPath(f.stateDir, sessionID, r.deps.Now())
+	case config.DeliverSocket, config.DeliverQueue:
 	}
 	return ""
 }

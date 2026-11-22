@@ -98,6 +98,9 @@ func watcherLogPath(stateDir string, claudePID int) string {
 // default (~/.codex), and so does the command the watcher runs.
 const envCodexHome = "CODEX_HOME"
 
+// envGrokHome is Grok Build's counterpart, for the same reason.
+const envGrokHome = "GROK_HOME"
+
 // watcherEnviron builds the watcher's environment from scratch (6.6, 3.2):
 // the adapter-child allow-list of environ (PATH, HOME, TMPDIR, LANG, LC_*,
 // XDG_*, CLAUDE_CONFIG_DIR, the proxy variables, SSL_CERT_*; every
@@ -107,18 +110,33 @@ const envCodexHome = "CODEX_HOME"
 // user's CODEX_HOME, and — for a Grok session — an absolute GROK_HOME, so
 // the watcher reads the session title from the same tree the TUI writes.
 // The token travels here and only here (T13.4).
-func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLevel string, codex, grok bool) ([]string, error) {
+//
+// history names the variables that say where the session's host keeps its
+// own history: each is passed on when it is set to an absolute path, so
+// that the watcher reads the tree the host writes. The hook names the one
+// the host table has for the session's host (config.Host.HistoryVar),
+// whatever it is called. codex and grok are the two yeses the function
+// had before there was a table, for CODEX_HOME and GROK_HOME, and its
+// tests still ask with them.
+//
+//nolint:unparam // codex and grok are the form the function's tests ask in; the hook itself passes the variable's name
+func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLevel string, codex, grok bool, history ...string) ([]string, error) {
 	vars, err := w.Vars()
 	if err != nil {
 		return nil, err
 	}
 	out := adapterkit.ChildEnv(environ, vars...)
 	out = append(out, "BRIGADE_LOG_LEVEL="+logLevel)
-	if home := adapterkit.Getenv(environ, envCodexHome); codex && home != "" && filepath.IsAbs(home) {
-		out = append(out, envCodexHome+"="+home)
+	if codex {
+		history = append(history, envCodexHome)
 	}
-	if home := adapterkit.Getenv(environ, "GROK_HOME"); grok && home != "" && filepath.IsAbs(home) {
-		out = append(out, "GROK_HOME="+home)
+	if grok {
+		history = append(history, envGrokHome)
+	}
+	for _, name := range history {
+		if home := adapterkit.Getenv(environ, name); name != "" && home != "" && filepath.IsAbs(home) {
+			out = append(out, name+"="+home)
+		}
 	}
 	if socket != "" {
 		out = append(out, envMessagingSocket+"="+socket)
@@ -140,7 +158,7 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 		return false
 	}
 	sink := r.sinkFor(f, m.BrigadeSessionID)
-	if f.host == config.HostGrok && m.ValidGrokReceiver() {
+	if f.host.Delivery() == config.DeliverPagedSink && m.ValidGrokReceiver() {
 		sink = inbound.GrokSinkPath(f.stateDir, m.BrigadeSessionID, m.Grok.Incarnation, r.deps.Now())
 	}
 	adapter, err := config.AdapterFromArgv(m.AdapterCommand)
@@ -155,7 +173,7 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 		StateDir:    f.stateDir,
 		Adapter:     adapter,
 		TeamInbound: config.Inbound(m.Inbound),
-	}, f.socket, f.token, r.logLevel, f.codex(), f.host == config.HostGrok)
+	}, f.socket, f.token, r.logLevel, false, false, f.host.HistoryVar())
 	if err != nil {
 		r.log.Warn("watcher not started: environment", log.Err(err))
 		return false
@@ -164,10 +182,10 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 	switch {
 	case sink != "":
 		args = append(args, "--sink", sink)
-	case f.codex():
+	case f.host.Delivery() == config.DeliverQueue:
 		// A Codex session's watcher delivers through `codex queue` (card
 		// 107): no socket, no sink.
-		args = append(args, "--host", string(config.HostCodex))
+		args = append(args, "--host", string(f.host))
 	}
 	dir := f.home
 	if dir == "" || !filepath.IsAbs(dir) {

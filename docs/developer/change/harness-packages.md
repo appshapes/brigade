@@ -31,6 +31,13 @@ no, is a column of one table, and `make lint` refuses a host's name anywhere els
   column, with a no for the others. `host_test.go` reads the whole table.
 - **Its wording**, `internal/harness/frame`: the frame variant, pinned by a golden file; one sentence may differ
   per host.
+- **Its delivery**, how a message reaches its model while the session is idle: the table names the kind
+  (`config.DeliveryKind`: a socket the host owns, a sink file a monitor follows, a command of the host's own that
+  queues a turn, a private sink read in pages), and `internal/harness/watch`, the detached watcher
+  (`brigade watch`), has one implementation a kind, in a file of its own (`deliver.go` for the socket and the
+  interface, `deliver_muse.go`, `codexqueue.go`, `grok.go`). The hook's spawn of the watcher, the `inbox` commands
+  and `whoami` ask the table for the kind and name no host. A harness that is reached as another is shares that
+  kind; one that is reached its own way adds a kind and an implementation.
 - **Its local facts**, a session's name, model and context size read from the harness's own history: the table
   names the kind of history (`config.HistoryKind`), and `internal/harness/watch` has one reader a kind, in a file
   of its own (`hostfacts_codex.go`, `hostfacts_muse.go`, `grokname.go`), behind the `history` interface of
@@ -40,9 +47,6 @@ no, is a column of one table, and `make lint` refuses a host's name anywhere els
   until work item 381 gives each a place of its own:
   - the hook's dialect, in six files of `internal/harness/hook`: what the session-start, prompt and session-end
     hooks read and print for the host, and how its session is keyed and claimed;
-  - delivery (socket, sink file, `codex queue`, a monitor): four files of `internal/harness/watch`, the detached
-    watcher (`brigade watch`), with the hook's spawn of it, the two `inbox` commands and the monitor line of
-    `whoami`;
 - **The by-host pointer**, `internal/harness/sessionmap`: from the native id to the by-pid map. It sits below
   `config` and names no host constant; where it must tell a host, it compares the map's `harness` string.
 

@@ -184,7 +184,7 @@ func Whoami(inv Invocation) error {
 func (inv Invocation) delivery(t *target) whoamiDelivery {
 	m := t.session
 	d := whoamiDelivery{Watcher: WatcherNotRunning}
-	if m.Harness == string(config.HostGrok) {
+	if config.Host(m.Harness).Delivery() == config.DeliverPagedSink {
 		d.Monitor = "unverified"
 		if m.Grok != nil {
 			d.Monitor = m.Grok.MonitorState
@@ -200,7 +200,7 @@ func (inv Invocation) delivery(t *target) whoamiDelivery {
 	if lookup == nil {
 		lookup = procutil.Lookup
 	}
-	if m.Harness == string(config.HostGrok) {
+	if config.Host(m.Harness).Delivery() == config.DeliverPagedSink {
 		if life, _ := m.GrokLiveness(lookup); life == sessionmap.GrokDead {
 			d.Monitor = "paused"
 		}

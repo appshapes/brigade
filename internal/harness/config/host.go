@@ -51,6 +51,28 @@ const (
 	HistorySummaries HistoryKind = "summaries"
 )
 
+// A DeliveryKind names a way a message is put in front of a host's model
+// while its session is idle. The watcher has one implementation a kind
+// (internal/harness/watch); the table says which a host has (work item
+// 381).
+type DeliveryKind string
+
+// The kinds of delivery.
+const (
+	// DeliverSocket: a post on the session's inbox socket, which the host
+	// owns. Also what a host the table does not hold is given.
+	DeliverSocket DeliveryKind = ""
+	// DeliverFollowedSink: a sink file the watcher appends to and the
+	// model's monitor follows (`brigade inbox follow`).
+	DeliverFollowedSink DeliveryKind = "followed-sink"
+	// DeliverQueue: a command of the host's own that queues a turn into
+	// the session from outside.
+	DeliverQueue DeliveryKind = "queue"
+	// DeliverPagedSink: a private sink file, bound to one live receiver,
+	// that the model reads in pages (`brigade inbox read --cursor`).
+	DeliverPagedSink DeliveryKind = "paged-sink"
+)
+
 // hostRow is what the table holds for one host. Every yes or no is worded
 // so that no is what a host the table does not know gets: a column added
 // for one host changes nothing for the others.
@@ -98,6 +120,8 @@ type hostRow struct {
 	historyDir []string
 	// history is how that record is filed and read.
 	history HistoryKind
+	// delivery is how a message reaches the host's model.
+	delivery DeliveryKind
 	// rename: the host can be told a session's name from inside it.
 	rename bool
 	// stop: the host runs a Stop hook, so the prompt hook need not carry
@@ -138,6 +162,7 @@ var hosts = []struct {
 		frame:         frame.HostMuse,
 		historyDir:    []string{".local", "share", "muse"},
 		history:       HistoryDatedStore,
+		delivery:      DeliverFollowedSink,
 	}},
 	{HostCodex, hostRow{
 		name:           "Codex CLI",
@@ -150,6 +175,7 @@ var hosts = []struct {
 		historyVar:     "CODEX_HOME",
 		historyDir:     []string{".codex"},
 		history:        HistoryRollouts,
+		delivery:       DeliverQueue,
 	}},
 	{HostGrok, hostRow{
 		name:            "Grok Build",
@@ -166,6 +192,7 @@ var hosts = []struct {
 		historyVar:      "GROK_HOME",
 		historyDir:      []string{".grok"},
 		history:         HistorySummaries,
+		delivery:        DeliverPagedSink,
 		stop:            true,
 		promptDiscarded: true,
 		staysOnMove:     true,
@@ -263,6 +290,16 @@ func (h Host) HistoryRoot(environ []string) string {
 	}
 	return filepath.Join(append([]string{home}, r.historyDir...)...)
 }
+
+// Delivery is how a message reaches the host's model: DeliverSocket for
+// Claude Code, and for a host the table does not hold.
+func (h Host) Delivery() DeliveryKind { return h.row().delivery }
+
+// HistoryVar is the variable that names the directory of the host's own
+// history, "" for a host that has none: the watcher is given it, since it
+// reads that history and is started with an environment built from
+// scratch.
+func (h Host) HistoryVar() string { return h.row().historyVar }
 
 // History is how the host keeps its own record of a session, HistoryNone
 // for a host that keeps none Brigade reads.

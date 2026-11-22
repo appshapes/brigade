@@ -23,21 +23,24 @@ func TestTheHostTable(t *testing.T) {
 	type row struct {
 		name, nativeIDVar, optionsFile, frame string
 		history                               config.HistoryKind
+		delivery                              config.DeliveryKind
+		historyVar                            string
 		pointed, rename, stop                 bool
 		discardsPrompt, staysOnMove, inWhoami bool
 	}
 	for host, want := range map[config.Host]row{
 		config.HostClaude: {name: "Claude Code", rename: true, stop: true},
 		config.HostMuse: {name: "Muse Code", nativeIDVar: "MUSE_SESSION_ID", optionsFile: "muse-options.json", frame: frame.HostMuse,
-			history: config.HistoryDatedStore, pointed: true, inWhoami: true},
+			history: config.HistoryDatedStore, delivery: config.DeliverFollowedSink, pointed: true, inWhoami: true},
 		config.HostCodex: {name: "Codex CLI", nativeIDVar: "CODEX_THREAD_ID", optionsFile: "codex-options.json", frame: frame.HostCodex,
-			history: config.HistoryRollouts, pointed: true, inWhoami: true},
+			history: config.HistoryRollouts, delivery: config.DeliverQueue, historyVar: "CODEX_HOME", pointed: true, inWhoami: true},
 		config.HostGrok: {name: "Grok Build", nativeIDVar: "GROK_SESSION_ID", optionsFile: "grok-options.json", frame: frame.HostGrok,
-			history: config.HistorySummaries, pointed: true, stop: true, discardsPrompt: true, staysOnMove: true, inWhoami: true},
+			history: config.HistorySummaries, delivery: config.DeliverPagedSink, historyVar: "GROK_HOME",
+			pointed: true, stop: true, discardsPrompt: true, staysOnMove: true, inWhoami: true},
 	} {
 		got := row{
 			name: host.Name(), nativeIDVar: host.NativeIDVar(), optionsFile: config.OptionsFile(host), frame: host.Frame(),
-			history: host.History(),
+			history: host.History(), delivery: host.Delivery(), historyVar: host.HistoryVar(),
 			pointed: host.Pointed(), rename: host.CanRename(), stop: host.HasStop(),
 			discardsPrompt: host.DiscardsPromptOutput(), staysOnMove: host.StaysOnMove(), inWhoami: host.NamedInWhoami(),
 		}
@@ -54,7 +57,7 @@ func TestAHostTheTableDoesNotHoldGetsNo(t *testing.T) {
 	t.Parallel()
 	for _, host := range []config.Host{"", "copilot"} {
 		if host.Name() != string(host) || host.NativeIDVar() != "" || config.OptionsFile(host) != "" || host.Frame() != "" ||
-			host.History() != config.HistoryNone ||
+			host.History() != config.HistoryNone || host.Delivery() != config.DeliverSocket || host.HistoryVar() != "" ||
 			host.Pointed() || host.CanRename() || host.HasStop() || host.DiscardsPromptOutput() || host.StaysOnMove() ||
 			host.PluginRoot([]string{"CLAUDE_PLUGIN_ROOT=/c", "MUSE_PLUGIN_ROOT=/m", "GROK_PLUGIN_ROOT=/g"}, "/flag") != "" ||
 			host.HistoryRoot([]string{adapterkit.HomeVar + "=" + t.TempDir(), "CODEX_HOME=" + t.TempDir(), "GROK_HOME=" + t.TempDir()}) != "" {

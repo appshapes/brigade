@@ -450,8 +450,11 @@ func parseArgs(argv []string) (args, error) {
 			}
 			a.sink = value
 		case HostFlag:
-			if config.Host(value) != config.HostCodex {
-				return a, errors.New("--host names a host the watcher cannot deliver into; the only one is codex")
+			// The host whose own command the watcher delivers through:
+			// the one whose delivery is a queue, which the hook names
+			// here where it starts a watcher with no sink.
+			if config.Host(value).Delivery() != config.DeliverQueue {
+				return a, errors.New("--host names a host the watcher cannot deliver into: it takes one that is reached through a command of its own, as codex is")
 			}
 			a.host = value
 		case "log-level":
@@ -470,7 +473,8 @@ func parseArgs(argv []string) (args, error) {
 type runConfig struct {
 	env  config.WatcherEnv
 	sink string
-	// host is the delivery host of `--host`: config.HostCodex, whose frames
+	// host is the delivery host of `--host`: the one whose delivery is a
+	// queue (config.DeliverQueue, Codex CLI today), whose frames
 	// go out through `codex queue` (card 107); "" for a socket or a sink.
 	host            string
 	socketPath      string
@@ -760,12 +764,8 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	case err != nil:
 		return nil, codeOf(err).Exit(), err
 	}
-	if m.Harness == string(config.HostGrok) {
-		life, _ := m.GrokLiveness(d.Lookup)
-		sinkOK := m.Grok != nil && filepath.Dir(rc.sink) == inbound.GrokSinkDir(rc.env.StateDir, m.BrigadeSessionID, m.Grok.Incarnation)
-		if life == sessionmap.GrokDead || !sinkOK {
-			return nil, protocol.CodeConfig.Exit(), &protocol.Error{Code: protocol.CodeConfig, Message: "Grok monitor receiver or private sink binding is invalid", Details: map[string]string{"reason": "grok_receiver_invalid"}}
-		}
+	if berr := deliveryOf(m.Harness).bind(&rc, m, d); berr != nil {
+		return nil, protocol.CodeConfig.Exit(), berr
 	}
 	if m.TeamKey != rc.env.Profile {
 		return nil, protocol.CodeConfig.Exit(), &protocol.Error{
@@ -919,7 +919,7 @@ func (w *watcher) run() int {
 		return code
 	}
 	defer w.release()
-	defer w.retireGrokReceiver()
+	defer w.delivery().retire(w)
 	w.ensureSinkDir()
 
 	w.injector = newInjector(w)

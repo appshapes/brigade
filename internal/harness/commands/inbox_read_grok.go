@@ -58,7 +58,7 @@ func receiverDigest(f *follower) string {
 // Only locally injected records are readable. Never backend receive, held
 // messages, arbitrary file paths, histories, policy changes or ACKs.
 func inboxReadGrok(inv Invocation, args []string, token string) error {
-	if config.HostOf(inv.Environ) != config.HostGrok || len(args) != 0 {
+	if config.HostOf(inv.Environ).Delivery() != config.DeliverPagedSink || len(args) != 0 {
 		return usage("Grok inbox read takes only --cursor from its previous response")
 	}
 	state, err := config.BrigadeStateDir(inv.Environ)

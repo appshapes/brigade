@@ -50,6 +50,15 @@ var (
 	errNoCodex  = errors.New("watch: no codex executable on the watcher's PATH")
 )
 
+// queue is Codex CLI's delivery (config.DeliverQueue; card 107): no
+// socket and no sink file, a command of the host's own that queues a turn
+// into the session's thread from outside. The rest is the plain form.
+type queue struct{ socket }
+
+func (queue) direct(ctx context.Context, in *injector, item inbound.Item) error {
+	return in.queueCodex(ctx, item)
+}
+
 // queueCodex puts one item in front of the Codex session: `codex queue
 // --thread <thread> --message <frame>`.
 func (in *injector) queueCodex(ctx context.Context, item inbound.Item) error {
