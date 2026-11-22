@@ -17,6 +17,24 @@ lints it.
   and the same bound: the 0.34.0 notes were refused twice before it, runs 39056525211 and 39057612358.
 - **The send step's name** is how the next run finds the last email: rename it in the workflow and in
   `scripts/ci/send-release-notes.sh` together.
+- **The run history does not last** (work item 401). Since 2026-10-01 GitHub removes a run, with its checks,
+  when its repository's retention period ends. Here that was seven days, the organisation's setting, until the
+  owner raised it to 90 on 2026-11-22, for the runs made from then on: the run that sent last week's email was
+  seven days old when this week's looked for it. When a sending run is gone, the newest one still listed is an
+  older email. So the script believes the mark only when the history accounts for every run of the workflow
+  after it: each number between the mark's and the present run's is there, no run after the mark is listed
+  without any step, and none goes out of the history while it is read. Otherwise it warns, says which run is not
+  accounted for, and takes the seven days before its own start, as when no email was found; or it starts at the
+  newest mark that is left when that one is newer, because what that email had is sent whatever came after. A
+  history with no mark left and a run missing gets the same warning. That keeps the list from being mailed a
+  month of releases again; it does not make the mark last. With 90 days the ordinary week finds its mark, and a
+  week whose email was refused is covered by the next. A history with a gap all the same (a run made under the
+  seven days, the workflow not run for 90, the setting lowered again, a run deleted by hand) gets the seven
+  days, and then a week whose email was refused is not covered by the next one, and a run that starts earlier or
+  later in its hour than last week's can repeat or miss a release published in between. The workflow's `from`
+  input names the first release by hand. A preview and the run that sends its draft (`draft_run`) each count
+  their own seven days, and the send refuses a draft whose window is not its own: when the preview warned, give
+  both runs the same `from`.
 - **The subject** is `Brigade <the highest release the email covers>`, `Brigade 0.47.2`, the shape Cavalry's email
   uses too (card 189); a preview's starts with `[preview]`. The email's own heading names every release it covers.
 - **Pictures.** A release may show one picture under a change a reader needs to see to recognise it; most need

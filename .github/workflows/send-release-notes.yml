@@ -46,7 +46,13 @@
 # recipients" concluded `success`, so a preview, a run with nothing to send and a failed run all leave the
 # mark where it was. The step's name is retyped in the script and joined to this file by
 # scripts/ci/send_release_notes_test.go: rename it in both or in neither. With no earlier email the window is
-# seven days. The `from` input overrides both and is inclusive; the FIRST email is sent that way:
+# seven days, counted back from the run's start. So it is when a run of this workflow is missing from the
+# history between that run and the present one: since 2026-10-01 GitHub keeps a run for the repository's
+# retention period only (90 days here for a run made from 2026-11-22 on, seven for one made before; work item
+# 401), a run that is gone may have sent a later email, and the mark that is left would mail the list
+# everything since an older one again. That mark is still an email that was sent: when it is newer than the
+# seven days, the window starts at it instead. The `from` input overrides all of it and is inclusive; the
+# FIRST email is sent that way:
 #
 #   gh workflow run send-release-notes.yml -f audience=preview -f from=v0.5.0      # look at it first
 #   gh workflow run send-release-notes.yml -f audience=recipients -f from=v0.5.0   # then send it

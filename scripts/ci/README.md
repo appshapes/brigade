@@ -366,7 +366,16 @@ the text; this script decides what cannot be left to them, from GitHub's own rec
 - `window` — which releases the email covers: those published after the last email and up to the run's own start.
   The last email is the newest successful run of the workflow in which the step `Send to the recipients`
   concluded `success`, so a preview, a run with nothing to send and a failed run leave the mark where it was. No
-  such run: the last seven days. `BRIGADE_EMAIL_FROM` (the `from` input) overrides both and is inclusive. It lays
+  such run: the last seven days, counted back from the run's own start. The mark is believed only when the
+  history accounts for every run after it (work item 401): GitHub removes a run when the repository's retention
+  period ends, 90 days for a run made from 2026-11-22 on and seven for one made before, and a run that is gone
+  may have sent a later email. A run of the workflow whose number is missing between the mark and this run
+  (`GITHUB_RUN_NUMBER`), one that is listed without any step and one that goes while it is read are not
+  accounted for, and neither are the runs beyond the hundred newest, which is as far as the check reads: the run
+  warns, says which, and takes the last seven days, or starts at the newest mark that is left when that is
+  newer. With no mark left at all it counts the numbers from the workflow's first run and warns the same way
+  when one is missing.
+  `BRIGADE_EMAIL_FROM` (the `from` input) overrides all of it and is inclusive. It lays
   out the sources the agents read: each release's published notes and the changelog's sections for them. Drafts,
   pre-releases and tags that are not `vX.Y.Z` are never covered.
 - `adopt` — takes the draft of an earlier run in place of a new one, so that what was previewed is what is sent.

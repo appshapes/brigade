@@ -5,7 +5,11 @@
   the secret `RELEASE_NOTES_RECIPIENTS`. Never print, upload, commit or put on a work item the address of a
   recipient: this repository is public, so the addresses are secrets, never variables and never a file, every
   reader is `bcc`, and the list is read after the last agent step. The send step's name is how the next run
-  finds the last email: rename it in the workflow and in `scripts/ci/send-release-notes.sh` together. A release
+  finds the last email: rename it in the workflow and in `scripts/ci/send-release-notes.sh` together. The run
+  history it is found in is kept for the repository's retention period only, 90 days since 2026-11-22 and seven
+  before (work item 401): never
+  make the script believe a mark with a run of the workflow missing after it, which would mail the list every
+  release since an older email again. A release
   may show one picture under a change, made by the rules of `docs/email/README.md` (`make email-picture`).
 - **Repository automation.** An issue labelled `claude` is a work order for the agentic loop
   (`.github/workflows/claude.yml`). An agent working on a PR branch follows `.claude/agents/developer.md`; the PR

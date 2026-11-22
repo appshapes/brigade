@@ -14,6 +14,7 @@
 package ci_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -94,6 +96,12 @@ func (ns *notesEmailServer) serve(w http.ResponseWriter, r *http.Request) {
 		status, out = http.StatusOK, `[]`
 	case path == repo+"/actions/workflows/send-release-notes.yml/runs":
 		status, out = http.StatusOK, ns.runs
+		if r.URL.Query().Get("status") == "success" {
+			out = successfulRunsOf(out)
+		}
+		if size, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil {
+			out = newestRunsOf(out, size)
+		}
 	case strings.HasPrefix(path, repo+"/actions/runs/") && strings.HasSuffix(path, "/jobs"):
 		id := strings.TrimSuffix(strings.TrimPrefix(path, repo+"/actions/runs/"), "/jobs")
 		if body, ok := ns.jobs[id]; ok {
@@ -108,6 +116,51 @@ func (ns *notesEmailServer) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, out)
+}
+
+// successfulRunsOf is a run history as the API gives it for `status=success`: without the runs whose
+// conclusion is another. A run that names no conclusion is kept, as the fixtures that predate the field are.
+func successfulRunsOf(history string) string {
+	return runsOf(history, func(runs []map[string]any) []map[string]any {
+		kept := []map[string]any{}
+		for _, run := range runs {
+			if conclusion, named := run["conclusion"]; !named || conclusion == "success" {
+				kept = append(kept, run)
+			}
+		}
+		return kept
+	})
+}
+
+// newestRunsOf is one page of a run history, as the API gives it for `per_page`: the first runs listed, which
+// are the newest, and no more of them than the page holds.
+func newestRunsOf(history string, size int) string {
+	return runsOf(history, func(runs []map[string]any) []map[string]any {
+		if size < 1 || len(runs) <= size {
+			return runs
+		}
+		return runs[:size]
+	})
+}
+
+// runsOf is a run history with only the runs that keep answers with. A history it cannot read, and one that
+// loses no run, are given as they are.
+func runsOf(history string, keep func([]map[string]any) []map[string]any) string {
+	var listed struct {
+		Runs []map[string]any `json:"workflow_runs"`
+	}
+	if err := json.Unmarshal([]byte(history), &listed); err != nil {
+		return history
+	}
+	kept := keep(listed.Runs)
+	if len(kept) == len(listed.Runs) {
+		return history
+	}
+	out, err := json.Marshal(map[string]any{"workflow_runs": kept})
+	if err != nil {
+		return history
+	}
+	return string(out)
 }
 
 func (ns *notesEmailServer) seen() []keepaliveRequest {
@@ -352,6 +405,320 @@ func TestSendReleaseNotesWindowFollowsTheLastEmail(t *testing.T) {
 	}
 	if !strings.Contains(run.shim, "status=success") {
 		t.Errorf("the run history was not asked for successful runs only:\n%s", run.shim)
+	}
+}
+
+// A run history is not a record that lasts: since 2026-10-01 GitHub removes a run when its repository's
+// retention period ends, seven days for this one until 2026-11-22 and 90 since (work item 401). A run that
+// sent an email can be gone,
+// and the newest one still listed is then an older email: believed, it would mail the list every release
+// since that older one again. historyOf is the workflow's history as the API gives it, each run with its
+// number, how many hours ago it was made and what its send step concluded. A run whose send step failed
+// is a failed run, which the API leaves out when it is asked for the successful ones.
+func historyOf(ns *notesEmailServer, now time.Time, runs ...[3]string) {
+	var listed []string
+	for _, run := range runs {
+		hours, _ := time.ParseDuration(run[1] + "h")
+		conclusion := "success"
+		if run[2] == "failure" {
+			conclusion = "failure"
+		}
+		record := `{"id":` + run[0] + `0,"run_number":` + run[0] + `,"conclusion":"` + conclusion + `","created_at":"` + stamp(now.Add(-hours)) + `"}`
+		listed = append(listed, record)
+		ns.run[run[0]+"0"] = record
+		ns.jobs[run[0]+"0"] = `{"jobs":[{"name":"email","steps":[{"name":"Send to the recipients","conclusion":"` + run[2] + `"}]}]}`
+	}
+	ns.runs = `{"workflow_runs":[` + strings.Join(listed, ",") + `]}`
+}
+
+// A release of three days ago, which no email has, and one of ten days ago, which the email of a week ago
+// had. The newest email the history can still have is run 10's, of twenty days ago.
+func aWeekAfterAnEmail(now time.Time) string {
+	return "[" +
+		notesEmailRelease("v0.3.0", stamp(now.Add(-72*time.Hour)), "Three days ago.", false, false) + "," +
+		notesEmailRelease("v0.2.0", stamp(now.Add(-240*time.Hour)), "Ten days ago.", false, false) + "]"
+}
+
+// A run is not accounted for between the newest email the history still has, run 10's of twenty days ago,
+// and this run, 14: the run that sent the last email, or one beside it. The mark is not believed, and the
+// window is the last seven days, as when no email was found: the release of ten days ago, which the email
+// of a week ago had, is not mailed again. One such run is enough, wherever it is, and it is not accounted
+// for when its number is missing, when it is listed without its steps, and when it goes out of the history
+// between being listed and being asked for its jobs, which ends no run.
+func TestSendReleaseNotesWindowDoesNotBelieveAMarkWithARunNotAccountedForAfterIt(t *testing.T) {
+	t.Parallel()
+	this, mark := [3]string{"14", "0", "success"}, [3]string{"10", "480", "success"}
+	preview := func(number string) [3]string { return [3]string{number, "100", "skipped"} }
+	for name, c := range map[string]struct {
+		history [][3]string
+		lost    func(ns *notesEmailServer)
+		doubt   string
+	}{
+		"the three runs after the mark are gone": {[][3]string{this, mark}, nil, "run 11 of this workflow is not in the run history"},
+		"the first run after the mark is gone":   {[][3]string{this, preview("13"), preview("12"), mark}, nil, "run 11 of this workflow is not in the run history"},
+		"the run before this one is gone":        {[][3]string{this, preview("12"), preview("11"), mark}, nil, "run 13 of this workflow is not in the run history"},
+		"this run is run again, and a later run is gone": {
+			[][3]string{{"16", "1", "skipped"}, this, preview("13"), preview("12"), preview("11"), mark}, nil,
+			"run 15 of this workflow is not in the run history",
+		},
+		"a run after the mark has lost its steps": {
+			[][3]string{this, preview("13"), preview("12"), preview("11"), mark},
+			func(ns *notesEmailServer) { ns.jobs["130"] = `{"jobs":[]}` },
+			"run 13 of this workflow is in the run history without its steps",
+		},
+		// The shape GitHub really leaves: this workflow's runs of September 2026 are listed with their job
+		// and no step in it.
+		"a run after the mark has a job and no step in it": {
+			[][3]string{this, preview("13"), preview("12"), preview("11"), mark},
+			func(ns *notesEmailServer) { ns.jobs["130"] = `{"jobs":[{"name":"email","steps":[]}]}` },
+			"run 13 of this workflow is in the run history without its steps",
+		},
+		"a run after the mark goes while it is read": {
+			[][3]string{this, preview("13"), preview("12"), preview("11"), mark},
+			func(ns *notesEmailServer) { delete(ns.jobs, "130") },
+			"run 13 of this workflow went out of the run history while it was being read",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ns := newNotesEmailServer(t)
+			now := time.Now()
+			ns.releases = aWeekAfterAnEmail(now)
+			historyOf(ns, now, c.history...)
+			if c.lost != nil {
+				c.lost(ns)
+			}
+
+			run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=140", "GITHUB_RUN_NUMBER=14")
+			wantPass(t, run.result, "::warning::send-release-notes: "+c.doubt, "the window is the last seven days")
+			run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0"})
+			if strings.Contains(run.all(), "the last email was sent by the run created at") {
+				t.Errorf("a mark was believed:\n%s", run.all())
+			}
+		})
+	}
+}
+
+// What the newest email that is left had sent is still sent, whatever came after it. So when that email is
+// inside the last seven days, the window starts at it and not before it: the release of four days ago,
+// which run 13's email of three days ago had, is not mailed again because run 14 is not accounted for. That
+// holds for each way a run is not accounted for: under a doubt the reading goes on down the history for
+// the newest email that is left, and does not stop at the run that raised the doubt.
+func TestSendReleaseNotesWindowStartsAtAMarkThatIsNewerThanSevenDays(t *testing.T) {
+	t.Parallel()
+	this, preview, mark := [3]string{"15", "0", "success"}, [3]string{"14", "24", "skipped"}, [3]string{"13", "72", "success"}
+	for name, c := range map[string]struct {
+		history [][3]string
+		lost    func(ns *notesEmailServer)
+		doubt   string
+	}{
+		"the run after it is gone": {[][3]string{this, mark}, nil, "run 14 of this workflow is not in the run history"},
+		"the run after it goes while it is read": {
+			[][3]string{this, preview, mark},
+			func(ns *notesEmailServer) { delete(ns.jobs, "140") },
+			"run 14 of this workflow went out of the run history while it was being read",
+		},
+		"the run after it has lost its steps": {
+			[][3]string{this, preview, mark},
+			func(ns *notesEmailServer) { ns.jobs["140"] = `{"jobs":[{"name":"email","steps":[]}]}` },
+			"run 14 of this workflow is in the run history without its steps",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ns := newNotesEmailServer(t)
+			now := time.Now()
+			ns.releases = "[" +
+				notesEmailRelease("v0.3.0", stamp(now.Add(-24*time.Hour)), "A day ago.", false, false) + "," +
+				notesEmailRelease("v0.2.0", stamp(now.Add(-100*time.Hour)), "Four days ago.", false, false) + "]"
+			historyOf(ns, now, c.history...)
+			if c.lost != nil {
+				c.lost(ns)
+			}
+
+			run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=150", "GITHUB_RUN_NUMBER=15")
+			wantPass(t, run.result, "::warning::send-release-notes: "+c.doubt,
+				"of "+stamp(now.Add(-72*time.Hour)), "the window starts at that email")
+			run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0"})
+		})
+	}
+}
+
+// The check reads the hundred newest runs of the workflow. When they do not reach back to the mark, the
+// runs between are not known to be there, and the mark is not believed; when the hundredth is the run after
+// the mark, every run is accounted for and it is.
+func TestSendReleaseNotesWindowReadsAHundredRunsAfterTheMark(t *testing.T) {
+	t.Parallel()
+	// failed is the runs from number `newest` down to `oldest`, each a failure, an hour apart.
+	failed := func(newest, oldest int) [][3]string {
+		var runs [][3]string
+		for number := newest; number >= oldest; number-- {
+			runs = append(runs, [3]string{strconv.Itoa(number), strconv.Itoa(newest - number + 1), "failure"})
+		}
+		return runs
+	}
+	mark := [3]string{"10", "480", "success"}
+
+	t.Run("the hundred do not reach the mark", func(t *testing.T) {
+		t.Parallel()
+		ns := newNotesEmailServer(t)
+		now := time.Now()
+		ns.releases = aWeekAfterAnEmail(now)
+		history := append([][3]string{{"120", "0", "success"}}, failed(119, 21)...) // a hundred runs: 120 to 21
+		historyOf(ns, now, append(history, mark)...)
+
+		run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=1200", "GITHUB_RUN_NUMBER=120")
+		wantPass(t, run.result,
+			"::warning::send-release-notes: the run history is longer than this check reads, a hundred runs, and does not reach back to run 11",
+			"the window is the last seven days")
+		run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0"})
+	})
+
+	t.Run("the hundredth is the run after the mark", func(t *testing.T) {
+		t.Parallel()
+		ns := newNotesEmailServer(t)
+		now := time.Now()
+		ns.releases = aWeekAfterAnEmail(now)
+		history := append([][3]string{{"110", "0", "success"}}, failed(109, 11)...) // a hundred runs: 110 to 11
+		historyOf(ns, now, append(history, mark)...)
+
+		run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=1100", "GITHUB_RUN_NUMBER=110")
+		wantPass(t, run.result, "the last email was sent by the run created at "+stamp(now.Add(-480*time.Hour)))
+		run.wantOutputs(t, map[string]string{"count": "2", "first": "v0.2.0", "last": "v0.3.0"})
+		if strings.Contains(run.all(), "::warning::") {
+			t.Errorf("a history of a hundred runs that reaches the mark warns:\n%s", run.all())
+		}
+	})
+}
+
+// No run that is left sent an email. That is the first run of a new repository, and it is also a history
+// that lost the run of the last email: the numbers tell them apart. With a run of the workflow missing
+// below this one, the run says so and does not say that no earlier email was found; the window is the last
+// seven days in both.
+func TestSendReleaseNotesWindowWithNoEmailLeftSaysWhenARunIsGone(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a run is gone", func(t *testing.T) {
+		t.Parallel()
+		ns := newNotesEmailServer(t)
+		now := time.Now()
+		ns.releases = aWeekAfterAnEmail(now)
+		historyOf(ns, now, [3]string{"14", "0", "success"}, [3]string{"13", "100", "skipped"}, [3]string{"12", "200", "skipped"})
+
+		run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=140", "GITHUB_RUN_NUMBER=14")
+		wantPass(t, run.result,
+			"::warning::send-release-notes: run 1 of this workflow is not in the run history, and no run that is left sent an email",
+			"the window is the last seven days")
+		run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0"})
+		if strings.Contains(run.all(), "no earlier email was found") {
+			t.Errorf("the run says no earlier email was found, with a run gone that may have sent one:\n%s", run.all())
+		}
+	})
+
+	// The doubt of a run without its steps says it too: the workflow's runs of September 2026 are what is
+	// left once the last sending run is gone.
+	t.Run("a run has lost its steps", func(t *testing.T) {
+		t.Parallel()
+		ns := newNotesEmailServer(t)
+		now := time.Now()
+		ns.releases = aWeekAfterAnEmail(now)
+		historyOf(ns, now, [3]string{"14", "0", "success"}, [3]string{"3", "1000", "skipped"})
+		ns.jobs["30"] = `{"jobs":[{"name":"email","steps":[]}]}`
+
+		run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=140", "GITHUB_RUN_NUMBER=14")
+		wantPass(t, run.result,
+			"::warning::send-release-notes: run 3 of this workflow is in the run history without its steps, and no run that is left sent an email",
+			"the window is the last seven days")
+		run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0"})
+	})
+
+	t.Run("every run is there", func(t *testing.T) {
+		t.Parallel()
+		ns := newNotesEmailServer(t)
+		now := time.Now()
+		ns.releases = aWeekAfterAnEmail(now)
+		historyOf(ns, now, [3]string{"3", "0", "success"}, [3]string{"2", "100", "skipped"}, [3]string{"1", "200", "failure"})
+
+		run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=30", "GITHUB_RUN_NUMBER=3")
+		wantPass(t, run.result, "no earlier email was found: the window is the last seven days")
+		run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0"})
+		if strings.Contains(run.all(), "::warning::") {
+			t.Errorf("a history with every run in it and no email warns:\n%s", run.all())
+		}
+	})
+}
+
+// The seven days are counted back from this run's own start, which is the window's upper bound and what
+// the next run reads as its mark, and not from the clock: a run that waited two hours in the workflow's
+// queue still covers the release published 169 hours ago, and not the one of 171 hours ago.
+func TestSendReleaseNotesWindowCountsItsSevenDaysFromTheRunsStart(t *testing.T) {
+	t.Parallel()
+	ns := newNotesEmailServer(t)
+	now := time.Now()
+	ns.releases = "[" +
+		notesEmailRelease("v0.3.0", stamp(now.Add(-169*time.Hour)), "A week and an hour ago.", false, false) + "," +
+		notesEmailRelease("v0.2.0", stamp(now.Add(-171*time.Hour)), "A week and three hours ago.", false, false) + "]"
+	historyOf(ns, now, [3]string{"1", "2", "success"})
+
+	run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=10", "GITHUB_RUN_NUMBER=1")
+	wantPass(t, run.result, "no earlier email was found: the window is the last seven days, from "+stamp(now.Add(-170*time.Hour)))
+	run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0"})
+}
+
+// With nothing published in the window the run says where its window starts, and not that nothing was
+// published since the last email, which it has just said it does not know.
+func TestSendReleaseNotesWindowWithARunNotAccountedForAndNothingToSend(t *testing.T) {
+	t.Parallel()
+	ns := newNotesEmailServer(t)
+	now := time.Now()
+	ns.releases = threeReleases() // all of January 2026
+	historyOf(ns, now, [3]string{"14", "0", "success"}, [3]string{"10", "480", "success"})
+
+	run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=140", "GITHUB_RUN_NUMBER=14")
+	wantPass(t, run.result, "::notice::send-release-notes: no release was published since ", "where this run's window starts")
+	run.wantOutputs(t, map[string]string{"count": "0"})
+	if strings.Contains(run.all(), "since the last email") {
+		t.Errorf("the run says what was published since an email it does not believe:\n%s", run.all())
+	}
+}
+
+// The ordinary week: every run between the last email and this one is in the history, whatever it did. The
+// mark is taken as it always was, and the email covers everything published since it. A run that failed is
+// in the history too, though the API leaves it out when it is asked for the successful runs: the check
+// reads every run. And a run that has its steps, none of them of the send step's name, sent nothing the
+// script knows of: it is not a run that lost its steps, and it puts no later run in doubt.
+func TestSendReleaseNotesWindowBelievesAMarkWithEveryRunAfterItThere(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		history [][3]string
+		change  func(ns *notesEmailServer)
+	}{
+		"the run before this one sent":      {[][3]string{{"14", "0", "success"}, {"13", "480", "success"}}, nil},
+		"previews and a failure in between": {[][3]string{{"14", "0", "success"}, {"13", "24", "skipped"}, {"12", "48", "failure"}, {"11", "96", "skipped"}, {"10", "480", "success"}}, nil},
+		"a run whose steps name no send step": {
+			[][3]string{{"14", "0", "success"}, {"13", "24", "skipped"}, {"12", "48", "skipped"}, {"11", "96", "skipped"}, {"10", "480", "success"}},
+			func(ns *notesEmailServer) {
+				ns.jobs["130"] = `{"jobs":[{"name":"email","steps":[{"name":"Draft the email","conclusion":"success"}]}]}`
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ns := newNotesEmailServer(t)
+			now := time.Now()
+			ns.releases = aWeekAfterAnEmail(now)
+			historyOf(ns, now, c.history...)
+			if c.change != nil {
+				c.change(ns)
+			}
+
+			run := runNotesEmail(t, ns, "window", "GITHUB_RUN_ID=140", "GITHUB_RUN_NUMBER=14")
+			wantPass(t, run.result, "the last email was sent by the run created at "+stamp(now.Add(-480*time.Hour)))
+			run.wantOutputs(t, map[string]string{"count": "2", "first": "v0.2.0", "last": "v0.3.0"})
+			if strings.Contains(run.all(), "::warning::") {
+				t.Errorf("the ordinary week warns:\n%s", run.all())
+			}
+		})
 	}
 }
 

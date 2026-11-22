@@ -12,7 +12,13 @@
 #                the newest successful run of the workflow in which the step named by `send_step` below
 #                concluded `success` -- a preview, a run with nothing to send and a run that failed all leave
 #                the mark where it was, so the next run covers what they did not. No such run: the last seven
-#                days. BRIGADE_EMAIL_FROM (the workflow's `from` input, a tag) overrides both and is
+#                days, counted back from this run's start. The same when a run of the workflow is missing
+#                from the history between that run and this one: since 2026-10-01 GitHub removes a run when
+#                its repository's retention period ends (for this one 90 days from 2026-11-22 on, seven
+#                before; work item 401), a run that is gone may have sent a later email, and the newest mark
+#                that is left would mail everything since an older one again. That mark is still an email
+#                that was sent: when it is newer than the seven days, the window starts at it instead.
+#                BRIGADE_EMAIL_FROM (the workflow's `from` input, a tag) overrides all of it and is
 #                INCLUSIVE: `v0.5.0` means the email starts with 0.5.0. It writes window.txt (one tag a line,
 #                oldest first), sources/<tag>.md (that release's published notes, which passed the
 #                release-notes gate) and sources/changelog.md (CHANGELOG.md's sections for those versions).
@@ -46,6 +52,9 @@
 #   GITHUB_API_URL            Actions sets it; https://api.github.com when unset
 #   GITHUB_SERVER_URL         Actions sets it; https://github.com when unset
 #   GITHUB_RUN_ID             this run (Actions sets it); unset, the window's upper bound is now
+#   GITHUB_RUN_NUMBER         this run's number among the workflow's (Actions sets it): the last email's mark
+#                             is believed only when every run between it and this number is in the history;
+#                             unset, as by hand, what the history has is taken as it is
 #   GH_TOKEN                  the job token. It reaches curl through a 0600 header file and never on argv --
 #                             a runner's `ps` and the Actions debug log both see argv (CLAUDE.md)
 #   BRIGADE_EMAIL_FROM        window: the first tag to cover, optional
@@ -79,7 +88,8 @@ die()  { printf '::error::send-release-notes: %s\n' "$1"; exit 1; }
 send_step='Send to the recipients'
 workflow_file='send-release-notes.yml'
 
-# Seven days, in seconds: the window when no earlier email is found. The workflow's schedule is weekly.
+# Seven days, in seconds: the window when no earlier email is found, counted back from this run's start. The
+# workflow's schedule is weekly.
 default_window=604800
 
 # ---- configuration --------------------------------------------------------------------------------------
@@ -142,6 +152,19 @@ api_get() {
   fi
 }
 
+# api_try <path and query> <output file> -> as api_get, but a 404 is an answer and not the end of the run:
+# `status` says which. A run that the history listed a moment ago can be gone when its jobs are asked for.
+api_try() {
+  status=$(curl -sS --max-time 30 --retry 3 --retry-delay 5 -o "$2" -w '%{http_code}' -H @"$hdr" "$api$1") || true
+  case $status in
+    200 | 404) ;;
+    *)
+      message=$(jq -r '.message // empty' < "$2" 2>/dev/null) || message=''
+      die "GET ${1%%\?*} answered HTTP $status: $message"
+      ;;
+  esac
+}
+
 # api_pages <path> <output file> -> every page of a list endpoint, as one JSON array. Sixty pages of a hundred
 # is a bound, not a target: a repository with more than 6,000 of anything needs more than this script (the
 # job token's rate limit is 1,000 requests an hour).
@@ -162,19 +185,89 @@ api_pages() {
 # last_send -> sets `lower` to the `created_at` of the newest successful run whose send step succeeded, or
 # leaves it empty. It sets a variable rather than printing: inside `$( )` a refusal of the API would end the
 # subshell only, and its message would become the value.
+#
+# The run history is not a record that lasts (work item 401): GitHub removes a run, with its checks, when the
+# retention period of its repository ends. For this one that was seven days until 2026-11-22, and the weekly
+# run that sent the last email was seven days old when the next one looked for it; it is 90 days for a run
+# made since. When a sending run is gone, the newest one still listed is an older email, and a
+# window from there mails the list again everything the runs that are gone had sent. So a mark is believed as
+# the last email only when the history accounts for every run after it:
+#
+#   - every number between the mark's and this run's is in the history, and up to the highest number the
+#     history has when that is higher, as it is for a run that is run again;
+#   - no successful run newer than the mark is listed without any step, and none went out of the history
+#     between being listed and being asked for its jobs: what such a run did is not known. (A run that has
+#     its steps and none of the send step's name sent nothing this script knows of, as it always read.)
+#
+# Otherwise `doubt` says what is not accounted for, `lower` is left empty, and `stale` is the newest mark
+# that is left, when one is: everything up to it was sent, whatever came after. With no mark left at all, the
+# numbers are counted from the workflow's first run: a history with a run missing may have lost the email
+# too, and `doubt` says so. Outside a workflow run there is no number to count from, and what is found is
+# taken as it is.
 last_send() {
   lower=''
+  stale=''
+  doubt=''
+  mark=''
   api_get "/repos/$repo/actions/workflows/$workflow_file/runs?status=success&per_page=30"
-  jq -r '.workflow_runs // [] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.created_at)"' < "$body" > "$tmp/runs"
-  while read -r id created; do
+  jq -r '.workflow_runs // [] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.created_at) \(.run_number // "")"' < "$body" > "$tmp/runs"
+  while read -r id created number; do
     if [ "$id" = "${GITHUB_RUN_ID:-}" ]; then continue; fi
-    api_get "/repos/$repo/actions/runs/$id/jobs?per_page=100" "$tmp/jobs.json"
+    api_try "/repos/$repo/actions/runs/$id/jobs?per_page=100" "$tmp/jobs.json"
+    if [ "$status" = 404 ]; then
+      [ -n "$doubt" ] || doubt="run ${number:-$id} of this workflow went out of the run history while it was being read"
+      continue
+    fi
     sent=$(jq --arg step "$send_step" '[.jobs[]?.steps[]? | select(.name == $step and .conclusion == "success")] | length' < "$tmp/jobs.json")
     if [ "$sent" -gt 0 ]; then
+      # Under a doubt the reading went on only to find this: the newest email that is left, not believed.
+      if [ -n "$doubt" ]; then
+        stale=$created
+        return 0
+      fi
       lower=$created
-      return 0
+      mark=$number
+      break
+    fi
+    steps=$(jq '[.jobs[]?.steps[]?] | length' < "$tmp/jobs.json")
+    if [ "$steps" -eq 0 ] && [ -z "$doubt" ]; then
+      doubt="run ${number:-$id} of this workflow is in the run history without its steps"
     fi
   done < "$tmp/runs"
+  if [ -n "$doubt" ]; then
+    # A mark that was left would have ended the reading above.
+    doubt="$doubt, and no run that is left sent an email"
+    return 0
+  fi
+  this=${GITHUB_RUN_NUMBER:-}
+  if [ -z "$this" ]; then return 0; fi
+  # A mark without a number is no run of GitHub's: it is taken as it is.
+  if [ -n "$lower" ] && [ -z "$mark" ]; then return 0; fi
+  case "${mark:-0}$this" in *[!0-9]*) return 0 ;; esac
+  begin=$((${mark:-0} + 1))
+  # Every run of the workflow, whatever it concluded: the hundred newest.
+  api_get "/repos/$repo/actions/workflows/$workflow_file/runs?per_page=100"
+  held=$(jq -r '[.workflow_runs[]?.run_number | tostring] | join(" ")' < "$body")
+  highest=$(jq -r '[.workflow_runs[]?.run_number] | max // 0' < "$body")
+  lowest=$(jq -r '[.workflow_runs[]?.run_number] | min // 0' < "$body")
+  listed=$(jq -r '.workflow_runs // [] | length' < "$body")
+  if [ "$highest" -gt "$this" ]; then this=$highest; fi
+  if [ "$listed" -ge 100 ] && [ "$lowest" -gt "$begin" ]; then
+    doubt="the run history is longer than this check reads, a hundred runs, and does not reach back to run $begin"
+  fi
+  number=$begin
+  while [ -z "$doubt" ] && [ "$number" -lt "$this" ]; do
+    case " $held " in
+      *" $number "*) ;;
+      *) doubt="run $number of this workflow is not in the run history" ;;
+    esac
+    number=$((number + 1))
+  done
+  if [ -n "$doubt" ]; then
+    if [ -z "$lower" ]; then doubt="$doubt, and no run that is left sent an email"; fi
+    stale=$lower
+    lower=''
+  fi
 }
 
 window() {
@@ -210,8 +303,27 @@ window() {
     if [ -n "$lower" ]; then
       say "the last email was sent by the run created at $lower"
     else
-      lower=$(jq -rn --argjson seconds "$default_window" 'now - $seconds | todate')
-      say "no earlier email was found: the window is the last seven days, from $lower"
+      # Counted back from this run's own start, the upper bound, and not from the clock: a run that waited
+      # in the workflow's queue would otherwise leave out what was published in the time it waited.
+      lower=$(jq -rn --arg upper "$upper" --argjson seconds "$default_window" '($upper | fromdate) - $seconds | todate') \
+        || die "this run's start, $upper, is not a time in GitHub's form"
+      if [ -z "$doubt" ]; then
+        say "no earlier email was found: the window is the last seven days, from $lower"
+      else
+        # GitHub keeps a run for the repository's retention period only, so a run that is not accounted for
+        # may have sent a later email than any that is left. What the newest mark left had sent is still
+        # sent: when it is inside the seven days, the window starts there and not before it.
+        kept="the window is the last seven days, from $lower"
+        if [ -n "$stale" ]; then
+          later=$(jq -rn --arg stale "$stale" --arg floor "$lower" 'if $stale > $floor then $stale else $floor end')
+          if [ "$later" != "$lower" ]; then
+            lower=$later
+            kept="the window starts at that email, which is inside the last seven days"
+          fi
+          doubt="$doubt, and the newest email that is left, of $stale, is not believed to be the last"
+        fi
+        warn "$doubt: GitHub keeps a run for the repository's retention period only, and a run that is not accounted for may have sent an email since. So $kept. Run the workflow with its 'from' input to name the first release yourself"
+      fi
     fi
   fi
 
@@ -237,7 +349,11 @@ window() {
   output count "$count"
   if [ "$count" -eq 0 ]; then
     say 'no release was published in the window: there is nothing to send'
-    note 'no release was published since the last email; nothing to send'
+    if [ -n "${doubt:-}" ]; then
+      note "no release was published since $lower, where this run's window starts; nothing to send"
+    else
+      note 'no release was published since the last email; nothing to send'
+    fi
     return 0
   fi
   first=$(jq -r '.[0].tag_name' < "$tmp/window.json")
