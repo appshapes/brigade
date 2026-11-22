@@ -32,7 +32,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `.github/workflows/_create-claude-issue.yml` | `workflow_call` | Reusable factory: creates the `claude`-labelled work order with `GH_ACTIONS_TOKEN` so the `issues: labeled` event fires. |
 | `.github/workflows/update-documentation.yml` | monthly cron, `workflow_dispatch` | Structural documentation refresh through the loop. Opens its PR **with** the auto-merge label. |
 | `.github/workflows/review-repository.yml` | monthly cron, `workflow_dispatch` | Reviewer pass over the tree; opens a PR with minimal fixes and **no** auto-merge label — that one merges by hand. |
-| `.github/workflows/release-notes.yml` | `workflow_dispatch` only — from `release.yml` after the publish, or by hand with `-f tag=v…` (the `release: published` and `workflow_call` triggers are gone: the job token raises no `release` event, and a call from the tag-push workflow ran the action under `push`, which it refuses, run 34537045037) | Drafts the published release's notes from `CHANGELOG.md` and the log with one agent, refuses anything that does not exist with `release-notes-lint.sh`, has a second agent review the draft against the sources, allows one fix cycle whose review is bounded to the first review's findings and the lines the fix changed, and only then publishes the notes and opens the "run `/brigade:update`" announcement — both from shell steps, idempotently. |
+| `.github/workflows/release-notes.yml` | `workflow_dispatch` only — from `release.yml` after the publish, or by hand with `-f tag=v…` (the `release: published` and `workflow_call` triggers are gone: the job token raises no `release` event, and a call from the tag-push workflow ran the action under `push`, which it refuses, run 34537045037) | Drafts the published release's notes from `CHANGELOG.md` and the log with one agent, refuses anything that does not exist with `release-notes-lint.sh`, has a second agent review the draft against the sources, allows one fix cycle whose review is bounded to the first review's findings and the lines the fix changed, and only then publishes the notes and opens the "run `/brigade:update`" announcement — both from shell steps, idempotently. The announcement step, `announce-release.sh`, also closes the announcements of the releases before it. |
 | `.github/workflows/send-release-notes.yml` | weekly cron (`23 14 * * 1` UTC) and `workflow_dispatch` (`audience` = `preview` or `recipients`, `from` = the first tag to cover, `draft_run` = an earlier run whose approved draft is sent as it is) | Emails a list of recipients what changed in the releases published since the last email (card 43). `send-release-notes.sh` decides which releases and reads the list; one agent drafts from the changelog and the published notes, `release-notes-lint.sh` in its `email` kind and a second agent gate the draft with one fix cycle, the second review bounded to the first review's findings and the lines the fix changed, and a mail step sends it with every reader as `bcc`. A run by hand is a preview unless it says `audience=recipients`. With `draft_run` no agent runs: what was previewed is what is sent. Without the mail configuration the scheduled run is a green no-op. |
 | `.github/workflows/update-dependencies.yml` | monthly cron, `workflow_dispatch` | Dependency bump through the loop: `go.mod`, `tools.mod` and, when `golang.org/x/sys` moves, the rebuilt Windows launcher by the agent; the action pins reported, not edited, in the agent's closing comment on the issue, since the PR body is minted `Closes #<n>`; the owner moves them on master directly, because `claude-code-action` refuses to run on a PR whose workflow file differs from master's (`.claude/agents/developer.md`, dependency-update mode). Opens its PR **with** the auto-merge label. |
 
@@ -53,6 +53,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/advisor-lints.sql` | `make advisor-lints` → `ci.yml`'s `supabase` job |
 | `scripts/ci/release-verify.sh` | `release.yml` only — no `make` target |
 | `scripts/ci/release-notes-lint.sh` | `release-notes.yml` and `send-release-notes.yml` — no `make` target |
+| `scripts/ci/announce-release.sh` | `release-notes.yml`'s "Announce, once" step only — no `make` target |
 | `scripts/ci/send-release-notes.sh` | `send-release-notes.yml` only — no `make` target |
 | `scripts/ci/keepalive.sh` | `keepalive.yml` only — no `make` target |
 | `scripts/ci/bootstrap-alpine.sh` | nothing — run by hand, see its section |
@@ -297,6 +298,42 @@ control beside every refusal.
 
 Needs `sh`, `grep`, `sed`, `sort`, and for the email kind the built renderer.
 
+## `scripts/ci/announce-release.sh`
+
+The "Announce, once" step of `release-notes.yml` (work item 403): it tells the members that a release is out, in
+one issue titled `<version> is out — run /brigade:update`, and it keeps that issue the only announcement open.
+Nothing closed one before: on 2026-11-22, 71 of the repository's 74 open issues were announcements, from 0.5.0
+on, and the three that needed an answer were lost under them.
+
+1. **It opens the announcement once.** It lists the issues the bot opened, open and closed, through the issues
+   endpoint and compares titles exactly; an issue with this release's title skips the opening. The listing is
+   never the search index, which lags a write (v0.6.1's two runs each opened one, #10 and #11). A higher
+   version that is already announced skips the opening too: a dispatch by hand for an older tag rewrites that
+   tag's notes and announces nothing.
+2. **It closes the earlier ones**: every open announcement of a version below the highest one announced, this
+   release's included, read from the issues as they are after the opening. On a release that is each earlier
+   one. On a dispatch by hand for an older tag it is still the older ones, so the newest release's
+   announcement is never the one closed. Versions compare as numbers (0.9.0 is below 0.10.0). A tag with more
+   after its three numbers, a release candidate, announces itself and closes nothing; its announcement is
+   closed by the release of its version or of a later one. No plugin release has been one so far.
+
+It closes only an issue the bot opened whose whole title is the announcement's form: never a person's issue,
+never a work order, never an issue that names a version in passing. It writes no comment on what it closes. An
+API error fails the step before anything is written where it can; the notes are published either way, and a
+dispatch for the same tag does again whatever was left.
+
+### Run locally
+
+`plan` reads the issues and prints what the step would open and close, and writes nothing:
+
+```sh
+RELEASE_TAG=v0.58.0 GITHUB_REPOSITORY=appshapes/brigade scripts/ci/announce-release.sh plan
+```
+
+Without `plan` it opens and closes, with whatever `gh` is logged in as: that is the release's own step, not
+something to try. `scripts/ci/announce_release_test.go` runs it against a `gh` that answers the listing from a
+file and records every write. Needs `sh`, `gh` and `jq`.
+
 ## `scripts/ci/send-release-notes.sh`
 
 The four deterministic steps of the release-notes email (card 43). The agents of `send-release-notes.yml` write
@@ -466,6 +503,7 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | --- | --- |
 | `checks_test.go` | The four POSIX-sh gates — `plugin-check.sh`, `no-secrets.sh`, `checksums-check.sh`, `release-verify.sh` — each proved able to FAIL against a fixture tree built under `t.TempDir()`, plus a read-only pass over the real repository. |
 | `release_prep_test.go` | `release-prep.sh`: every refusal fires (dirty tree, wrong branch, a published tag, no changelog section, a red documentation gate, and beside a Muse package no catalog, a catalog that is not current, or a file git does not track); the dry run checks the catalog first, announces its write and leaves it alone. |
+| `announce_release_test.go` | `announce-release.sh`: what a release opens and closes against a `gh` that answers the listing from a file and records every write — the earlier announcements closed and nothing else (a work order, a person's issue, a title that names a version in passing, a pull request), an older tag's dispatch that leaves the newest open and opens none beside it, a release candidate's announcement closed by its release, versions compared as numbers, the issues read again after the opening, `plan` that writes nothing, and a listing or a close that fails; and that `release-notes.yml`'s step runs the script. |
 | `send_release_notes_test.go` | `send-release-notes.sh`: the window and the adoption of an earlier run's draft against a fake GitHub API, the list of recipients and the footer, that no address is printed outside a mask line and that the token stays off argv, and a join of the send step's name and the secrets to `send-release-notes.yml`. |
 | `keepalive_test.go` | `keepalive.sh`: the four rungs against a fake endpoint, and a join of its endpoints to `gotrue.go`, `postgrest.go` and the schema migration. |
 | `gateway_install_test.go` | `scripts/gateway-install.sh`'s Resend inbox step (card 175): the real script run to its end against one fake playing Resend, the Management API and the project. A fresh team's first run reads the new inbox back by its id and completes, and so does one whose create answer carries no id (the list settles it); a refused create, a create answer that is not JSON and an inbox without a receiving address (just created, or already there, which is never created again) each stop saying what was checked, on one line with Resend's reason, with nothing done after; the card's second run, a re-run of an installed gateway and a dry run create nothing; no credential in the output or on argv. |
