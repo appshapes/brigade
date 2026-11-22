@@ -784,6 +784,9 @@ impl Drop for CavalryLog {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
+    use std::process::{Child, Command, Stdio};
+
     use super::*;
 
     /// A directory of the test's own, removed when the test ends, however it ends. The driver directory is
@@ -831,32 +834,82 @@ mod tests {
         }
     }
 
+    /// The same options with the feed on two new ports.
+    fn on_new_ports(options: &FeedOptions) -> FeedOptions {
+        FeedOptions {
+            log_dir: options.log_dir.clone(),
+            driver_dir: options.driver_dir.clone(),
+            data_dir: options.data_dir.clone(),
+            control: free_udp(),
+            own_endpoint: free_udp(),
+            roll_bytes: options.roll_bytes,
+        }
+    }
+
+    /// Whether a failure is a port that was free when it was chosen and taken before the driver bound it,
+    /// which any process of the machine can do.
+    fn port_taken(failure: &str) -> bool {
+        failure.contains("Address already in use")
+    }
+
+    /// Opens the feed as a start does, and on a port that was taken meanwhile opens it on two new ones, as
+    /// the tests of the running server start a server again.
+    fn opened(options: &FeedOptions) -> CavalryLog {
+        let (mut moved, mut tries) = (None, 1);
+        loop {
+            match CavalryLog::open(moved.as_ref().unwrap_or(options)) {
+                Ok(log) => return log,
+                Err(failure) => {
+                    assert!(
+                        port_taken(&failure.to_string()) && tries < 4,
+                        "the feed did not open at try {tries} of 4: {failure}"
+                    );
+                    moved = Some(on_new_ports(options));
+                    tries += 1;
+                }
+            }
+        }
+    }
+
+    /// The feed's recordings that hold something or are live, from the catalog: where each begins and where
+    /// it stopped. One that an open left empty says nothing: an open that fails on its second port leaves one.
+    fn held(options: &FeedOptions) -> Vec<(i64, Option<i64>)> {
+        recordings(&options.log_dir)
+            .unwrap()
+            .iter()
+            .filter(|recorded| recorded.stop != Some(recorded.start))
+            .map(|recorded| (recorded.start, recorded.stop))
+            .collect()
+    }
+
     /// `replay stopped` as it can reach a client: only after the driver has withdrawn the replay's image.
     fn told_after_the_image_went(replay: &Replay, in_sight: bool) -> Option<(i64, Option<ReplayStopReason>)> {
         if in_sight { None } else { replay.ended() }
     }
 
-    /// Writes a recording that stops right after a term's padding, and returns the length of each of its
-    /// records with the position after it. It is what a kill leaves in the moment after an offer met the end
+    /// Appends up to a term's last kilobytes and then writes the term's padding, and returns the length of
+    /// each record with the position after it. It leaves the feed in the moment after an offer met the end
     /// of a term and before the offer was made again: the feed's last frame is padding, which no reader's
     /// handler is given.
-    fn a_recording_that_ends_in_padding(options: &FeedOptions) -> Vec<(usize, i64)> {
+    fn appended_up_to_a_terms_padding(log: &mut CavalryLog) -> Vec<(usize, i64)> {
         let term = i64::try_from(SHAPE.term_length).unwrap();
-        let mut log = CavalryLog::open(options).unwrap();
         let mut appended = Vec::new();
-        // Large records up to the last megabytes of the term, then small ones up to its last kilobytes.
-        for (length, room) in [(1 << 20, 3 << 20), (16 << 10, 64 << 10)] {
+        // Large records up to the last megabytes of the term, then small ones up to its last kilobytes. The
+        // sizes are within what the feed takes as one record at any term length, the 1 MiB it is to move to
+        // among them.
+        let max = log.max_record_bytes();
+        for (length, room) in [((1 << 20).min(max), 3 << 20), (16 << 10, 64 << 10)] {
             let record = vec![7_u8; length];
             while term - log.end > room {
                 let after = log.append(std::slice::from_ref(&record)).unwrap();
                 appended.push((length, i64::try_from(after).unwrap()));
             }
         }
-        // One offer more, of a record the term has no room for: it writes the padding to the term's end
-        // and takes nothing. It is not made again. Until the feed has room to look at the offer it says
-        // what an append waits out, and that is waited out here too.
+        // One offer more, of the largest record the feed takes, which the term has no room for: it writes
+        // the padding to the term's end and takes nothing. It is not made again. Until the feed has room to
+        // look at the offer it says what an append waits out, and that is waited out here too.
         let (feed, client) = (log.feed.as_mut().unwrap(), log.client.as_mut().unwrap());
-        let (too_long, deadline) = (vec![7_u8; 1 << 20], Instant::now() + PATIENCE);
+        let (too_long, deadline) = (vec![7_u8; max], Instant::now() + PATIENCE);
         loop {
             match feed.publication.offer(&too_long) {
                 Err(Offer::AdminAction) => break,
@@ -876,17 +929,6 @@ mod tests {
             drain(feed);
             std::thread::sleep(Duration::from_micros(200));
         }
-        drop(log);
-        let stops: Vec<_> = recordings(&options.log_dir)
-            .unwrap()
-            .iter()
-            .map(|recorded| recorded.stop)
-            .collect();
-        assert_eq!(
-            stops,
-            [Some(term)],
-            "the recording does not stop at the term's end"
-        );
         assert!(
             appended.last().is_some_and(|(_, after)| *after < term),
             "the last record ends at the term's end: {:?}",
@@ -895,10 +937,24 @@ mod tests {
         appended
     }
 
+    /// Writes a recording that stops right after a term's padding, by a feed that is closed in that moment.
+    fn a_recording_that_ends_in_padding(options: &FeedOptions) -> Vec<(usize, i64)> {
+        let term = i64::try_from(SHAPE.term_length).unwrap();
+        let mut log = opened(options);
+        let appended = appended_up_to_a_terms_padding(&mut log);
+        drop(log);
+        assert_eq!(
+            held(options),
+            [(0, Some(term))],
+            "the recording does not stop at the term's end"
+        );
+        appended
+    }
+
     /// Opens the directory as a start does and reads every record back: each one's length and the position
     /// after it, and where the read ended.
     fn read_back(options: &FeedOptions, ended: Ended) -> Result<(Vec<(usize, i64)>, Position), LogError> {
-        let mut log = CavalryLog::open(options).unwrap();
+        let mut log = opened(options);
         log.ended = ended;
         let mut read = Vec::new();
         let end = log.read_from(0, &mut |record, after| {
@@ -926,5 +982,482 @@ mod tests {
         // failed on the machine the fix was written on.
         let (read, end) = read_back(&options, as_the_replay_says).unwrap();
         assert_eq!((read, end), (appended, term));
+    }
+
+    // From here on, a process that appends to the feed and is killed, and what the next start reads back
+    // (work item 384). Before it, nothing in the server's own gate read back a record of several frames, a
+    // feed across a term, or a feed that was rolled and purged.
+
+    /// What makes a run of this test program the process that appends: the directory it works in.
+    const APPENDS_IN: &str = "BRIGADE_LOG_TEST_APPENDS_IN";
+    /// The process id of the test program that started it.
+    const STARTED_BY: &str = "BRIGADE_LOG_TEST_STARTED_BY";
+    /// The feed's two addresses, for that process.
+    const CONTROL: &str = "BRIGADE_LOG_TEST_CONTROL";
+    const OWN: &str = "BRIGADE_LOG_TEST_OWN";
+    /// How many bytes a recording holds before a release rolls it, for a process that takes snapshots.
+    const ROLL: &str = "BRIGADE_LOG_TEST_ROLL_BYTES";
+    /// Set for a process that writes a term's padding and then waits to be killed.
+    const PADS: &str = "BRIGADE_LOG_TEST_PADS";
+
+    /// After how many appends the process that takes snapshots takes one.
+    const SNAPSHOT_EVERY: usize = 12;
+
+    /// Record `index` of the process: its index, then bytes in a pattern that repeats every 251, which no
+    /// frame's length divides, so a frame that is dropped, doubled or out of its place shows. The lengths go
+    /// from less than one frame to more frames than one poll of the reader takes, within what the feed takes
+    /// as one record.
+    fn record(index: u64, max: usize) -> Vec<u8> {
+        const LENGTHS: [usize; 9] = [8, 200, 1_400, 1_500, 4_000, 100_000, 100_000, 100_000, 300_000];
+        let seed = usize::try_from(index).unwrap();
+        let length = LENGTHS[seed % LENGTHS.len()].min(max);
+        let mut bytes = index.to_le_bytes().to_vec();
+        bytes.extend((8..length).map(|at| u8::try_from((seed * 31 + at) % 251).unwrap()));
+        bytes
+    }
+
+    /// Not a test of its own: the process that the tests below start and kill. Started with a directory in
+    /// its environment, it opens the feed there and appends for as long as it lives. In the file `answered`
+    /// it says what a server would have answered or kept:
+    ///
+    /// - `A <first index> <count> <position>` once an append has returned.
+    /// - `S <position> <bytes held>` when a snapshot at a position would be on the disk, with how many bytes
+    ///   the live recording holds. Like the server it keeps two snapshots and then releases what lies before
+    ///   the older one: `D <position>` once that release has returned, and `N <note>` for what the log tells
+    ///   the operator about it.
+    /// - `L <length> <position>` for each record and then `P`, for a process that writes a term's padding.
+    #[test]
+    fn the_process_that_appends_until_it_is_killed() {
+        let Ok(dir) = std::env::var(APPENDS_IN) else {
+            return;
+        };
+        let dir = PathBuf::from(dir);
+        let roll_bytes: Option<u64> = std::env::var(ROLL).ok().map(|bytes| bytes.parse().unwrap());
+        let options = FeedOptions {
+            log_dir: dir.join("log"),
+            driver_dir: Some(dir.join("driver")),
+            data_dir: dir.join("data"),
+            control: std::env::var(CONTROL).unwrap(),
+            own_endpoint: std::env::var(OWN).unwrap(),
+            roll_bytes: roll_bytes.unwrap_or(u64::MAX),
+        };
+        let mut answered = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("answered"))
+            .unwrap();
+        // One write for a line, so that a kill leaves whole lines and at most one that is cut short.
+        let mut say = |line: String| answered.write_all(line.as_bytes()).unwrap();
+        let mut log = CavalryLog::open(&options).unwrap();
+        // A process that nobody kills ends on its own: at once when the test program that started it has
+        // gone without killing it, as one that is itself killed does, after two minutes, and after four times
+        // what a test lets it append. Its parent is compared with the process id it was given and not with
+        // the one it finds, which is already another's when the test program went first.
+        let ends = Instant::now() + Duration::from_secs(120);
+        let started_by: u32 = std::env::var(STARTED_BY).unwrap().parse().unwrap();
+        let wanted = move || Instant::now() < ends && std::os::unix::process::parent_id() == started_by;
+        if std::env::var(PADS).is_ok() {
+            for (length, after) in appended_up_to_a_terms_padding(&mut log) {
+                say(format!("L {length} {after}\n"));
+            }
+            say("P\n".to_owned());
+            while wanted() {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            return;
+        }
+        let max = log.max_record_bytes();
+        let records_of = |batch: usize, next: u64| -> Vec<Vec<u8>> {
+            let count = [1, 3, 2][batch % 3];
+            (next..next + count).map(|index| record(index, max)).collect()
+        };
+        let (mut next, mut batch, mut snapshot) = (0_u64, 0_usize, None);
+        let mut records = records_of(batch, next);
+        while wanted() && log.end < 4 * more_than_a_term() {
+            let after = log.append(&records).unwrap();
+            let count = u64::try_from(records.len()).unwrap();
+            // The next records are made before this append is said to have returned, so that the process
+            // goes from saying so straight into the next append, and a kill that follows the line finds it
+            // there: with frames offered that the recorder has not written, or has written in part.
+            records = records_of(batch + 1, next + count);
+            say(format!("A {next} {count} {after}\n"));
+            next += count;
+            batch += 1;
+            if roll_bytes.is_some() && batch % SNAPSHOT_EVERY == 0 {
+                say(format!("S {after} {}\n", log.end - log.begin));
+                if let Some(older) = snapshot.replace(after) {
+                    log.release(older).unwrap();
+                    for note in log.notes() {
+                        say(format!("N {note}\n"));
+                    }
+                    say(format!("D {after}\n"));
+                }
+            }
+        }
+    }
+
+    /// What the process said before it was killed.
+    #[derive(Default)]
+    struct Answered {
+        /// The appends that returned: the first record's index, how many records, the position after the last.
+        batches: Vec<(u64, u64, i64)>,
+        /// The snapshots: the position of each, and how many bytes the live recording held then.
+        snapshots: Vec<(i64, u64)>,
+        /// How many releases returned.
+        released: usize,
+        /// What its log told the operator.
+        notes: Vec<String>,
+        /// The records of a process that wrote a term's padding, and whether it had written the padding.
+        before_the_padding: Vec<(usize, i64)>,
+        padded: bool,
+    }
+
+    impl Answered {
+        fn read(scratch: &Scratch) -> Self {
+            let text = std::fs::read_to_string(scratch.0.join("answered")).unwrap_or_default();
+            // A last line that the kill cut short says nothing.
+            let whole = text.rfind('\n').map_or("", |end| &text[..end + 1]);
+            let mut answered = Self::default();
+            for line in whole.lines() {
+                let (kind, rest) = line.split_once(' ').unwrap_or((line, ""));
+                let numbers: Vec<&str> = rest.split(' ').collect();
+                let number = |at: usize| numbers[at].parse::<i64>().unwrap();
+                match kind {
+                    "A" => answered.batches.push((
+                        numbers[0].parse().unwrap(),
+                        numbers[1].parse().unwrap(),
+                        number(2),
+                    )),
+                    "S" => answered.snapshots.push((number(0), numbers[1].parse().unwrap())),
+                    "D" => answered.released += 1,
+                    "L" => answered
+                        .before_the_padding
+                        .push((numbers[0].parse().unwrap(), number(1))),
+                    "P" => answered.padded = true,
+                    _ => answered.notes.push(rest.to_owned()),
+                }
+            }
+            answered
+        }
+
+        /// The position after the last record whose append returned.
+        fn end(&self) -> i64 {
+            self.batches.last().map_or(0, |(_, _, after)| *after)
+        }
+
+        /// Whether the process had got as far as an append.
+        fn said_nothing(&self) -> bool {
+            self.batches.is_empty() && self.before_the_padding.is_empty()
+        }
+
+        /// How many of its notes say `what`.
+        fn told(&self, what: &str) -> usize {
+            self.notes.iter().filter(|note| note.contains(what)).count()
+        }
+
+        /// How many of its releases let go of recordings. A purge that was refused is told in other words,
+        /// which end in these.
+        fn purges(&self) -> usize {
+            self.notes
+                .iter()
+                .filter(|note| note.starts_with("let go of "))
+                .count()
+        }
+
+        /// The newest snapshot's position and the one's before it, once there are two.
+        fn last_two_snapshots(&self) -> Option<(i64, i64)> {
+            match self.snapshots[..] {
+                [.., (older, _), (newest, _)] => Some((older, newest)),
+                _ => None,
+            }
+        }
+    }
+
+    /// The process, killed when the test lets go of it, however the test ends.
+    struct Appender(Child);
+
+    impl Drop for Appender {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// Starts the process on the feed of `options`, lets it go on until `enough` says so and for `longer`
+    /// after that, and kills it with the signal no process can handle, as a power cut is to a process.
+    /// Returns what it said.
+    fn appended_and_killed(
+        scratch: &Scratch,
+        options: &FeedOptions,
+        pads: bool,
+        longer: Duration,
+        enough: impl Fn(&Answered) -> bool,
+    ) -> Answered {
+        let test = format!(
+            "{}::the_process_that_appends_until_it_is_killed",
+            module_path!().split_once("::").unwrap().1
+        );
+        let start = |options: &FeedOptions| {
+            let output = std::fs::File::create(scratch.0.join("output")).unwrap();
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", &test, "--nocapture"])
+                .env(APPENDS_IN, &scratch.0)
+                .env(STARTED_BY, std::process::id().to_string())
+                .env(CONTROL, &options.control)
+                .env(OWN, &options.own_endpoint)
+                .stdin(Stdio::null())
+                .stdout(output.try_clone().unwrap())
+                .stderr(output);
+            if options.roll_bytes != u64::MAX {
+                command.env(ROLL, options.roll_bytes.to_string());
+            }
+            if pads {
+                command.env(PADS, "1");
+            }
+            Appender(command.spawn().unwrap())
+        };
+        let mut appender = start(options);
+        let (deadline, mut starts) = (Instant::now() + Duration::from_secs(90), 1);
+        loop {
+            let answered = Answered::read(scratch);
+            if enough(&answered) {
+                break;
+            }
+            let output = || std::fs::read_to_string(scratch.0.join("output")).unwrap_or_default();
+            if let Some(ended) = appender.0.try_wait().unwrap() {
+                // The process ended on its own. One that could not open the feed because a port was taken
+                // before its driver bound it has said nothing, and is started again on two new ports.
+                assert!(
+                    port_taken(&output()) && answered.said_nothing() && starts < 4,
+                    "the process that appends ended on its own ({ended}); it said:\n{}",
+                    output()
+                );
+                appender = start(&on_new_ports(options));
+                starts += 1;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the process that appends was too slow; it said:\n{}",
+                output()
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        std::thread::sleep(longer);
+        appender.0.kill().unwrap();
+        appender.0.wait().unwrap();
+        Answered::read(scratch)
+    }
+
+    /// Opens the directory as the next start does and reads the feed back from `from`. Every record read is
+    /// the process's next one, whole, and every record whose append returned is among them, at the position
+    /// the append returned. After them come at most the records of the one append the kill was in.
+    fn every_record_is_read_back(options: &FeedOptions, answered: &Answered, from: i64, ended: Ended) {
+        let first = match from {
+            0 => 0,
+            _ => answered
+                .batches
+                .iter()
+                .find(|(_, _, after)| *after == from)
+                .map(|(first, count, _)| first + count)
+                .expect("the read begins where an append ended"),
+        };
+        let mut log = opened(options);
+        log.ended = ended;
+        let max = log.max_record_bytes();
+        let (mut read, mut wrong) = (Vec::new(), None);
+        let end = log
+            .read_from(Position::try_from(from).unwrap(), &mut |bytes, after| {
+                let index = first + u64::try_from(read.len()).unwrap();
+                let appended = record(index, max);
+                if wrong.is_none() && bytes != appended {
+                    let at = bytes.iter().zip(&appended).position(|(found, expected)| found != expected);
+                    wrong = Some(format!(
+                        "record {index} was appended with {} bytes and read back with {}; the first byte that \
+                         differs is at {at:?}",
+                        appended.len(),
+                        bytes.len()
+                    ));
+                }
+                read.push(i64::try_from(after).unwrap());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(wrong, None);
+        let position_of = |index: u64| {
+            usize::try_from(index - first)
+                .ok()
+                .and_then(|at| read.get(at).copied())
+        };
+        for (first_of_batch, count, after) in &answered.batches {
+            if *after > from {
+                let last = first_of_batch + count - 1;
+                assert_eq!(
+                    position_of(last),
+                    Some(*after),
+                    "record {last}, whose append returned, is read back at its position"
+                );
+            }
+        }
+        let returned = answered
+            .batches
+            .last()
+            .map_or(0, |(first, count, _)| first + count);
+        let read_to = first + u64::try_from(read.len()).unwrap();
+        assert!(
+            (returned..=returned + 3).contains(&read_to),
+            "{returned} records were appended and answered, and the read ended after {read_to}"
+        );
+        let end = i64::try_from(end).unwrap();
+        assert!(
+            answered.end() <= end && read.last().is_none_or(|last| *last <= end),
+            "the feed ends at {end}, the last append that returned at {}, the last record read at {:?}",
+            answered.end(),
+            read.last()
+        );
+    }
+
+    /// As much as the process appends before it is killed: more than a term, so that the feed crosses one,
+    /// and 20 MiB at the least.
+    fn more_than_a_term() -> i64 {
+        let term = i64::try_from(SHAPE.term_length).unwrap();
+        (term + term / 4).max(20 << 20)
+    }
+
+    /// A process appends records of one frame and of many across a term's end and is killed. The next start
+    /// reads back every record it had answered, in both orders in which a replay's end can reach the reader.
+    #[test]
+    fn a_feed_across_a_term_is_read_back_whole_after_its_process_was_killed() {
+        let scratch = Scratch::new("killed");
+        let options = options(&scratch);
+        let answered = appended_and_killed(&scratch, &options, false, Duration::ZERO, |answered| {
+            answered.end() >= more_than_a_term()
+        });
+        assert!(answered.end() > i64::try_from(SHAPE.term_length).unwrap());
+
+        every_record_is_read_back(&options, &answered, 0, as_the_replay_says);
+        every_record_is_read_back(&options, &answered, 0, told_after_the_image_went);
+    }
+
+    /// A feed that takes snapshots as the server does: it rolls at every second one, since a recording
+    /// holds less than this after one and more after two, and it lets go of what lies before the older of
+    /// the two snapshots it keeps.
+    fn with_snapshots(scratch: &Scratch) -> FeedOptions {
+        FeedOptions {
+            roll_bytes: 5 << 19,
+            ..options(scratch)
+        }
+    }
+
+    /// What every read back after a process that took snapshots holds: the feed was rolled, recordings were
+    /// let go of, and what they held is gone, so a read from the feed's first position is refused. Then the
+    /// next start reads back from the newest snapshot, as a start does, and from the one before it, as a
+    /// start does that passes over a damaged snapshot. Returns the recordings the feed held when it was killed.
+    fn read_back_from_both_snapshots(options: &FeedOptions, answered: &Answered) -> Vec<(i64, Option<i64>)> {
+        assert!(
+            answered.told("was rolled") >= 2
+                && answered.purges() >= 2
+                && answered.told("was not let go of") == 0,
+            "{:?}",
+            answered.notes
+        );
+        let (older, newest) = answered.last_two_snapshots().unwrap();
+        let held = held(options);
+        let earliest = held.iter().map(|(start, _)| *start).min().unwrap();
+        assert!(
+            0 < earliest && earliest <= older,
+            "the feed holds {held:?} and the older snapshot is at {older}"
+        );
+        let refused = opened(options).read_from(0, &mut |_, _| Ok(())).unwrap_err();
+        assert!(
+            refused.to_string().contains("no longer holds position 0"),
+            "{refused}"
+        );
+
+        every_record_is_read_back(options, answered, newest, as_the_replay_says);
+        every_record_is_read_back(options, answered, older, as_the_replay_says);
+        every_record_is_read_back(options, answered, older, told_after_the_image_went);
+        held
+    }
+
+    /// The same through rolls and purges. The process is killed while it appends, after a snapshot that
+    /// rolled the feed: the read from the snapshot before it begins in the middle of a recording and goes on
+    /// into the next one.
+    #[test]
+    fn a_feed_that_was_rolled_and_purged_is_read_back_from_its_snapshots_after_its_process_was_killed() {
+        let scratch = Scratch::new("rolled");
+        let options = with_snapshots(&scratch);
+        let answered = appended_and_killed(&scratch, &options, false, Duration::ZERO, |answered| {
+            let Some((_, newest)) = answered.last_two_snapshots() else {
+                return false;
+            };
+            answered.end() >= more_than_a_term()
+                && answered.purges() >= 2
+                && answered.released + 1 == answered.snapshots.len()
+                && answered.told(&format!("was rolled at position {newest}")) == 1
+                && answered.end() - newest >= 256 << 10
+        });
+        let (older, newest) = answered.last_two_snapshots().unwrap();
+
+        let held = read_back_from_both_snapshots(&options, &answered);
+        // The older snapshot lies inside a recording that stopped at the newest, where the killed one began.
+        assert!(
+            held.iter()
+                .any(|(start, stop)| *start < older && *stop == Some(newest))
+                && held.iter().any(|(start, _)| *start == newest),
+            "the feed holds {held:?}; the snapshots are at {older} and {newest}"
+        );
+    }
+
+    /// And a process killed in the release that rolls the feed, at four moments of the roll: the snapshot is
+    /// on the disk, and the feed is somewhere between its old recording and its new one. On the machine this
+    /// was written on, idle, a kill up to 6 ms into the release found the old recording still live, one from
+    /// 8 ms to 16 ms found it stopped and no new one, one from 20 ms on found the new one live in a release
+    /// that had not returned, and a roll was over after about 130 ms. Where the moments fall elsewhere, each
+    /// is still a kill that the next start has to read back from; a kill after the roll finds the process
+    /// appending again, which the test above holds.
+    #[test]
+    fn a_feed_whose_process_was_killed_while_it_rolled_is_read_back_from_its_snapshots() {
+        for (case, longer) in [0, 12, 60, 120].into_iter().enumerate() {
+            let scratch = Scratch::new(&format!("rolling-{case}"));
+            let options = with_snapshots(&scratch);
+            let longer = Duration::from_millis(longer);
+            let answered = appended_and_killed(&scratch, &options, false, longer, |answered| {
+                answered.released + 1 < answered.snapshots.len()
+                    && answered
+                        .snapshots
+                        .last()
+                        .is_some_and(|(_, held)| *held >= options.roll_bytes)
+            });
+            let (older, newest) = answered.last_two_snapshots().unwrap();
+
+            every_record_is_read_back(&options, &answered, newest, as_the_replay_says);
+            every_record_is_read_back(&options, &answered, older, as_the_replay_says);
+            every_record_is_read_back(&options, &answered, older, told_after_the_image_went);
+        }
+    }
+
+    /// A process killed in the moment after an offer met a term's end, which is work item 375 with a kill in
+    /// the place of a close. The kill leaves the recording live. The next start stops it at the term's end,
+    /// after the padding, and reads it back whole, in both orders in which a replay's end can reach the reader.
+    #[test]
+    fn a_feed_whose_process_was_killed_right_after_a_terms_padding_is_read_back_whole() {
+        let scratch = Scratch::new("padded");
+        let options = options(&scratch);
+        let term = i64::try_from(SHAPE.term_length).unwrap();
+        let answered = appended_and_killed(&scratch, &options, true, Duration::ZERO, |answered| {
+            answered.padded
+        });
+        assert_eq!(held(&options), [(0, None)], "the kill leaves the recording live");
+
+        let read = read_back(&options, told_after_the_image_went).unwrap();
+        assert_eq!(read, (answered.before_the_padding.clone(), SHAPE.term_length));
+        assert_eq!(
+            held(&options),
+            [(0, Some(term))],
+            "the start stops the recording at the term's end, after the padding"
+        );
+        let read = read_back(&options, as_the_replay_says).unwrap();
+        assert_eq!(read, (answered.before_the_padding, SHAPE.term_length));
     }
 }

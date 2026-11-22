@@ -142,7 +142,9 @@ at `0d28208`; the earlier plan's §3 has the table):
 - The 2026-11-11 spike ran on one macOS host. On 2026-11-12, at `54ad5e0`, the Cavalry session ran three and
   five instances, each recording a feed and following every other, on macOS and in a Linux container (aarch64,
   loopback): 12 checks pass (its answers, section F). Not checked: a real network between hosts, a published port
-  or NAT, x86-64, a real disk, a memory or CPU limit, a feed that crosses a term, a power loss.
+  or NAT, x86-64, a real disk, a memory or CPU limit, a feed that crosses a term, a power loss. (A feed that
+  crosses a term, read back after a kill, is held since 2026-11-22 by the tests in
+  `server/crates/brigade-log/src/feed.rs`: work item 384.)
 - A write that is recorded and synced before it is answered took 0.5 ms in the Linux VM and 8.5 ms on the laptop
   at the median. `Recording::request_sync` lets many writes share one sync.
 - A container's default `/dev/shm` (64 MiB) is too small and fails quietly: the server starts and every append is

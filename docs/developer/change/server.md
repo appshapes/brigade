@@ -46,6 +46,9 @@ same command run again owns the team and opens its move
 (`a_take_in_whose_answer_is_lost_is_run_again_by_the_built_adapter_and_owns_the_team`). Beside it, `crates/brigade-core/tests/rules.rs` holds the same rules at the size of a
 function call with the clock in the test's hands, and `crates/brigade-server/tests/server.rs` holds what only a
 process shows: a kill and a start, a receive that waits, TLS, a process held still past Cavalry's timeouts.
+The tests in `crates/brigade-log/src/feed.rs` hold the feed's read back on its own, at a size the others do not
+reach: a process that appends about 20 MiB of records, of one frame and of many, is killed, and the next start
+reads back every record it had answered ("Cavalry" below says which kills).
 
 The member's side has one test of its own, `TestATeamOnAServerThroughTheRealBinary` in `internal/harness/e2e`: the
 built `brigade` creates a team with `--adapter rest`, a second member joins from inside a session, both sessions
@@ -450,11 +453,23 @@ from deletion and from being moved, as the plugin's are.
   stopped` can reach the client after that. A recording that ends in a term's padding, as a kill in the moment
   after an offer met a term's end can leave it, has no frame at its end, so only the image says that the end
   was read (work item 375: a reader that looked for both in one pass failed 9 of 12 starts on such a
-  recording). The test in `feed.rs` writes such a recording and reads it back twice: with the replay's end
+  recording). A test in `feed.rs` writes such a recording and reads it back twice: with the replay's end
   told only after the image has gone, and as the server asks. It holds that the position is kept. It does not
   hold where the reader looks at the image, which is right after the frames' poll and before any other; the
-  comment there says why. It is the crate's one test on a running driver, it writes a whole term, and like the
-  server's process tests it puts the driver directory in the temporary directory, which needs the room.
+  comment there says why.
+- The read back is held by tests in `feed.rs` that kill a process (work item 384). The test program starts
+  itself again as the process that appends: records from 8 bytes to 300 KB, so one frame and more frames than
+  one poll of the reader takes, one to three to an append. The test kills it with `SIGKILL` and opens the
+  directory as the next start does. Every record read back must be the process's next one, byte for byte, and
+  every record whose append returned must be there at the position the append returned; after them come at
+  most the records of the append the kill was in. Four kills: after 20 MiB on one recording, which crosses the
+  term's end; after rolls and purges, with the two snapshots a server keeps, read from the newest and from
+  the one before it, which lies in the middle of a recording; at four moments of a roll; and right after a
+  term's padding, which is work item 375 from a real kill. A reader that drops a frame, one that ends a
+  record with its poll and one that stops at a term's end each turn them red. They take their sizes from
+  `SHAPE`, so they cross a term at the 1 MiB the feed is to move to as well; the pinned driver refuses that
+  channel, so they have not run at it. Like the server's process tests they put the driver directory in the
+  temporary directory, which needs the driver's room (the number is above) for each test running at a time.
 - A recording that is live cannot be let go of. So when a snapshot is taken and the live recording holds
   `--feed-roll-bytes` or more, the feed is rolled into a new recording at the same position, and the recordings
   that end before the oldest snapshot the server keeps are purged. The newest stopped recording always stays:
