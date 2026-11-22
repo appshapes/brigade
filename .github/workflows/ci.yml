@@ -322,9 +322,13 @@ jobs:
                                           # (run 43222730771, on 87df95b). Also above what a hung Go test
                                           # costs (work item 400; the rule is in this file's header):
                                           # `make server-test` runs its `go test` under `-timeout 5m`, about
-                                          # two minutes into a step that began 21 s to 35 s into the job, so
-                                          # a hang ends by 0.6 + 2 + 5 + 1 = 8.6 minutes. cargo's own tests
-                                          # have no timeout: cargo names a test that runs over a minute.
+                                          # two and a half minutes into a step that began 21 s to 35 s into
+                                          # the job, so a hang ends by 0.6 + 2.5 + 5 + 1 = 9.1 minutes. The
+                                          # half minute is the allowance for brigade-log's tests that kill a
+                                          # process (work item 384), which `cargo test` runs before the Go
+                                          # test: 7 s to 20 s on 18 cores. cargo's own tests have no timeout:
+                                          # cargo names a test that runs over a minute, and brigade-log's
+                                          # wait at most 90 s for their process.
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
