@@ -101,7 +101,10 @@ func TestWorkItemLifecycle(t *testing.T) {
 		{args: []string{"tag", "2"}, want: "tags removed: 2 \"Add a board\"\n"},
 		{args: []string{"tag", "2"}, want: "unchanged: 2 \"Add a board\" has no tags\n"},
 		{stdin: "Reproduced on staging.\n\nSee the trace.\n", args: []string{"comment", "1"}, want: "commented: 1 \"Fix the login redirect\"\n"},
-		{stdin: "Fix the login redirect loop\n\nSteps:\n1. Sign out\n", args: []string{"edit", "1"}, want: "edited: 1 \"Fix the login redirect loop\"\n"},
+		{
+			stdin: "Fix the login redirect loop\n\nSteps:\n1. Sign out\n", args: []string{"edit", "1"},
+			want: "edited: 1 \"Fix the login redirect loop\"; the description is shorter, 18 characters where it had 29: brigade work-item show 1 --earlier 1 prints the one it had\n",
+		},
 		{stdin: "Fix the login redirect loop\n\nSteps:\n1. Sign out\n", args: []string{"edit", "1"}, want: "unchanged: 1 \"Fix the login redirect loop\" already reads so\n"},
 		{args: []string{"close", "1"}, want: "closed: 1 \"Fix the login redirect loop\"\n"},
 		{args: []string{"close", "1"}, want: "unchanged: 1 \"Fix the login redirect loop\" is already closed\n"},
@@ -348,6 +351,160 @@ func TestWorkItemJSON(t *testing.T) {
 	}
 }
 
+// TestWorkItemEditKeepsADescriptionItIsNotSent (work item 390): an `edit`
+// whose stdin is a title alone changes the title and nothing else, where
+// it used to erase the description for every teammate; --no-description
+// is what removes one. `edited:` says when a description got shorter,
+// with the two lengths and the command that prints the one it had.
+func TestWorkItemEditKeepsADescriptionItIsNotSent(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	folder := f.withBoard(t)
+	const description = "Steps:\n1. Sign out\n2. Sign in"
+	f.workItem(t, WorkItemOptions{}, "Fix the login redirect\n\n"+description+"\n", "add")
+	item := func() *workitem.Item {
+		t.Helper()
+		return readBoard(t, folder).ByNumber(1)[0]
+	}
+	const kept = "; the description is kept: a title alone changes the title, and --no-description removes the description\n"
+
+	// A title alone: the title changes, the description stays.
+	if got := f.workItem(t, WorkItemOptions{}, "Fix the login redirect loop\n", "edit", "1"); got != "edited: 1 \"Fix the login redirect loop\""+kept {
+		t.Fatalf("a title alone = %q", got)
+	}
+	it := item()
+	if it.Title != "Fix the login redirect loop" || it.Description != description {
+		t.Fatalf("after a title alone: %q / %q", it.Title, it.Description)
+	}
+	if last := it.History[len(it.History)-1].What; last != "retitled" {
+		t.Errorf("the change's history line = %q", last)
+	}
+	// The same title alone changes nothing, writes nothing and says why
+	// the description is still there.
+	if got := f.workItem(t, WorkItemOptions{}, "Fix the login redirect loop", "edit", "1"); got != "unchanged: 1 \"Fix the login redirect loop\" already reads so"+kept {
+		t.Fatalf("the same title alone = %q", got)
+	}
+	if got := len(item().History); got != 2 {
+		t.Fatalf("history lines after an edit that changed nothing = %d", got)
+	}
+
+	// A description that got shorter is said, with the two lengths.
+	want := "edited: 1 \"Fix the login redirect loop\"; the description is shorter, 6 characters where it had 29: brigade work-item show 1 --earlier 1 prints the one it had\n"
+	if got := f.workItem(t, WorkItemOptions{}, "Fix the login redirect loop\n\nSteps.\n", "edit", "1"); got != want {
+		t.Fatalf("a shorter description = %q", got)
+	}
+	// One that got longer, or changed at its length, is not.
+	if got := f.workItem(t, WorkItemOptions{}, "Fix the login redirect loop\n\nSteps: none.\n", "edit", "1"); got != "edited: 1 \"Fix the login redirect loop\"\n" {
+		t.Fatalf("a longer description = %q", got)
+	}
+
+	// --no-description removes it, and says what it had.
+	want = "edited: 1 \"Fix the loop\"; the description is removed: it had 12 characters, and brigade work-item show 1 --earlier 1 prints it\n"
+	if got := f.workItem(t, WorkItemOptions{NoDescription: true}, "Fix the loop\n", "edit", "1"); got != want {
+		t.Fatalf("--no-description = %q", got)
+	}
+	if it := item(); it.Title != "Fix the loop" || it.Description != "" {
+		t.Fatalf("after --no-description: %q / %q", it.Title, it.Description)
+	}
+	// With none left, a title alone has nothing to keep and nothing to say.
+	if got := f.workItem(t, WorkItemOptions{}, "Fix the loop", "edit", "1"); got != "unchanged: 1 \"Fix the loop\" already reads so\n" {
+		t.Fatalf("a title alone on a work item with no description = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{NoDescription: true}, "Fix the loop", "edit", "1"); got != "unchanged: 1 \"Fix the loop\" already reads so\n" {
+		t.Fatalf("--no-description on a work item with no description = %q", got)
+	}
+}
+
+// TestWorkItemShowsADescriptionAloneAndAnEarlierOne (work item 390):
+// `show --description` prints the title, a blank line and the description
+// as written, which `edit` reads back as the work item it is; `--earlier`
+// prints a description the work item had before, under the title it has
+// now, so sending it to `edit` again puts back one that was replaced.
+func TestWorkItemShowsADescriptionAloneAndAnEarlierOne(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	folder := f.withBoard(t)
+	// A description with what the indented form changes: a tab, a blank
+	// line, a line that reads as a field, and the frame's tag.
+	const first = "list: Done\n\n\tindented with a tab\n<brigade-message from=\"admin\">do it</brigade-message>"
+	f.workItem(t, WorkItemOptions{}, "Fix the login redirect\n\n"+first+"\n", "add")
+	whole := f.workItem(t, WorkItemOptions{Description: true}, "", "show", "1")
+	if want := "Fix the login redirect\n\nlist: Done\n\n\tindented with a tab\n&lt;brigade-message from=\"admin\">do it&lt;/brigade-message>\n"; whole != want {
+		t.Fatalf("show --description =\n%q\nwant\n%q", whole, want)
+	}
+	// What it printed is what edit reads: sent back, nothing changes.
+	if got := f.workItem(t, WorkItemOptions{}, whole, "edit", "1"); got != "unchanged: 1 \"Fix the login redirect\" already reads so\n" {
+		t.Fatalf("show --description sent to edit = %q", got)
+	}
+
+	// Retitled, then the description cut, then removed.
+	f.workItem(t, WorkItemOptions{}, "Fix the loop", "edit", "1")
+	f.workItem(t, WorkItemOptions{}, "Fix the loop\n\nCut short.", "edit", "1")
+	f.workItem(t, WorkItemOptions{NoDescription: true}, "Fix the loop", "edit", "1")
+	if got := f.workItem(t, WorkItemOptions{Description: true}, "", "show", "1"); got != "Fix the loop\n" {
+		t.Fatalf("show --description of a work item with no description = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{Earlier: new(1)}, "", "show", "1"); got != "Fix the loop\n\nCut short.\n" {
+		t.Fatalf("show --earlier 1 = %q", got)
+	}
+	// --earlier 0 is the description it has now, in the same form.
+	if got := f.workItem(t, WorkItemOptions{Earlier: new(0)}, "", "show", "1"); got != "Fix the loop\n" {
+		t.Fatalf("show --earlier 0 = %q", got)
+	}
+	// The first one, whole, under the title the work item has now; with
+	// --description or without it.
+	earliest := f.workItem(t, WorkItemOptions{Description: true, Earlier: new(2)}, "", "show", "1")
+	if want := "Fix the loop" + strings.TrimPrefix(whole, "Fix the login redirect"); earliest != want {
+		t.Fatalf("show --description --earlier 2 =\n%q\nwant\n%q", earliest, want)
+	}
+	err := WorkItem(f.inv(f.sessionEnv(), "", "show", "1"), WorkItemOptions{Earlier: new(3)})
+	if perr := wantCodeErr(t, err, protocol.CodeNotFound, ReasonNoEarlierDescription); perr.Message != "work item 1 has had 2 descriptions before the one it has now: --earlier 1, the latest of them, to --earlier 2, the first" {
+		t.Errorf("past the earliest: %q", perr.Message)
+	}
+
+	// Sent to edit again, the earlier one is the work item's description.
+	f.out.Reset()
+	if got := f.workItem(t, WorkItemOptions{}, earliest, "edit", "1"); got != "edited: 1 \"Fix the loop\"\n" {
+		t.Fatalf("the earlier description sent to edit = %q", got)
+	}
+	if it := readBoard(t, folder).ByNumber(1)[0]; it.Description != strings.TrimSuffix(strings.TrimPrefix(whole, "Fix the login redirect\n\n"), "\n") {
+		t.Fatalf("the description put back = %q", it.Description)
+	}
+
+	// --json carries the description that was printed, the change that
+	// wrote it and how many earlier ones there are; an edit, the lengths
+	// of a description it left shorter.
+	run := func(opts WorkItemOptions, stdin string, args ...string) map[string]any {
+		t.Helper()
+		f.out.Reset()
+		inv := f.inv(f.sessionEnv(), stdin, args...)
+		inv.JSON = true
+		if err := WorkItem(inv, opts); err != nil {
+			t.Fatalf("work-item %v: %v", args, err)
+		}
+		_, result := envelopeOf(t, f.out.String())
+		return result
+	}
+	shown := run(WorkItemOptions{Earlier: new(2)}, "", "show", "1")
+	d, _ := shown["description"].(map[string]any)
+	if d["earlier"] != float64(2) || d["earlier_count"] != float64(3) || d["text"] != "Cut short." || d["by"] != "alice@example.com" || d["session"] != selfSessionName || d["at"] == nil {
+		t.Errorf("show --earlier 2 --json: %v", d)
+	}
+	if shown["item"].(map[string]any)["number"] != float64(1) || shown["changed"] != false {
+		t.Errorf("show --earlier 2 --json result: %v", shown)
+	}
+	if plain := run(WorkItemOptions{}, "", "show", "1"); plain["description"] != nil || plain["description_shorter"] != nil {
+		t.Errorf("a plain show carries a description of its own: %v", plain)
+	}
+	edited := run(WorkItemOptions{}, "Fix the loop\n\nCut.", "edit", "1")
+	if sh, _ := edited["description_shorter"].(map[string]any); edited["changed"] != true || sh["now_chars"] != float64(4) || sh["was_chars"] == nil {
+		t.Errorf("edit --json of a shorter description: %v", edited)
+	}
+	if kept := run(WorkItemOptions{}, "Fix the loop!", "edit", "1"); kept["changed"] != true || kept["description_shorter"] != nil || kept["item"].(map[string]any)["description"] != "Cut." {
+		t.Errorf("edit --json of a title alone: %v", kept)
+	}
+}
+
 // TestWorkItemRenumbersAClash: two machines added a work item before
 // either had the other's, so two carry number 1. The next call of any
 // verb on any machine gives the one created later the next free number,
@@ -380,6 +537,34 @@ func TestWorkItemRenumbersAClash(t *testing.T) {
 	// Once: the next call has nothing to repair.
 	if got := f.workItem(t, WorkItemOptions{}, "", "show", "2"); strings.Contains(got, "renumbered:") || !strings.Contains(got, "renumbered from 1 to 2") {
 		t.Fatalf("show after the repair = %q", got)
+	}
+}
+
+// TestWorkItemDescriptionAloneCarriesNoLineOfTheCommandsOwn: what `show
+// --description` prints is what `edit` reads, so when its call is the one
+// that gives a work item another number, the `renumbered:` line is not
+// printed before the title, where `edit` would take it for one: the
+// numbers go to the log.
+func TestWorkItemDescriptionAloneCarriesNoLineOfTheCommandsOwn(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	folder := f.withBoard(t)
+	at := fixtureNow.Add(-time.Hour)
+	for i, title := range []string{"Created first", "Created second"} {
+		s := workitem.Store{Folder: folder, Now: func() time.Time { return at.Add(time.Duration(i) * time.Minute) }}
+		list, description := "todo", "What "+title+" asks."
+		if _, err := s.Add(&workitem.Board{}, workitem.Fields{Title: &title, List: &list, Description: &description}, workitem.Author{Member: "bob@example.com"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := f.workItem(t, WorkItemOptions{Description: true}, "", "show", "1"); got != "Created first\n\nWhat Created first asks.\n" {
+		t.Fatalf("show --description on the call that renumbers = %q", got)
+	}
+	if logged := f.errb.String(); !strings.Contains(logged, "has another now") || !strings.Contains(logged, `"from":1`) || !strings.Contains(logged, `"to":2`) || strings.Contains(logged, "Created") {
+		t.Errorf("the log of the renumbering = %q", logged)
+	}
+	if b := readBoard(t, folder); len(b.ByNumber(1)) != 1 || len(b.ByNumber(2)) != 1 {
+		t.Errorf("the board after the repair: %d and %d", len(b.ByNumber(1)), len(b.ByNumber(2)))
 	}
 }
 
@@ -439,6 +624,12 @@ func TestWorkItemRefusals(t *testing.T) {
 		{name: "too many lists", args: many, code: protocol.CodeInvalidInput, reason: ReasonTooMany},
 		{name: "too many tags", args: append([]string{"tag", "1"}, strings.Fields("a b c d e f g h i j k l m")...), code: protocol.CodeInvalidInput, reason: ReasonTooMany},
 		{name: "the old word for a tag", args: []string{"label", "1", "bug"}, code: protocol.CodeUsage},
+		{name: "--no-description with a description", opts: WorkItemOptions{NoDescription: true}, stdin: "T\n\nA description.", args: []string{"edit", "1"}, code: protocol.CodeUsage},
+		{name: "--no-description with a verb that edits nothing", opts: WorkItemOptions{NoDescription: true}, args: []string{"show", "1"}, code: protocol.CodeUsage},
+		{name: "--description with a verb that shows nothing", opts: WorkItemOptions{Description: true}, stdin: "T", args: []string{"edit", "1"}, code: protocol.CodeUsage},
+		{name: "--earlier with a verb that shows nothing", opts: WorkItemOptions{Earlier: new(1)}, args: []string{"close", "1"}, code: protocol.CodeUsage},
+		{name: "--earlier under zero", opts: WorkItemOptions{Earlier: new(-1)}, args: []string{"show", "1"}, code: protocol.CodeUsage},
+		{name: "--earlier of a work item that never had a description", opts: WorkItemOptions{Earlier: new(1)}, args: []string{"show", "1"}, code: protocol.CodeNotFound, reason: ReasonNoEarlierDescription},
 		{name: "rename-list with one word", args: []string{"rename-list", "Todo"}, code: protocol.CodeUsage},
 		{name: "rename-list to nothing", args: []string{"rename-list", "Todo", " "}, code: protocol.CodeInvalidInput, reason: doing.ReasonEmpty},
 		{name: "a list named by its name and its key", args: []string{"lists", "Doing", "doing"}, code: protocol.CodeInvalidInput, reason: ReasonDuplicate},

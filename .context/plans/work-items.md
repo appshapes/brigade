@@ -303,3 +303,48 @@ names and work items, skipping nothing; it shows every list. The filters `--mine
 
 Not built: a member's own view (a plugin option that always shows every list), a declared order within a list,
 and hiding by anything but the list.
+
+## 12. An edit keeps the description it is not sent (2026-11-22, work item 390)
+
+From the repository review of 2026-11-21 (its section 3, the board's verbs). `edit` replaced the title and the
+description with what stdin carried, so one line, a title, erased the description for every teammate, and the
+command printed `edited:` and nothing more. A session that retitled a work item, or that edited from a `show`
+cut short by its harness, lost the text; a count on one machine's two boards found 2 of 27 rewrites of a
+description cut by half or more. The folder still held every description, in the change files, and no verb read
+an earlier one.
+
+What is built, the session's own calls (no ruling was asked: no default, wire shape or change file changes):
+
+1. **A title alone keeps the description.** `edit` sets the description only when stdin carries one, or when
+   `--no-description` says to remove it; that flag with a description on stdin is refused as `usage`, since the
+   two contradict. `add` is as it was.
+2. **`edited:` says what became of the description**: kept, after a title alone on a work item that has one
+   (the `unchanged:` line says it too, for a caller who meant the old erasing); shorter, with the two lengths in
+   code points; or removed, with the length it had. The last two name `show <number> --earlier 1`. `--json`
+   carries the lengths as `description_shorter`.
+3. **`show <number> --description`** prints the title, a blank line and the description as stored, with no
+   indent: the form `edit` reads, so what it prints, sent to `edit`, is `unchanged:`. Nothing of the work item's
+   own is printed beside it, so the indent that keeps a teammate's line from standing as a field has nothing to
+   protect there. Nothing of the command's own either: on the call that gives a work item another number, the
+   `renumbered:` line goes to the log, with the two numbers, and not before the title, where `edit` would read
+   it as one (the review's finding).
+4. **`show <number> --earlier <n>`** prints the same form with the description as it was `n` changes of it ago,
+   under the title the work item has now, so sending it to `edit` puts the description back and keeps a later
+   retitle. `workitem.ReadDescriptions` folds one work item's changes into the descriptions it has had, one for
+   each change that gave it another than it had; past the first, the refusal `not_found`,
+   `no_earlier_description` says how many there are. `--earlier 0` is the description it has now, and a count
+   under zero is refused as `usage`. `--json` carries the text with its change's time and writer.
+5. **Putting one back is one pipe**, `brigade work-item show <number> --earlier 1 | brigade work-item edit
+   <number>`, the one call of two `brigade` commands the skills allow: the first live session asked to put a
+   description of 28,026 characters back found the earlier one and would not retype it, and a redirect to a
+   file is outside the skill's allowed tools. The pipe copies it exactly, inside them.
+
+No change file is new and `Version` stays 1: an edit that sets a title alone is a change every reader since
+0.50.0 folds. The four `work-item` skills send a retitle as the title alone and start a changed description
+from `show --description`.
+
+Not built: a notice in `show` itself that earlier descriptions exist (its history's `description changed`
+lines say so), and earlier titles or comments (a comment is never replaced, and a title is one line of the
+history's `retitled`). An earlier description that was the removed one prints as the title alone, which `edit`
+reads as "keep the description": the `unchanged:` line then names `--no-description`, and nothing more is built
+for it.

@@ -303,6 +303,17 @@ func Read(folder string) (*Board, error) {
 // no such work item. lists is the board's lists, for the names the item's
 // list and its history read with.
 func ReadItem(folder, id string, lists []List) (*Item, error) {
+	changes, err := readItemChanges(folder, id)
+	if err != nil {
+		return nil, err
+	}
+	return fold(id, changes, lists), nil
+}
+
+// readItemChanges reads the changes of the one work item with that id, in
+// the fold's order: none for an id that is no work item's, or under an
+// items directory that is no real directory.
+func readItemChanges(folder, id string) ([]*Change, error) {
 	if !ValidID(id) {
 		return nil, nil
 	}
@@ -311,10 +322,42 @@ func ReadItem(folder, id string, lists []List) (*Item, error) {
 		return nil, err
 	}
 	changes, _, err := readChanges(filepath.Join(items, id), id)
+	return changes, err
+}
+
+// A Revision is one description a work item has had: the text a change
+// gave it, and that change's time and writer. An empty Text is a
+// description that was removed.
+type Revision struct {
+	At      time.Time `json:"at"`
+	By      string    `json:"by,omitzero"`
+	Session string    `json:"session,omitzero"`
+	Text    string    `json:"text"`
+}
+
+// ReadDescriptions is every description the work item with that id has
+// had, oldest first, the last being the one it has now: one for each
+// change that gave it another description than it had, which is each
+// `description changed` of its history and the description it was
+// created with. None for a work item that never had one. A work item
+// shows its latest description only, and the folder keeps every change,
+// so this is how a description that was replaced is read back (work item
+// 390).
+func ReadDescriptions(folder, id string) ([]Revision, error) {
+	changes, err := readItemChanges(folder, id)
 	if err != nil {
 		return nil, err
 	}
-	return fold(id, changes, lists), nil
+	var out []Revision
+	now := ""
+	for _, c := range changes {
+		if c.Set == nil || c.Set.Description == nil || *c.Set.Description == now {
+			continue
+		}
+		now = *c.Set.Description
+		out = append(out, Revision{At: c.At, By: c.By, Session: c.Session, Text: now})
+	}
+	return out, nil
 }
 
 // readDir lists a directory of the board, which must be a real

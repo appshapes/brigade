@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/adapterkit/log"
@@ -44,6 +45,15 @@ type WorkItemOptions struct {
 	// Out is the file `page` writes, in place of the one under Brigade's
 	// state directory (work item 353).
 	Out string
+	// NoDescription makes an `edit` whose stdin is a title alone remove
+	// the description; without it such an edit keeps it (work item 390).
+	NoDescription bool
+	// Description makes `show` print the title, a blank line and the
+	// description alone, the form `edit` reads; Earlier, with it or
+	// alone, the description as it was that many changes of it ago. A
+	// nil Earlier is a flag not given: 0 is the description it has now.
+	Description bool
+	Earlier     *int
 }
 
 // workItemResult is the --json result of `brigade work-item`.
@@ -62,6 +72,11 @@ type workItemResult struct {
 	// history; Item the one work item every other verb acted on, whole.
 	Items []workItemRow  `json:"items,omitzero"`
 	Item  *workitem.Item `json:"item,omitzero"`
+	// Description is the description `show --description` printed, the
+	// work item's own or an earlier one; Shorter the two lengths of a
+	// description an `edit` left shorter than it was.
+	Description *workItemDescription `json:"description,omitzero"`
+	Shorter     *workItemShorter     `json:"description_shorter,omitzero"`
 	// Changed is false when the verb found nothing to change: the work
 	// item was already as asked.
 	Changed bool `json:"changed"`
@@ -79,6 +94,28 @@ type workItemNotShown struct {
 	ListName string `json:"list_name"`
 	Items    int    `json:"items"`
 	Matching int    `json:"matching"`
+}
+
+// workItemDescription is one description of a work item, as `show
+// --description` prints it: Earlier is how many changes of the
+// description ago it stood (0 for the one the work item has now) and
+// EarlierCount how many earlier ones the board holds; At, By and Session
+// are the change that wrote it, absent for a work item that never had a
+// description.
+type workItemDescription struct {
+	Earlier      int       `json:"earlier"`
+	EarlierCount int       `json:"earlier_count"`
+	At           time.Time `json:"at,omitzero"`
+	By           string    `json:"by,omitzero"`
+	Session      string    `json:"session,omitzero"`
+	Text         string    `json:"text"`
+}
+
+// workItemShorter is the lengths, in code points, of a description an
+// `edit` left shorter: the one it had and the one it has.
+type workItemShorter struct {
+	WasChars int `json:"was_chars"`
+	NowChars int `json:"now_chars"`
 }
 
 // workItemRow is one work item of a listing.
@@ -120,8 +157,9 @@ const (
 const (
 	// WorkItemUsage is the whole `usage` message for a missing or unknown
 	// verb.
-	WorkItemUsage = "work-item takes one verb: list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all], show <number>, " +
-		"add [--list <list>] [--to <label> | --mine] [--tag <a,b>] (title, a blank line and the description on stdin), edit <number> (the same on stdin), " +
+	WorkItemUsage = "work-item takes one verb: list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all], show <number> [--description | --earlier <n>], " +
+		"add [--list <list>] [--to <label> | --mine] [--tag <a,b>] (title, a blank line and the description on stdin), " +
+		"edit <number> [--no-description] (the same on stdin; a title alone keeps the description), " +
 		"move <number> <list>, assign <number> --to <label> | --mine | --nobody, tag <number> [<tag>…], comment <number> (the comment on stdin), " +
 		"close <number>, reopen <number>, lists [<name>…], rename-list <list> <new name>, hide-list <list>, unhide-list <list>, or page [--out <file>]; a <list> is a list's key or its name"
 	// WorkItemNote is the note of every --json result.
@@ -145,6 +183,9 @@ const (
 	ReasonDuplicate        = "duplicate"
 	ReasonNameTaken        = "name_taken"
 	ReasonBoardFull        = "board_full"
+	// ReasonNoEarlierDescription is `show --earlier` past the descriptions
+	// the work item has had.
+	ReasonNoEarlierDescription = "no_earlier_description"
 )
 
 // workItemReadLimit bounds what a verb reads from stdin: a title and a
@@ -181,6 +222,12 @@ type workItemAsk struct {
 	all    bool
 	// out is page's --out, absolute.
 	out string
+	// noDescription is edit's --no-description; alone show's --description
+	// (or its --earlier, which asks for the same form) and earlier its
+	// --earlier.
+	noDescription bool
+	alone         bool
+	earlier       int
 }
 
 // WorkItem implements `brigade work-item <verb> …` (card 263): the
@@ -247,6 +294,15 @@ func WorkItem(inv Invocation, opts WorkItemOptions) error {
 	}
 	if inv.JSON {
 		return writeJSON(inv.Out, res)
+	}
+	if ask.alone {
+		// The description alone is what `edit` reads, and a line of this
+		// command's own before it would be read as the title: the numbers
+		// go to the log, and the work item's history says the same.
+		for _, r := range renumbered {
+			inv.logger().Warn("work-item: a work item that carried a number an older one carries has another now", "from", r.From, "to", r.To)
+		}
+		return writeLines(inv.Out, lines...)
 	}
 	out := make([]string, 0, len(renumbered)+len(lines))
 	for _, r := range renumbered {
@@ -351,24 +407,46 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 		comment string
 		done    string // the line when something changed
 		same    string // the line when nothing did
+		// shorter is edit's: the lengths of a description it leaves shorter.
+		shorter *workItemShorter
 	)
 	switch ask.verb {
 	case workItemShow:
 		res.Item = it
+		if ask.alone {
+			return inv.showWorkItemDescription(ask, store, it, res)
+		}
 		return showWorkItem(it), nil
 	case workItemEdit:
 		set = &workitem.Fields{}
 		if ask.title != it.Title {
 			set.Title = &ask.title
 		}
-		if ask.description != it.Description {
+		// A title alone leaves the description as it is: it used to erase
+		// it, for every teammate and with nothing said (work item 390).
+		// What removes one is the flag.
+		sent := ask.description != "" || ask.noDescription
+		if sent && ask.description != it.Description {
 			set.Description = &ask.description
+		}
+		done = "edited: " + itoa(it.Number) + " " + strconv.Quote(workItemText(ask.title))
+		same = "unchanged: " + name + " already reads so"
+		was, now := utf8.RuneCountInString(it.Description), utf8.RuneCountInString(ask.description)
+		earlier := "brigade work-item show " + itoa(it.Number) + " --earlier 1"
+		switch {
+		case !sent && was > 0:
+			kept := "; the description is kept: a title alone changes the title, and --no-description removes the description"
+			done, same = done+kept, same+kept
+		case set.Description != nil && now == 0:
+			shorter = &workItemShorter{WasChars: was}
+			done += "; the description is removed: it had " + itoa(was) + " characters, and " + earlier + " prints it"
+		case set.Description != nil && now < was:
+			shorter = &workItemShorter{WasChars: was, NowChars: now}
+			done += "; the description is shorter, " + itoa(now) + " characters where it had " + itoa(was) + ": " + earlier + " prints the one it had"
 		}
 		if set.Title == nil && set.Description == nil {
 			set = nil
 		}
-		done = "edited: " + itoa(it.Number) + " " + strconv.Quote(workItemText(ask.title))
-		same = "unchanged: " + name + " already reads so"
 	case workItemMove:
 		list, err := workItemListNamed(board, ask.list)
 		if err != nil {
@@ -418,7 +496,7 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 	if err := store.Change(it, set, comment, who); err != nil {
 		return nil, workItemWriteError(err)
 	}
-	res.Changed = true
+	res.Changed, res.Shorter = true, shorter
 	// The item as the folder holds it now — this change and any that
 	// arrived while the command ran — read alone, not with the board.
 	if after, err := workitem.ReadItem(store.Folder, it.ID, board.Lists); err == nil && after != nil {
@@ -659,6 +737,47 @@ func showWorkItem(it *workitem.Item) []string {
 	return out
 }
 
+// showWorkItemDescription is `show --description`: the title, a blank
+// line and the description, as written and with no indent, which is the
+// form `edit` reads, so a description is edited from the whole of it and
+// one that was replaced is sent to `edit` again. With --earlier it is the
+// description as it was that many changes of it ago, under the title the
+// work item has now: the board shows a work item's latest description
+// and its folder keeps every change (work item 390). Nothing else is
+// printed, so no line of the work item's own stands beside a teammate's
+// text for it to imitate.
+func (inv Invocation) showWorkItemDescription(ask *workItemAsk, store workitem.Store, it *workitem.Item, res *workItemResult) ([]string, error) {
+	had, err := workitem.ReadDescriptions(store.Folder, it.ID)
+	if err != nil {
+		return nil, workItemReadError(inv, err)
+	}
+	earlier := max(len(had)-1, 0)
+	if ask.earlier > earlier {
+		msg := "work item " + itoa(it.Number) + " has had no description but the one it has now"
+		switch {
+		case len(had) == 0:
+			msg = "work item " + itoa(it.Number) + " has never had a description"
+		case earlier == 1:
+			msg = "work item " + itoa(it.Number) + " has had one description before the one it has now: --earlier 1"
+		case earlier > 1:
+			msg = "work item " + itoa(it.Number) + " has had " + itoa(earlier) + " descriptions before the one it has now: --earlier 1, the latest of them, to --earlier " + itoa(earlier) + ", the first"
+		}
+		return nil, &protocol.Error{Code: protocol.CodeNotFound, Message: msg, Details: map[string]string{"field": "earlier", "reason": ReasonNoEarlierDescription}}
+	}
+	d := &workItemDescription{Earlier: ask.earlier, EarlierCount: earlier}
+	if len(had) > 0 {
+		rev := had[len(had)-1-ask.earlier]
+		d.At, d.By, d.Session, d.Text = rev.At, rev.By, rev.Session, rev.Text
+	}
+	res.Description = d
+	out := []string{workItemText(it.Title)}
+	if d.Text != "" {
+		out = append(out, "")
+		out = append(out, strings.Split(protocol.Sanitize(d.Text), "\n")...)
+	}
+	return out, nil
+}
+
 // workItemBy names a change's writer after its time: ` by <label>
 // (session <name>)`, either part left out when it is empty.
 func workItemBy(member, session string) string {
@@ -839,7 +958,13 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 	if len(inv.Args) == 0 {
 		return nil, usage(WorkItemUsage)
 	}
-	ask := &workItemAsk{verb: inv.Args[0], closed: opts.Closed, all: opts.All, mine: opts.Mine, nobody: opts.Nobody}
+	ask := &workItemAsk{
+		verb: inv.Args[0], closed: opts.Closed, all: opts.All, mine: opts.Mine, nobody: opts.Nobody,
+		noDescription: opts.NoDescription, alone: opts.Description || opts.Earlier != nil,
+	}
+	if opts.Earlier != nil {
+		ask.earlier = *opts.Earlier
+	}
 	args := inv.Args[1:]
 	secret := adapterkit.Getenv(inv.Environ, envMessagingToken)
 	uses := func(flags ...string) error {
@@ -851,6 +976,7 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 		}{
 			{"list", opts.List != ""}, {"to", opts.To != ""}, {"mine", opts.Mine}, {"nobody", opts.Nobody},
 			{"tag", opts.Tag != ""}, {"closed", opts.Closed}, {"all", opts.All}, {"out", opts.Out != ""},
+			{"no-description", opts.NoDescription}, {"description", opts.Description}, {"earlier", opts.Earlier != nil},
 		}
 		for _, g := range given {
 			if g.on && !slices.Contains(flags, g.name) {
@@ -918,7 +1044,14 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 			}
 			ask.tag = tag
 		}
-	case workItemShow, workItemClose, workItemReopen:
+	case workItemShow:
+		if err := cmp.Or(uses("description", "earlier"), numbered(false)); err != nil {
+			return nil, err
+		}
+		if ask.earlier < 0 {
+			return nil, usage("work-item show --earlier counts the changes of the description back from the one the work item has now, 1 or more; " + WorkItemUsage)
+		}
+	case workItemClose, workItemReopen:
 		if err := cmp.Or(uses(), numbered(false)); err != nil {
 			return nil, err
 		}
@@ -938,12 +1071,15 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 			return nil, err
 		}
 	case workItemEdit:
-		if err := cmp.Or(uses(), numbered(false)); err != nil {
+		if err := cmp.Or(uses("no-description"), numbered(false)); err != nil {
 			return nil, err
 		}
 		var err error
 		if ask.title, ask.description, err = inv.readWorkItemText(secret); err != nil {
 			return nil, err
+		}
+		if ask.noDescription && ask.description != "" {
+			return nil, usage("work-item edit --no-description removes the description, so stdin carries the title alone: to replace the description, leave the flag out; " + WorkItemUsage)
 		}
 	case workItemMove:
 		if err := cmp.Or(uses(), numbered(true)); err != nil {

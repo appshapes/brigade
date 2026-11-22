@@ -149,8 +149,8 @@ func init() {
 		},
 		{
 			Name:    "work-item",
-			Args:    "list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all] | show <number> | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name> | hide-list <list> | unhide-list <list> | page [--out <file>]",
-			Summary: "read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists, or hide one from the listing (a list is named by its key or its name; a listing leaves a hidden list out unless --all or --list asks for it); page writes the whole board as one read-only HTML page to open in a browser, in a session or in a terminal in the team's checkout",
+			Args:    "list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all] | show <number> [--description | --earlier <n>] | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> [--no-description] | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name> | hide-list <list> | unhide-list <list> | page [--out <file>]",
+			Summary: "read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one (--description: its title and description alone, the form edit reads; --earlier <n>: a description it had before), add one (title, a blank line and the description on stdin), edit one (the same on stdin; a title alone keeps the description), move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists, or hide one from the listing (a list is named by its key or its name; a listing leaves a hidden list out unless --all or --list asks for it); page writes the whole board as one read-only HTML page to open in a browser, in a session or in a terminal in the team's checkout",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("list", "", "one of the board's lists, by its key or its name. add: the list the new work item goes into (the board's first shown list when unset); list: only the work items in this list, a hidden one too")
 				fs.String("to", "", "a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them")
@@ -160,6 +160,9 @@ func init() {
 				fs.Bool("closed", false, "list: the closed work items instead of the open ones")
 				fs.Bool("all", false, "list: the open work items of every list, those of a hidden list too (a listing of open work items leaves a hidden list out and says so in its line of counts)")
 				fs.String("out", "", "page: the file to write, in place of the one under Brigade's state directory")
+				fs.Bool("description", false, "show: the title, a blank line and the description alone, as written: the form edit reads")
+				fs.Int("earlier", 0, "show: as --description, with the description as it was this many changes of it ago: 1 is the one before the one it has now")
+				fs.Bool("no-description", false, "edit: remove the description; stdin carries the title alone (without this flag a title alone keeps the description)")
 			},
 			Run: runWorkItem,
 		},
@@ -330,6 +333,21 @@ func stringFlag(cx *Context, name string) string {
 	return f.Value.String()
 }
 
+// intFlagGiven reads an integer flag the entry registered, nil when the
+// caller did not give it: a 0 that was typed is not a flag left out.
+func intFlagGiven(cx *Context, name string) *int {
+	var given *int
+	if cx.Flags != nil {
+		cx.Flags.Visit(func(f *flag.Flag) {
+			if f.Name == name {
+				n := cx.Int(name)
+				given = &n
+			}
+		})
+	}
+	return given
+}
+
 // runSessions is the table's Run for `sessions`.
 func runSessions(cx *Context, args []string) error {
 	return harnesscmd.Sessions(invocation(cx, args), harnesscmd.SessionsOptions{
@@ -409,6 +427,10 @@ func runWorkItem(cx *Context, args []string) error {
 		Closed: cx.Bool("closed"),
 		All:    cx.Bool("all"),
 		Out:    stringFlag(cx, "out"),
+
+		NoDescription: cx.Bool("no-description"),
+		Description:   cx.Bool("description"),
+		Earlier:       intFlagGiven(cx, "earlier"),
 	})
 }
 

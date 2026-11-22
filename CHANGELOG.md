@@ -28,6 +28,32 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   turns the board on. In a session, ask to "show the board in a
   browser", or run `/brigade:work-items page`. The page is a snapshot:
   run the command again for later changes.
+- **Read back a description that was replaced** (work item 390).
+  `brigade work-item show <number> --earlier 1` prints the description
+  a work item had before the latest change of it, and `--earlier 2` the
+  one before that. The board always kept every change, but no command
+  showed an earlier description. Pipe what it prints to
+  `brigade work-item edit <number>` and the work item has that
+  description again.
+- **The description alone.** `brigade work-item show <number>
+  --description` prints the title, a blank line and the description as
+  written, which is what `edit` reads. Change a long description from
+  the whole of it.
+
+### Changed
+
+- **`brigade work-item edit` with a title alone keeps the description**
+  (work item 390). It used to erase it for every teammate: `edit`
+  replaced the title and the description with what it was sent, and one
+  line was a title with an empty description. Now a title alone changes
+  the title and nothing else. A description after the title still
+  replaces the whole description, and `--no-description` removes it.
+- **`edited:` says when a description got shorter** or was removed. It
+  gives the length before and after, and the command that prints the
+  description the work item had.
+- **The `work-item` skill** in the four packages follows: a session
+  that retitles a work item sends the title alone, and one that changes
+  a description starts from `show --description`.
 
 ## [0.57.0] — 2026-11-15
 

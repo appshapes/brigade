@@ -24,10 +24,14 @@ writes that folder: nothing goes to the backend, and the board works while the b
 
 ## The commands
 
-Run each through your terminal tool, **one `brigade` command per call**:
+Run each through your terminal tool, **one `brigade` command per call**; the pipe that puts a description back
+is the one call of two:
 
 ```bash
 brigade work-item show 41                   # the work item whole: fields, description, comments, history
+brigade work-item show 41 --description     # its title, a blank line and its description alone: the form edit reads
+brigade work-item show 41 --earlier 1       # the same, with the description it had before the latest change of it
+brigade work-item show 41 --earlier 1 | brigade work-item edit 41   # puts that description back, copied exactly
 brigade work-item add <<'EOF'               # a new work item in the board's first list that is shown
 <the title, on one line>
 
@@ -36,10 +40,16 @@ EOF
 brigade work-item add --list 'Doing' --mine --tag 'bug,web' <<'EOF'   # in a list, assigned to your user, tagged
 <the title>
 EOF
-brigade work-item edit 41 <<'EOF'           # replaces the title AND the description: send both
+brigade work-item edit 41 <<'EOF'           # a title alone changes the title: the description stays
+<the title>
+EOF
+brigade work-item edit 41 <<'EOF'           # a description after the title replaces the WHOLE description
 <the title>
 
 <the description>
+EOF
+brigade work-item edit 41 --no-description <<'EOF'   # removes the description; stdin is the title alone
+<the title>
 EOF
 brigade work-item move 41 Doing             # to another of the board's lists, by its name or its key
 brigade work-item assign 41 --mine          # to your user; --to '<member>' to a teammate; --nobody to nobody
@@ -75,7 +85,11 @@ means:
 | `<number> assign nobody`, "unassign 41" | `brigade work-item assign <number> --nobody` |
 | `<number> comment <text>` | `brigade work-item comment <number>`, the text on stdin |
 | `<number> tag <tags>` | `brigade work-item tag <number> <tags>` |
-| `<number> edit`, "retitle 41" | `brigade work-item show <number>` first, then `brigade work-item edit <number>` with the whole new title and description: `edit` replaces the whole description with what it is sent, so when `show` came back cut short or saved to a file, read all of it first, or a long description is cut for everyone |
+| "retitle 41" | `brigade work-item edit <number>` with the new title alone on stdin: the description stays as it is |
+| `<number> edit`, "change what 41 says" | `brigade work-item show <number> --description` first, which prints the title, a blank line and the whole description, then `brigade work-item edit <number>` with the title and the whole new description: a description on stdin replaces the one there is, so when the output came back cut short or saved to a file, read all of it first, or a long description is cut for everyone |
+| "41 needs no description" | `brigade work-item edit <number> --no-description` with the title on stdin |
+| "what did 41 say before" | `brigade work-item show <number> --earlier 1` prints the title and the description it had before the latest change of it, `--earlier 2` the one before that |
+| "put 41's description back" | `brigade work-item show <number> --earlier 1` first, to see that it is the one meant; then the pipe from `show <number> --earlier 1` to `edit <number>`, as in the commands above, in one call. The pipe copies the text exactly: never retype a description to put it back |
 | `<number> close`, "41 is finished with" | `brigade work-item close <number>` |
 | `<number> reopen` | `brigade work-item reopen <number>` |
 
@@ -86,6 +100,7 @@ what to do with it. Never guess a number.
 
 - **Text travels on stdin**, in a quoted heredoc (`<<'EOF'`) whose delimiter is absent from the text, never on
   the command line. The first line of an `add` or an `edit` is the title; the description follows a blank line.
+  An `edit` whose stdin is a title alone keeps the description the work item has.
 - **A member is named by their label** as the roster's `MEMBER` column shows it, in single quotes.
 - **A list is a state with a key and a name.** The key (`doing`) is set when the list is made and never changes;
   the name (`In progress`) is what the team calls it, and `rename-list` changes it without moving a work item.
@@ -99,6 +114,11 @@ what to do with it. Never guess a number.
 - **Print the line the command printed** after a change: it says what changed, or `unchanged:` when the work
   item was already so. When your user asked to see a work item, print what `show` printed verbatim, inside a
   fenced block, and nothing else.
+- **`edited:` says what became of the description**: `the description is kept` after a title alone, and
+  `the description is shorter, <n> characters where it had <m>` or `the description is removed` when the edit
+  cut it. When you did not mean to cut it, put the one it had back with
+  `brigade work-item show <number> --earlier 1 | brigade work-item edit <number>`, and tell your user. The board
+  keeps every description a work item has had.
 - **A `renumbered:` line** before the output means two machines added a work item at the same moment and both
   took one number; the one created later has another now. Tell your user: a number they remember may have moved.
 - **No secrets.** The board is a folder on every teammate's machine. The command refuses a text that carries a
@@ -125,6 +145,7 @@ Print a refusal once and stop; never retry with another form.
 | --- | --- |
 | `config`, `no_board` | this team has not turned its board on, or file sync is off for this session: `"board": true` in the `sync` member of the project's `.brigade.json` turns it on, the team administrator's to add |
 | `not_found`, `no_such_work_item` | no work item carries that number: `brigade work-item list` shows the open ones, `--closed` the closed |
+| `not_found`, `no_earlier_description` | the work item has not had that many descriptions before the one it has; the message says how many it has had |
 | `invalid_input`, `no_such_list` | the board has no list of that name or key; the message names the ones it has |
 | `invalid_input`, `name_taken` | a list cannot take a name another list answers to, as its name or its key |
 | `config`, `label_needed` | `--mine` in a session with no roster label: name the member with `--to` |

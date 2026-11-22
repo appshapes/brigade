@@ -239,6 +239,56 @@ func TestTheLastChangeOfAFieldWins(t *testing.T) {
 	}
 }
 
+// A work item shows the description its last change gave it, and the
+// folder keeps every one it had: ReadDescriptions gives them oldest
+// first, each with its writer, one for each change that gave the work
+// item another description than it had (work item 390).
+func TestEveryDescriptionAWorkItemHadIsReadBack(t *testing.T) {
+	c := newClock()
+	s := Store{Folder: t.TempDir(), Now: c.now}
+	id := add(t, s, "Fix the login redirect", alice)
+	if revs, err := ReadDescriptions(s.Folder, id); err != nil || len(revs) != 0 {
+		t.Fatalf("a work item that never had a description: %+v, %v", revs, err)
+	}
+	change(t, s, id, &Fields{Description: ptr("Steps:\n1. Sign out")}, "", alice)
+	change(t, s, id, &Fields{List: ptr("doing")}, "A comment is no description.", bob)
+	// The same text again is no change of it, as the history says.
+	change(t, s, id, &Fields{Title: ptr("Fix the loop"), Description: ptr("Steps:\n1. Sign out")}, "", bob)
+	change(t, s, id, &Fields{Description: ptr("")}, "", bob)
+	change(t, s, id, &Fields{Description: ptr("Steps:\n1. Sign out\n2. Sign in")}, "", alice)
+
+	revs, err := ReadDescriptions(s.Folder, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range revs {
+		got = append(got, r.By+": "+strconv.Quote(r.Text))
+	}
+	want := []string{
+		`alice@example.com: "Steps:\n1. Sign out"`,
+		`bob@example.com: ""`,
+		`alice@example.com: "Steps:\n1. Sign out\n2. Sign in"`,
+	}
+	if strings.Join(got, " | ") != strings.Join(want, " | ") {
+		t.Errorf("descriptions = %q", got)
+	}
+	it := read(t, s.Folder).ByID(id)
+	if last := revs[len(revs)-1]; last.Text != it.Description || last.Session != alice.Session || !last.At.Equal(it.UpdatedAt) {
+		t.Errorf("the last one is not the work item's own: %+v, item %q updated %v", last, it.Description, it.UpdatedAt)
+	}
+	changed := 0
+	for _, e := range it.History {
+		changed += strings.Count(e.What, "description changed")
+	}
+	if changed != len(revs) {
+		t.Errorf("the history says the description changed %d times, and %d were read back", changed, len(revs))
+	}
+	if revs, err := ReadDescriptions(s.Folder, "not-an-id"); err != nil || revs != nil {
+		t.Errorf("an id that is no work item's: %+v, %v", revs, err)
+	}
+}
+
 // Two machines change one work item before either has the other's
 // change: both changes carry the same sequence, both files survive, and
 // the later clock wins the field both set while each keeps the field

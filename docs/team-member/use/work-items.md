@@ -62,13 +62,17 @@ brigade work-item list --mine                # yours; --to <label> a teammate's;
 brigade work-item list --list Doing          # one list, by its name or its key; --tag bug one tag; --closed the closed ones
 brigade work-item list --all                 # every list, the ones the team hid from the listing too
 brigade work-item show 41                    # one work item: fields, description, comments, history
+brigade work-item show 41 --description      # its title, a blank line and its description alone: the form edit reads
 brigade work-item add --list Todo --mine --tag bug,web <<'EOF'
 Fix the login redirect
 
 Signing in from the invite link returns to the invite, not the dashboard.
 Done when the dashboard opens after a sign-in from any link.
 EOF
-brigade work-item edit 41 <<'EOF'            # replaces the title and the description: send both
+brigade work-item edit 41 <<'EOF'            # a title alone changes the title: the description stays
+Fix the login redirect loop
+EOF
+brigade work-item edit 41 <<'EOF'            # a description after the title replaces the whole description
 Fix the login redirect loop
 
 Signing in from the invite link loops between the invite and the sign-in page.
@@ -92,6 +96,24 @@ brigade work-item page                       # the whole board as one read-only 
 Every verb runs inside a session, `page` in a terminal too, and every verb takes `--json`. A title, a description and a comment travel on stdin; the
 first line of an `add` or an `edit` is the title and the description follows a blank line. A title holds 200
 characters, a description 65,536 and a comment 16,384. A text that carries a credential's shape is refused.
+
+An `edit` changes what it is sent. A title alone changes the title and keeps the description; a description
+after the title replaces the whole description; `--no-description`, with the title alone, removes it. To change
+a long description, start from the whole of it: `brigade work-item show 41 --description` prints the title, a
+blank line and the description as written, which is what `edit` reads.
+
+```
+$ brigade work-item edit 41 < shorter.txt
+edited: 41 "Fix the login redirect loop"; the description is shorter, 212 characters where it had 4310: brigade work-item show 41 --earlier 1 prints the one it had
+$ brigade work-item show 41 --earlier 1 | brigade work-item edit 41
+edited: 41 "Fix the login redirect loop"
+```
+
+A description that was replaced is not lost: the board keeps every change. `edited:` says when a description
+got shorter or was removed, with its lengths. `brigade work-item show 41 --earlier 1` prints the description
+the work item had before the latest change of it, `--earlier 2` the one before that, each under the title the
+work item has now; piped to `edit`, as above, it is the work item's description once more. The history that
+`show` prints has a `description changed` line for each change of it, with who made it and when.
 
 `brigade work-item list` prints one row per work item and one line that counts every list, so an empty list is
 still seen:
