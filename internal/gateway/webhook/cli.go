@@ -16,6 +16,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/adapters/rest"
 	"github.com/appshapes/brigade/internal/adapters/supabase"
 	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
@@ -42,17 +43,35 @@ The identity is configuration: the profile (--profile, or the one
   brigade team join --secret-file <file> --label <member label>
 with the same BRIGADE_CONFIG_DIR. Whichever member that binding is, the
 gateway is one more session of it, named --session-name. The profile's
-adapter is used (the bundled Supabase adapter by default).
+adapter is used: the bundled one for a Brigade server or for a Supabase
+project, whichever the team was joined on.
 `
 
 // Run is the brigade-webhook-gateway entry point. It is also a multi-call
-// binary: `adapter supabase …` runs the bundled Supabase adapter, which is
-// what adapterclient spawns for a profile on the bundled adapter (it
+// binary: `adapter supabase …` runs the bundled Supabase adapter and
+// `adapter rest …` the bundled adapter for a Brigade server, which is
+// what adapterclient spawns for a profile on a bundled adapter (it
 // re-executes os.Executable with exactly those words), so one binary is
-// enough on a machine with no `brigade` install.
+// enough on a machine with no `brigade` install. Until work item 389 it
+// knew the first alone: for a team on a server the words `adapter rest …`
+// fell through to the gateway's own flags, which took them for stray
+// arguments and stopped at the missing --target-url. The client that had
+// spawned it read no protocol envelope, and the gateway could not
+// register. So a name after `adapter` that is neither is refused here,
+// by its own words, and never falls through again.
 func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, environ []string) int {
-	if len(args) >= 2 && args[0] == "adapter" && args[1] == "supabase" {
-		return supabase.Run(args[2:], stdin, stdout, stderr, environ)
+	if len(args) >= 1 && args[0] == "adapter" {
+		if len(args) >= 2 {
+			switch args[1] {
+			case config.BundledAdapterName:
+				return supabase.Run(args[2:], stdin, stdout, stderr, environ)
+			case config.BundledRestName:
+				return rest.Run(args[2:], stdin, stdout, stderr, environ)
+			}
+		}
+		_, _ = io.WriteString(stderr, "brigade-webhook-gateway: adapter takes the name of a bundled adapter, `"+
+			config.BundledAdapterName+"` or `"+config.BundledRestName+"`\n")
+		return 2
 	}
 	if len(args) >= 1 && (args[0] == "send" || args[0] == "sessions") {
 		return runClient(ctx, args[0], args[1:], stdin, stdout, stderr)

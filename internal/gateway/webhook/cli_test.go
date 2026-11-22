@@ -5,6 +5,7 @@ package webhook
 import (
 	"bytes"
 	"encoding/json/v2"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
@@ -88,19 +90,55 @@ func TestClientSendAndSessions(t *testing.T) {
 	}
 }
 
-// The binary is multi-call so that a bundled adapter (`adapter supabase`)
-// resolves to the gateway's own executable.
-func TestBinaryBundlesTheSupabaseAdapter(t *testing.T) {
+// The binary is multi-call so that a bundled adapter resolves to the
+// gateway's own executable: `adapter supabase` for a team on a Supabase
+// project and `adapter rest` for one on a Brigade server (work item 389:
+// the second was not there, and the gateway's own flags refused the
+// words). Any other word after `adapter` is still the gateway's to refuse.
+func TestBinaryBundlesBothAdapters(t *testing.T) {
 	bin := testutil.Build(t, "./cmd/brigade-webhook-gateway")
-	//nolint:gosec // G204: the binary this test just built, with fixed arguments
-	cmd := exec.CommandContext(t.Context(), bin, "adapter", "supabase", "--profile", "default", "describe")
-	cmd.Env = []string{"HOME=" + t.TempDir()}
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("adapter supabase: %v (%s)", err, out)
+	for name, want := range map[string]string{
+		config.BundledAdapterName: `"brigade-adapter-supabase"`,
+		config.BundledRestName:    `"brigade-adapter-rest"`,
+	} {
+		//nolint:gosec // G204: the binary this test just built, with fixed arguments
+		cmd := exec.CommandContext(t.Context(), bin, "adapter", name, "--profile", "default", "describe")
+		cmd.Env = []string{"HOME=" + t.TempDir()}
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("adapter %s: %v (%s)", name, err, out)
+		}
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("adapter %s describe = %s, want it to name %s", name, out, want)
+		}
 	}
-	if !strings.Contains(string(out), `"brigade-adapter-supabase"`) {
-		t.Fatalf("describe = %s", out)
+	// A name it does not bundle is refused by its own words, with the two it
+	// has: it used to fall through to the gateway's flags, which is how
+	// `adapter rest` failed with nothing said of an adapter.
+	for _, args := range [][]string{{"adapter", "fs", "describe"}, {"adapter"}} {
+		//nolint:gosec // G204: as above
+		cmd := exec.CommandContext(t.Context(), bin, args...)
+		cmd.Env = []string{"HOME=" + t.TempDir()}
+		out, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.Contains(string(out), "`supabase` or `rest`") || strings.Contains(string(out), "target-url") {
+			t.Fatalf("%v: %v (%s); want exit 2 and the two bundled adapters named", args, err, out)
+		}
+	}
+}
+
+// The binary verifies a backend's certificate against the root bundle it
+// links where the machine has none, as `brigade` does: the directive that
+// says so is honoured in package main alone, and this binary's main did
+// not carry it.
+func TestBinaryFallsBackToItsOwnRoots(t *testing.T) {
+	bin := testutil.Build(t, "./cmd/brigade-webhook-gateway")
+	out, err := exec.CommandContext(t.Context(), "go", "version", "-m", bin).Output() //nolint:gosec // G204: the go tool, on the binary this test built
+	if err != nil {
+		t.Fatalf("go version -m: %v", err)
+	}
+	if !strings.Contains(string(out), "x509usefallbackroots=1") || !strings.Contains(string(out), "golang.org/x/crypto/x509roots/fallback") {
+		t.Fatalf("the binary does not carry the fallback roots and the setting that uses them:\n%s", out)
 	}
 }
 

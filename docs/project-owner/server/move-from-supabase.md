@@ -76,6 +76,11 @@ it there, and a member that the ticket lets in never does.
   addresses and the mail provider's webhook at the server ([Open the gateways](gateways.md)). Then take them out
   of the Supabase project
   ([After a team moved to a Brigade server](../remove/remove-a-gateway.md#after-a-team-moved-to-a-brigade-server)).
+- **A webhook gateway** does not follow. It is a process on a machine of yours and stays a session of the team in
+  the Supabase project, where a request for a member whose sessions have left is still answered 202 and read by
+  nobody. Stop it, join its member on the server with the team's secret file, and start it again
+  ([When the team moves](../configure/webhook-gateway.md#when-the-team-moves)). It needs a gateway built since
+  2026-11-22: an earlier one cannot run for a team on a server.
 - **When no checkout is left to follow.** The operator closes the move, `--close-move <team_ref>`, or lets the
   ticket run out after 30 days, or after the days the Team Admin chose with `--ticket-days`. The Team Admin ends the team on the old backend, from a checkout that still
   names it ([Undo it, and end it](../../team-admin/members/move-the-team.md#undo-it-and-end-it)). A checkout

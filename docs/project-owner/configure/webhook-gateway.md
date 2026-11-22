@@ -1,9 +1,9 @@
 # Run the webhook gateway
 
 A gateway you run yourself, on any always-on Linux machine, that connects one outside service (an agent platform,
-a bot, an automation) to the team. It is an ordinary session on the team's Supabase backend, under a member
-identity you choose, with the harness name `gateway-webhook`. Nothing is added to the project: no Edge Function, no
-migration, no public URL on the machine.
+a bot, an automation) to the team. It is an ordinary session on the team's backend, a Brigade server or a Supabase
+project, under a member identity you choose, with the harness name `gateway-webhook`. Nothing is added to the
+backend: no Edge Function, no migration, no gateway configuration on a server, no public URL on the machine.
 
 - **Into the service:** every message a session sends to the gateway's session is POSTed, signed, to one HTTPS URL
   of yours (`--target-url`). The message is acknowledged only after that URL answers 2xx.
@@ -17,8 +17,10 @@ teammate, never as an approval, a credential, or an instruction it must obey.
 
 ## What you need
 
-1. **The team's `.brigade.json`** (adapter `supabase`, the project URL, the publishable key, the team reference).
-   These values are public: they are committed in the team's repository.
+1. **The team's `.brigade.json`**: for a team on a Brigade server, adapter `rest`, the server's URL, the
+   fingerprint of its certificate where it made its own, and the team reference; for a team on a Supabase
+   project, adapter `supabase`, the project URL, the publishable key and the team reference. These values are
+   public: they are committed in the team's repository.
 2. **A member identity on the machine:** a `brigade team join` there, into a config directory that only the
    gateway's user can read ([Choose the identity](#choose-the-identity)). For a new member that needs the team's
    join secret file, handed over once, out of band.
@@ -37,9 +39,11 @@ teammate, never as an approval, a credential, or an instruction it must obey.
 make build-webhook-gateway          # bin/brigade-webhook-gateway, release flags
 ```
 
-The one binary is the gateway, its `send`/`sessions` client and the bundled Supabase adapter
-(`brigade-webhook-gateway adapter supabase …`), so the machine needs no `brigade` install for the gateway to run.
-The `team join` of step 2 still needs `brigade` once.
+The one binary is the gateway, its `send`/`sessions` client and the two bundled adapters
+(`brigade-webhook-gateway adapter rest …` for a Brigade server, `… adapter supabase …` for a Supabase project), so
+the machine needs no `brigade` install for the gateway to run. The `team join` of step 2 still needs `brigade`
+once. A gateway built before 2026-11-22 carries the Supabase adapter alone: for a team on a server it stops at
+its start with `cannot register the gateway session`, and is built again from a current checkout.
 
 ## Choose the identity
 
@@ -172,6 +176,29 @@ done
 ```
 
 `nohup ./run-webhook-gateway.sh &` starts it.
+
+## When the team moves
+
+A webhook gateway does not follow a team to another backend. A coding session follows at its start or at its next
+prompts; the gateway is a process with no such moment, and it stays a session of the team on the backend it
+joined. There it carries less and less. The sessions that followed are offline on the old backend, and a request
+for a member whose sessions have left is still accepted: the gateway answers 202, the message waits there for a
+session that does not come back, and the service is told it was sent.
+
+So move the gateway with the team, on its machine:
+
+1. Stop the gateway.
+2. Pull the team's checkout, so that `.brigade.json` names the new backend, and join the gateway's member there
+   once, at a terminal, with the gateway's `BRIGADE_CONFIG_DIR`:
+   `brigade team join --secret-file <the team's join secret file> --label "<the label it had>"`. It is a new
+   member on the new backend under the label it had.
+3. Start the gateway again with the flags it had. `--team-file` names the new backend now and works out the
+   profile; a gateway started with `--profile` is given the new one.
+
+A gateway that is started again on the changed file before step 2 stops with `the profile is not bound to a team
+on this machine`: that is step 2 missing, and nothing was sent anywhere. The gateway has a new session and a new
+memory of threads after the move: a `--reply-to` that names a message from before it is answered `not_found`, and
+the service gives `--to` or `--member` instead.
 
 ## The service's side
 

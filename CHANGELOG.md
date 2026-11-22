@@ -96,6 +96,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   no longer quotes a count of options, Muse Code updates from a
   refreshed marketplace, and the agent's page no longer suggests a
   symlink for `brigade`. No command changes.
+- **The webhook gateway runs for a team on a Brigade server** (work item
+  389). `brigade-webhook-gateway` is its own host for the team's
+  adapter, and it carried the Supabase adapter alone. For a team on a
+  server it stopped at its start with `cannot register the gateway
+  session`. It now carries both adapters. Build it again
+  (`make build-webhook-gateway`) for a team on a server.
+- **A webhook gateway does not follow a team that moves**, and the pages
+  now say so. It stays a session on the backend it joined, where a
+  request for a member whose sessions have left is still answered 202
+  and read by nobody. Stop it, join its member on the new backend with
+  the team's secret file, and start it again: "When the team moves" on
+  the gateway's page has the steps.
 
 ## [0.57.0] — 2026-11-15
 

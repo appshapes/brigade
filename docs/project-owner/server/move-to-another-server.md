@@ -98,6 +98,10 @@ fewer and fewer sessions listen.
 Do it when the members have followed, or at the moment the Team Admin pushes the team file: between the move and
 step 2, a mail or a Slack message reaches only the sessions that are still on the old server.
 
+A webhook gateway is not a gateway of the server: it is a process on a machine of the team's, and it does not
+follow either. Its operator stops it, joins its member on the new server and starts it again
+([When the team moves](../configure/webhook-gateway.md#when-the-team-moves)).
+
 ## The server the team goes to must not be a copy
 
 Start the new server on a data directory of its own. A server started from a copy of the old one's data directory,

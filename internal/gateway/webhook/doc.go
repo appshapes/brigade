@@ -5,8 +5,8 @@
 // It speaks to the backend ONLY through BAP/1 (docs/protocol-v1.md), via
 // the [Backend] interface that *adapterclient.Client satisfies, so the
 // same gateway runs over the filesystem adapter (a Syncthing-shared
-// folder), the bundled Supabase adapter, or any conforming adapter. It
-// never reads a store directly.
+// folder), the two bundled adapters (a Supabase project, a Brigade
+// server), or any conforming adapter. It never reads a store directly.
 //
 // Outbound: every message addressed to the gateway's session is POSTed as
 // JSON to the configured URL, signed with HMAC-SHA256 over
