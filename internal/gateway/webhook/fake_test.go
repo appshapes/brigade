@@ -27,6 +27,10 @@ type fakeBackend struct {
 	registerErr  []error
 	heartbeatErr []error
 	sendErr      []error
+	listErr      []error
+	// listHangs makes ListSessions wait for its context to end, as a
+	// backend whose roster does not answer.
+	listHangs bool
 }
 
 func newFake() *fakeBackend {
@@ -79,9 +83,19 @@ func (f *fakeBackend) Close(_ context.Context, id string) (*adapterclient.CloseR
 	return &adapterclient.CloseResult{SessionID: id, State: protocol.SessionStateOffline}, nil
 }
 
-func (f *fakeBackend) ListSessions(_ context.Context, includeOffline bool) (*adapterclient.ListResult, error) {
+func (f *fakeBackend) ListSessions(ctx context.Context, includeOffline bool) (*adapterclient.ListResult, error) {
+	f.mu.Lock()
+	hangs := f.listHangs
+	f.mu.Unlock()
+	if hangs {
+		<-ctx.Done()
+		return nil, perr(protocol.CodeUnavailable)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := pop(&f.listErr); err != nil {
+		return nil, err
+	}
 	var out []protocol.SessionRecord
 	for _, s := range f.sessions {
 		if includeOffline || s.State != protocol.SessionStateOffline {

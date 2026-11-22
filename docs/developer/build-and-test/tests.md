@@ -6,8 +6,9 @@ make supabase-start supabase-env && make test-all   # + pgTAP, advisor lints, in
 ```
 
 `make test` is Docker-free and stack-free. The live Supabase tests are opt-in behind `BRIGADE_TEST_LIVE=1`, which
-only `make test-integration-adapter` sets: `make test-integration` runs it, then `make test-integration-conformance`
-(CI's `supabase` job runs the first, its `e2e` job the second); `make test-db` runs the pgTAP tests in
+`make test-integration-adapter` and `make test-integration-gateway` set: `make test-integration` runs both, then
+`make test-integration-conformance` (CI's `supabase` job runs the first two, its `e2e` job the third); `make
+test-db` runs the pgTAP tests in
 `supabase/tests`; `make advisor-lints` mirrors Supabase's Security Advisor lints with the database container's
 `psql`.
 

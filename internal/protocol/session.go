@@ -167,6 +167,26 @@ type SessionRecord struct {
 	IsSelf             bool      `json:"is_self"`
 }
 
+// Waits lists why a message sent to s waits on the backend instead of
+// being read now: the session's state when that is `offline`, then its
+// inbound policy when that is `hold` or `refuse`, each by its own word.
+// It is nil for a session that was online and accepting. A message to
+// such a session is accepted like any other (4.5.3: a held or refused
+// message is never acknowledged), so the roster is the one place a sender
+// can learn it from; `brigade send` and the webhook gateway both tell
+// their caller with this (work item 408). It reads the record as it is:
+// what the roster showed when it was read, never when the message is read.
+func (s *SessionRecord) Waits() []string {
+	var out []string
+	if s.State == SessionStateOffline {
+		out = append(out, SessionStateOffline)
+	}
+	if s.Inbound == InboundHold || s.Inbound == InboundRefuse {
+		out = append(out, s.Inbound)
+	}
+	return out
+}
+
 // Validate implements Validator.
 func (s *SessionRecord) Validate() error {
 	if err := requireString("session_id", s.SessionID); err != nil {

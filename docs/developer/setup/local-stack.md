@@ -13,8 +13,9 @@ make supabase-clean                  # stop and delete the data
 - `supabase-start` refuses when `supabase/migrations/` is empty (`migrations-check`); `supabase-reset` recreates the
   database from migrations and seed; `make migration-new name=<add_x>` creates a migration.
 - `supabase-env` writes `.env.test` from the running stack, in both name sets; never commit it.
-- The adapter's live tests are opt-in behind `BRIGADE_TEST_LIVE=1`, which only `make test-integration-adapter`
-  sets. `make test-integration` runs it and then `make test-integration-conformance` (`conformance(supabase)`).
+- The live tests are opt-in behind `BRIGADE_TEST_LIVE=1`, which `make test-integration-adapter` (the adapter's
+  own) and `make test-integration-gateway` (the webhook gateway for a team on the stack) set. `make
+  test-integration` runs both and then `make test-integration-conformance` (`conformance(supabase)`).
 - CI's `supabase` and `e2e` jobs run the same recipes, each on a stack of its own, with the setup-cli binary
   (`supabase=supabase`), so the version is pinned in one place per context.
 - To run the conformance suite against the bundled adapter and the local stack:

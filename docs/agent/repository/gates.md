@@ -2,7 +2,8 @@
 
 - **The acceptance gate** is `make typecheck lint build test vuln deps-check schema-check tidy-check docs-check`.
   `make test` is Docker-free and stack-free: the live Supabase tests are opt-in behind `BRIGADE_TEST_LIVE=1`, which
-  only `make test-integration-adapter` sets (`make test-integration` runs it, and so does CI's `supabase` job).
+  `make test-integration-adapter` and `make test-integration-gateway` set (`make test-integration` runs both, and
+  so does CI's `supabase` job).
   Run `make supabase-start supabase-env` once, then `make test-all`, before pushing anything that touches
   `supabase/` or `internal/adapters/supabase`.
 - **CI's shape** (card 245, owner rulings 2026-11-10). `ci.yml`'s `fast`, `lint`, `windows`, `supabase`, `e2e` and

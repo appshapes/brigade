@@ -23,6 +23,11 @@ const (
 
 const (
 	inboundTimeout = 30 * time.Second
+	// replyRosterWait is how long a `reply_to`-only request waits for the
+	// roster, which it reads for the answer's `waiting` alone: the send
+	// that follows keeps the rest of inboundTimeout whatever the roster
+	// does.
+	replyRosterWait = 5 * time.Second
 	// DefaultInboundPerMinute bounds accepted POSTs, all callers together.
 	DefaultInboundPerMinute = 60
 )
@@ -33,13 +38,23 @@ type apiError struct {
 }
 
 type apiResponse struct {
-	OK                 bool         `json:"ok"`
-	MessageID          string       `json:"message_id,omitzero"`
-	RecipientSessionID string       `json:"recipient_session_id,omitzero"`
-	Duplicate          bool         `json:"duplicate,omitzero"`
-	HopCount           int          `json:"hop_count,omitzero"`
-	Sessions           []rosterLine `json:"sessions,omitzero"`
-	Error              *apiError    `json:"error,omitzero"`
+	OK                 bool   `json:"ok"`
+	MessageID          string `json:"message_id,omitzero"`
+	RecipientSessionID string `json:"recipient_session_id,omitzero"`
+	Duplicate          bool   `json:"duplicate,omitzero"`
+	HopCount           int    `json:"hop_count,omitzero"`
+	// Waiting says why an accepted message is not read now (work item
+	// 408, ADR 0018): `offline`, `hold` or `refuse`, the recipient's own
+	// state and inbound policy as the roster showed them when the gateway
+	// read it for this request (protocol.SessionRecord.Waits). The status
+	// is 202 either way, since the message is accepted either way; a
+	// service that reads the status alone is told what it was told before.
+	// Absent: nothing the gateway read says that the message waits. It is
+	// absent beside `duplicate` too: that message was accepted by an
+	// earlier request and may have been read since.
+	Waiting  []string     `json:"waiting,omitzero"`
+	Sessions []rosterLine `json:"sessions,omitzero"`
+	Error    *apiError    `json:"error,omitzero"`
 }
 
 // rosterLine is what GET /v1/sessions shows for one session: enough to
@@ -135,7 +150,7 @@ func (g *Gateway) handleSend(ctx context.Context, body []byte, signature string)
 	if err := in.Validate(); err != nil {
 		return fail(http.StatusBadRequest, "invalid_input", err.Error())
 	}
-	recipient, replyTo, status, resp := g.route(ctx, &in)
+	recipient, replyTo, waits, status, resp := g.route(ctx, &in)
 	if resp != nil {
 		return status, resp
 	}
@@ -171,27 +186,47 @@ func (g *Gateway) handleSend(ctx context.Context, body []byte, signature string)
 	}); rerr != nil {
 		g.log.Warn("gateway state not saved", slog.String("error", rerr.Error()))
 	}
+	if res.Duplicate {
+		// The backend had this message already: it was accepted by an
+		// earlier request, and its recipient may have read it before
+		// going offline. The roster of now says nothing about it.
+		waits = nil
+	}
 	return http.StatusAccepted, &apiResponse{
 		OK: true, MessageID: res.MessageID, RecipientSessionID: res.RecipientSessionID,
-		Duplicate: res.Duplicate, HopCount: res.HopCount,
+		Duplicate: res.Duplicate, HopCount: res.HopCount, Waiting: waits,
 	}
 }
 
-// route decides the recipient and the reply_to to send with.
-func (g *Gateway) route(ctx context.Context, in *InboundRequest) (recipient, replyTo string, status int, resp *apiResponse) {
+// route decides the recipient and the reply_to to send with, and says why
+// the message will wait for that recipient, when the roster shows it.
+func (g *Gateway) route(ctx context.Context, in *InboundRequest) (recipient, replyTo string, waits []string, status int, resp *apiResponse) {
 	replyTo = in.ReplyTo
 	if in.To == "" && in.Member == "" {
 		e, ok := g.st.thread(in.ReplyTo)
 		if !ok {
 			status, resp = fail(http.StatusNotFound, "not_found", "reply_to is not a message this gateway carried; give to or member")
-			return "", "", status, resp
+			return "", "", nil, status, resp
 		}
-		return e.Peer, replyTo, 0, nil
+		// The thread names the recipient, so the roster is read for one
+		// thing only: whether that session reads the reply now. A reply
+		// never needed the roster to be sent, and a roster that cannot be
+		// read, or is slow, neither stops one nor spends its time: the
+		// read has a short wait of its own, and the answer then says
+		// nothing of waiting.
+		rctx, cancel := context.WithTimeout(ctx, g.replyRoster)
+		list, err := g.be.ListSessions(rctx, true)
+		cancel()
+		if err != nil {
+			g.log.Warn("the roster was not read for a reply; its answer says nothing of waiting", slog.String("error", err.Error()))
+			return e.Peer, replyTo, nil, 0, nil
+		}
+		return e.Peer, replyTo, waitsOf(e.Peer, list.Sessions), 0, nil
 	}
 	list, err := g.be.ListSessions(ctx, true)
 	if err != nil {
 		status, resp = backendFailure(err)
-		return "", "", status, resp
+		return "", "", nil, status, resp
 	}
 	var rerr error
 	if in.To != "" {
@@ -206,13 +241,25 @@ func (g *Gateway) route(ctx context.Context, in *InboundRequest) (recipient, rep
 			code, st = "not_found", http.StatusNotFound
 		}
 		status, resp = fail(st, code, re.msg)
-		return "", "", status, resp
+		return "", "", nil, status, resp
 	}
 	if recipient == g.SessionID() {
 		status, resp = fail(http.StatusBadRequest, "invalid_input", "the gateway does not message itself")
-		return "", "", status, resp
+		return "", "", nil, status, resp
 	}
-	return recipient, replyTo, 0, nil
+	return recipient, replyTo, waitsOf(recipient, list.Sessions), 0, nil
+}
+
+// waitsOf is why a message to the session id waits, by the roster's row
+// for it: nil when the row says nothing of waiting, and when there is no
+// row (the send that follows is what answers for a session that is gone).
+func waitsOf(id string, sessions []protocol.SessionRecord) []string {
+	for i := range sessions {
+		if sessions[i].SessionID == id {
+			return sessions[i].Waits()
+		}
+	}
+	return nil
 }
 
 func (g *Gateway) handleRoster(ctx context.Context) (int, *apiResponse) {

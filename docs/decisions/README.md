@@ -25,6 +25,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0015. Stop a release over a red or missing CI run, with an override](0015-stop-a-release-over-a-red-or-missing-ci-run-with-an-override.md)
 - [0016. Strike the promise of a new log started from a snapshot](0016-strike-the-promise-of-a-new-log-started-from-a-snapshot.md)
 - [0017. Do nothing when brigade runs with no arguments in a hook's place](0017-do-nothing-when-brigade-runs-with-no-arguments-in-a-hooks-place.md)
+- [0018. Say in the webhook gateway's 202 why an accepted message waits](0018-say-in-the-webhook-gateways-202-why-an-accepted-message-waits.md)
 
 ## Record a decision
 

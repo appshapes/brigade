@@ -92,7 +92,8 @@ brigade-webhook-gateway sessions --secret-file …     # who can be written to
 | `--gateway`, `--secret-file` | the listener's URL (`http://127.0.0.1:8787` unless set) and the secret file, by absolute path; `sessions` takes these two only |
 
 The gateway's JSON answer goes to stdout. The exit status is 0 on success, 1 when the gateway refused the request or
-could not be reached, 2 on a usage error.
+could not be reached, 2 on a usage error. A message that is accepted and waits for its recipient is a success: the
+answer's `waiting` says so, as below.
 
 **The HTTP API** is the same requests, signed by the service itself.
 
@@ -105,7 +106,27 @@ either direction threads the reply; one the backend has forgotten is answered un
 is one message; without it, a replayed request (the same timestamp and body) is one message too.
 
 The answer is `202` with `{"ok":true,"message_id":"…","recipient_session_id":"…","hop_count":n}` (`"duplicate":true`
-when the backend had it already). A refusal carries `{"error":{"code":"…","message":"…"}}`: `400 invalid_input`,
+when the backend had it already).
+
+`202` says that the message is accepted and stored, never that it is read. When the recipient will not read it
+now, the answer has one more member, `"waiting":["…"]`, with one or two of these words, the roster's own:
+
+| `waiting` | the recipient, on the roster the gateway read for this request |
+| --- | --- |
+| `offline` | was offline: its session had ended, or was no longer heard from. The message waits until that session runs again, which it may never do. |
+| `hold` | holds team messages. The message waits until the session's human releases it. |
+| `refuse` | refuses team messages. The message waits, unread, while it does. A `member` request never picks such a session; `to` and `reply_to` can name one. |
+
+`offline` comes first and may stand beside `hold` or `refuse`: `"waiting":["offline","hold"]`. With no `waiting`
+member, nothing the gateway read says that the message waits. It is what the roster showed before the send, as
+`brigade send` prints its `waiting:` lines, and nothing says when the message is read. The status is `202` in each
+of these cases and the other members are what they were, so a service that reads the status alone is told what it
+always was; a service that wants to tell its person "sent, but nobody is there" reads `waiting`. A `reply_to`
+alone is still sent when the roster cannot be read, and its answer then has no `waiting`. Neither has an answer
+with `"duplicate":true`: that message was accepted by an earlier request and may have been read since. Ignore a
+member of the answer you do not know: it may gain others.
+
+A refusal carries `{"error":{"code":"…","message":"…"}}`: `400 invalid_input`,
 `401 unauthenticated` (the signature), `404 not_found` (no such session, member or thread), `409 conflict` or
 `loop_detected`, `413` (the body over 64 KiB or the text over 16 KiB), `415` (not JSON), `429 rate_limited` with
 `Retry-After: 5` (the listener accepts `--inbound-per-minute` sends per minute, 60 unless set, all callers together;

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +23,8 @@ import (
 	"github.com/appshapes/brigade/internal/gateway/webhook"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakesock"
@@ -68,9 +72,10 @@ func (g *gatewayTarget) posted() (got []webhook.OutboundPayload, bad int) {
 // gatewaySendResult is what the gateway answers a `send`: the members of
 // its 202 that this file reads.
 type gatewaySendResult struct {
-	OK                 bool   `json:"ok"`
-	MessageID          string `json:"message_id"`
-	RecipientSessionID string `json:"recipient_session_id"`
+	OK                 bool     `json:"ok"`
+	MessageID          string   `json:"message_id"`
+	RecipientSessionID string   `json:"recipient_session_id"`
+	Waiting            []string `json:"waiting"`
 }
 
 // TestTheWebhookGatewayOnAServerThroughTheRealBinary is work item 389: the
@@ -79,7 +84,9 @@ type gatewaySendResult struct {
 // team the client re-executes it with `adapter rest`, words its flag
 // parsing refused, so the gateway could not register and nothing below
 // ran. The backend is the stand-in server, or the built server over TLS
-// where `make server-test` names one.
+// where `make server-test` names one. The steps are
+// theWebhookGatewayThroughTheRealBinary's, which the test for a team on
+// Supabase runs too:
 //
 //  1. The admin creates the team on the server and alice's session starts,
 //     with the real watcher. The gateway's machine joins the team once,
@@ -94,12 +101,51 @@ type gatewaySendResult struct {
 //  5. A request for a member whose one session has ended is accepted too:
 //     the message waits for a session that may never come back, which is
 //     what a gateway left on a backend its team moved away from answers.
+//     The answer says so (work item 408): `"waiting":["offline"]`, where
+//     the answers of step 4, for a session that reads, have no such member.
 func TestTheWebhookGatewayOnAServerThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	backend := startRestBackend(t)
 	r := newRig(t)
 	r.secretFile = filepath.Join(r.dirs.Root, "team.secret")
 	r.createTeamOnServer(backend)
+	theWebhookGatewayThroughTheRealBinary(t, r)
+}
+
+// TestTheWebhookGatewayOnSupabaseThroughTheRealBinary is the same run for
+// a team on the backend the gateway was built for: the local Supabase
+// stack, the team created and joined through the built `brigade` and its
+// bundled `supabase` adapter, the gateway its own host for that adapter.
+// It is what holds work item 408's answer for a team on Supabase: step 5,
+// where the roster the gateway reads is the stack's and says `offline` of
+// a session that ended. Like every live test it waits on the opt-in:
+// `make test-integration-gateway` sets it, and CI's `supabase` job runs
+// that.
+func TestTheWebhookGatewayOnSupabaseThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	stack := testutil.RequireSupabase(t)
+	r := newRig(t)
+	res := r.runIn(r.checkout, r.baseEnv(), "", "team", "create", "--url", stack.URL, "--key", stack.PublishableKey,
+		"--name", teamName, "--label", aliceLabel, "--secret-file", r.secretFile)
+	if res.exit != 0 {
+		t.Fatalf("team create on the stack: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	file, err := teamfile.Parse(filepath.Join(r.checkout, teamfile.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.Adapter != "supabase" || file.URL != stack.URL || file.TeamName != teamName {
+		t.Fatalf("the team file: %+v", file)
+	}
+	r.teamRef, r.teamKey = file.TeamRef, teamstore.Key(file.Adapter, file.URL, file.TeamRef)
+	theWebhookGatewayThroughTheRealBinary(t, r)
+}
+
+// theWebhookGatewayThroughTheRealBinary is the run itself, on whatever
+// backend the rig's team is on: alice is its administrator in r.configDir,
+// r.checkout holds the team's file, and r.secretFile its join secret.
+func theWebhookGatewayThroughTheRealBinary(t *testing.T, r *rig) {
+	t.Helper()
 
 	// --- 1. alice's session, and the gateway's own member ------------------
 	sock := fakesock.New(t)
@@ -136,7 +182,12 @@ func TestTheWebhookGatewayOnAServerThroughTheRealBinary(t *testing.T) {
 	target := &gatewayTarget{secret: secret}
 	srv := httptest.NewServer(target)
 	t.Cleanup(srv.Close)
-	bin := testutil.Build(t, "./cmd/brigade-webhook-gateway")
+	// Stamped as `make build-webhook-gateway` and a release stamp it. An
+	// unstamped build reports its module's pseudo-version, 43 characters
+	// in a checkout between tags, and the Supabase backend refuses a
+	// `harness_version` over 32: such a gateway cannot register there
+	// (found with work item 408; the stand-in and the server cap nothing).
+	bin := testutil.BuildStamped(t, "./cmd/brigade-webhook-gateway", "0.0.0-e2e")
 	// The machine has no `brigade` on its PATH: the one binary is the
 	// gateway and its adapter.
 	env := []string{
@@ -220,9 +271,13 @@ func TestTheWebhookGatewayOnAServerThroughTheRealBinary(t *testing.T) {
 		//nolint:gosec // G204: as above
 		cmd := exec.CommandContext(t.Context(), bin, append([]string{"send", "--secret-file", secretFile, "--gateway", "http://" + addr}, args...)...)
 		cmd.Env = env
-		out, err := cmd.CombinedOutput()
+		// The answer is on stdout alone: a line on stderr (an instrumented
+		// build with no GOCOVERDIR warns there) is no part of it.
+		var errOut bytes.Buffer
+		cmd.Stderr = &errOut
+		out, err := cmd.Output()
 		if err != nil {
-			t.Fatalf("brigade-webhook-gateway send %v: %v\n%s\nthe gateway's log:\n%s", args, err, out, gatewayLog())
+			t.Fatalf("brigade-webhook-gateway send %v: %v\nstdout: %s\nstderr: %s\nthe gateway's log:\n%s", args, err, out, errOut.String(), gatewayLog())
 		}
 		var res gatewaySendResult
 		if err := json.Unmarshal(out, &res); err != nil {
@@ -234,6 +289,9 @@ func TestTheWebhookGatewayOnAServerThroughTheRealBinary(t *testing.T) {
 	if !answer.OK || answer.MessageID == "" || answer.RecipientSessionID != aliceID {
 		t.Fatalf("the gateway's answer to a reply: %s; want a message to alice's session %s", raw, aliceID)
 	}
+	if answer.Waiting != nil || strings.Contains(raw, `"waiting"`) {
+		t.Errorf("the gateway's answer to a reply for a session that reads now: %s; want no `waiting` member", raw)
+	}
 	frames := sock.WaitFrames(1, waitLong)
 	p, err := frame.Parse(frames[0])
 	if err != nil {
@@ -244,8 +302,8 @@ func TestTheWebhookGatewayOnAServerThroughTheRealBinary(t *testing.T) {
 		t.Errorf("the frame in alice's session: %+v\n%s", p, frames[0])
 	}
 	// And by a member's label, as a service that knows no session id asks.
-	if byMember, raw := send("--member", aliceLabel, "--text", "A second one."); !byMember.OK || byMember.RecipientSessionID != aliceID {
-		t.Fatalf("the gateway's answer to --member: %s; want alice's session %s", raw, aliceID)
+	if byMember, raw := send("--member", aliceLabel, "--text", "A second one."); !byMember.OK || byMember.RecipientSessionID != aliceID || strings.Contains(raw, `"waiting"`) {
+		t.Fatalf("the gateway's answer to --member: %s; want alice's session %s and no `waiting` member", raw, aliceID)
 	}
 	sock.WaitFrames(2, waitLong)
 
@@ -259,7 +317,15 @@ func TestTheWebhookGatewayOnAServerThroughTheRealBinary(t *testing.T) {
 		out, err := cmd.Output()
 		return err == nil && strings.Contains(string(out), `"ok":true`) && !strings.Contains(string(out), aliceID)
 	}, func() string { return gatewayLog() })
-	if waiting, raw := send("--member", aliceLabel, "--text", "Is anyone there?"); !waiting.OK || waiting.RecipientSessionID != aliceID || waiting.MessageID == "" {
+	waiting, raw := send("--member", aliceLabel, "--text", "Is anyone there?")
+	if !waiting.OK || waiting.RecipientSessionID != aliceID || waiting.MessageID == "" {
 		t.Fatalf("the gateway's answer for a member whose one session ended: %s; want it accepted for that session, %s", raw, aliceID)
+	}
+	if !slices.Equal(waiting.Waiting, []string{protocol.SessionStateOffline}) {
+		t.Errorf("the gateway's answer for a member whose one session ended: %s; want `\"waiting\":[\"offline\"]`", raw)
+	}
+	// And a reply to the message that session sent, as a service that answers late sends it.
+	if late, raw := send("--reply-to", sent.MessageID, "--text", "Sorry, late."); !late.OK || late.RecipientSessionID != aliceID || !slices.Equal(late.Waiting, []string{protocol.SessionStateOffline}) {
+		t.Errorf("the gateway's answer to a reply for a session that ended: %s; want it accepted with `\"waiting\":[\"offline\"]`", raw)
 	}
 }

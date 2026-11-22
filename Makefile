@@ -301,8 +301,9 @@ test-db: ## pgTAP tests in supabase/tests against the running local stack (CI)
 # test-integration` still runs both against the one local stack, as two recipe lines and not as two
 # prerequisites: `make -j` starts prerequisites together, and the stack would restart under the conformance suite.
 .PHONY: test-integration
-test-integration: ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test))
+test-integration: ## Adapter integration, the webhook gateway + conformance(supabase) against the local stack (reads $(env_test))
 	$(MAKE) test-integration-adapter
+	$(MAKE) test-integration-gateway
 	$(MAKE) test-integration-conformance
 
 # No `build` prerequisite: these tests run the adapter in process, and the only things they spawn are `docker`
@@ -310,6 +311,15 @@ test-integration: ## Adapter integration + conformance(supabase) against the loc
 .PHONY: test-integration-adapter
 test-integration-adapter: ## The Supabase adapter's live tests, the fault tests included, against the local stack (reads $(env_test)) (CI)
 	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
+
+# The webhook gateway for a team on the stack (work items 389 and 408): the built `brigade` and
+# `brigade-webhook-gateway` as real processes, the gateway its own host for the bundled `supabase` adapter. It is
+# the one live test outside the adapter's package, so it is a target of its own, and it runs after the adapter's
+# tests and never beside them: their fault tests restart the stack. No `build` prerequisite: the test builds what
+# it runs. Without BRIGADE_TEST_DOCKER: it stops nothing.
+.PHONY: test-integration-gateway
+test-integration-gateway: ## The webhook gateway for a team on the local stack, through the built binaries (reads $(env_test)) (CI)
+	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 go test -count=1 -timeout 5m -run '^TestTheWebhookGatewayOnSupabaseThroughTheRealBinary$$' ./internal/harness/e2e/
 
 # No --setup on the conformance line: with the BRIGADE_SUPABASE_* pair in the environment, `team create`/`team join`
 # bind an empty profile themselves (4.1's rule for a human shell, and the suite is one), so the suite provisions its

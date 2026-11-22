@@ -73,6 +73,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   no label recorded it said that a session start fills one from the
   Claude account. It says so now only when the `label` option is
   `account` and the machine has an account to read.
+- **The webhook gateway's answer says when nobody reads the message
+  now** (work item 408, ADR 0018). A request for a session that was
+  offline, or that holds or refuses team messages, was answered with
+  the same `202` as any other, and the service could not tell. The
+  answer now carries `"waiting":["offline"]`, or `hold` or `refuse`:
+  the roster's words, as the gateway read it for that request. The
+  status is still `202` and the other members are unchanged, so a
+  service that reads the status alone sees no difference.
+  `docs/webhook-gateway.md` has the table. Build the gateway again
+  (`make build-webhook-gateway`) to get it.
 
 ### Fixed
 

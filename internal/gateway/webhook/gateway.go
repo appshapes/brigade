@@ -75,6 +75,9 @@ type Gateway struct {
 	st    *state
 	log   *slog.Logger
 	lease int
+	// replyRoster bounds the roster read of a `reply_to`-only request
+	// (replyRosterWait; a test shortens its own gateway's).
+	replyRoster time.Duration
 
 	mu        sync.Mutex // guards the fields below
 	sessionID string
@@ -136,7 +139,7 @@ func New(cfg Config, be Backend) (*Gateway, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Gateway{cfg: cfg, be: be, st: st, log: log, retries: map[string]*retry{}}, nil
+	return &Gateway{cfg: cfg, be: be, st: st, log: log, retries: map[string]*retry{}, replyRoster: replyRosterWait}, nil
 }
 
 // SessionID is the gateway's current session ("" before Start).

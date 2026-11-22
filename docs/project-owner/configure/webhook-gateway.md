@@ -182,8 +182,10 @@ done
 A webhook gateway does not follow a team to another backend. A coding session follows at its start or at its next
 prompts; the gateway is a process with no such moment, and it stays a session of the team on the backend it
 joined. There it carries less and less. The sessions that followed are offline on the old backend, and a request
-for a member whose sessions have left is still accepted: the gateway answers 202, the message waits there for a
-session that does not come back, and the service is told it was sent.
+for a member whose sessions have left is still accepted: the gateway answers 202, and the message waits there for
+a session that does not come back. The answer says so, `"waiting":["offline"]`
+([the contract](../../webhook-gateway.md#what-the-service-sends)), which a service that reads the status alone
+does not see: it is told the message was sent.
 
 So move the gateway with the team, on its machine:
 

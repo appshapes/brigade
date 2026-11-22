@@ -657,14 +657,15 @@ func recipientLine(r *protocol.SessionRecord) string {
 // tell.
 func waiting(r *protocol.SessionRecord) []string {
 	var out []string
-	if r.State == protocol.SessionStateOffline {
-		out = append(out, WaitingOffline)
-	}
-	switch r.Inbound {
-	case protocol.InboundHold:
-		out = append(out, WaitingHold)
-	case protocol.InboundRefuse:
-		out = append(out, WaitingRefuse)
+	for _, why := range r.Waits() {
+		switch why {
+		case protocol.SessionStateOffline:
+			out = append(out, WaitingOffline)
+		case protocol.InboundHold:
+			out = append(out, WaitingHold)
+		case protocol.InboundRefuse:
+			out = append(out, WaitingRefuse)
+		}
 	}
 	return out
 }

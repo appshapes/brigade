@@ -7,7 +7,8 @@
 #       long as its longest job instead of the sum of two. What that costs: a red `fast` no longer skips the
 #       stack jobs, so a commit that fails lint still pays for two local Supabase stacks.
 #   (f) Lint has a job of its own (`lint`), and the stack work is two jobs on two stacks: `supabase` (pgTAP, the
-#       advisor lints, the adapter's live tests) and `e2e` (conformance(supabase) and `make e2e`). Timed on run
+#       advisor lints, the adapter's live tests, and since work item 408 the webhook gateway on the stack) and
+#       `e2e` (conformance(supabase) and `make e2e`). Timed on run
 #       42871717045, the last before the change: `make lint` 60 s of `fast`'s 325 s; the adapter's live tests
 #       139 s, conformance(supabase) 77 s and `make e2e` 78 s of `supabase`'s 355 s. `fast` also runs its tests
 #       four packages at a time (`go_test_p=4`; the Makefile's comment on `go_test_flags` says why 2 is the pin
@@ -227,7 +228,8 @@ jobs:
     # The earlier shape's bound and deliberately loose: this job pulls images over the network. It is also above
     # what a hung test costs (work item 400; the rule is in this file's header): the adapter's live tests run
     # under `-timeout 20m` (`make test-integration-adapter`) in a step that began 45 s to 48 s into the job on
-    # three runs, so a hang ends by 0.8 + 20 + 1 = 21.8 minutes, with three to spare for a slow image pull.
+    # three runs, so a hang ends by 0.8 + 20 + 1 = 21.8 minutes, with three to spare for a slow image pull. The
+    # gateway's test after it has a sum of its own, at its step.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
@@ -249,6 +251,12 @@ jobs:
       # fault tests that stop the realtime container and restart the whole stack. These tests run the adapter in
       # process: the target builds no bin/brigade, and there is no coverage directory to make.
       - run: make test-integration-adapter
+      # The webhook gateway for a team on this stack (work items 389 and 408), through the built `brigade` and
+      # `brigade-webhook-gateway`: the one live test outside the adapter's package. It runs after the adapter's
+      # tests, whose fault tests restart the stack, and only when they passed. Its `go test` has `-timeout 5m`:
+      # the step before it ended 181 s into the job on runs 45038662396 and 45040179199, so a hang here ends by
+      # 3 + 5 + 1 = 9 minutes, well under the 21.8 above.
+      - run: make test-integration-gateway
       - if: always()
         run: make supabase-clean supabase=supabase
 
