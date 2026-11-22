@@ -2,6 +2,7 @@
 # usage: work_item=<n> scripts/release-prep.sh <version> [branch]   (run by `make release version=0.1.0 work_item=<n> [branch=<name>]`)
 #        DRY_RUN=1 work_item=<n> scripts/release-prep.sh <version> [branch]   -- steps 1-3 for real, then stop and PRINT 4-5
 #        card=<n> is still accepted in place of work_item=<n>, with the same meaning
+#        release_over_ci=<run id | missing:<sha>> ...   -- the owner's override of one CI check (below)
 #
 # The release sequence of plan 7.7. plugin/bin/checksums.txt must already be in the commit the tag points at (a
 # plugin installed from that commit verifies the downloaded binary against it), but the release workflow builds
@@ -11,13 +12,27 @@
 #
 #   preconditions   a version token, the repository root, a clean tree, the expected branch, the plugin
 #                   manifest, bin/goreleaser, and a selectable go<go.mod line> toolchain
+#   0  the commit's CI      ci.yml's run on the commit the release starts from, waited for and read
 #   1  bump the pins        plugin/bin/VERSION and plugin/.claude-plugin/plugin.json "version"
 #   2  reproducible build   make cross version=<v>  ->  dist-cross/{brigade_<v>_<os>_<arch>,checksums.txt}
 #   3  cross-check          goreleaser's own build of the same four targets; the two checksums.txt must be
 #                           identical, which is what stops .goreleaser.yaml and the Makefile drifting apart
 #   4  commit               cp dist/checksums.txt plugin/bin/checksums.txt (and the two copies), rewrite
 #                           marketplace.json's digest; make push message="<work item>: Release <v>"
+#   4b the release's CI     ci.yml's run on the release commit, waited for and read: the tag follows a green one
 #   5  tag                  git tag -a v<v> && git push origin v<v>  ->  release.yml builds, verifies, publishes
+#
+# The two CI steps (work item 399, ADR 0014; scripts/release-ci-check.sh does the looking). Until 2026-11-22 the
+# sequence never looked: step 5 followed step 4's push by about thirty seconds, CI takes about four minutes, and
+# v0.6.6 and v0.43.0 went out over a red job. Step 0 stops before anything is changed when the commit the
+# release starts from is red or has no run, so that no release commit is put on a branch that was not green.
+# Step 4b waits for the run of the release commit itself, the commit the tag will point at, and stops over a
+# red or a missing one WITH THE RELEASE COMMIT ALREADY PUSHED. The owner's ruling is stop, with an override:
+# `release_over_ci=<the red run's id>`, or `release_over_ci=missing:<the commit>`, releases anyway; it is the
+# owner's to allow, a session passes it only on his word, and it names one run or one commit, so the word for
+# step 0 is not a word for step 4b. After a stop at 4b, run the same command again once the run
+# is green (`gh run rerun <id> --failed` for a flake) or with the override: step 1 is then a no-op, steps 2 and 3
+# build again, step 4 finds nothing to commit and goes on from 4b.
 #
 # POSIX sh, no process substitution, `shellcheck -s sh` clean (plugin-check.sh check 7 enforces it). Never
 # `CDPATH= cd` -- that empty prefix assignment is SC1007; this script does not cd at all.
@@ -29,10 +44,11 @@
 # patch version instead.
 #
 # The workflow-only fix, which the deletion above does not finish. If the failure was in release.yml (or in
-# anything else this script does not build), a re-run of `make release version=<v>` DIES AT STEP 4: the pins are
-# already <v>, so step 1 is a no-op; no built byte changed, so the cp is a no-op too; and `make push` fails with
-# "nothing to commit". Do step 5 by hand instead:
-#   git tag -a v<v> -m v<v> && git push origin v<v>
+# anything else this script does not build), a re-run of `make release version=<v>` has nothing to commit: the
+# pins are already <v>, so step 1 is a no-op, and no built byte changed, so the cp is a no-op too. Since work
+# item 399 step 4 says so and goes on to 4b and 5 (until then it died there, at `make push`'s "nothing to
+# commit", and step 5 was done by hand, past every check). By hand it is still
+#   scripts/release-ci-check.sh "$(git rev-parse HEAD)" && git tag -a v<v> -m v<v> && git push origin v<v>
 # release.yml triggers on `v*` and on nothing else -- there is no workflow_dispatch -- so a release cannot be
 # re-driven without a tag. And note that deleting the tag leaves the release commit on the branch: it pins <v>
 # against checksums no published release backs, so until the retag keep every fix to non-Go files -- a Go source
@@ -41,6 +57,14 @@ set -eu
 
 die() { printf 'release-prep: %s\n' "$1" >&2; exit 1; }
 say() { printf 'release-prep: %s\n' "$1"; }
+
+# The CI check lives beside this script, wherever this script was started from (the tests start it by its
+# absolute path from a fixture tree). `sh <file>`, so it needs no executable bit.
+ci_check_script=$(dirname "$0")/release-ci-check.sh
+# ci_check <full sha> <seconds to wait for a run to appear>: 0 when the release may stand on the commit.
+ci_check() {
+  RELEASE_CI_APPEAR_SECONDS=${RELEASE_CI_APPEAR_SECONDS:-$2} release_over_ci=${release_over_ci:-} sh "$ci_check_script" "$1"
+}
 
 plugin_json=plugin/.claude-plugin/plugin.json
 version_file=plugin/bin/VERSION
@@ -114,6 +138,14 @@ fi
 branch=$(git branch --show-current)
 [ "$branch" = "$want_branch" ] || die "release from $want_branch, not '$branch' (pass branch=<name> only for a rehearsal)"
 
+# A version that is tagged is released, or was tried: nothing below may run on it. Checked here, before anything
+# is mutated, and it matters more since work item 399, because a re-run with nothing to commit now goes on to
+# the tag instead of dying at step 4. (Step 5's `git tag -a` refused an existing tag all along, after steps 1 to
+# 4 had run.)
+if git rev-parse --quiet --verify "refs/tags/v$v" >/dev/null; then
+  die "the tag v$v exists already: a published tag is never rewritten (bump the patch version), and a never-published one is deleted first (this script's header has the two commands)"
+fi
+
 # The manifest is checked BEFORE anything is mutated: `checksums-check.sh` rule (a) requires plugin.json's
 # "version" to equal VERSION, so a release without a manifest would commit a pin nothing can verify. Until
 # P3-1 lands the manifest, a real run stops here (the P2-12 rehearsal writes a throwaway one on its branch).
@@ -156,7 +188,28 @@ if [ "$dry_run" = 1 ]; then
   say "DRY_RUN=1: skipping 'git pull --no-edit'"
 else
   git pull --no-edit
+  # Two things only origin can say, now that it was asked. The tag: the check above saw this clone's tags, and a
+  # release tagged from another machine is one only origin has. And the head: a release starts from a commit
+  # origin has, because ci.yml has a run of no other; an unpushed commit would read below as "no run" and ask
+  # for an override of what is only a push that did not happen.
+  git fetch --quiet --tags origin
+  if git rev-parse --quiet --verify "refs/tags/v$v" >/dev/null; then
+    die "the tag v$v exists on origin: a published tag is never rewritten (bump the patch version)"
+  fi
+  [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$branch")" ] || die "HEAD is not origin/$branch's head: push it first, so that ci.yml has a run of the commit this release starts from"
 fi
+
+# ---- 0. the CI of the commit the release starts from -------------------------------------------------------------
+# After the pull, so that it is the commit the release commit will sit on. A run in progress is waited for. A
+# dry run asks once and reports, and goes on whatever the answer: a rehearsal branch has no run at all, and a
+# rehearsal does not sit through a run in progress.
+start=$(git rev-parse HEAD)
+if [ "$dry_run" = 1 ]; then
+  RELEASE_CI_WAIT_SECONDS=0 ci_check "$start" 0 || say "DRY_RUN=1: a real run waits for a run in progress, and stops here unless the run is green, with nothing changed"
+else
+  ci_check "$start" 30 || die "ci.yml is not green on $start, the commit this release starts from: nothing was changed"
+fi
+say "0. read ci.yml's run on $start"
 
 # ---- 1. bump the pins ------------------------------------------------------------------------------------------
 # The MANIFEST is bumped and verified FIRST; $version_file is written only once that took. release.yml and
@@ -214,6 +267,7 @@ if [ "$dry_run" = 1 ]; then
   say "  4. cp dist/checksums.txt $committed"
   [ ! -f "$muse_json" ] || say "  4. go run ./cmd/brigade-muse-digest write   (marketplace.json's digest and version)"
   say "  4. make push message=\"$work_item: Release $v\""
+  say "  4b. wait for ci.yml's run on the release commit, and stop over a red or a missing one"
   say "  5. git tag -a v$v -m v$v && git push origin v$v"
   exit 0
 fi
@@ -227,10 +281,28 @@ cp dist/checksums.txt "$committed"
 # The package's bin/ is final now, so its digest is the release's (card 115); step 4's `make push` verifies the
 # written catalog again through `make test`.
 [ ! -f "$muse_json" ] || go run ./cmd/brigade-muse-digest write
-make push message="$work_item: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
-say "4. committed $committed and marketplace.json"
+if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
+  make push message="$work_item: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
+  say "4. committed $committed and marketplace.json"
+else
+  # Nothing to commit: HEAD pins $v already and the build reproduces its checksums. That is a run that stopped
+  # at 4b after its push, or a failed release job's re-run (the header's workflow-only fix). The tag must point
+  # at a commit origin has, so say where HEAD stands before going on.
+  git fetch --quiet origin "$branch"
+  [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$branch")" ] || die "nothing to commit, and HEAD is not origin/$branch's head: push it first"
+  say "4. nothing to commit: HEAD pins $v already, as origin/$branch does; going on from its CI run"
+fi
+
+# ---- 4b. the CI of the release commit ------------------------------------------------------------------------------
+# The commit the tag will point at. Its run began with step 4's push, so this waits about as long as CI takes;
+# before work item 399 the tag was pushed here, some four minutes ahead of the answer.
+release_commit=$(git rev-parse HEAD)
+ci_check "$release_commit" 180 || die "v$v is NOT tagged, and its release commit $release_commit is pushed: ci.yml is not green on it. Run the same command again when its run is green, or with release_over_ci on the owner's word; it goes on from here"
+say "4b. read ci.yml's run on the release commit $release_commit"
 
 # ---- 5. tag the commit that now carries VERSION + checksums --------------------------------------------------------
-git tag -a "v$v" -m "v$v"
+# The tag names the commit whose run was read, not HEAD: step 4b waited for minutes, and in a checkout that
+# another session shares HEAD may have moved meanwhile.
+git tag -a "v$v" -m "v$v" "$release_commit"
 git push origin "v$v"
 say "5. pushed v$v; release.yml now builds, verifies against $committed and publishes the draft"

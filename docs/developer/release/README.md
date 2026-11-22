@@ -14,7 +14,7 @@ and published by the workflow the tag triggers.
 ## Cut a release
 
 1. Write the `## [<v>] — <date>` section of `CHANGELOG.md`; `make docs-check` must pass.
-2. `make release version=<v> work_item=<n>`: pins the four packages and the Muse catalog's digest, builds reproducibly, commits `<n>: Release <v>`, tags `v<v>`, pushes.
+2. `make release version=<v> work_item=<n>`: reads `ci.yml`'s run on `master`'s head, pins the four packages and the Muse catalog's digest, builds reproducibly, commits `<n>: Release <v>`, waits for that commit's run, tags `v<v>`, pushes. Over a red or missing run it stops.
 3. `release.yml` guards, builds, verifies against the committed checksums, publishes, dispatches the notes.
 
 Details: [Cut a release](cut-a-release.md).

@@ -46,6 +46,8 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/proof-crash-resume.sh` | `make proof` (link 4 of 4) |
 | `scripts/harness-smoke.sh` | `make harness-smoke` |
 | `scripts/release-prep.sh` | `make release` |
+| `scripts/release-ci-check.sh` | `scripts/release-prep.sh` (twice: the commit it starts from, and the release commit before the tag) and `scripts/server-tag.sh` (the head, before the tag); by hand before a tag pushed by hand |
+| `scripts/server-tag.sh` | `make server-tag` |
 | `cmd/brigade-muse-digest` (`go run`) | `make muse-digest` (`write`); `scripts/release-prep.sh`'s precondition (`check`) and step 4 (`write`); `make muse-plugin-check`'s second step and `release.yml`'s guard (`check`) |
 | `scripts/ci/plugin-check.sh` | `make plugin-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/no-secrets.sh` | `make plugin-check` → `ci.yml`'s `fast` job |
@@ -172,6 +174,15 @@ logged-in `claude`, `jq` and a built `bin/brigade`.
 The release sequence of plan 7.7, in five steps: pin `plugin/bin/VERSION` and `plugin/.claude-plugin/plugin.json`
 to the version, rebuild and re-checksum the cross-compiled binaries, commit through the push chain, then tag
 `v<version>` and push the tag — which is what fires `release.yml`.
+
+Since work item 399 (ADR 0014) the sequence stands on CI. `scripts/release-ci-check.sh <full sha>` reads the
+newest run of `ci.yml` on a commit with `gh`, waits while it is in progress, prints it, and exits 0 over a green
+one alone. The release asks it before anything is changed, about the commit it starts from, and again between
+the push of the release commit and the tag, about that commit; `scripts/server-tag.sh` asks it about the head
+before its tag. Over a red or a missing run they stop, unless `release_over_ci` names the red run's id, or the commit
+that has no run as `missing:<sha>`: the owner's override, which a session passes only on his word (`docs/agent/repository/gates.md`).
+After a stop with the release commit pushed, the same command again goes on from the check. The machine that
+releases therefore needs `gh`, logged in.
 
 Invoked by `make release version=X.Y.Z work_item=<n> [branch=<name>]`, the number of the release's work item on
 the team's Brigade Board naming the release commit (`<work item>: Release X.Y.Z`); `card=<n>`, the number's
@@ -503,6 +514,8 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | --- | --- |
 | `checks_test.go` | The four POSIX-sh gates — `plugin-check.sh`, `no-secrets.sh`, `checksums-check.sh`, `release-verify.sh` — each proved able to FAIL against a fixture tree built under `t.TempDir()`, plus a read-only pass over the real repository. |
 | `release_prep_test.go` | `release-prep.sh`: every refusal fires (dirty tree, wrong branch, a published tag, no changelog section, a red documentation gate, and beside a Muse package no catalog, a catalog that is not current, or a file git does not track); the dry run checks the catalog first, announces its write and leaves it alone. |
+| `release_ci_check_test.go` | `release-ci-check.sh` (work item 399) against a stand-in `gh` that answers from a file: eighteen answers and overrides (green, red, cancelled, none, in progress then ended, a run that appears late, one that never ends, a `gh` that fails once and one that cannot ask at all, each override that fits and each that does not, a word for another commit among them), what it refuses before asking, the `--jq` filter run through a real `jq`, and seven mutations of the script, each caught by its case. |
+| `release_prep_ci_test.go` | The two release scripts obey that check, run for real to their last step in fixtures whose `origin` is a bare repository: `release-prep.sh` stops with nothing changed on a red start, tags only after the release commit's run is green, stops over a red one with the commit pushed and no tag, and goes on from there on a second run, green or with the override, refuses a tag only origin has and a head origin does not have, and does not take the word for its start as a word for its release commit; `server-tag.sh` in nine cases, a dry run among them; `make` hands both the override, quoted; and two mutations show that a script that tags past the check is caught. |
 | `announce_release_test.go` | `announce-release.sh`: what a release opens and closes against a `gh` that answers the listing from a file and records every write — the earlier announcements closed and nothing else (a work order, a person's issue, a title that names a version in passing, a pull request), an older tag's dispatch that leaves the newest open and opens none beside it, a release candidate's announcement closed by its release, versions compared as numbers, the issues read again after the opening, `plan` that writes nothing, and a listing or a close that fails; and that `release-notes.yml`'s step runs the script. |
 | `send_release_notes_test.go` | `send-release-notes.sh`: the window and the adoption of an earlier run's draft against a fake GitHub API, the list of recipients and the footer, that no address is printed outside a mask line and that the token stays off argv, and a join of the send step's name and the secrets to `send-release-notes.yml`. |
 | `keepalive_test.go` | `keepalive.sh`: the four rungs against a fake endpoint, and a join of its endpoints to `gotrue.go`, `postgrest.go` and the schema migration. |

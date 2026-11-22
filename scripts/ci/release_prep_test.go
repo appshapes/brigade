@@ -73,6 +73,9 @@ func newRepo(t *testing.T) *repo {
 	r.stubGo("go" + goLine)
 	r.stubMake()
 	r.stubGoreleaser(false)
+	// The CI check of work item 399 asks `gh`: a stand-in that says the run is green, so that no test here
+	// asks GitHub (release_prep_ci_test.go has the cases that give it other answers).
+	r.stubGh(ciGreen)
 
 	r.git("init", "-q", "-b", "master")
 	r.git("add", "-A")

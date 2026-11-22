@@ -424,8 +424,8 @@ test-move-live: build ## A team moved from the local Supabase stack to the built
 	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^(TestATeamsMembersFollowItFromSupabaseToAServerThroughTheRealBinary|TestATeamMovesFromSupabaseToAServerByOneCommandThroughTheRealBinary)$$' ./internal/harness/e2e/
 
 .PHONY: server-tag
-server-tag: ## Tag master's head as the server release server/VERSION names and push the tag; the server-release workflow then publishes the binaries and the image
-	scripts/server-tag.sh
+server-tag: ## Tag master's head as the server release server/VERSION names and push the tag, once ci.yml's run on that head is green (a run in progress is waited for; release_over_ci=<run id|missing:sha> is the owner's override of a red or missing one; DRY_RUN=1 stops before the tag); the server-release workflow then publishes the binaries and the image
+	release_over_ci='$(release_over_ci)' scripts/server-tag.sh
 
 .PHONY: server-deps-check
 server-deps-check: ## Fail unless the server links only the crates, licences and sources server/deny.toml allows, with no known advisory (needs cargo-deny) (CI)
@@ -572,9 +572,9 @@ launcher-check: ## Fail unless a fresh build of cmd/brigade-launcher reproduces 
 	  fi
 
 .PHONY: release
-release: ## Pin the plugin to $(version), commit through the push chain as `$(work_item): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 work_item=<n> [branch=<throwaway>] — work_item is the number of the release's work item on the team's Brigade Board, card=<n> still means the same, branch only for the P2-12 rehearsal)
+release: ## Pin the plugin to $(version), commit through the push chain as `$(work_item): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 work_item=<n> [branch=<throwaway>] — work_item is the number of the release's work item on the team's Brigade Board, card=<n> still means the same, branch only for the P2-12 rehearsal; it waits for ci.yml's run on the commit it starts from and on the release commit and stops over a red or missing one, which release_over_ci=<run id|missing:sha> overrides on the owner's word)
 	@test -n "$(version)" && test -n "$(work_item)$(card)" || { echo "usage: make release version=X.Y.Z work_item=<n> [branch=<name>]   (card=<n> still means work_item=<n>)"; exit 1; }
-	work_item='$(work_item)' card='$(card)' scripts/release-prep.sh $(version) $(branch)
+	release_over_ci='$(release_over_ci)' work_item='$(work_item)' card='$(card)' scripts/release-prep.sh $(version) $(branch)
 
 .PHONY: release-dry-run
 release-dry-run: ## goreleaser check + a local release without publishing (needs a clean tree and a tag on HEAD)

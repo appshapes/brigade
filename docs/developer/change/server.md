@@ -378,7 +378,9 @@ The server is released apart from the plugin, by a tag of its own that `release.
 2. Add the `## [<version>]` section to `server/CHANGELOG.md`: it becomes the release's text.
 3. Land it on `master` with a green `server` job.
 4. `make server-tag`. It checks the three places agree, that the tree is clean and is `origin/master`'s head, and
-   pushes the tag `server-v<version>`.
+   that `ci.yml`'s run on that head is green, waiting for one in progress; then it pushes the tag
+   `server-v<version>`. Over a red or missing run it stops, and `release_over_ci=<run id|missing:sha>` is the owner's
+   override ([The two CI checks](../release/cut-a-release.md#the-two-ci-checks)). `DRY_RUN=1` stops before the tag.
 
 The `server-release` workflow then builds the Linux binaries on Debian 12, so that they start on glibc 2.36 and
 later, the macOS binary, and `server/Dockerfile` on a runner of each architecture; it publishes the binaries

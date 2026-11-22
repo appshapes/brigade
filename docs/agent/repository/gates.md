@@ -29,6 +29,15 @@
   the `server-release` workflow publishes; never tag one by hand and never mark one latest. The contract
   (`docs/backend-rest-v1.md`) is frozen at version 1 since that release and still changes only in one commit
   with the adapter, the stand-in and a green conformance run.
+- **A release stands on a green run** (work item 399, ADR 0014; the owner's ruling of 2026-11-22). `make release`
+  and `make server-tag` read `ci.yml`'s run with `scripts/release-ci-check.sh` and print what it is: the plugin
+  release on the commit it starts from, before anything is changed, and on the release commit, between its push
+  and the tag; the server release on the head it tags. A run in progress is waited for, in every case. Over a
+  red run, or none, they stop. `release_over_ci=<the red run's id>` on the command line, or
+  `release_over_ci=missing:<the commit's sha>`, releases anyway: that variable is the owner's to allow, and a
+  session passes it only on his word, given for that run or that commit. Never tag a release by hand past the check: run
+  `scripts/release-ci-check.sh "$(git rev-parse HEAD)"` first. After a stop with the release commit already
+  pushed, the same `make release` again goes on from the check, once the run is green or with the override.
 - **Release pins.** Never commit a `plugin/bin/checksums.txt` or `plugin/bin/VERSION` you did not produce with
   `make release`; `muse/brigade/bin/` carries copies the release sequence writes. `make checksums-check` requires
   the committed file to be reproduced by a fresh cross-compile or backed by the published release (in the
