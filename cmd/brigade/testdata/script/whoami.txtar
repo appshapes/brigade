@@ -155,14 +155,14 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (adapter fake-adapter 0.0.0-fake); inbound: accept
 short id: aaaaa
 frame: open
-label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds, which a session start fills from its Claude account while there is none
+label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds
 delivery: no watcher: this session has no inbox socket; no delivery recorded; 0 held
 -- want-whoami-terminal.in --
 session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (adapter fake-adapter 0.0.0-fake); inbound: accept
 short id: aaaaa
 terminal: $WORK/.brigade/plugin-root/bin/brigade
 frame: open
-label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds, which a session start fills from its Claude account while there is none
+label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds
 delivery: no watcher: this session has no inbox socket; no delivery recorded; 0 held
 -- label-team.json --
 {"version": 1, "adapter": "fake", "team_ref": "team-1", "team_name": "ops", "principal_ref": "p_1", "human_label": "carol@work.example", "created_at": "2026-10-06T21:15:55Z"}

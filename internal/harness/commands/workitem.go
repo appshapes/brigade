@@ -13,7 +13,6 @@ import (
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/account"
-	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
@@ -1012,8 +1011,8 @@ func workItemWordError(field, reason string, limit int) *protocol.Error {
 // machine alone: the session's name from the map, and the member's label
 // as the roster shows it — the label the membership was joined with, the
 // team store's, else what the `label` option resolves to, as the watcher
-// registers it (a pointed host has no account to read one from). Either
-// may be empty; a change then says less about its writer.
+// registers it. Either may be empty; a change then says less about its
+// writer.
 func (inv Invocation) workItemAuthor(m *sessionmap.ByPID) workitem.Author {
 	who := workitem.Author{Session: protocol.OneLineName(m.SessionName)}
 	if b, err := teamstore.LoadBinding(m.ConfigDir, m.TeamKey); err == nil {
@@ -1024,17 +1023,13 @@ func (inv Invocation) workItemAuthor(m *sessionmap.ByPID) workitem.Author {
 	if who.Member != "" {
 		return who
 	}
-	option := config.ParseLabelOption(m.LabelOption)
-	if option == config.LabelAccount && config.Host(m.Harness).Pointed() {
-		return who
+	// The default label of a session, as its registration sends it:
+	// account.Label, the same on every harness (ADR 0014).
+	label, _, err := account.Label(m.LabelOption, inv.Environ)
+	if err != nil {
+		inv.logger().Debug("work-item: claude account email unavailable", log.Err(err))
 	}
-	who.Member = labelLine(config.LabelFor(option, func() string {
-		email, err := account.Email(inv.Environ)
-		if err != nil {
-			inv.logger().Debug("work-item: claude account email unavailable", log.Err(err))
-		}
-		return email
-	}))
+	who.Member = labelLine(label)
 	return who
 }
 

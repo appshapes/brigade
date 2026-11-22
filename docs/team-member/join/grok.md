@@ -14,8 +14,10 @@ that is running when its team moves to another backend stays where it is too, an
 Grok Build shows nothing a prompt hook prints ([When your team moves](follow-a-move.md)).
 
 A person may instead run `brigade team join` in their terminal in the checkout, confirm the backend and read
-the secret without echo. Each checkout needs consent. Set a literal `label` or `none` in
-[the Grok options file](../configure/grok.md) before joining; Grok never borrows a Claude account label.
+the secret without echo. Each checkout needs consent. The join sends the `label` of
+[the Grok options file](../configure/grok.md): left out, it is `account`, and where a Claude account is on this
+machine its email address is sent, as on every harness ([Choose your label](your-label.md)). Set a literal `label`
+or `none` there before joining to send that instead.
 
 Joining and monitor readiness are separate. After registration, the first eligible Stop offers one monitor
 setup attempt. Approve the exact command through the normal permission prompt, or leave it unarmed and request

@@ -87,7 +87,7 @@ const (
 	ReportNotIgnored = "an email address goes into reports.json only when git ignores the state folder, and this checkout does not ignore it: add the folder to .gitignore first (a Slack handle or channel is fine either way)"
 	// ReportNoLabel is the `config` message of a session that has no
 	// roster label to subscribe under.
-	ReportNoLabel = "this session has no roster label to subscribe under: the plugin's label option names one (on Claude Code the account's email by default)"
+	ReportNoLabel = "this session has no roster label to subscribe under: the plugin's label option names one (the Claude account's email by default, where the machine has one)"
 	// ReportNobody is the `config` message of a send with nobody
 	// subscribed.
 	ReportNobody        = "nobody is subscribed to the digest: brigade report subscribe writes your entry"

@@ -833,8 +833,10 @@ func (f facts) muse() bool { return f.host == config.HostMuse }
 func (f facts) codex() bool { return f.host == config.HostCodex }
 
 // pointed reports whether the session runs in a host found through the
-// by-host pointer (Muse Code, Codex CLI): keyed by the hook's parent, no
-// Claude settings, no registry, no inbox socket, no Claude account.
+// by-host pointer (Muse Code, Codex CLI, Grok Build): keyed by the hook's
+// parent, no Claude settings, no registry, no inbox socket. The Claude
+// account is no part of this: every host reads it for the default label
+// (ADR 0014, account.Label).
 func (f facts) pointed() bool { return f.host.Pointed() }
 
 // pluginBin is ${CLAUDE_PLUGIN_ROOT}/bin/brigade (bin/brigade.exe on

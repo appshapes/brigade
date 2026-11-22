@@ -34,7 +34,9 @@ needs its first prompt again.
 ## What to know
 
 - The label a Muse join sends is the `label` key of `~/.config/brigade/muse-options.json` ([Configure in Muse
-  Code](../configure/muse-code.md)); the Claude account email is not read.
+  Code](../configure/muse-code.md)). Left out, it is `account`, as in Claude Code: where a Claude account is on this machine, the join
+  sends its email address, and so does every session start while the team holds no label for you ([Choose your
+  label](your-label.md)). Set `none`, or a text, before you join to send that instead.
 - `brigade whoami` in the session prints `host: muse` and whether the session is receiving.
 - Muse's default profile reviews the first connection to the backend's host once; under `--yolo` nothing is
   reviewed.

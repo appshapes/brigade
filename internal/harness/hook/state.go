@@ -60,7 +60,7 @@ func (r *run) stateStart(ctx context.Context, f facts, opts config.Options, m *s
 		if !errors.Is(err, fs.ErrNotExist) {
 			r.log.Debug("state: the canonical entry is unusable; a fresh one is written", log.Err(err))
 		}
-		e = r.newStateEntry(f, opts, m, now)
+		e = r.newStateEntry(opts, m, now)
 	} else {
 		e.SessionName = m.SessionName
 		e.EndedAt, e.EndReason = time.Time{}, ""
@@ -79,9 +79,9 @@ func (r *run) stateStart(ctx context.Context, f facts, opts config.Options, m *s
 // member's label as the registration sends it (the `label` option's
 // resolution, read best effort), the repository's name the folder ids
 // carry, else the workspace label, and HEAD as the start head.
-func (r *run) newStateEntry(f facts, opts config.Options, m *sessionmap.ByPID, now time.Time) *state.Entry {
+func (r *run) newStateEntry(opts config.Options, m *sessionmap.ByPID, now time.Time) *state.Entry {
 	e := state.New(m.BrigadeSessionID, m.SessionName, now)
-	e.Member = r.humanLabel(f, opts)
+	e.Member = r.humanLabel(opts)
 	e.Repository = m.SyncScope
 	if e.Repository == "" {
 		e.Repository = m.WorkspaceLabel
@@ -112,7 +112,7 @@ func (r *run) statePrompt(ctx context.Context, f facts, m *sessionmap.ByPID, now
 			r.log.Debug("state: options unreadable; no entry written", log.Err(oerr))
 			return nil
 		}
-		e = r.newStateEntry(f, opts, m, now)
+		e = r.newStateEntry(opts, m, now)
 	}
 	e.SessionName = m.SessionName
 	// The parity ask (stop.go) judges the turn that ENDED at this prompt,

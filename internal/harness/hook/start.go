@@ -453,7 +453,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// announces session.human_label to adopt into a membership that has
 	// none. Absent when the `label` option is `none` or the account email
 	// cannot be read — the fill is best effort and never a refusal.
-	if label := r.humanLabel(f, res.opts); label != "" {
+	if label := r.humanLabel(res.opts); label != "" {
 		reg.HumanLabel = &label
 	}
 	result, err := r.register(ctx, res.client, reg)
@@ -842,21 +842,16 @@ func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 // debug line without the value and an empty label, never a refusal, so a
 // session whose account cannot be read registers as every session did
 // before this version.
-func (r *run) humanLabel(f facts, opts config.Options) string {
-	if f.pointed() && opts.Label == config.LabelAccount {
-		// A Muse Code or Codex CLI session has no Claude account to read an
-		// address from, and its hooks read nothing under ~/.claude (cards
-		// 88, 107): the default sends no label; the `label` option in the
-		// host's options file names one.
-		return ""
+//
+// The rule is account.Label's, the same on every harness (ADR 0014, work
+// item 379). Until then a Muse Code, Codex CLI or Grok Build session sent
+// no label here, while its `team join` and its watcher sent the account's.
+func (r *run) humanLabel(opts config.Options) string {
+	label, _, err := account.Label(opts.Label, r.environ)
+	if err != nil {
+		r.log.Debug("claude account email unavailable", log.Err(err))
 	}
-	return config.LabelFor(opts.Label, func() string {
-		email, err := account.Email(r.environ)
-		if err != nil {
-			r.log.Debug("claude account email unavailable", log.Err(err))
-		}
-		return email
-	})
+	return label
 }
 
 // workspaceLabel is the label a session registers (P11-5): the user's

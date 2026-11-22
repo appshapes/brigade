@@ -109,11 +109,13 @@ secret from the file and joins; its output never carries the secret, and this se
 (one already attached to another team stays there until a new session). Delete the file once every machine
 that needs it has joined.
 
-**The join sends a display label**: in a Codex CLI session there is no Claude account to read an email address
-from, so unless the `label` option in `~/.config/brigade/codex-options.json` names a text (or `none`), your
-sessions are listed by their principal reference alone. Set it **before you join** if you want a label; any text
-is used as your label, and every member of the team, and whoever runs its backend, will see it. `--label <text>` on the command overrides the option for
-that one join. It is not prompted for, so choose it first.
+**The join sends your Claude account email as your display label** where a Claude account is on this machine,
+unless you say otherwise: Brigade reads the address from Claude Code's own configuration, read-only, as it does in a
+Claude Code session, and every member of the team, and whoever runs its backend, will see it beside your sessions.
+To opt out, set the `label` option in `~/.config/brigade/codex-options.json` **before you join**: `none` sends no label
+at all (your sessions are listed by their principal reference alone), and any other text is used as your label
+instead. On a machine with no Claude account the default sends no label. `--label <text>` on the command overrides
+the option for that one join. It is not prompted for, so choose it first.
 
 In your own terminal,
 `brigade team join` alone shows what the file names, asks you to confirm, then reads the secret without echo.

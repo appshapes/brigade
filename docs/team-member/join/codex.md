@@ -36,7 +36,9 @@ the new thread `/new` opens each register at their first prompt.
 ## What to know
 
 - The label a Codex join sends is the `label` key of `~/.config/brigade/codex-options.json` ([Configure in Codex
-  CLI](../configure/codex.md)); the Claude account email is not read.
+  CLI](../configure/codex.md)). Left out, it is `account`, as in Claude Code: where a Claude account is on this machine, the join
+  sends its email address, and so does every session start while the team holds no label for you ([Choose your
+  label](your-label.md)). Set `none`, or a text, before you join to send that instead.
 - `brigade whoami` in the session prints `host: codex` and whether the session is receiving.
 - Under Codex's default profile a `brigade` command that reaches the backend asks for approval, because the
   sandbox has the network off; under `--dangerously-bypass-approvals-and-sandbox` nothing is asked.

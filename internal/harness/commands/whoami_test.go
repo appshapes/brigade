@@ -18,9 +18,13 @@ const noWatcherLine = "delivery: no watcher: this session has no inbox socket; n
 const shortIDLine = "short id: aaaaa"
 
 // noLabelLine is the label line of the plain fixture (card 191): its team
-// store holds no binding with a label, and its Claude config no account.
-const noLabelLine = "label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds, " +
-	"which a session start fills from its Claude account while there is none"
+// store holds no binding with a label, and its Claude config no account,
+// so no session start will fill one and the line promises none (work item
+// 379). noLabelFilledLine is the line where an account was read.
+const (
+	noLabelLine       = "label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds"
+	noLabelFilledLine = noLabelLine + ", which a session start fills from its Claude account while there is none"
+)
 
 // TestWhoamiLine pins the 6.4 layout from the map and the cached describe:
 // exactly one spawn (the describe), no network.

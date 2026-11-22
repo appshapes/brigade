@@ -21,8 +21,9 @@ malformed/oversized files produce a fixed warning; unknown keys and nested value
 
 `team_inbound` controls local injection: accept appends to the private sink, hold retains server-side pending
 messages until the human releases them, and refuse injects/ACKs nothing. `poll_on_prompt` does not deliver on
-Grok: native UserPromptSubmit stdout is discarded. `claude_inbound_setting` has no meaning. No Claude settings,
-account or arbitrary Grok history is read. The roster name is that session's `generated_title` from its own `summary.json`; with no title it falls back to `grok`. The model is `current_model_id` from that same file; with none it stays blank. Context stays blank.
+Grok: native UserPromptSubmit stdout is discarded. `claude_inbound_setting` has no meaning. No Claude settings and
+no arbitrary Grok history is read. The Claude account's email address is read, for the default label, while `label`
+is left at `account` ([Choose your label](../join/your-label.md)). The roster name is that session's `generated_title` from its own `summary.json`; with no title it falls back to `grok`. The model is `current_model_id` from that same file; with none it stays blank. Context stays blank.
 
 Run `brigade whoami` to see watcher connection and the last native monitor observation. States include
 `unarmed`, `arming-attempted`, `unverified`, `paused` and `armed`. Armed is an exact native task/command

@@ -176,29 +176,48 @@ func TestWhoamiLabelSources(t *testing.T) {
 }
 
 // The account is read only where it decides the label: a `label` option
-// other than `account`, and a host with no Claude account to read, print
-// no account line and carry no session_account.
+// other than `account` prints no account line and carries no
+// session_account.
 func TestWhoamiLabelReadsTheAccountOnlyWhereItIsTheDefault(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{config.LabelNone, "Alice of Ops", string(config.HostCodex)} {
+	for _, name := range []string{config.LabelNone, "Alice of Ops"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t)
 			writeBinding(t, f, joinedLabel, time.Time{})
 			writeAccountFile(t, f.dirs.ClaudeConfig)
-			if name == string(config.HostCodex) {
-				m := f.byPID()
-				m.Harness = name
-				f.writeMap(t, m)
-			} else {
-				writeStartFactsWithLabel(t, f, f.dirs.BrigadeConfig, name)
-			}
+			writeStartFactsWithLabel(t, f, f.dirs.BrigadeConfig, name)
 			lines := whoamiLines(t, f)
 			if got := linesWith(lines, "account: "); len(got) != 0 {
 				t.Fatalf("account lines %q", got)
 			}
 			if label, out := whoamiLabelJSON(t, f); label["session_account"] != nil || strings.Contains(out, accountEmail) {
 				t.Fatalf("--json carries the session's account: %s", out)
+			}
+		})
+	}
+}
+
+// Where the account is the default it is read in a session of every
+// harness, since each fills an empty label from it (ADR 0014, work item
+// 379): a Muse Code, Codex CLI or Grok Build session used to be told
+// nothing of the account, as a host that had none to read.
+func TestWhoamiLabelReadsTheAccountOnEveryHost(t *testing.T) {
+	t.Parallel()
+	for _, host := range []config.Host{config.HostClaude, config.HostMuse, config.HostCodex, config.HostGrok} {
+		t.Run(string(host), func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			writeBinding(t, f, joinedLabel, time.Time{})
+			writeAccountFile(t, f.dirs.ClaudeConfig)
+			m := f.byPID()
+			m.Harness = string(host)
+			f.writeMap(t, m)
+			if got := linesWith(whoamiLines(t, f), "account: "); len(got) != 1 || !strings.HasPrefix(got[0], "account: this session's Claude account is "+accountEmail) {
+				t.Fatalf("account lines %q", got)
+			}
+			if label, out := whoamiLabelJSON(t, f); label["session_account"] != accountEmail {
+				t.Fatalf("--json session_account = %v: %s", label["session_account"], out)
 			}
 		})
 	}
@@ -217,7 +236,7 @@ func TestWhoamiLabelNone(t *testing.T) {
 	}
 	writeAccountFile(t, f.dirs.ClaudeConfig)
 	lines := whoamiLines(t, f)
-	want := []string{noLabelLine, "account: this session's Claude account is " + accountEmail}
+	want := []string{noLabelFilledLine, "account: this session's Claude account is " + accountEmail}
 	if got := append(linesWith(lines, "label: "), linesWith(lines, "account: ")...); len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("lines %q, want %q", got, want)
 	}
@@ -511,15 +530,43 @@ func TestWhoamiLabelNamesTheProfileFromHome(t *testing.T) {
 	}
 }
 
-// A host that never fills a label from a Claude account does not promise it.
-func TestWhoamiLabelNoneInACodexSession(t *testing.T) {
+// With no label recorded, a session of every harness is told that its
+// start fills one from the Claude account, where the machine has one:
+// each of the four does (ADR 0014). And none is told so where it has
+// none, which is often a Muse Code, Codex CLI or Grok Build member's
+// machine: no start will fill a label there.
+func TestWhoamiLabelNoneSaysTheSameOnEveryHost(t *testing.T) {
+	t.Parallel()
+	for _, host := range []config.Host{config.HostClaude, config.HostMuse, config.HostCodex, config.HostGrok} {
+		for _, account := range []bool{true, false} {
+			t.Run(string(host), func(t *testing.T) {
+				t.Parallel()
+				f := newFixture(t)
+				m := f.byPID()
+				m.Harness = string(host)
+				f.writeMap(t, m)
+				want := noLabelLine
+				if account {
+					writeAccountFile(t, f.dirs.ClaudeConfig)
+					want = noLabelFilledLine
+				}
+				if got := linesWith(whoamiLines(t, f), "label: "); len(got) != 1 || got[0] != want {
+					t.Fatalf("with an account on the machine %v: label lines %q, want %q", account, got, want)
+				}
+			})
+		}
+	}
+}
+
+// A session whose `label` option is `none`, or a text, is promised no fill
+// either, whatever account the machine has: its start sends what the
+// option says.
+func TestWhoamiLabelNonePromisesNothingWhereTheOptionSendsNone(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	m := f.byPID()
-	m.Harness = string(config.HostCodex)
-	f.writeMap(t, m)
-	got := linesWith(whoamiLines(t, f), "label: ")
-	if len(got) != 1 || got[0] != "label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds" {
-		t.Fatalf("label lines %q", got)
+	writeAccountFile(t, f.dirs.ClaudeConfig)
+	writeStartFactsWithLabel(t, f, f.dirs.BrigadeConfig, config.LabelNone)
+	if got := linesWith(whoamiLines(t, f), "label: "); len(got) != 1 || got[0] != noLabelLine {
+		t.Fatalf("label lines %q, want %q", got, noLabelLine)
 	}
 }
