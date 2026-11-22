@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
 )
@@ -53,7 +54,7 @@ func TestAHostTheTableDoesNotHoldGetsNo(t *testing.T) {
 		if host.Name() != string(host) || host.NativeIDVar() != "" || config.OptionsFile(host) != "" || host.Frame() != "" ||
 			host.Pointed() || host.CanRename() || host.HasStop() || host.DiscardsPromptOutput() || host.StaysOnMove() ||
 			host.PluginRoot([]string{"CLAUDE_PLUGIN_ROOT=/c", "MUSE_PLUGIN_ROOT=/m", "GROK_PLUGIN_ROOT=/g"}, "/flag") != "" ||
-			host.HistoryRoot([]string{"HOME=/home/x", "CODEX_HOME=/c", "GROK_HOME=/g"}) != "" {
+			host.HistoryRoot([]string{adapterkit.HomeVar + "=" + t.TempDir(), "CODEX_HOME=" + t.TempDir(), "GROK_HOME=" + t.TempDir()}) != "" {
 			t.Errorf("host %q is given a fact of some row", host)
 		}
 		// The one fact whose "no" is a line: a session of a host that is
@@ -90,29 +91,32 @@ func TestThePluginRootIsNamedAsEachHostNamesIt(t *testing.T) {
 }
 
 // TestTheHistoryRootIsTheHostsOwn: the host's variable when it is set and
-// absolute, never a relative one joined onto HOME, else its directory
-// under HOME; none for Claude Code, and none without a HOME.
+// absolute, never a relative one joined onto the home directory, else its
+// directory under the home directory; none for Claude Code, and none
+// without a home. The home is named as the platform names it
+// (adapterkit.HomeVar: HOME, USERPROFILE on Windows), and the paths are
+// real directories, which are absolute on every platform.
 func TestTheHistoryRootIsTheHostsOwn(t *testing.T) {
 	t.Parallel()
-	home := filepath.FromSlash("/home/x")
-	abs := filepath.FromSlash("/elsewhere/store")
+	home, abs := t.TempDir(), t.TempDir()
+	at := func(extra ...string) []string { return append([]string{adapterkit.HomeVar + "=" + home}, extra...) }
 	for _, tc := range []struct {
 		name    string
 		host    config.Host
 		environ []string
 		want    string
 	}{
-		{"Claude Code keeps none Brigade reads", config.HostClaude, []string{"HOME=" + home}, ""},
-		{"Muse Code under HOME", config.HostMuse, []string{"HOME=" + home}, filepath.Join(home, ".local", "share", "muse")},
-		{"Muse Code never by XDG", config.HostMuse, []string{"HOME=" + home, "XDG_DATA_HOME=" + abs}, filepath.Join(home, ".local", "share", "muse")},
-		{"Codex CLI under HOME", config.HostCodex, []string{"HOME=" + home}, filepath.Join(home, ".codex")},
-		{"Codex CLI by CODEX_HOME", config.HostCodex, []string{"HOME=" + home, "CODEX_HOME=" + abs}, abs},
-		{"Codex CLI, a relative CODEX_HOME", config.HostCodex, []string{"HOME=" + home, "CODEX_HOME=store"}, ""},
-		{"Grok Build under HOME", config.HostGrok, []string{"HOME=" + home}, filepath.Join(home, ".grok")},
-		{"Grok Build by GROK_HOME", config.HostGrok, []string{"HOME=" + home, "GROK_HOME=" + abs}, abs},
-		{"Grok Build, a relative GROK_HOME", config.HostGrok, []string{"HOME=" + home, "GROK_HOME=store"}, ""},
-		{"Grok Build is not asked CODEX_HOME", config.HostGrok, []string{"HOME=" + home, "CODEX_HOME=" + abs}, filepath.Join(home, ".grok")},
-		{"no HOME", config.HostCodex, nil, ""},
+		{"Claude Code keeps none Brigade reads", config.HostClaude, at(), ""},
+		{"Muse Code under the home", config.HostMuse, at(), filepath.Join(home, ".local", "share", "muse")},
+		{"Muse Code never by XDG", config.HostMuse, at("XDG_DATA_HOME=" + abs), filepath.Join(home, ".local", "share", "muse")},
+		{"Codex CLI under the home", config.HostCodex, at(), filepath.Join(home, ".codex")},
+		{"Codex CLI by CODEX_HOME", config.HostCodex, at("CODEX_HOME=" + abs), abs},
+		{"Codex CLI, a relative CODEX_HOME", config.HostCodex, at("CODEX_HOME=store"), ""},
+		{"Grok Build under the home", config.HostGrok, at(), filepath.Join(home, ".grok")},
+		{"Grok Build by GROK_HOME", config.HostGrok, at("GROK_HOME=" + abs), abs},
+		{"Grok Build, a relative GROK_HOME", config.HostGrok, at("GROK_HOME=store"), ""},
+		{"Grok Build is not asked CODEX_HOME", config.HostGrok, at("CODEX_HOME=" + abs), filepath.Join(home, ".grok")},
+		{"no home", config.HostCodex, nil, ""},
 	} {
 		if got := tc.host.HistoryRoot(tc.environ); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
