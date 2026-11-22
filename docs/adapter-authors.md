@@ -2,7 +2,7 @@
 
 > **Status.** Everything below is written against running code. The reference adapter
 > (`bin/brigade-adapter-fs`) and the conformance suite (`bin/brigade-conformance`) are green, and so is the whole
-> plugin chain: the manifest, the three hooks, the detached watcher and the commands that resolve your adapter and
+> plugin chain: the manifest, the four hooks, the detached watcher and the commands that resolve your adapter and
 > spawn it. An adapter is exercised through the suite, by hand, **and** from inside a live Claude Code session —
 > see *What the harness does when it runs you* for the contract that session imposes.
 
@@ -2107,19 +2107,19 @@ and one adapter per session stay as they are.
 
 The harness spawns the resolved command as an argument array with `exec` and **no shell**: no globbing, no `~`
 expansion, no `sh -c`, no quoting rules. A shell script is a fine adapter, but it needs a shebang line and the
-executable bit — there is no shell form and no Windows form (darwin and linux only; Windows means WSL 2). The
-environment your process receives is the from-scratch allow-list described under *The environment your adapter runs
-in*, which is why fixed arguments and the profile file, never `BRIGADE_<ADAPTER>_*`, are where your configuration
-comes from. A team lives on exactly one backend: every member's adapter must speak that backend's data model, which
-the protocol deliberately leaves to adapters (4.8).
+executable bit — there is no shell form, and a script needs darwin or linux (WSL 2 included): Windows, native from
+0.41.0, reads no shebang. The environment your process receives is the from-scratch allow-list described under
+*The environment your adapter runs in*, which is why fixed arguments and the profile file, never
+`BRIGADE_<ADAPTER>_*`, are where your configuration comes from. A team lives on exactly one backend: every member's
+adapter must speak that backend's data model, which the protocol deliberately leaves to adapters (4.8).
 
 The whole chain runs today: the plugin manifest and the `plugin/bin` bootstrap, the harness commands
 (`team create|join|leave|status|reset|revoke-credentials|list`, the `team` admin pass-through, `sessions`, `send`, `whoami`,
 `doing`, `sync status`, `team members`, `inbox`), the
-three lifecycle hooks and the detached watcher. A local build behind the dev pointer (`make plugin-dev`) drives your
+four lifecycle hooks and the detached watcher. A local build behind the dev pointer (`make plugin-dev`) drives your
 adapter from inside a live Claude Code session, and that is the sequence measured in `docs/experiments/E3-wiring.md`.
 The packaged release pins — `plugin/bin/VERSION` and `plugin/bin/checksums.txt`, written by `make release`, whose
-current release is `0.47.0` — name the binary a session downloads and the sha256 it is checked against. Which binary a
+current release is `0.57.0` — name the binary a session downloads and the sha256 it is checked against. Which binary a
 developer installs does not change how the harness runs your adapter. `brigade-conformance` and a shell
 remain the way to exercise your adapter on its own; the section below is everything the harness adds on top.
 
