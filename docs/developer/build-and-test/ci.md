@@ -14,6 +14,14 @@ variables, rulesets) and the fixtures. The runner is Blacksmith's `blacksmith-4v
 tool versions the `fast` job prints in its "Runner image inventory" step; shellcheck is 0.9.0 there. Every CI job
 sets `timeout-minutes` except one whose body is a reusable workflow, where GitHub rejects it.
 
+A Go test that hangs is ended by `go test`, not by the job. `make test` gives each package `go_test_timeout`,
+15m on your machine; the `fast` job passes `go_test_timeout=5m`, under its own limit of 15 minutes. The job then
+fails, and its log has `panic: test timed out after 5m0s`, the test still running under `running tests:`, and
+every goroutine. A job that ends as cancelled at its limit names nothing, so the limit of each job that runs
+`go test` (`fast`, `windows`, `supabase`, `server`) stays above its test timeout by the sum the comment beside
+it in `ci.yml` gives. To end a hang sooner on your machine, pass a timeout above your slowest package:
+`make test go_test_timeout=3m`.
+
 The first six jobs of `ci.yml` wait on nothing, so a run is as long as its longest job (card 245: under five
 minutes, from eleven). The `master` ruleset requires `fast`, `lint`, `supabase`, `e2e` and `server` by job name:
 add or rename a job and the ruleset together. `windows` is not required; `server` is, since the first server

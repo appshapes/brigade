@@ -11,6 +11,12 @@
   and `server` by job name: a job added or renamed in `ci.yml` changes the ruleset in the same piece of work, or it gates
   nothing (or blocks every pull request). There is no macOS job and no cross-host `reproducibility` job; never
   add one back without the owner. The `fast` job passes `go_test_p=4` to `make test`; everywhere else the pin is 2.
+  It also passes `go_test_timeout=5m`, where the Makefile's pin is 15m (work item 400). A hung test must be ended
+  by `go test`, which names it and prints its goroutines, and never by the job, which names nothing: the
+  `timeout-minutes` of a job that runs `go test` stays above the start of its test step, plus the start of the
+  last package in it, plus the `-timeout`, plus the minute `go test` waits before it kills a test binary, with
+  room for a cold build cache. `ci.yml`'s header has the rule and a comment beside each such limit has the sum:
+  change a timeout, a limit or what runs before the tests, and do the sum again.
 - **The server** (work item 89, `.context/plans/brigade-server.md`). `server/` is a Rust workspace that shares no
   code with the Go side and is outside the acceptance gate: never make `make test`, `make push` or a Go package
   depend on it. Its gate is `make server-check server-test server-deps-check`; run it before pushing anything

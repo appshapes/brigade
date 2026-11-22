@@ -51,7 +51,12 @@
 # concurrency group before anyone notices. The convention and its measured reason are the house's
 # (thinktech-web/.github/workflows/ci.yml:24-26 -- "Every job sets `timeout-minutes` well above its p90 because
 # the default is 360 min: six e2e jobs hung in the Playwright install step for six hours each in August 2026").
-# The rule: twice the p90 of TEN real green runs, rounded up, the comment naming the slowest of the ten.
+# The rule: twice the p90 of TEN real green runs, rounded up, the comment naming the slowest of the ten. A job
+# that runs `go test` has a second bound, which wins where it is the higher (work item 400): its limit stays above
+# what a hung test costs, so that `go test` ends the hang and names the test, and the limit never cancels it
+# unnamed. That is the start of the test step, plus the start of the last package inside it, plus the `-timeout`,
+# plus the minute `go test` gives a test binary to end after it; and room for a cold build cache, where the build
+# of every package comes before the last one starts. The sum is in a comment beside each such limit.
 # Re-measure with `gh run list --workflow ci.yml --json databaseId` and `gh run view <id> --json jobs` before
 # tightening one: a bound under a job's real p90 turns a green matrix red for no reason. The bounds on `fast`,
 # `supabase` and `e2e` are the ones the longer jobs of the earlier shape carried, so each is LOOSE here rather
@@ -69,7 +74,14 @@ concurrency: {group: "ci-${{ github.ref }}", cancel-in-progress: true}
 jobs:
   fast:                                   # no Docker: typecheck, the tests, the guards and the package checks
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 11                   # the earlier shape's bound (2x its 5m16s p90), with lint still in the job
+    # Above what a hung test costs (work item 400; the rule is in this file's header). It was 11, the earlier
+    # shape's bound (2x its 5m16s p90, with lint still in the job), which was UNDER the 15m `go test` ran with.
+    # Measured on the eight green runs before 2026-11-22, all on a warm cache: the test step began 10 s to 17 s
+    # into the job and took 186 s to 264 s whole, so with `go_test_timeout=5m` below a hang ends by
+    # 0.3 + 4.4 + 5 + 1 = 10.7 minutes. 15 leaves four minutes for a cold cache. The drill of that day (run
+    # 45021004506, a test that sleeps an hour in `scripts/ci`, the package that starts last) failed the job
+    # 6 min 21 s in, with the test named. Raise the timeout, or let the step grow, and this goes up with it.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}            # P1-8's checksums-check needs tags and the release listing
@@ -113,7 +125,12 @@ jobs:
       # time on this 4 vCPU runner (card 245). At the Makefile's pin of 2 the `go test` line took 193 s for 283 s
       # of package time on run 42871717045, and it was the longest thing in this file; at 4 it took 98 s to 141 s
       # for 249 s to 330 s of package time on the four attempts of run 42890494351, every package green.
-      - run: make build test go_test_p=4
+      # `go_test_timeout=5m` (work item 400): a package whose tests run five minutes is ended by `go test`, which
+      # prints the test still running and every goroutine. Under the Makefile's 15m, which was over this job's
+      # limit, a hang was cancelled by the job with no test named (run 43896319385, attempt 1). The slowest
+      # package took 97 s to 121 s on the runs measured, so 5m is a hang and not a slow day. It must stay UNDER
+      # the job's `timeout-minutes` by the sum the comment there gives.
+      - run: make build test go_test_p=4 go_test_timeout=5m
       - run: go tool cover -func=cover.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
       - run: make vuln deps-check schema-check
       # `checksums-check` depends on `cross`, so all six targets are still rebuilt with the release flags and
@@ -192,7 +209,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test -shuffle=on -count=1 -timeout 15m ./...
+          # 10m, where it was 15m, to stay under this job's 20 minutes on a cold cache too (work item 400; the
+          # rule is in this file's header). On three warm runs this step began 32 s to 37 s into the job and
+          # took 92 s to 103 s whole, so a package that hangs is ended by `go test`, and named, by
+          # 0.6 + 1.7 + 10 + 1 = 13.3 minutes, with more than six to spare; under 15m it was less than two.
+          go test -shuffle=on -count=1 -timeout 10m ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   # Docker, first half: the database's own tests and the adapter's live tests, on a local stack this job starts
@@ -203,8 +224,11 @@ jobs:
   # the four attempts of run 42890494351, with a warm cache on three of them.
   supabase:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 25                   # the earlier shape's bound and deliberately loose: this job pulls images
-                                          # over the network
+    # The earlier shape's bound and deliberately loose: this job pulls images over the network. It is also above
+    # what a hung test costs (work item 400; the rule is in this file's header): the adapter's live tests run
+    # under `-timeout 20m` (`make test-integration-adapter`) in a step that began 45 s to 48 s into the job on
+    # three runs, so a hang ends by 0.8 + 20 + 1 = 21.8 minutes, with three to spare for a slow image pull.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -287,7 +311,12 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15                   # first runs: measure, then pin at 2x the p90 like the others. Loose until
                                           # then: one run has timed this job, 2m22s on a cold cargo cache
-                                          # (run 43222730771, on 87df95b)
+                                          # (run 43222730771, on 87df95b). Also above what a hung Go test
+                                          # costs (work item 400; the rule is in this file's header):
+                                          # `make server-test` runs its `go test` under `-timeout 5m`, about
+                                          # two minutes into a step that began 21 s to 35 s into the job, so
+                                          # a hang ends by 0.6 + 2 + 5 + 1 = 8.6 minutes. cargo's own tests
+                                          # have no timeout: cargo names a test that runs over a minute.
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
