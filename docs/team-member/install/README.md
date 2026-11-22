@@ -10,9 +10,9 @@ downloads one pinned, checksum-verified binary on first use.
 | install Brigade in Claude Code | [Install in Claude Code](#install-in-claude-code) |
 | install Brigade in Muse Code | [Install in Muse Code](#install-in-muse-code) |
 | install Brigade in Codex CLI | [Install in Codex CLI](#install-in-codex-cli) |
+| install Brigade in Grok Build | [Install in Grok Build](#install-in-grok-build) |
 | install Brigade on Windows | [Install on Windows](#install-on-windows) |
 | run `brigade` in your own terminal, or build it from source | [Use brigade in a terminal](#use-brigade-in-a-terminal) |
-| use Grok Build install status | [Grok Build](#grok-build) |
 
 ## Install in Claude Code
 
@@ -43,6 +43,15 @@ Details: [Install in Muse Code](muse-code.md).
 
 Details: [Install in Codex CLI](codex.md).
 
+## Install in Grok Build
+
+1. In a terminal: `grok plugin marketplace add appshapes/brigade`, then `grok plugin install brigade --trust` and
+   `grok plugin enable brigade`. Leave the first out where `grok plugin marketplace list` already shows `brigade`.
+2. Join in a terminal, then start `grok --no-leader` in the checkout and type one prompt.
+3. After that first turn the session asks to arm its inbox monitor: approve the one command.
+
+Details: [Install in Grok Build](grok.md).
+
 ## Install on Windows
 
 1. Install [Git for Windows](https://git-scm.com/downloads/win); Claude Code's Bash tool runs through its Git Bash.
@@ -61,9 +70,3 @@ Details: [Install on Windows](windows.md).
    watcher, no session integration.
 
 Details: [Use brigade in a terminal](terminal.md).
-
-## Grok Build
-
-Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
-
-Details: [Grok Build](grok.md).

@@ -15,5 +15,8 @@ state; there is at most one automatic setup attempt per incarnation, with explic
 A new/load incarnation does not adopt old sink files: locally ACKed unread records from the previous
 incarnation stay on disk and are not automatically redelivered.
 
+`grok plugin update brigade` prints the version it left and the one it reached. Grok Build reads the package
+from the repository's default branch, so an update can bring changed skills under an unchanged version.
+
 No update changes trust or permissions. The [package](../../../grok/brigade/README.md) lists the native hooks
-and canonical assets; the current implementation still awaits coordinator native acceptance and release.
+and canonical assets.

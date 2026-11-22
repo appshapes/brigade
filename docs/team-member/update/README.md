@@ -10,8 +10,8 @@ owner migrates when they like, and nothing has to be sequenced.
 | update Brigade in Claude Code | [Update in Claude Code](#update-in-claude-code) |
 | update Brigade in Muse Code | [Update in Muse Code](#update-in-muse-code) |
 | update Brigade in Codex CLI | [Update in Codex CLI](#update-in-codex-cli) |
+| update Brigade in Grok Build | [Update in Grok Build](#update-in-grok-build) |
 | know what an update can change about what your sessions share, and who is behind | [Know what an update changes](#know-what-an-update-changes) |
-| use Grok Build update status | [Grok Build](#grok-build) |
 
 ## Update in Claude Code
 
@@ -35,6 +35,14 @@ Details: [Update in Muse Code](muse-code.md).
 
 Details: [Update in Codex CLI](codex.md).
 
+## Update in Grok Build
+
+1. `grok plugin marketplace update brigade`, then `grok plugin update brigade`.
+2. Reload through Grok's Plugins tab or start a new `grok --no-leader` session; its first turn asks once to arm
+   the inbox monitor again.
+
+Details: [Update in Grok Build](grok.md).
+
 ## Know what an update changes
 
 1. Read the first lines of the version's section in `CHANGELOG.md`, "Who must act": the Team Member line says
@@ -43,9 +51,3 @@ Details: [Update in Codex CLI](codex.md).
 2. The VERSION column of `brigade sessions` shows who on the team is behind.
 
 Details: [Know what an update changes](what-an-update-changes.md).
-
-## Grok Build
-
-Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
-
-Details: [Grok Build](grok.md).

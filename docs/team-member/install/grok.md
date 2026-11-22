@@ -1,12 +1,16 @@
 # Install in Grok Build
 
-This source implements monitor participation for Grok Build direct TUIs launched with `--no-leader`. Final native acceptance and the next release remain coordinator gates; the current release pins are unchanged.
+Brigade has shipped a package for xAI's Grok Build since 0.35.0 (2026-10-19): a direct TUI launched with
+`grok --no-leader` joins the same team as the Claude Code, Muse Code and Codex CLI sessions, and takes its
+messages through a persistent native monitor.
 
-The measured hosts are Grok Build 1.0.62 (`1474f9cbdd91`, kernel name `grok-macos-aarch`) and 1.0.67
-(kernel name `grok-1.0.67-maco`). Later versions must preserve the native hook and monitor contracts.
+The measured hosts are Grok Build 1.0.62 (`1474f9cbdd91`, kernel name `grok-macos-aarch`), 1.0.67
+(kernel name `grok-1.0.67-maco`) and 1.0.92, where on 2026-11-22 a session installed the package by the
+commands below, armed its monitor and answered a team message; all three on macOS arm64. Linux is not
+measured. Later versions must preserve the native hook and monitor contracts.
 Leader mode is unsupported: its shared process does not identify a live terminal receiver.
 
-After a monitor-enabled release, use Grok's normal marketplace and trust flow in your own terminal:
+Use Grok's normal marketplace and trust flow in your own terminal:
 
 ```sh
 grok plugin marketplace add appshapes/brigade
@@ -14,6 +18,12 @@ grok plugin install brigade --trust
 grok plugin enable brigade
 grok --no-leader
 ```
+
+The first command adds this repository as a plugin marketplace (its `.grok-plugin/marketplace.json` names the
+package). Leave it out where `grok plugin marketplace list` already shows `brigade`: Grok Build also lists the
+marketplaces Claude Code knows on the machine, and the command then stops at `Marketplace source already
+configured`. In Grok Build 1.0.92 `install --trust` enables the plugin too, and the third command changes
+nothing. The package is installed as the repository's default branch has it at that moment.
 
 Join the project's team as [the joining page](../join/grok.md) describes. Type an ordinary prompt in the direct
 TUI. SessionStart registers it and shows a UI-only notice; after the first completed turn, Stop offers one

@@ -7,17 +7,23 @@ Grok hook transactions are serialized by actual TUI PID and native UUID, includi
 Startup `systemMessage` is UI-only. UserPromptSubmit maintains registration/watcher state and prints no frames.
 A genuine Stop offers one setup continuation; its marker and recursion guard prevent repeated attempts.
 
+The package (`grok/brigade/`) ships the same fifteen skills as the other three, worded for Grok Build; a user
+invokes one as `/brigade:<name>`. `team-messaging`, `setup` and `update` are the other packages' text since
+work item 383, with Grok Build's own monitor sections kept. Three things they still hold back, until the ruling
+of work item 377 is applied: a doing line is published only when Brigade asks for one, a gateway send is one
+the user authorized, and an update runs when the user requests it.
+
 | Skill | Purpose |
 | --- | --- |
-| [`grok/brigade/skills/team-messaging/SKILL.md`](../../../grok/brigade/skills/team-messaging/SKILL.md) | team messaging |
-| [`grok/brigade/skills/sessions/SKILL.md`](../../../grok/brigade/skills/sessions/SKILL.md) | sessions |
+| [`grok/brigade/skills/team-messaging/SKILL.md`](../../../grok/brigade/skills/team-messaging/SKILL.md) | team messaging: the command surface with `send --member`, the sending rules and what `brigade send` prints, the roster line, notes, decisions and the digest, the gateways, arming the inbox monitor and reading a frame in pages, the inbound frame, and the errors |
+| [`grok/brigade/skills/sessions/SKILL.md`](../../../grok/brigade/skills/sessions/SKILL.md) | sessions: print the roster verbatim |
 | [`grok/brigade/skills/whoami/SKILL.md`](../../../grok/brigade/skills/whoami/SKILL.md) | whoami: print `brigade whoami`, this session's identity, verbatim |
-| [`grok/brigade/skills/join/SKILL.md`](../../../grok/brigade/skills/join/SKILL.md) | join |
+| [`grok/brigade/skills/join/SKILL.md`](../../../grok/brigade/skills/join/SKILL.md) | join: run `brigade team join --secret-file <path>` on the file the user named |
 | [`grok/brigade/skills/move/SKILL.md`](../../../grok/brigade/skills/move/SKILL.md) | move: ask the team's administrator for the server's URL and the paths it needs, never a secret's content, then run the one command of a move, `brigade team move --to <url> --secret-file <path>`, and print what it printed; the members run nothing |
-| [`grok/brigade/skills/update/SKILL.md`](../../../grok/brigade/skills/update/SKILL.md) | update |
-| [`grok/brigade/skills/setup/SKILL.md`](../../../grok/brigade/skills/setup/SKILL.md) | setup |
-| [`grok/brigade/skills/email/SKILL.md`](../../../grok/brigade/skills/email/SKILL.md) | email |
-| [`grok/brigade/skills/slack/SKILL.md`](../../../grok/brigade/skills/slack/SKILL.md) | slack |
+| [`grok/brigade/skills/update/SKILL.md`](../../../grok/brigade/skills/update/SKILL.md) | update: refresh the marketplace and update the plugin when the user requests it, then have them reload or start a new session |
+| [`grok/brigade/skills/setup/SKILL.md`](../../../grok/brigade/skills/setup/SKILL.md) | setup: how a person creates a team, installs the package, joins, leaves and uninstalls, with every command and never a secret in the chat |
+| [`grok/brigade/skills/email/SKILL.md`](../../../grok/brigade/skills/email/SKILL.md) | email: send a text to an email address through the team's mail gateway |
+| [`grok/brigade/skills/slack/SKILL.md`](../../../grok/brigade/skills/slack/SKILL.md) | slack: send a text to a person or a channel through the team's Slack gateway |
 | [`grok/brigade/skills/quiet/SKILL.md`](../../../grok/brigade/skills/quiet/SKILL.md) | quiet: make this one session quiet, and return it |
 | [`grok/brigade/skills/subscribe/SKILL.md`](../../../grok/brigade/skills/subscribe/SKILL.md) | subscribe: the user's own opt-in to the digest, and `off` |
 | [`grok/brigade/skills/work-items/SKILL.md`](../../../grok/brigade/skills/work-items/SKILL.md) | work-items: print the Brigade Board, the team's board of work items, verbatim |
@@ -41,13 +47,15 @@ frame ends. Issue one bounded read per tool call and read its entire unfiltered 
 `frame_chunk`, in model context before requesting the next page. No shell/script loops, batching, piping,
 filtering, metadata-only summaries or temporary-file/grep/regex shortcuts may replace reading the full
 untrusted frame in order. Each complete JSON envelope is at most 1,800 UTF-8 bytes, including its newline.
-This leaves margin below the measured native 2,000-column wrap; native acceptance of the new cap is pending.
+This leaves margin below the measured native 2,000-column wrap: a 17,547-byte frame was read whole in 24
+pages under it ([measured](../../experiments/grok-participation.md#installed-package-acceptance-checkpoint)).
 Check `page_complete`, frame ID/digest, length and byte offsets; handle a frame only after reading all its
 ordered chunks.
 Retry a clipped page with the same cursor; do not guess content or advance. Keep the EOF cursor for future
 appends. Reads never release held messages or ACK. Dropped intermediate hints do not lose retained records;
-a lost final hint may delay retrieval until another hint or explicit retry. Native acceptance of this revised
-production hint/read envelope remains with the coordinator.
+a lost final hint may delay retrieval until another hint or explicit retry. The installed package was accepted
+with this hint and read envelope on macOS arm64; Linux, a 35-minute idle hold of the whole package and a
+deliberate loss of hints are not measured.
 
 The generated command restores the native UUID missing from monitor children. The helper is read-only,
 checks registration, actual TUI liveness and bounded process ancestry, and stops on identity replacement or
