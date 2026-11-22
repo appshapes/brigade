@@ -19,7 +19,7 @@ const grokSummaryBytes = 1 << 20
 // model is current_model_id, or "" when the summary names none. Both come
 // from that session's own summary.json. Chat history is not opened.
 func GrokSessionFacts(environ []string, cwd, id string) (name, model string) {
-	r := hostFactsReader{host: config.HostGrok, root: grokHistoryRoot(environ), id: id, cwd: cwd}
+	r := hostFactsReader{kind: config.HistorySummaries, root: grokHistoryRoot(environ), id: id, cwd: cwd}
 	facts := r.refresh()
 	return facts.name, facts.model
 }
@@ -46,8 +46,19 @@ func GrokEncodedCwd(cwd string) string {
 }
 
 func grokHistoryRoot(environ []string) string {
-	return config.HostGrok.HistoryRoot(environ)
+	return config.HistorySummaries.Root(environ)
 }
+
+// summaries is Grok Build's history (config.HistorySummaries; cards 132,
+// 135): sessions/<the launch directory>/<id>/summary.json, read for the
+// title and the model. Chat history is never opened.
+type summaries struct{}
+
+func (summaries) refresh(r *hostFactsReader) localHostFacts { return r.refreshGrokFacts() }
+
+// filedUnder is the directory the session was launched in, which the
+// record is filed under: the receiver's.
+func (summaries) filedUnder(w *watcher) string { return grokCwdOf(w.grokReceiver) }
 
 func grokCwdOf(m *sessionmap.ByPID) string {
 	if m == nil || m.Grok == nil {
@@ -88,18 +99,15 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 	if !grokLaunchCwd(r.cwd) {
 		return r.facts
 	}
-	root, info := openHostRoot(r.root)
-	if root == nil {
-		return r.facts
-	}
-	defer func() { _ = root.Close() }()
-	if r.rootInfo != nil && !os.SameFile(r.rootInfo, info) {
-		return r.facts
-	}
-	r.rootInfo = info
+	return r.refreshPinned(r.readGrokSummary)
+}
+
+// readGrokSummary brings the facts up to date from the session's
+// summary.json under the pinned root.
+func (r *hostFactsReader) readGrokSummary(root *os.File) {
 	path := r.grokSummaryPath(root)
 	if path == "" {
-		return r.facts
+		return
 	}
 	f, fi := openHostPath(root, path, false)
 	if f == nil {
@@ -107,23 +115,23 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 		// the group may have been renamed: require a fresh read and a fresh
 		// discovery, exactly as the journal reader does.
 		r.logInfo, r.path = nil, ""
-		return r.facts
+		return
 	}
 	defer func() { _ = f.Close() }()
 	if unchangedHostFile(r.logInfo, fi) {
-		return r.facts
+		return
 	}
 	if r.logInfo != nil && (!os.SameFile(r.logInfo, fi) || fi.Size() < r.logInfo.Size()) {
 		r.facts = localHostFacts{}
 	}
 	r.logInfo = fi
 	if fi.Size() <= 0 || fi.Size() > grokSummaryBytes {
-		return r.facts
+		return
 	}
 	buf := make([]byte, fi.Size())
 	n, err := f.ReadAt(buf, 0)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return r.facts
+		return
 	}
 	var doc struct {
 		Info struct {
@@ -133,12 +141,12 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 		Model string `json:"current_model_id"`
 	}
 	if json.Unmarshal(buf[:n], &doc, hostJSON) != nil {
-		return r.facts
+		return
 	}
 	if doc.Info.ID != r.id {
 		// A summary that names another session is not evidence for this one.
 		r.facts = localHostFacts{}
-		return r.facts
+		return
 	}
 	if name := oneLineName(doc.Title); name != "" {
 		r.facts.name = name
@@ -148,7 +156,6 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 	if model := oneLineModel(doc.Model); model != "" {
 		r.facts.model = model
 	}
-	return r.facts
 }
 
 // grokSummaryPath caches the resolved path in r.path, as the journal reader

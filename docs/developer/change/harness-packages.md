@@ -31,6 +31,11 @@ no, is a column of one table, and `make lint` refuses a host's name anywhere els
   column, with a no for the others. `host_test.go` reads the whole table.
 - **Its wording**, `internal/harness/frame`: the frame variant, pinned by a golden file; one sentence may differ
   per host.
+- **Its local facts**, a session's name, model and context size read from the harness's own history: the table
+  names the kind of history (`config.HistoryKind`), and `internal/harness/watch` has one reader a kind, in a file
+  of its own (`hostfacts_codex.go`, `hostfacts_muse.go`, `grokname.go`), behind the `history` interface of
+  `hostfacts.go`. A harness that files its sessions as another does shares that kind and adds nothing; one that
+  files them its own way adds a kind and a reader.
 - **What a table cannot hold**, in the files the lint rule lists by name in `.golangci.yml`, and in those alone,
   until work item 381 gives each a place of its own:
   - the hook's dialect, in six files of `internal/harness/hook`: what the session-start, prompt and session-end
@@ -38,7 +43,6 @@ no, is a column of one table, and `make lint` refuses a host's name anywhere els
   - delivery (socket, sink file, `codex queue`, a monitor): four files of `internal/harness/watch`, the detached
     watcher (`brigade watch`), with the hook's spawn of it, the two `inbox` commands and the monitor line of
     `whoami`;
-  - a session's name, model and context size from the host's own history: two files of `internal/harness/watch`.
 - **The by-host pointer**, `internal/harness/sessionmap`: from the native id to the by-pid map. It sits below
   `config` and names no host constant; where it must tell a host, it compares the map's `harness` string.
 

@@ -42,7 +42,10 @@ type localHostFacts struct {
 }
 
 type hostFactsReader struct {
-	host                         config.Host
+	host config.Host
+	// kind names the history to read where the caller knows it and no
+	// host: "" means the host's own (config.Host.History).
+	kind                         config.HistoryKind
 	root, id, path, cwd          string
 	facts                        localHostFacts
 	rootInfo, logInfo, indexInfo os.FileInfo
@@ -51,14 +54,46 @@ type hostFactsReader struct {
 	runID, provider string
 }
 
+// A history is how one host's own record of a session is read (work item
+// 381): one implementation for each way a host keeps it, in a
+// file of its own, chosen from the host table by its kind
+// (config.Host.History). The reader around it is shared: the bounded
+// reads, the root that is pinned across polls, and what may leave it.
+type history interface {
+	// refresh brings r.facts up to date from the host's record and
+	// returns them. r.root is set and r.id is a session id.
+	refresh(r *hostFactsReader) localHostFacts
+	// filedUnder is the directory the watcher's session is filed under
+	// in the record, "" for a history that files by the id alone.
+	filedUnder(w *watcher) string
+}
+
+// histories holds the implementations, each under the kind the table
+// names it by. A host whose kind is not here has no local facts.
+var histories = map[config.HistoryKind]history{
+	config.HistoryDatedStore: datedStore{},
+	config.HistoryRollouts:   rollouts{},
+	config.HistorySummaries:  summaries{},
+}
+
+// history is the reader's: its own kind where the caller named one, else
+// its host's. Nil for a host that keeps no record Brigade reads.
+func (r *hostFactsReader) history() history {
+	kind := r.kind
+	if kind == "" {
+		kind = r.host.History()
+	}
+	return histories[kind]
+}
+
 func (w *watcher) pointedFacts(id string) localHostFacts {
 	w.transcriptMu.Lock()
 	defer w.transcriptMu.Unlock()
 	host := config.Host(w.harness)
 	root := hostHistoryRoot(host, w.environ)
 	cwd := ""
-	if host == config.HostGrok {
-		cwd = grokCwdOf(w.grokReceiver)
+	if h := histories[host.History()]; h != nil {
+		cwd = h.filedUnder(w)
 	}
 	r := &w.hostFacts
 	if r.host != host || r.root != root || r.id != id || r.cwd != cwd {
@@ -77,12 +112,18 @@ func (r *hostFactsReader) refresh() localHostFacts {
 	if r.root == "" || !hostSessionID(r.id) {
 		return localHostFacts{}
 	}
-	if r.host == config.HostGrok {
-		return r.refreshGrokFacts()
-	}
-	if r.host != config.HostCodex && r.host != config.HostMuse {
+	h := r.history()
+	if h == nil {
 		return localHostFacts{}
 	}
+	return h.refresh(r)
+}
+
+// refreshPinned opens the history's root, holds it to the directory it
+// was at the first poll, and has read bring the facts up to date from it.
+// A root that cannot be opened, or that was replaced, leaves the last
+// facts as they are.
+func (r *hostFactsReader) refreshPinned(read func(root *os.File)) localHostFacts {
 	root, info := openHostRoot(r.root)
 	if root == nil {
 		return r.facts
@@ -94,15 +135,7 @@ func (r *hostFactsReader) refresh() localHostFacts {
 		return r.facts
 	}
 	r.rootInfo = info
-	if r.path == "" {
-		r.path = findHostLog(root, r.host, r.id)
-	}
-	if r.path != "" {
-		r.refreshLog(root)
-	}
-	if r.host == config.HostCodex {
-		r.refreshIndex(root)
-	}
+	read(root)
 	return r.facts
 }
 
@@ -127,14 +160,18 @@ func hostSessionID(id string) bool {
 // Search ONLY YYYY/MM/DD. Never descend into subagents, tool output,
 // archives, arbitrary directories or SQLite stores. Directory entries
 // share one budget, including non-matching entries; reads are batched.
-func findHostLog(root *os.File, host config.Host, id string) string {
+//
+// A history files a session's log in one of two ways under the day:
+// direct, as <day>/<id>/session.jsonl, or as a rollout file among the
+// day's entries whose name ends with the id.
+func findDatedLog(root *os.File, id string, direct bool) string {
 	budget := hostDiscoveryEntries
 	var visit func(string, int) string
 	visit = func(dir string, depth int) string {
 		if budget <= 0 {
 			return ""
 		}
-		if depth == 3 && host == config.HostMuse {
+		if depth == 3 && direct {
 			path := filepath.Join(dir, id, "session.jsonl")
 			if f, _ := openHostPath(root, path, false); f != nil {
 				_ = f.Close()
@@ -227,33 +264,11 @@ func readHostLines(f *os.File, start, size int64, apply func([]byte)) {
 	}
 }
 
-func (r *hostFactsReader) refreshIndex(root *os.File) {
-	f, fi := openHostPath(root, "session_index.jsonl", false)
-	if f == nil {
-		// A restored index may reuse the same inode, size and timestamp.
-		// Keep the last facts, but require a fresh read after an open failure.
-		r.indexInfo = nil
-		return
-	}
-	defer func() { _ = f.Close() }()
-	if unchangedHostFile(r.indexInfo, fi) {
-		return
-	}
-	readHostLines(f, max(0, fi.Size()-hostTailBytes), min(fi.Size(), hostTailBytes), func(line []byte) {
-		var entry struct {
-			ID   string `json:"id"`
-			Name string `json:"thread_name"`
-		}
-		if json.Unmarshal(line, &entry, hostJSON) == nil && entry.ID == r.id {
-			if name := oneLineName(entry.Name); name != "" {
-				r.facts.name = name
-			}
-		}
-	})
-	r.indexInfo = fi
-}
-
-func (r *hostFactsReader) refreshLog(root *os.File) {
+// refreshLog reads the session's log where it changed since the last
+// poll: head is given each line of its first bytes and tail each line of
+// its last, in that order. A log that was replaced or cut resets the
+// facts before either is called.
+func (r *hostFactsReader) refreshLog(root *os.File, head, tail func(line []byte)) {
 	f, fi := openHostPath(root, r.path, false)
 	if f == nil {
 		r.path = ""
@@ -269,105 +284,10 @@ func (r *hostFactsReader) refreshLog(root *os.File) {
 		r.runID, r.provider = "", ""
 		r.logInfo = nil
 	}
-	// Verify a Codex rollout's own session_meta.id before trusting any
-	// token_count record (which does not repeat the ID). Muse envelopes
-	// repeat stream.id, so every fact is checked individually instead.
-	verified := false
-	readHostLines(f, 0, min(fi.Size(), hostHeadBytes), func(line []byte) {
-		if r.host == config.HostCodex {
-			var meta struct {
-				Type    string `json:"type"`
-				Payload struct {
-					ID string `json:"id"`
-				} `json:"payload"`
-			}
-			if json.Unmarshal(line, &meta, hostJSON) == nil && meta.Type == "session_meta" {
-				verified = meta.Payload.ID == r.id
-			}
-		} else if r.logInfo == nil {
-			r.applyMuse(line)
-		}
-	})
+	readHostLines(f, 0, min(fi.Size(), hostHeadBytes), head)
 	start := max(0, fi.Size()-hostTailBytes)
-	readHostLines(f, start, min(fi.Size(), hostTailBytes), func(line []byte) {
-		if r.host == config.HostMuse {
-			r.applyMuse(line)
-		} else if verified {
-			r.applyCodex(line)
-		}
-	})
+	readHostLines(f, start, min(fi.Size(), hostTailBytes), tail)
 	r.logInfo = fi
-}
-
-func (r *hostFactsReader) applyCodex(line []byte) {
-	var rec struct {
-		Type    string `json:"type"`
-		Payload struct {
-			Type string `json:"type"`
-			Info *struct {
-				Last *struct {
-					Input jsontext.Value `json:"input_tokens"`
-				} `json:"last_token_usage"`
-			} `json:"info"`
-		} `json:"payload"`
-	}
-	if json.Unmarshal(line, &rec, hostJSON) != nil || rec.Type != "event_msg" || rec.Payload.Type != "token_count" || rec.Payload.Info == nil || rec.Payload.Info.Last == nil {
-		return
-	}
-	r.setTokens(rec.Payload.Info.Last.Input)
-}
-
-func (r *hostFactsReader) applyMuse(line []byte) {
-	var rec struct {
-		Type   string `json:"payload_type"`
-		Stream struct {
-			Kind string `json:"kind"`
-			ID   string `json:"id"`
-		} `json:"stream"`
-		Payload struct {
-			Kind      string `json:"kind"`
-			RunID     string `json:"run_id"`
-			SessionID string `json:"session_id"`
-			Name      string `json:"new_name"`
-			Record    struct {
-				Provider  string `json:"provider_id"`
-				RunStream struct {
-					ID string `json:"id"`
-				} `json:"run_stream"`
-			} `json:"record"`
-			Event struct {
-				Kind  string `json:"kind"`
-				Usage *struct {
-					Input  jsontext.Value `json:"input_tokens"`
-					Prompt jsontext.Value `json:"prompt_tokens"`
-				} `json:"usage"`
-			} `json:"event"`
-		} `json:"payload"`
-	}
-	if json.Unmarshal(line, &rec, hostJSON) != nil || rec.Stream.Kind != "session" || rec.Stream.ID != r.id {
-		return
-	}
-	switch rec.Type {
-	case "session.name.changed":
-		if rec.Payload.SessionID == r.id {
-			if name := oneLineName(rec.Payload.Name); name != "" {
-				r.facts.name = name
-			}
-		}
-	case "run.model.configured":
-		r.runID, r.provider = rec.Payload.Record.RunStream.ID, rec.Payload.Record.Provider
-	case "runtime.session":
-		p := rec.Payload
-		if p.Kind != "run" || p.Event.Kind != "model_completed" || p.Event.Usage == nil {
-			return
-		}
-		u := p.Event.Usage
-		if len(u.Prompt) > 0 && string(u.Prompt) != "null" {
-			r.setTokens(u.Prompt)
-		} else if p.RunID != "" && p.RunID == r.runID && r.provider == "meta" {
-			r.setTokens(u.Input)
-		}
-	}
 }
 
 func (r *hostFactsReader) setTokens(raw jsontext.Value) {

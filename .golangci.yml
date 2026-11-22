@@ -151,10 +151,8 @@ linters:
       - path: ^internal/harness/watch/(inject|lifecycle|watch|grok)\.go$|^internal/harness/hook/spawn\.go$|^internal/harness/commands/(inbox_follow|inbox_read_grok|whoami)\.go$
         linters: [forbidigo]
         text: "a host is named"
-      #      - a session's name, model and context size from the host's own history (local facts);
-      - path: ^internal/harness/watch/(hostfacts|grokname)\.go$
-        linters: [forbidigo]
-        text: "a host is named"
+      #        (A session's name, model and context size from the host's own history, the local facts, left
+      #        this list with the first part of work item 381: one reader a kind of history, the kind the table's.)
       #      - what a hook reads and prints, and how its session is keyed and claimed (the hook's dialect).
       - path: ^internal/harness/hook/(hook|start|end|prompt|grok|grok_lock)\.go$
         linters: [forbidigo]

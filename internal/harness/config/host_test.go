@@ -22,20 +22,22 @@ func TestTheHostTable(t *testing.T) {
 	t.Parallel()
 	type row struct {
 		name, nativeIDVar, optionsFile, frame string
+		history                               config.HistoryKind
 		pointed, rename, stop                 bool
 		discardsPrompt, staysOnMove, inWhoami bool
 	}
 	for host, want := range map[config.Host]row{
 		config.HostClaude: {name: "Claude Code", rename: true, stop: true},
 		config.HostMuse: {name: "Muse Code", nativeIDVar: "MUSE_SESSION_ID", optionsFile: "muse-options.json", frame: frame.HostMuse,
-			pointed: true, inWhoami: true},
+			history: config.HistoryDatedStore, pointed: true, inWhoami: true},
 		config.HostCodex: {name: "Codex CLI", nativeIDVar: "CODEX_THREAD_ID", optionsFile: "codex-options.json", frame: frame.HostCodex,
-			pointed: true, inWhoami: true},
+			history: config.HistoryRollouts, pointed: true, inWhoami: true},
 		config.HostGrok: {name: "Grok Build", nativeIDVar: "GROK_SESSION_ID", optionsFile: "grok-options.json", frame: frame.HostGrok,
-			pointed: true, stop: true, discardsPrompt: true, staysOnMove: true, inWhoami: true},
+			history: config.HistorySummaries, pointed: true, stop: true, discardsPrompt: true, staysOnMove: true, inWhoami: true},
 	} {
 		got := row{
 			name: host.Name(), nativeIDVar: host.NativeIDVar(), optionsFile: config.OptionsFile(host), frame: host.Frame(),
+			history: host.History(),
 			pointed: host.Pointed(), rename: host.CanRename(), stop: host.HasStop(),
 			discardsPrompt: host.DiscardsPromptOutput(), staysOnMove: host.StaysOnMove(), inWhoami: host.NamedInWhoami(),
 		}
@@ -52,6 +54,7 @@ func TestAHostTheTableDoesNotHoldGetsNo(t *testing.T) {
 	t.Parallel()
 	for _, host := range []config.Host{"", "copilot"} {
 		if host.Name() != string(host) || host.NativeIDVar() != "" || config.OptionsFile(host) != "" || host.Frame() != "" ||
+			host.History() != config.HistoryNone ||
 			host.Pointed() || host.CanRename() || host.HasStop() || host.DiscardsPromptOutput() || host.StaysOnMove() ||
 			host.PluginRoot([]string{"CLAUDE_PLUGIN_ROOT=/c", "MUSE_PLUGIN_ROOT=/m", "GROK_PLUGIN_ROOT=/g"}, "/flag") != "" ||
 			host.HistoryRoot([]string{adapterkit.HomeVar + "=" + t.TempDir(), "CODEX_HOME=" + t.TempDir(), "GROK_HOME=" + t.TempDir()}) != "" {
@@ -121,6 +124,40 @@ func TestTheHistoryRootIsTheHostsOwn(t *testing.T) {
 		if got := tc.host.HistoryRoot(tc.environ); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestAKindOfHistoryKnowsItsRoot: a reader that knows its kind of history
+// and no host asks the kind where that history is kept, and is told the
+// root of the host that keeps it so.
+func TestAKindOfHistoryKnowsItsRoot(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	environ := []string{adapterkit.HomeVar + "=" + home}
+	for kind, host := range map[config.HistoryKind]config.Host{
+		config.HistoryDatedStore: config.HostMuse, config.HistoryRollouts: config.HostCodex, config.HistorySummaries: config.HostGrok,
+	} {
+		if got, want := kind.Root(environ), host.HistoryRoot(environ); got == "" || got != want {
+			t.Errorf("%s: root %q, want %s's, %q", kind, got, host, want)
+		}
+	}
+	for _, kind := range []config.HistoryKind{config.HistoryNone, "a-kind-no-host-has"} {
+		if got := kind.Root(environ); got != "" {
+			t.Errorf("%q: root %q, want none", kind, got)
+		}
+	}
+	// A kind's root is one host's. Two hosts that keep one kind make the
+	// question a host's, and Root's comment says what then.
+	keeps := map[config.HistoryKind]config.Host{}
+	for _, host := range config.Hosts() {
+		kind := host.History()
+		if kind == config.HistoryNone {
+			continue
+		}
+		if other, taken := keeps[kind]; taken {
+			t.Errorf("%s and %s both keep a %q history: HistoryKind.Root answers for the first alone", other, host, kind)
+		}
+		keeps[kind] = host
 	}
 }
 

@@ -30,6 +30,27 @@ const (
 	HostGrok   Host = "grok"
 )
 
+// A HistoryKind names a way a host keeps its own record of a session.
+// The reader of each is the watcher's, one implementation a kind
+// (internal/harness/watch); the table says which a host has, so that the
+// watcher names no host (work item 381). A host that keeps its
+// record as another does shares that kind and its reader.
+type HistoryKind string
+
+// The kinds of history, by how a session is filed.
+const (
+	// HistoryNone: the host keeps no record Brigade reads.
+	HistoryNone HistoryKind = ""
+	// HistoryDatedStore: sessions/YYYY/MM/DD/<id>/session.jsonl, a log
+	// of envelopes that repeat the session's id.
+	HistoryDatedStore HistoryKind = "dated-store"
+	// HistoryRollouts: sessions/YYYY/MM/DD/rollout-…-<id>.jsonl, with an
+	// index of the sessions' names beside them.
+	HistoryRollouts HistoryKind = "rollouts"
+	// HistorySummaries: sessions/<the launch directory>/<id>/summary.json.
+	HistorySummaries HistoryKind = "summaries"
+)
+
 // hostRow is what the table holds for one host. Every yes or no is worded
 // so that no is what a host the table does not know gets: a column added
 // for one host changes nothing for the others.
@@ -75,6 +96,8 @@ type hostRow struct {
 	// one, and the directory under HOME otherwise. No historyDir: none.
 	historyVar string
 	historyDir []string
+	// history is how that record is filed and read.
+	history HistoryKind
 	// rename: the host can be told a session's name from inside it.
 	rename bool
 	// stop: the host runs a Stop hook, so the prompt hook need not carry
@@ -114,6 +137,7 @@ var hosts = []struct {
 		pluginRootVar: "MUSE_PLUGIN_ROOT",
 		frame:         frame.HostMuse,
 		historyDir:    []string{".local", "share", "muse"},
+		history:       HistoryDatedStore,
 	}},
 	{HostCodex, hostRow{
 		name:           "Codex CLI",
@@ -125,6 +149,7 @@ var hosts = []struct {
 		frame:          frame.HostCodex,
 		historyVar:     "CODEX_HOME",
 		historyDir:     []string{".codex"},
+		history:        HistoryRollouts,
 	}},
 	{HostGrok, hostRow{
 		name:            "Grok Build",
@@ -140,10 +165,21 @@ var hosts = []struct {
 		frame:           frame.HostGrok,
 		historyVar:      "GROK_HOME",
 		historyDir:      []string{".grok"},
+		history:         HistorySummaries,
 		stop:            true,
 		promptDiscarded: true,
 		staysOnMove:     true,
 	}},
+}
+
+// Hosts are the hosts of the table, in its order: for what must hold of
+// every one of them, a fifth included when it comes.
+func Hosts() []Host {
+	out := make([]Host, 0, len(hosts))
+	for i := range hosts {
+		out = append(out, hosts[i].host)
+	}
+	return out
 }
 
 // row is h's row, and the empty row for a host the table does not hold.
@@ -226,6 +262,28 @@ func (h Host) HistoryRoot(environ []string) string {
 		return ""
 	}
 	return filepath.Join(append([]string{home}, r.historyDir...)...)
+}
+
+// History is how the host keeps its own record of a session, HistoryNone
+// for a host that keeps none Brigade reads.
+func (h Host) History() HistoryKind { return h.row().history }
+
+// Root is the directory the history of this kind is kept in: the
+// HistoryRoot of the host that keeps it so, "" for HistoryNone and for a
+// kind no host of the table has. A reader that knows its kind and no host
+// asks here. It is the FIRST such host's: once two hosts keep one kind,
+// each in a directory of its own, a reader must be told its host and ask
+// Host.HistoryRoot, and TestAKindOfHistoryKnowsItsRoot fails to say so.
+func (k HistoryKind) Root(environ []string) string {
+	if k == HistoryNone {
+		return ""
+	}
+	for i := range hosts {
+		if hosts[i].row.history == k {
+			return hosts[i].host.HistoryRoot(environ)
+		}
+	}
+	return ""
 }
 
 // CanRename reports whether the host can be told a session's name from
