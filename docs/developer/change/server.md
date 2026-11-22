@@ -67,7 +67,13 @@ the server refuses it: a new key would open nothing that is there. A snapshot is
 `--snapshot-every` entries, after a start that read entries and at a stop; the newest three are kept, and the
 log is shortened only to the oldest of them, once two exist, so a damaged snapshot always has one behind it and
 every entry since. A stop takes no new connection, answers what is being answered (a receive that waits at
-once, the rest within five seconds) and then writes its snapshot.
+once, the rest within five seconds) and then writes its snapshot. A stop is listened for before the server says
+that it is up: the address file and the `listening on` line come after the SIGTERM and SIGINT streams are made,
+so a stop at the first sight of either is a stop (work item 374; `a_stop_at_the_first_sight_of_the_address_is_heard`
+in `tests/server.rs` holds it). Keep that order when the start changes. A stop that comes after the streams are
+made and before the server is up ends the start where it stands, with `stopping: the stop came before the
+server was up` and neither the file nor the line (`before_a_stop` in `main.rs`). Before the streams, while the
+log is read, the signal ends the process at once: nothing listens yet and nothing has said that anything does.
 
 The listener follows the owner's ruling of 2026-11-12. With `--tls-cert` and `--tls-key` the server serves HTTPS
 itself, and its start line names the certificate's fingerprint (`certificate sha256:…`): what `team create
@@ -375,7 +381,9 @@ The server is released apart from the plugin, by a tag of its own that `release.
 
 1. Set the version in `server/VERSION` and in `[workspace.package]` of `server/Cargo.toml` (a test holds the two
    equal), and refresh the lock file: `cd server && cargo update --workspace`.
-2. Add the `## [<version>]` section to `server/CHANGELOG.md`: it becomes the release's text.
+2. Add the `## [<version>]` section to `server/CHANGELOG.md`, or give that heading to its `## [Unreleased]`
+   section, where work that landed between releases waits: it becomes the release's text. `make server-tag`
+   refuses while an `## [Unreleased]` section is left, so that a release's text carries all the release does.
 3. Land it on `master` with a green `server` job.
 4. `make server-tag`. It checks the three places agree, that the tree is clean and is `origin/master`'s head, and
    that `ci.yml`'s run on that head is green, waiting for one in progress; then it pushes the tag

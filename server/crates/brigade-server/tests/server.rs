@@ -633,6 +633,149 @@ fn a_creation_token_is_needed_where_the_operator_set_one() {
     assert!(!said.contains(ticket.rsplit('.').next().unwrap()), "{said}");
 }
 
+/// A server that is started to be stopped by a test of its own, with a shell that already waits to send
+/// SIGTERM: one byte to the shell sends it, and no process is started between the wish and the signal.
+struct Armed {
+    /// The server. It is killed and reaped when the test ends, however it ends.
+    server: Server,
+    /// The shell that sends the signal when it reads a line. It ends by itself when its input closes.
+    shell: std::process::Child,
+    scratch: Scratch,
+}
+
+impl Armed {
+    fn start(test: &str) -> Self {
+        let scratch = Scratch::new(test);
+        let stderr = std::fs::File::create(scratch.path("stderr")).unwrap();
+        let child = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+            .arg("--data")
+            .arg(scratch.path("data"))
+            .args(["--listen", "127.0.0.1:0", "--address-file"])
+            .arg(scratch.path("address"))
+            .args(log_arguments("file", &scratch))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(stderr)
+            .spawn()
+            .unwrap();
+        let shell = Command::new("sh")
+            .args(["-c", &format!("read go && kill -TERM {}", child.id())])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let server = Server {
+            child,
+            url: String::new(),
+        };
+        Self {
+            server,
+            shell,
+            scratch,
+        }
+    }
+
+    fn said(&self) -> String {
+        std::fs::read_to_string(self.scratch.path("stderr")).unwrap_or_default()
+    }
+
+    /// Whether the address file is there, whole.
+    fn says_where_it_listens(&self) -> bool {
+        std::fs::read_to_string(self.scratch.path("address")).is_ok_and(|url| url.ends_with('\n'))
+    }
+
+    /// Sends the signal and answers how the server ended, within thirty seconds.
+    fn stop(&mut self) -> std::process::ExitStatus {
+        self.shell.stdin.take().unwrap().write_all(b"\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if let Some(ended) = self.server.child.try_wait().unwrap() {
+                let sent = self.shell.wait().unwrap();
+                assert!(sent.success(), "the signal was not sent: {sent}");
+                return ended;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the server did not end within thirty seconds of its stop:\n{}",
+                self.said()
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+}
+
+/// A stop that comes at the first sight of the address is heard (work item 374).
+///
+/// The address file is what tells a test, a script or an operator's unit that the server is up, so a stop can
+/// follow it at once. Until work item 374 the file was written before the server listened for SIGTERM and
+/// SIGINT. A stop inside that moment ended the process by the signal's default action: no last snapshot, and
+/// a status of "signal: 15". A gateway test that stops a server the moment it has started failed one run in
+/// four on a loaded machine.
+///
+/// The stop here is as close behind the file as a test can put it: the shell that sends the signal already
+/// waits, and the test looks for the file without a pause.
+#[test]
+fn a_stop_at_the_first_sight_of_the_address_is_heard() {
+    for round in 0..24 {
+        let mut armed = Armed::start(&format!("stop-at-first-sight-{round}"));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !armed.says_where_it_listens() {
+            assert!(
+                armed.server.child.try_wait().unwrap().is_none() && Instant::now() < deadline,
+                "round {round}: the server did not say where it listens:\n{}",
+                armed.said()
+            );
+            std::hint::spin_loop();
+        }
+        let ended = armed.stop();
+        let said = armed.said();
+        assert!(
+            ended.success(),
+            "round {round}: the server ended with {ended}:\n{said}"
+        );
+        // It stopped as a server stops, by its own word, not by the signal's default action.
+        assert!(
+            said.contains("listening on") && said.contains("stopping"),
+            "round {round}:\n{said}"
+        );
+    }
+}
+
+/// A stop at any moment of a start ends in one of three ways, and never in a fourth.
+///
+/// Before the server listens for signals, while it reads its log, the signal ends it at once and nothing has
+/// said that it is up. From then on a stop is a stop: one that comes before the server is up ends the start
+/// without the address file and without `listening on`, and one that comes after ends a server that had said
+/// both. The fourth way is the one work item 374 found: the address file there and the process ended by the
+/// signal. The stops here come from none to sixty milliseconds after the start, to land in each of the three.
+#[test]
+fn a_stop_at_any_moment_of_a_start_never_ends_a_server_that_said_it_was_up_by_the_signal() {
+    let (mut by_signal, mut before_up, mut after_up) = (0, 0, 0);
+    for round in 0..31_u64 {
+        let mut armed = Armed::start(&format!("stop-at-any-moment-{round}"));
+        std::thread::sleep(Duration::from_millis(round * 2));
+        let ended = armed.stop();
+        let (said, address) = (armed.said(), armed.says_where_it_listens());
+        let told = format!("round {round}: ended with {ended}, the address file there: {address}:\n{said}");
+        if ended.success() {
+            assert!(said.contains("stopping"), "{told}");
+            // The file and the line come together or not at all.
+            assert_eq!(address, said.contains("listening on"), "{told}");
+            if address {
+                after_up += 1;
+            } else {
+                assert!(said.contains("the stop came before the server was up"), "{told}");
+                before_up += 1;
+            }
+        } else {
+            assert!(!address && !said.contains("listening on"), "{told}");
+            by_signal += 1;
+        }
+    }
+    // How many ended each way depends on the machine, so it is said and not held: on a laptop the first
+    // few end by the signal, a rare one before the server was up, and the rest after.
+    println!("{by_signal} by the signal, {before_up} before the server was up, {after_up} after");
+}
+
 #[test]
 fn a_stop_answers_what_is_being_answered_and_a_lost_key_is_never_replaced() {
     let scratch = Scratch::new("stop");

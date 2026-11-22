@@ -26,7 +26,8 @@
   snapshot (ADR 0016), and `Shape` in `feed.rs` is the one place a pin's differences
   go. CI's `server` job runs the gate and is required by the `master` ruleset since the first server release
   (the plan's ruling 5). The server is released apart from the plugin: `server/VERSION`, the workspace's version
-  and a `## [<version>]` section of `server/CHANGELOG.md`, then `make server-tag`, whose tag `server-v<version>`
+  and a `## [<version>]` section of `server/CHANGELOG.md` (the heading its `## [Unreleased]` section takes, where
+  work that landed between releases waits; `make server-tag` refuses while one is left), then `make server-tag`, whose tag `server-v<version>`
   the `server-release` workflow publishes; never tag one by hand and never mark one latest. The contract
   (`docs/backend-rest-v1.md`) is frozen at version 1 since that release and still changes only in one commit
   with the adapter, the stand-in and a green conformance run.

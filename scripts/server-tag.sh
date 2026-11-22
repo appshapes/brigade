@@ -35,6 +35,11 @@ case "$version" in
 esac
 grep -q "^version = \"$version\"\$" server/Cargo.toml || fail "server/Cargo.toml does not name version $version"
 grep -q "^## \[$version\]" server/CHANGELOG.md || fail "server/CHANGELOG.md has no section for $version"
+# Work that lands between releases waits under `## [Unreleased]` (since work item 374), and the release's text is
+# cut from the version's section alone: a section left behind is work the release carries and does not say.
+if grep -q '^## \[Unreleased\]' server/CHANGELOG.md; then
+	fail "server/CHANGELOG.md still has a '## [Unreleased]' section: give it the heading '## [$version]', or move its entries there"
+fi
 
 git fetch --quiet --tags origin master
 [ -z "$(git status --porcelain)" ] || fail "the working tree has changes; a release is tagged from a clean tree"

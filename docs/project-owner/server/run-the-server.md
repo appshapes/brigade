@@ -108,7 +108,8 @@ journalctl -u brigade-server | grep 'listening on'
 ```
 
 The server stops on `SIGTERM`: it takes no new connection, answers what it is answering, writes a snapshot and
-ends. A start after a crash reads the log from the newest snapshot; nothing it had answered is lost.
+ends. A stop that comes while it is still reading its log ends it at once, by the signal, before it has said
+`listening on`; nothing is lost, since the log is what the next start reads. A start after a crash reads the log from the newest snapshot; nothing it had answered is lost.
 
 ## As a container
 

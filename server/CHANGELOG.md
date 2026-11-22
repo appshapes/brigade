@@ -4,6 +4,19 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [Unreleased]
+
+### Fixed
+
+- **A stop in the server's first moment is a stop** (work item 374). The server wrote its address file and its
+  `listening on` line before it listened for `SIGTERM` and `SIGINT`. A stop that arrived in between ended the
+  process by the signal itself: no last snapshot, and a status of signal 15 where a stop ends with 0. Nothing
+  that had been answered was lost, since the log holds it and the next start reads it. A unit that is stopped
+  the moment it has started, or a script that stops a server as soon as the address file is there, now gets a
+  stop like any other. A stop that comes just before the server is up ends the start there, with `stopping: the
+  stop came before the server was up`, and the server does not first say that it listens. A stop while the log
+  is still being read ends the process by the signal, as before. No option, no file and no format changes.
+
 ## [0.9.0] — 2026-11-15
 
 ### Added

@@ -385,6 +385,12 @@ func TestServerTagRefusesBeforeItAsksAboutCI(t *testing.T) {
 	s.remove("stray.txt")
 	s.git("tag", "server-v1.2.3")
 	wantFail(t, s.tag(), "the tag server-v1.2.3 exists already")
+	s.git("tag", "-d", "server-v1.2.3")
+	// Work that waits under `## [Unreleased]` is work the release would carry and its text would not say.
+	s.write("server/CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- A fix.\n\n## [1.2.3]\n\n- The fixture.\n", 0o600)
+	s.git("commit", "-qam", "work that waits for a release")
+	s.git("push", "-q", "origin", "master")
+	wantFail(t, s.tag(), "still has a '## [Unreleased]' section")
 	if log := s.ghLog(); log != "" {
 		t.Errorf("gh was asked although an earlier check refused:\n%s", log)
 	}

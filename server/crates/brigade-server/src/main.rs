@@ -524,19 +524,46 @@ fn run(options: &Options) -> Result<(), String> {
         gateways,
     });
     let served = runtime.block_on(async {
-        // Every gateway is a member with a session before anything can be asked of it: a request that came
-        // before that could not be carried.
-        let turns = match &shared.gateways {
-            Some(gateways) => {
-                let mut turns = gateway::turns::Turns::new(gateways);
-                turns.take_places(gateways).await;
-                Some(turns)
-            }
-            None => None,
+        // A stop is listened for before anything says that the server is up. The address file and the
+        // `listening on` line are what a unit, a script and a test wait for, and a stop may follow either at
+        // once. Until work item 374 the two streams were made after both: a SIGTERM in between met no handler
+        // and ended the process by the signal's default action, with no last snapshot and the status "signal:
+        // 15".
+        let mut terminate =
+            signal(SignalKind::terminate()).map_err(|error| format!("signals cannot be heard: {error}"))?;
+        let mut interrupt =
+            signal(SignalKind::interrupt()).map_err(|error| format!("signals cannot be heard: {error}"))?;
+        // The rest of the start runs unless a stop comes first. A stop that comes while the gateways take
+        // their places or the listener binds ends the start there, and nothing says that the server is up:
+        // a stream keeps its signal, so without this the server would finish the start, write the address
+        // file and the `listening on` line, and only then stop.
+        let start = async {
+            // Every gateway is a member with a session before anything can be asked of it: a request that
+            // came before that could not be carried.
+            let turns = match &shared.gateways {
+                Some(gateways) => {
+                    let mut turns = gateway::turns::Turns::new(gateways);
+                    turns.take_places(gateways).await;
+                    Some(turns)
+                }
+                None => None,
+            };
+            let listener = TcpListener::bind(options.listen)
+                .await
+                .map_err(|error| format!("{} could not be listened on: {error}", options.listen))?;
+            Ok::<_, String>((turns, listener))
         };
-        let listener = TcpListener::bind(options.listen)
-            .await
-            .map_err(|error| format!("{} could not be listened on: {error}", options.listen))?;
+        let stop_asked = async {
+            tokio::select! {
+                _ = terminate.recv() => {}
+                _ = interrupt.recv() => {}
+            }
+        };
+        let Some(started) = before_a_stop(stop_asked, start).await else {
+            note("stopping: the stop came before the server was up");
+            return Ok(());
+        };
+        let (turns, listener) = started?;
         let address = listener
             .local_addr()
             .map_err(|error| format!("the listening address is not known: {error}"))?;
@@ -564,10 +591,6 @@ fn run(options: &Options) -> Result<(), String> {
                 shared.stopping.clone(),
             ))
         });
-        let mut terminate =
-            signal(SignalKind::terminate()).map_err(|error| format!("signals cannot be heard: {error}"))?;
-        let mut interrupt =
-            signal(SignalKind::interrupt()).map_err(|error| format!("signals cannot be heard: {error}"))?;
         tokio::select! {
             _ = terminate.recv() => {}
             _ = interrupt.recv() => {}
@@ -592,12 +615,71 @@ fn run(options: &Options) -> Result<(), String> {
     served
 }
 
+/// Runs `start` unless `stop` comes first, and answers `None` when it did.
+///
+/// The stop is looked at first each time: a stop that had come before the start began, or that is there in
+/// the moment the start is done, is a stop. What `start` was doing is dropped where it stood.
+async fn before_a_stop<T>(stop: impl Future<Output = ()>, start: impl Future<Output = T>) -> Option<T> {
+    tokio::select! {
+        biased;
+        () = stop => None,
+        started = start => Some(started),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::future::{pending, ready};
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
 
-    use super::{Asking, MOVE_TICKET, NEW_SECRET, SecretPlace};
+    use super::{Asking, MOVE_TICKET, NEW_SECRET, SecretPlace, before_a_stop};
+
+    fn now<T>(future: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    #[test]
+    fn a_start_runs_to_its_end_when_no_stop_comes() {
+        assert_eq!(now(before_a_stop(pending(), ready("started"))), Some("started"));
+    }
+
+    #[test]
+    fn a_stop_that_had_come_already_ends_the_start_before_it_begins() {
+        let began = AtomicBool::new(false);
+        let start = async {
+            began.store(true, Ordering::SeqCst);
+            "started"
+        };
+        assert_eq!(now(before_a_stop(ready(()), start)), None);
+        assert!(
+            !began.load(Ordering::SeqCst),
+            "the start ran although the stop had come"
+        );
+    }
+
+    #[test]
+    fn a_stop_that_comes_while_the_start_waits_ends_it_where_it_stood() {
+        let (finished, went_on) = (AtomicBool::new(false), AtomicBool::new(false));
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let start = async {
+            // The start is on its way, and what it waits for never comes.
+            stop.send(()).unwrap();
+            pending::<()>().await;
+            went_on.store(true, Ordering::SeqCst);
+        };
+        let stop_asked = async {
+            stopped.await.unwrap();
+            finished.store(true, Ordering::SeqCst);
+        };
+        assert_eq!(now(before_a_stop(stop_asked, start)), None);
+        assert!(finished.load(Ordering::SeqCst) && !went_on.load(Ordering::SeqCst));
+    }
 
     fn scratch(test: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("brigade-secret-place-{test}-{}", std::process::id()));
