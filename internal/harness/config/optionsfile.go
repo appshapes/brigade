@@ -35,19 +35,7 @@ const (
 // OptionsFile is the options file's name for a host that reads one, ""
 // for Claude Code (whose options arrive as CLAUDE_PLUGIN_OPTION_*) and for
 // a terminal.
-func OptionsFile(host Host) string {
-	switch host {
-	case HostMuse:
-		return MuseOptionsFile
-	case HostCodex:
-		return CodexOptionsFile
-	case HostGrok:
-		return GrokOptionsFile
-	case HostClaude:
-		return ""
-	}
-	return ""
-}
+func OptionsFile(host Host) string { return host.row().optionsFile }
 
 // WarnOptionsUnusable is the one line the hook prints when the file at
 // path exists but cannot be used; the defaults then apply. Fixed text plus
@@ -104,7 +92,7 @@ func OptionsPath(environ []string) (string, error) {
 // an array, null) is skipped. Appended, not prepended, because
 // adapterkit.Getenv takes the LAST occurrence.
 func OptionsEnviron(environ []string, path string, readFile func(string) ([]byte, error)) ([]string, string) {
-	if HostOf(environ) == HostGrok {
+	if HostOf(environ).row().ownOptions {
 		// Grok has its own options file. Inherited Claude plugin options
 		// must not become defaults when that file omits a key or is absent.
 		clean := make([]string, 0, len(environ))

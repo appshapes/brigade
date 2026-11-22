@@ -91,7 +91,7 @@ func Rename(inv Invocation, opts RenameOptions) error {
 	if err != nil {
 		return err
 	}
-	if m.Harness != "" && m.Harness != string(config.HostClaude) {
+	if m.Harness != "" && !config.Host(m.Harness).CanRename() {
 		if inv.JSON {
 			return writeJSON(inv.Out, renameResult{SelfSessionID: m.BrigadeSessionID, Name: name, Reason: RenameReasonOtherHost, Note: RenameNotRecordedLine})
 		}

@@ -59,6 +59,12 @@ linters:
         # policy bypassable while the runtime redactor could not see in.
         - pattern: ^slog\.AnyValue$
           msg: same as slog.Any -- ReplaceAttr cannot redact inside the wrapped value; log scalars or use adapterkit/log helpers
+        # Work item 380, ADR 0019: what differs between the harnesses is a column of the host table, and the
+        # tree asks config.Host for it. Matched at the end of the name, so that the qualified config.HostGrok,
+        # the bare HostGrok inside the package and the frame's own HostGrok are all one rule. The files it does
+        # not bind are listed by name in the exclusions below.
+        - pattern: Host(Claude|Muse|Codex|Grok)$
+          msg: a host is named in internal/harness/config/host.go alone -- ask config.Host for what differs, or add a column (ADR 0019)
     depguard:
       rules:
         harness-is-adapter-agnostic:
@@ -127,6 +133,32 @@ linters:
       - path: ^internal/syncthing/engine\.go$
         linters: [forbidigo]
         text: "exec.Command"
+      # A host is named in the host table and nowhere else (work item 380, ADR 0019). Three kinds of file are
+      # not bound, and each is here by name: a file that is not on this list fails the lint when it names one.
+      #   1. The table itself, and the tests, which say which host they are about.
+      - path: ^internal/harness/config/host\.go$|_test\.go$
+        linters: [forbidigo]
+        text: "a host is named"
+      #   2. The frame's own names for the wording of each host, which its tests pin by name. Which wording a
+      #      host reads is the table's (config.Host.Frame); the text is the frame's.
+      - path: ^internal/harness/frame/frame\.go$
+        linters: [forbidigo]
+        text: "a host is named"
+      #   3. What is more than a value or a yes or a no, and waits for work item 381, which gives it a place
+      #      of its own. Until then each file below decides by host, and no other does:
+      #      - how a message reaches the model (delivery): the watcher's injection, its lifecycle and its
+      #        `--host`, the spawn of the watcher, the inbox commands, and the monitor line of `whoami`;
+      - path: ^internal/harness/watch/(inject|lifecycle|watch|grok)\.go$|^internal/harness/hook/spawn\.go$|^internal/harness/commands/(inbox_follow|inbox_read_grok|whoami)\.go$
+        linters: [forbidigo]
+        text: "a host is named"
+      #      - a session's name, model and context size from the host's own history (local facts);
+      - path: ^internal/harness/watch/(hostfacts|grokname)\.go$
+        linters: [forbidigo]
+        text: "a host is named"
+      #      - what a hook reads and prints, and how its session is keyed and claimed (the hook's dialect).
+      - path: ^internal/harness/hook/(hook|start|end|prompt|grok|grok_lock)\.go$
+        linters: [forbidigo]
+        text: "a host is named"
       - path: ^internal/syncthing/engine\.go$
         linters: [gosec]
         text: "G204"           # the syncthing path comes from exec.LookPath; argv is fixed apart from the home and port

@@ -638,7 +638,7 @@ func (r *run) leaveFollowedMark(a hookArgs, canon, teamKey string, joined bool) 
 // be told neither that it followed nor the id it has afterwards: it stays
 // where it is until it starts again.
 func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.ByPID) *sessionmap.ByPID {
-	if f.host == config.HostGrok || m.TeamRef == "" || m.TeamKey == "" || m.BrigadeSessionID == "" {
+	if f.host.StaysOnMove() || m.TeamRef == "" || m.TeamKey == "" || m.BrigadeSessionID == "" {
 		return nil
 	}
 	checkout := m.Checkout
@@ -1197,7 +1197,7 @@ func (r *run) tellKept(ctx context.Context, f facts, in input, id identity, exis
 // starts are left as they are, and for a map with no live watcher, which
 // may be one a dead process left.
 func (r *run) runningSession(f facts) *sessionmap.ByPID {
-	if !r.starting || f.host == config.HostGrok {
+	if !r.starting || f.host.StaysOnMove() {
 		return nil
 	}
 	m, err := (sessionmap.Store{StateDir: f.stateDir}).ReadByPID(f.pid)

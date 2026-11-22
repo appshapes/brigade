@@ -400,7 +400,7 @@ func (r *run) promptStateAsk(ctx context.Context, f facts, in input, m *sessionm
 
 // hostHasStop reports whether the host runs a Stop hook of its own, so
 // the prompt hook need not carry the ask.
-func hostHasStop(h config.Host) bool { return h == config.HostClaude || h == config.HostGrok }
+func hostHasStop(h config.Host) bool { return h.HasStop() }
 
 // marshalBlock is the block answer's JSON: {"decision":"block","reason":…}.
 func marshalBlock(reason string) ([]byte, error) {

@@ -685,15 +685,12 @@ func (r *run) options() (config.Options, error) {
 const (
 	envMessagingSocket = "CLAUDE_CODE_MESSAGING_SOCKET"
 	envMessagingToken  = "CLAUDE_CODE_MESSAGING_TOKEN" //nolint:gosec // G101: a variable NAME, not a credential
-	envPluginRoot      = "CLAUDE_PLUGIN_ROOT"
+	envPluginRoot      = config.ClaudePluginRootVar
 	envEntrypoint      = "CLAUDE_CODE_ENTRYPOINT"
 	entrypointSDK      = "sdk-cli"
 	// envProjectDir is the project root Claude Code reads its project
 	// settings from; the doing scan reads the same files (card 25).
 	envProjectDir = "CLAUDE_PROJECT_DIR"
-	// envMusePluginRoot is the Muse Code counterpart of CLAUDE_PLUGIN_ROOT
-	// in a plugin hook's environment (card 88).
-	envMusePluginRoot = "MUSE_PLUGIN_ROOT"
 )
 
 // facts are the session facts every subcommand resolves from the
@@ -776,32 +773,20 @@ func (r *run) facts() (facts, error) {
 		// value is not a socket the watcher may post to.
 		f.socket = ""
 	}
-	root := adapterkit.Getenv(r.environ, envPluginRoot)
-	switch host {
-	case config.HostMuse, config.HostCodex, config.HostGrok:
-		// Neither host has an inbox socket, a session registry or Claude
-		// settings files: the socket and the token are never read, and
-		// the Claude config dir stays unresolved so that nothing under
-		// ~/.claude is scanned or written for such a session. Muse names
-		// its plugin root in the hook's environment; Codex names nothing,
-		// so the package's hooks.json passes --plugin-root (card 107).
+	// Where the package's root is named differs by host, and the table has
+	// it: a variable of the hook's environment, or the hook's
+	// --plugin-root where the host names nothing there (card 107).
+	root := host.PluginRoot(r.environ, r.args.pluginRoot)
+	if host.Pointed() {
+		// A pointed host has no inbox socket, no session registry and no
+		// Claude settings files: the socket and the token are never read,
+		// and the Claude config dir stays unresolved so that nothing under
+		// ~/.claude is scanned or written for such a session.
 		f.socket, f.token, f.entrypoint = "", "", ""
-		root = adapterkit.Getenv(r.environ, envMusePluginRoot)
-		if host == config.HostCodex {
-			root = r.args.pluginRoot
-		}
-		if host == config.HostGrok {
-			root = r.args.pluginRoot
-			if root == "" {
-				root = adapterkit.Getenv(r.environ, "GROK_PLUGIN_ROOT")
-			}
-		}
-	case config.HostClaude, "":
-		if dir, cerr := config.ClaudeConfigDir(r.environ); cerr == nil {
-			f.claudeConfigDir = dir
-		} else {
-			r.log.Debug("claude config dir unresolved; registry and user settings skipped", log.Err(cerr))
-		}
+	} else if dir, cerr := config.ClaudeConfigDir(r.environ); cerr == nil {
+		f.claudeConfigDir = dir
+	} else {
+		r.log.Debug("claude config dir unresolved; registry and user settings skipped", log.Err(cerr))
 	}
 	if root != "" && filepath.IsAbs(root) {
 		f.pluginRoot = root

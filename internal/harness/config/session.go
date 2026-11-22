@@ -38,13 +38,11 @@ func Session(environ []string, stateDir string) (*sessionmap.ByPID, error) {
 // inject the store's owner check (sessionmap.Store.Stat) and exercise the
 // foreign-uid refusal that no test can create for real.
 func SessionIn(environ []string, store sessionmap.Store) (*sessionmap.ByPID, error) {
-	switch host := HostOf(environ); host {
-	case HostMuse, HostCodex, HostGrok:
+	if host := HostOf(environ); host.Pointed() {
 		return pointedSession(host, environ, store)
-	case HostClaude, "":
-		// Claude Code, or a terminal: ClaudePID's own not_in_session error
-		// is the answer for the latter.
 	}
+	// Claude Code, or a terminal: ClaudePID's own not_in_session error is
+	// the answer for the latter.
 	pid, err := ClaudePID(environ)
 	if err != nil {
 		return nil, err
@@ -81,7 +79,7 @@ func pointedSession(host Host, environ []string, store sessionmap.Store) (*sessi
 	if err != nil {
 		return nil, err
 	}
-	if host == HostGrok && !m.ValidGrokReceiver() || m.ClaudePID != ptr.HostPID || m.Harness != string(host) || m.ClaudeSessionID != id || m.BrigadeSessionID != ptr.BrigadeSessionID {
+	if host.row().receiver && !m.ValidGrokReceiver() || m.ClaudePID != ptr.HostPID || m.Harness != string(host) || m.ClaudeSessionID != id || m.BrigadeSessionID != ptr.BrigadeSessionID {
 		return nil, &protocol.Error{
 			Code:    protocol.CodeConfig,
 			Message: "the session pointer and the session map disagree; refusing to trust them",
@@ -102,16 +100,14 @@ func pointedSession(host Host, environ []string, store sessionmap.Store) (*sessi
 // with no host marker, not_registered when neither pointer exists.
 func StateKey(environ []string, store sessionmap.Store) (int, error) {
 	host := HostOf(environ)
-	switch host {
-	case HostMuse, HostCodex, HostGrok:
-	case HostClaude, "":
+	if !host.Pointed() {
 		return ClaudePID(environ)
 	}
 	id, err := NativeID(host, environ)
 	if err != nil {
 		return 0, err
 	}
-	if host == HostGrok {
+	if host.row().receiver {
 		// An attached Grok pointer must bind the full native/Brigade/host
 		// identity before a command uses its state key. A broken attached
 		// pointer must never be hidden by a stale start pointer.
