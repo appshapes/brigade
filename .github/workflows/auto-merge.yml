@@ -1,6 +1,6 @@
 # Arms a merge when — and only when — the reviewer agent approved the CURRENT head of a PR that was labelled for
 # auto-merge at creation time. It does not merge: `--auto` hands the PR to GitHub, which merges it when the
-# branch ruleset's required checks (fast, lint, supabase, e2e) pass. The ruleset is what makes the
+# branch ruleset's required checks (fast, lint, supabase, e2e, server) pass. The ruleset is what makes the
 # word "auto" mean "when green" instead of "now" — see the brief's §1.2 blocker 3.
 #
 # READ §1.2 BLOCKER 3 BEFORE TRUSTING THAT SENTENCE. The merging identity here is GH_ACTIONS_TOKEN, a classic
@@ -27,9 +27,18 @@ jobs:
     # is a permanent policy and not a burn-in measure). Earlier drafts expected this `if:` to be false on every
     # run for the first two months; Rjae rejected that staging on 2026-09-10, so expect it to fire on the first
     # documentation or dependency PR that the reviewer approves.
+    #
+    # The login clause names the reviewer agent's WHOLE login: `claude[bot]`, the Claude GitHub App (work item
+    # 397, 2026-11-22; measured that day: every one of the agent's 79 reviews in this repository carries that
+    # login, account type Bot). Until then the clause was `startsWith(…, 'claude')`, which an approving review
+    # from ANY account whose login begins with `claude` satisfied, and anyone can register one and review a
+    # pull request of a public repository: on a labelled pull request that approval would have armed this
+    # merge without the reviewer agent's read (read in this file, never tried on GitHub). No person can
+    # register a `[bot]` login: a username holds letters, digits and hyphens, and the suffix is GitHub's own
+    # for an App. Never loosen it to a prefix again; scripts/ci/loop_login_test.go holds every workflow to it.
     if: |
       github.event.review.state == 'approved' &&
-      startsWith(github.event.review.user.login, 'claude') &&
+      github.event.review.user.login == 'claude[bot]' &&
       contains(join(github.event.pull_request.labels.*.name, ','), 'auto-merge') &&
       github.event.review.commit_id == github.event.pull_request.head.sha
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -51,11 +60,11 @@ jobs:
       # enablePullRequestAutoMerge mutation, which ERRORS with "Pull request is in clean status" when the PR is
       # already mergeable — and here it usually is: ci.yml's jobs run side by side and the run ends in under five
       # minutes (card 245), while a reviewer session runs longer than that, so by the time the approval lands all
-      # four required checks are green. Without the fallback the everyday case is a red auto-merge job and a PR
+      # five required checks are green. Without the fallback the everyday case is a red auto-merge job and a PR
       # that never merges, while §5 (c)'s red-CI half passes and proves nothing about it. With it: arm if the PR is
       # still waiting, merge outright if it is already green — the checks have been satisfied either way.
       # The fallback is GUARDED by `gh pr checks --required`: the PAT is a ruleset bypass actor, so a bare
-      # plain merge would land past the four required checks on ANY `--auto` error — the one gate §1.2
+      # plain merge would land past the five required checks on ANY `--auto` error — the one gate §1.2
       # blocker 3 rests on. The guard costs nothing on the already-green path and refuses every other.
       - name: Merge when green
         env:
@@ -76,12 +85,12 @@ jobs:
       #   run: |
       #     set -euo pipefail
       #     # Blocks until every REQUIRED check reports, and exits non-zero the moment one fails. `--required`
-      #     # is what confines the wait to the ruleset's four contexts; `--fail-fast` is what stops a red PR
+      #     # is what confines the wait to the ruleset's five contexts; `--fail-fast` is what stops a red PR
       #     # from being merged by the next line rather than merely delaying it.
       #     gh pr checks "$PR" --required --watch --fail-fast --repo "$REPO"
       #     gh pr merge "$PR" --squash --repo "$REPO"
       #
       # What that trades: the gate becomes "we do not ASK to merge until the checks are green" rather than
       # "GitHub declines to merge" — a weaker guarantee, because it lives in this file rather than in the
-      # ruleset, but a deterministic one, and it is the same four checks either way. The `--auto` form is
+      # ruleset, but a deterministic one, and it is the same five checks either way. The `--auto` form is
       # preferred while it works precisely because the waiting is GitHub's job and not ours.

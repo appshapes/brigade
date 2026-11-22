@@ -223,7 +223,9 @@ jobs:
       # Since 2026-09-16 the Review step carries `continue-on-error`, so THIS step is the job's verdict. It runs
       # whether that step passed or failed — a continued failure leaves the job's status green, so the default
       # `success()` condition holds and no `if: always()` is needed — and it is the only step that can turn the
-      # job red: a claude review at HEAD_SHA passes, none fails, whatever the action reported. The Review step's
+      # job red: a `claude[bot]` review at HEAD_SHA passes, none fails, whatever the action reported. The login is
+      # compared whole (work item 397, 2026-11-22): under the earlier `startswith("claude")` a review from any
+      # account whose login begins with `claude` would have passed for the reviewer agent's. The Review step's
       # outcome goes into the error line so a red job says which way it went (the agent step failed, or it ran
       # clean and never submitted) without a trip to its log.
       - name: Verify a review was submitted
@@ -235,10 +237,10 @@ jobs:
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
           set -euo pipefail
-          # One line per claude review AT HEAD: "STATE<TAB>has-trailer". Paginated so a long-lived PR (>100
-          # reviews) cannot hide the newest review.
+          # One line per `claude[bot]` review AT HEAD: "STATE<TAB>has-trailer". Paginated so a long-lived PR
+          # (>100 reviews) cannot hide the newest review.
           reviews=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
-            --jq ".[] | select((.user.login // \"\" | startswith(\"claude\")) and .commit_id == \"$HEAD_SHA\") | [.state, (.body // \"\" | contains(\"@claude\") | tostring)] | @tsv")
+            --jq ".[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD_SHA\") | [.state, (.body // \"\" | contains(\"@claude\") | tostring)] | @tsv")
           if [ -z "$reviews" ]; then
             echo "::error::Reviewer session ended without submitting a formal review at head $HEAD_SHA (the Review step's outcome was '$REVIEW_OUTCOME'; its log says why)"
             exit 1
