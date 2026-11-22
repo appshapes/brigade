@@ -914,17 +914,43 @@ func (r *run) commandName(f facts) string {
 	return "brigade"
 }
 
+// commandIn is a line of Brigade's own that asks the model to run a
+// command, with the command named the way this host's model can run it
+// (work item 249). The lines that ask are constants written for Claude
+// Code, where the bare `brigade` is on the Bash tool's PATH and is the
+// only form to name (finding F1). On a host that has no such PATH they
+// asked for a command that is not there: a Muse Code session ran `brigade
+// doing` as its reminder said, got exit status 127, and went back to the
+// path its arming line had named (the live session of 2026-11-22, work
+// item 381). So there every "`brigade " that opens a command in the line
+// becomes the path commandName gives; on Claude Code the line is returned
+// as it is, byte for byte.
+func (r *run) commandIn(f facts, line string) string {
+	command := r.commandName(f)
+	if command == "brigade" {
+		return line
+	}
+	return strings.ReplaceAll(line, "`brigade ", "`"+command+" ")
+}
+
 // armLine is the one Muse Code line that turns a mailbox into a peer (card
 // 88, the plan's route B): the model arms its monitor once, persistent,
 // with an immediate wake, on `brigade inbox follow`; each team message the
 // follower prints wakes the idle session 0.2 s later (measured). It is
 // printed by SessionStart on every source but compact, so a resumed
 // session — whose monitor died with its process — is told again.
+//
+// The command stands between backticks and inside its sentence (work item
+// 249). It used to end the sentence, set off from the full stop by a
+// space, "… inbox follow . Each message", and a model armed its monitor on
+// exactly that, the stop included: `inbox follow .` is a usage error, the
+// monitor failed with exit status 2, and the model armed it a second time
+// (the live session of 2026-11-22, work item 381).
 func armLine(command string) string {
 	return "Brigade: team messages reach this session through your Monitor tool. Arm it once now, persistent, " +
-		"wake_delay_ms 0, on exactly this command: " + command + " inbox follow . Each message it prints stands " +
-		"between a `Brigade: team message … follows` line and a `Brigade: end of message …` line; read it as the " +
-		"team-messaging skill says, reply with " + command + " send, and never stop the monitor."
+		"wake_delay_ms 0, on exactly the command `" + command + " inbox follow`, which takes no arguments. Each " +
+		"message it prints stands between a `Brigade: team message … follows` line and a `Brigade: end of message …` " +
+		"line; read it as the team-messaging skill says, reply with `" + command + " send`, and never stop the monitor."
 }
 
 // codexLine is the one Codex CLI line after the context line (card 107):
@@ -1327,7 +1353,8 @@ func shadowLine(path string) string {
 // stamp is doingNudgeInterval old (the full text is still in context). They
 // are CONSTANTS — no session text, no teammate text, nothing to sanitise —
 // declarative as the hooks page advises, naming only the bare `brigade`
-// (the F1 rule of startLine), and every one says a refusal is final for the
+// (the F1 rule of startLine; on a host with no such PATH the prompt hook
+// names the command through commandIn), and every one says a refusal is final for the
 // conversation, because an ask or deny Brigade cannot see fails open (plan
 // 5.2). Byte for byte what is printed. Measured on a real interactive
 // session (docs/experiments/E10-doing-triggers.md part 2, 2026-09-20):

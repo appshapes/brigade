@@ -63,9 +63,15 @@ func TestMuseSessionStart(t *testing.T) {
 	}
 	if !strings.HasPrefix(got[1], "Brigade: team messages reach this session through your Monitor tool.") ||
 		!strings.Contains(got[1], "persistent, wake_delay_ms 0") ||
-		!strings.Contains(got[1], f.pluginBin+" inbox follow") || !strings.Contains(got[1], f.pluginBin+" send") ||
+		!strings.Contains(got[1], "`"+f.pluginBin+" inbox follow`") || !strings.Contains(got[1], "`"+f.pluginBin+" send`") ||
 		!strings.Contains(got[1], "never stop the monitor") {
 		t.Fatalf("arming line %q", got[1])
+	}
+	// The command is whole between its backticks (work item 249): the line
+	// once ended it " inbox follow . Each", and a model armed its monitor
+	// on `inbox follow .`, which the command refuses.
+	if strings.Contains(got[1], "follow .") || strings.Contains(got[1], "follow. ") {
+		t.Fatalf("the arming line's command runs into a full stop: %q", got[1])
 	}
 	if claudeReads != 0 {
 		t.Fatalf("a Muse session read %d file(s) under the Claude config directory", claudeReads)

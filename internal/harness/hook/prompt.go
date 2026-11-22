@@ -257,6 +257,7 @@ func (r *run) doingNudge(ctx context.Context, f facts, in input, m *sessionmap.B
 	if line == "" {
 		return
 	}
+	line = r.commandIn(f, line)
 	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < doingNudgeMinBudget {
 		r.log.Debug("prompt: too little budget left for the doing line")
 		return

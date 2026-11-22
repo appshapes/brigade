@@ -184,6 +184,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   marketplace remove brigade` takes the marketplace out of Claude
   Code's list too, so it is left alone on a machine that runs both
   ([Leave and uninstall from Grok Build](docs/team-member/leave/grok.md)).
+- **A Muse Code session arms its monitor at the first try** (work item
+  249). The line that tells a Muse Code session how to arm its monitor
+  ended its command with a space and a full stop. A model armed the
+  monitor on `inbox follow .`, which is a usage error, so the monitor
+  failed and had to be armed again. The command now stands whole
+  between backticks, inside its sentence.
+- **A reminder names a command the session can run** (work item 249).
+  The lines that ask a session for its doing line, for a note after a
+  commit or for a decision named a bare `brigade`. That word is on the
+  PATH of a Claude Code session's shell only. In Muse Code, Codex CLI
+  and Grok Build the lines now name the package's `bin/brigade` by its
+  path, as the line at the session's start already did. A Muse Code
+  session used to run `brigade doing`, get "command not found", and
+  try again with the path. In Claude Code the lines are unchanged.
 
 ## [0.57.0] — 2026-11-15
 

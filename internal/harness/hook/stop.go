@@ -81,7 +81,8 @@ const (
 
 // The three sentences of the ask, and its frame. Constants: no session
 // text, nothing to sanitise, the bare `brigade` only (the F1 rule of
-// startLine), and the closing says a refusal is final. The note sentence
+// startLine; stopAsk names the command through commandIn on a host with
+// no such PATH), and the closing says a refusal is final. The note sentence
 // says what the hook found, a commit made in the checkout during the
 // turn, and not that the session made it: a checkout's sessions share its
 // HEAD, its reflog and their author, so the model, which knows whether it
@@ -287,7 +288,7 @@ func (r *run) stopAsk(ctx context.Context, f facts, in input, m *sessionmap.ByPI
 		return ""
 	}
 	r.log.Info("stop: state asked", slog.Int("sentences", len(sentences)))
-	return stopAskOpen + strings.Join(sentences, " ") + stopAskClose
+	return r.commandIn(f, stopAskOpen+strings.Join(sentences, " ")+stopAskClose)
 }
 
 // stopSentences is the three gates, each its sentence when it holds: a

@@ -395,7 +395,7 @@ func TestPromptNoteAskIsForACommitSinceThePreviousPrompt(t *testing.T) {
 	// words.
 	f.gitAt(t2.Add(10*time.Second), "commit", "-q", "--allow-empty", "-m", "319: since the previous prompt")
 	out := prompt(t2.Add(20 * time.Second))
-	if !strings.Contains(out, stopAskOpen+promptAskNote+stopAskClose) {
+	if !strings.Contains(out, namedIn(f, stopAskOpen+promptAskNote+stopAskClose)) {
 		t.Fatalf("the prompt after a commit did not carry the ask:\n%s", out)
 	}
 	if !strings.Contains(out, "a commit was made in this checkout since this session's previous prompt and no note followed; if this session") || strings.Contains(out, "during this turn") {
@@ -580,6 +580,69 @@ func TestStopAllowedModePrintsInDefault(t *testing.T) {
 	}
 }
 
+// namedIn is a line of constants as a pointed host's hook prints it (work
+// item 249): each command it asks for is named by the package's bootstrap,
+// the fixture's pluginBin, where the constant says the bare `brigade`.
+func namedIn(f *fixture, line string) string {
+	return strings.ReplaceAll(line, "`brigade ", "`"+f.pluginBin+" ")
+}
+
+// TestRemindersNameTheCommandOnAPointedHost (work item 249): the line that
+// asks for a doing line is a constant that names the bare `brigade`, which
+// is on the PATH of a Claude Code session's shell and of no other host's.
+// A Muse Code session ran it as written and got exit status 127. On a host
+// whose command is the package's bootstrap, the line names that path; on
+// Claude Code it stays the constant, byte for byte (TestDoingNudge*).
+func TestRemindersNameTheCommandOnAPointedHost(t *testing.T) {
+	t.Parallel()
+	for name, build := range map[string]func(*testing.T) *fixture{"Muse Code": newMuseFixture, "Codex CLI": newCodexFixture} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := build(t)
+			f.writeTeamFile(stateMember)
+			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+			seam.describe = describeWithDescription()
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			exit, out, errOut := f.run(SubPrompt, f.promptDoc("bypassPermissions"))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			want := "Brigade doing: this session's line is blank"
+			line := ""
+			for _, l := range lines(out) {
+				if strings.HasPrefix(l, want) {
+					line = l
+				}
+			}
+			if line != namedIn(f, doingLineBlank) {
+				t.Fatalf("the doing line:\n%q\nwant, with the command's path:\n%q\n(stdout %q)", line, namedIn(f, doingLineBlank), out)
+			}
+			if !strings.Contains(line, "`"+f.pluginBin+" doing <<'EOF'`") || strings.Contains(out, "`brigade ") {
+				t.Fatalf("the prompt still names a bare brigade, or not the bootstrap: %q", out)
+			}
+		})
+	}
+}
+
+// TestCommandInLeavesClaudeCodeAlone (work item 249, finding F1): where
+// the bare word is the command, a line is returned as it is.
+func TestCommandInLeavesClaudeCodeAlone(t *testing.T) {
+	t.Parallel()
+	r := &run{}
+	for _, line := range []string{doingLineBlank, doingLineFull, doingLineShort, stopAskOpen + stopAskNote + " " + stopAskDoing + " " + stopAskDecision + stopAskClose} {
+		if got := r.commandIn(facts{}, line); got != line {
+			t.Fatalf("a host with brigade on PATH got another line:\n%q\nwant\n%q", got, line)
+		}
+		pointed := facts{host: config.HostMuse, pluginBin: "/p/bin/brigade"}
+		got := r.commandIn(pointed, line)
+		if strings.Contains(got, "`brigade ") || !strings.Contains(got, "`/p/bin/brigade ") || strings.ReplaceAll(got, "/p/bin/brigade", "brigade") != line {
+			t.Fatalf("a pointed host's line: %q", got)
+		}
+	}
+}
+
 // TestPromptCarriesTheAskOnAPointedHost (the parity rule): a Muse Code
 // session, which has no Stop hook, gets the same ask as a context line at
 // its next prompt, judged on the turn that ended there, under the same
@@ -601,8 +664,10 @@ func TestPromptCarriesTheAskOnAPointedHost(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit %d: %s", exit, errOut)
 	}
-	if !strings.Contains(out, stopAskOpen+stopAskDoing+stopAskClose) {
-		t.Fatalf("the long turn's prompt did not carry the ask:\n%s", out)
+	// The ask names the command by the path this host's model can run
+	// (work item 249): no bare `brigade` is on a Muse Code session's PATH.
+	if !strings.Contains(out, namedIn(f, stopAskOpen+stopAskDoing+stopAskClose)) || strings.Contains(out, "`brigade ") {
+		t.Fatalf("the long turn's prompt did not carry the ask with the command's path:\n%s", out)
 	}
 	if got := f.stopStamp(t); !strings.HasSuffix(got, " asked") {
 		t.Fatalf("stamp %q", got)
@@ -667,7 +732,7 @@ func TestGrokStopCarriesTheAsk(t *testing.T) {
 	}
 	f.unhurried()
 	_, out, errOut = grokRun(f, SubStop, grokDoc(f, "stop", "", map[string]any{"permissionMode": "bypassPermissions"}))
-	if got := blockReason(t, out); got != stopAskOpen+stopAskDoing+stopAskClose {
+	if got := blockReason(t, out); got != namedIn(f, stopAskOpen+stopAskDoing+stopAskClose) || strings.Contains(got, "`brigade ") {
 		t.Fatalf("the second Stop's reason: %q\n%s", got, errOut)
 	}
 	// And stop_hook_active in Grok's spelling asks nothing.
