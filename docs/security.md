@@ -804,11 +804,11 @@ version until the next session start reports it. A symlink that resolves to the 
 correctly not reported as a shadow; that was measured.
 
 **The Bash sandbox.** Hooks and the background watcher run **outside** the sandbox. Only the commands the model
-runs, and their children, are inside it. Add your project's host, `<ref>.supabase.co`, to
-`sandbox.network.allowedDomains`, or the first send is refused. One decided limit: a Supabase stack running on
-your own machine, on loopback, is out of reach from a sandboxed session, and **this is not changing in this
-version**. The adapter honours `NO_PROXY`, and a loopback entry in `allowedDomains` was measured not to lift the
-refusal.
+runs, and their children, are inside it. Add the host of the team file's URL, `<ref>.supabase.co` or a Brigade
+server's own name, to `sandbox.network.allowedDomains`, or the first send is refused. One decided limit: a
+Supabase stack running on your own machine, on loopback, is out of reach from a sandboxed session, and **this is
+not changing in this version**. The adapter honours `NO_PROXY`, and a loopback entry in `allowedDomains` was
+measured not to lift the refusal.
 
 **What a crash leaves behind.** If a session is killed with `SIGKILL`, its session map entry, its record of
 seen messages, its socket and — if the watcher died too — the watcher's pidfile and its state file (a state
@@ -999,7 +999,7 @@ secret lets its holder send the gateway a message as any user id. Neither joins 
 
 A team may also run the webhook gateway of [Run the webhook gateway](project-owner/configure/webhook-gateway.md):
 a binary on a machine of the team's own that joins as one more session (harness `gateway-webhook`) and relays that
-session to one outside service over signed HTTP. It adds nothing to the Supabase project — no function, no
+session to one outside service over signed HTTP. It adds nothing to the team's backend — no function, no
 migration, no public URL — so what it changes is what runs on that machine, who holds its secret, and who reads
 what leaves.
 
