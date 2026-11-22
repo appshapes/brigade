@@ -190,3 +190,34 @@ owner's `gh`. What it has to show: a `review pr` run whose "Verify a review was 
 of `claude[bot]` at the head; on that review's approval, an `auto merge` run whose job is not skipped; and the
 squash merge into `master`. The run ids and the merge are in the execution log, row P106-1, written after the
 merge: a pull request cannot record its own.
+
+### 2026-11-22 — a work order no longer vanishes: the queue, and what an agent left (work item 398)
+
+**The race, as the runs record it.** The factory labels a work order with three labels in one call, three
+`labeled` runs of `claude` reach the issue's concurrency group at once, and the group held one waiting run: a
+newer run took its place and GitHub cancelled the older. On 2026-10-01, issue #50, the month's dependency
+update: run 36856551752, the `claude` one, was cancelled after 2 s. No agent ran, and the issue stood open with
+no comment until this work item. On 2026-11-22, issue #118: run 45013296437 was cancelled after 2 s by the third
+label's run, and that run, 45013297165, after 22 s by run 45013325617, which the agent's own tracking comment
+raised. The record of 2026-09-10 above calls the first of these cosmetic. It was, as long as the run that
+started first was the `claude` one.
+
+**`queue: max`, measured on this repository before the hub got it.** A throwaway branch, `probe/398-queue`,
+carried one workflow with `concurrency: {group, cancel-in-progress: false, queue: max}` and a 25-second job.
+Four pushes in four seconds made runs 45017373650, 45017374969, 45017377856 and 45017379677. GitHub accepted
+the key, three runs were `pending` at once, and all four ended `success` one after another in the order they
+came (11:27:32, 11:28:05, 11:28:38 and 11:29:10 UTC), none cancelled. The branch is deleted. `actionlint`
+1.7.12 does not know the key and reports it as unexpected.
+
+**Why the documenter of issue #118 pushed nothing, as far as it can be told without its session.** Three
+things, each read or measured. (1) `make test` takes about four minutes on the runner: 222 s for `make build
+test go_test_p=4` in the `fast` job of run 45015837326, and an agent's bare `make test` runs two packages at a
+time. (2) The Bash tool gives a command two minutes unless the model asks for more, and Claude Code moves a
+command that reaches its limit to the background instead of stopping it (its pages `env-vars` and
+`tools-reference`, read 2026-11-22; the action installed Claude Code 2.1.318). The session ended in `success`
+9m04s after it began, with the agent's checklist at "Run `make docs-check` and `make test`". (3) The action
+commits an agent's uncommitted work itself only when the agent's branch already exists on GitHub
+(`checkAndCommitOrDeleteBranch`, read at the pin `c0949c5`), and for an issue it makes the branch in the
+checkout alone, so nothing caught the two edited pages. What is not known: that the test run was the command
+that was moved, and why the session did not wait for it. `show_full_output: false` keeps the session out of the
+log, and it stays so.

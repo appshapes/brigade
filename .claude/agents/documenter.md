@@ -63,7 +63,13 @@ anything you cannot demonstrate is false about the current tree.
 5. Commit with `git` (never `make commit` or `make push` — that chain stages untracked files and merges origin
    mid-run) and push your branch. Message: `15: <Imperative summary>`.
 6. If nothing is structurally stale: **change nothing, push nothing**, and say what you checked. The workflow
-   closes the issue automatically when no branch is pushed. A no-op month is a correct month.
+   closes the issue automatically when no branch is pushed and your checkout is as you found it. A no-op month
+   is a correct month.
+7. **Never end your session between an edit and its push.** The checkout goes with the runner. A command runs
+   in the foreground here until it ends (fifteen minutes unless you give it another limit; `make build test`
+   took 222 s in CI's `fast` job, four packages at a time, and your `make test` runs two at a time), so wait for
+   step 4, then do step 5. The workflow leaves your issue open under a red job when it
+   finds unpushed work in your checkout.
 
 ## Guardrails
 

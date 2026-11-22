@@ -13,6 +13,10 @@ step; the only time a person steps in is the fix cap handing a PR back.
 
 - An issue labelled `claude` is a work order (`.github/workflows/claude.yml`). The hub approves the `ci` and
   `review pr` runs a fixer push raises at `action_required` with the owner's token the moment the fixer's job ends.
+- **When no pull request comes.** A work order whose agent pushed nothing is closed only when its checkout was
+  found unchanged. When the agent failed, or ended with work it never pushed, the issue stays open under a red
+  `claude` run, with a comment that says which and names what was left: re-apply the `claude` label to run it
+  again.
 - **Whose review counts.** The reviewer agent reviews as `claude[bot]`, the Claude GitHub App, and the workflows
   compare that login whole, never by a prefix. Only its approval arms the merge of a pull request labelled
   `auto-merge`, and only its requests for changes are counted against the fix cap of three. A person's `@claude`

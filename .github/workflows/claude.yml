@@ -26,7 +26,7 @@ on:
   issues:
     types: [assigned, labeled]
   pull_request:
-    types: [opened, labeled]
+    types: [labeled]
   pull_request_review:
     types: [submitted]
   workflow_dispatch:
@@ -35,9 +35,20 @@ on:
 # cancelled FIXER can die between `git commit` and `git push`, leaving a PR whose head never moves and whose
 # "Verify the fix was pushed" step never runs — a silent park, which is the exact failure this file's verifiers
 # exist to make impossible. The fix cap already bounds the loop, so queueing is safe.
+#
+# `queue: max` (work item 398, 2026-11-22): every run of an issue or a PR WAITS ITS TURN. Without it a group
+# holds one waiting run, and a newer one takes its place: GitHub cancels the older. The factory labels a work
+# order with three labels in one call, so three `labeled` runs reach this group at once, and whichever waited
+# second was cancelled by the third. On 2026-10-01 that was the `claude` one (run 36856551752, issue #50): no
+# agent ever worked the month's dependency update and nothing said so. The agent's own tracking comment
+# replaces a waiting run the same way (run 45013297165 on issue #118, 2026-11-22), and so would a person's
+# second `@claude` comment the first. With `max` up to 100 runs wait and none is replaced; the two label runs
+# that are not `claude` take their turn, are skipped by the job's `if:` and end in seconds. GitHub refuses
+# `queue: max` beside `cancel-in-progress: true`, which is one more reason for the `false` above.
 concurrency:
   group: claude-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   agent:
@@ -52,9 +63,14 @@ jobs:
     # fix cap has handed off. It cannot race auto-merge: auto-merge.yml arms only on `claude[bot]`'s approval,
     # so a human's approval arms nothing to race.
     #
-    # The `pull_request: labeled` half of the last clause is likewise a real, human path: applying the `claude`
-    # label to an EXISTING PR starts an agent on it. The action's write-access check gates it exactly as it gates
-    # every other event, and the label is the human's authorization. §5 (i).
+    # The last clause is likewise a real, human path: applying the `claude` label to a PR starts an agent on it.
+    # The action's write-access check gates it exactly as it gates every other event, and the label is the
+    # human's authorization. §5 (i). It matches that label's OWN `labeled` event and no other (work item 398,
+    # 2026-11-22). Until then every `opened` or `labeled` event on a PR that carried the label matched, so a PR
+    # opened with `claude` beside two more labels raised four matching events; the concurrency group of that
+    # time let two of them run an agent, and with `queue: max` all four would. A label put on at creation raises
+    # its `labeled` event like any other (PR #119: one `opened` and one `labeled` run), so `opened` is not
+    # listened for at all.
     #
     # `claude[bot]` is the Claude GitHub App, the identity the reviewer's `gh pr review` runs as. That is a
     # PREREQUISITE, not an assumption: without that App installed the reviewer's `gh pr review` lands as
@@ -76,7 +92,7 @@ jobs:
         (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && (github.event.review.user.login != 'claude[bot]' || github.event.review.state == 'changes_requested')) ||
         (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'claude') ||
         (github.event_name == 'issues' && github.event.action == 'assigned' && contains(join(github.event.issue.labels.*.name, ','), 'claude')) ||
-        (github.event_name == 'pull_request' && contains(join(github.event.pull_request.labels.*.name, ','), 'claude'))
+        (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'claude')
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404       # the same label ci.yml's `fast` job uses: docker, jq, gh, shellcheck 0.9.0
     # MEASURED 2026-09-17 over the seventeen agent runs to date (the P9-3 re-pin; the P14-5 row): fixer runs
@@ -92,6 +108,11 @@ jobs:
     outputs:
       branch_name: ${{ steps.claude.outputs.branch_name }}
       agent_outcome: ${{ steps.claude.outcome }}   # 'success' | 'failure' (continue-on-error below): open-pr's tie-breaker when no branch was pushed
+      # What the agent's checkout held when its session ended (work item 398): 'true' when it held work that was
+      # never pushed (a changed file, a commit no remote branch carries, a stash), 'false' when none, empty when
+      # the step never ran or failed. `open-pr` closes an issue as "nothing to change" on 'false' alone.
+      agent_left: ${{ steps.leftover.outputs.left }}
+      agent_left_summary: ${{ steps.leftover.outputs.summary }}
     # NOTE what is NOT in this job: `secrets.GH_ACTIONS_TOKEN`. The agent's Bash children inherit this step's
     # environment (no `allowed_non_write_users`, so the action's conditional secret scrub and bubblewrap
     # isolation are both off — §1.1.1), and Rjae's classic PAT reaches EVERY repository their account can reach,
@@ -244,6 +265,11 @@ jobs:
             actions: read
           settings: |
             {
+              "env": {
+                "BASH_DEFAULT_TIMEOUT_MS": "900000",
+                "BASH_MAX_TIMEOUT_MS": "1800000",
+                "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"
+              },
               "permissions": {
                 "allow": [
                   "Bash(make:*)",
@@ -274,6 +300,23 @@ jobs:
                 ]
               }
             }
+          # The three `env` values keep a long command in the FOREGROUND until it ends (work item 398,
+          # 2026-11-22). The Bash tool gives a command two minutes unless the model asks for more, and Claude
+          # Code moves a command that reaches its limit to the background instead of stopping it. `make test`
+          # takes about four minutes on this runner (222 s for `make build test go_test_p=4` in ci.yml's
+          # `fast` job, run 45015837326; an agent's bare `make test` runs two packages at a time and is
+          # slower). On 2026-11-22 the documenter (run 45013295630, issue #118, Claude Code 2.1.318) edited
+          # two pages, reached "Run make docs-check and make test", and its session ended in `success` two
+          # minutes later with nothing committed. What ended it is not read from the session, which
+          # `show_full_output: false` keeps out of the log; the timing fits a test run that was moved to the
+          # background and a session that did not wait for it. So: fifteen minutes by default (go test's own
+          # limit is 15m), thirty at most, and no background at all, so that a command that still outlives
+          # its limit STOPS with an error the agent can read. Claude Code's pages, read 2026-11-22: env-vars
+          # (`BASH_DEFAULT_TIMEOUT_MS`, `BASH_MAX_TIMEOUT_MS`, the `env` key of settings) and tools-reference,
+          # "Foreground commands that move to the background" (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`).
+          # A hung command now holds a turn for fifteen minutes, not two: the job's `timeout-minutes` and
+          # `--max-turns` are the bounds, as before.
+          #
           # Note what is ABSENT from `allow`, and why it is absent rather than forgotten: WebFetch and WebSearch.
           # The writer works from a checkout, `git`, `gh` and the build; nothing in this repository's work needs
           # the web. Withholding them removes the cheapest exfiltration verb an injected prompt can reach for —
@@ -308,6 +351,34 @@ jobs:
           # .context/plans/**. The corollary matters for the reviewer in §4.2: withholding Write from an
           # `allow` list withholds nothing, so a read-only agent needs an explicit `deny` plus the job's
           # `permissions: contents: read`.
+
+      # ---------------------------------------------------------------- what the agent left unpushed
+      # An agent can end in `success` with its work still in the checkout: on 2026-11-22 the documenter edited
+      # two pages and stopped before `git commit` (run 45013295630), and `open-pr` then closed issue #118 with
+      # "The agent finished this run without changes", because "success and no branch" is all it could see.
+      # This step looks: files changed or untracked, commits no remote branch carries, and a `make` or `go`
+      # still running, which is what a command the session did not wait for looks like; a stash and a commit
+      # on another local branch count as well. It never fails the job: `open-pr` decides with its two outputs.
+      #
+      # A work order only (`issues`). The fixer has its own verifier below, and on a pull request the action
+      # puts `.claude/`, `CLAUDE.md` and their like back to the base branch's and leaves them unstaged
+      # (`restoreConfigFromBase`, read at the pin), so a pull request that changes one of them would always
+      # read here as work left behind.
+      #
+      # The script is read from the COMMIT the run started on (`git show`), not from the working tree: the
+      # agent can edit every file of its checkout, this one's copy included, and a check the agent can rewrite
+      # says nothing about the agent.
+      - name: Say what the agent left unpushed
+        id: leftover
+        if: ${{ !cancelled() && github.event_name == 'issues' && (steps.claude.outcome == 'success' || steps.claude.outcome == 'failure') }}
+        # Never the job's verdict: a failure here (a checkout git cannot read, say) would skip `open-pr` and
+        # leave a pushed branch without its PR. It leaves `agent_left` empty instead, which `open-pr` reads as
+        # "nobody looked": a pushed branch still gets its PR, and an issue with no branch stays open.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_SHA:scripts/ci/agent-leftover.sh" > "$RUNNER_TEMP/agent-leftover.sh"
+          sh "$RUNNER_TEMP/agent-leftover.sh"
 
       # ---------------------------------------------------------------- fail-loud verifier 1
       # The fixer can end green without its push landing: a narrated-only fix, or a remote rejection. No push
@@ -430,29 +501,81 @@ jobs:
             "${LABELS[@]}"
           echo "pr_created=true" >> "$GITHUB_OUTPUT"
 
-      # A scheduled agent regularly finishes with nothing to change (docs already accurate, tree already clean).
-      # That run pushes no branch, so no `Closes #N` PR ever arrives and the issue sits open until a human closes
-      # it. The determination is STRUCTURAL — the agent ran to completion and opened no PR — so close on that
-      # rather than on the wording of its comment. A FAILED agent job skips this whole job (`needs: agent`, no
-      # `always()`), leaving the issue open for a retry. GITHUB_TOKEN on purpose: closing an issue must chain to
-      # nothing — and it is this job's own token, not the PAT, so the close raises no event even by accident.
-      # An agent that DIED (max turns, an API error) without pushing is not an agent that had nothing to change:
-      # the old shape closed the issue as "nothing to change" either way. `agent_outcome` tells them apart.
-      - name: Leave the issue open when the agent died without a push
-        if: steps.create_pr.outputs.pr_created == 'false' && needs.agent.outputs.agent_outcome != 'success'
+      # A branch was pushed AND the checkout held more: the PR is opened as always, and the issue says what did
+      # not make it, because the PR's merge will close the issue over it (work item 398).
+      - name: Say on the issue what the agent left beside its branch
+        if: steps.create_pr.outputs.pr_created == 'true' && needs.agent.outputs.agent_left == 'true'
         env:
           GH_TOKEN: ${{ github.token }}      # a job-token comment raises no workflow event, and it carries no @claude
           GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AGENT_LEFT_SUMMARY: ${{ needs.agent.outputs.agent_left_summary }}
         run: |
           set -euo pipefail
-          gh issue comment "$ISSUE_NUMBER" --body "The agent run ended in failure without pushing a branch ($RUN_URL). Leaving this issue open: re-apply the \`claude\` label to run it again."
-          echo "::error::The agent step failed and pushed nothing — issue #$ISSUE_NUMBER left open for a retry"
+          {
+            echo "The agent pushed a branch, and its checkout also held work that it never pushed ($RUN_URL):"
+            echo
+            echo '```'
+            printf '%s\n' "$AGENT_LEFT_SUMMARY"
+            echo '```'
+            echo
+            echo "That work went with the runner. The pull request carries what was pushed."
+          } > "$RUNNER_TEMP/left-beside-branch-comment.md"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$RUNNER_TEMP/left-beside-branch-comment.md"
+
+      # A scheduled agent regularly finishes with nothing to change (docs already accurate, tree already clean).
+      # That run pushes no branch, so no `Closes #N` PR ever arrives and the issue sits open until a human closes
+      # it. The determination is STRUCTURAL — the agent ran to completion, pushed no branch and left its
+      # checkout as it found it (`agent_left`, since work item 398) — so close on that rather than on the
+      # wording of its comment. A FAILED agent job skips this whole job (`needs: agent`, no
+      # `always()`), leaving the issue open for a retry. GITHUB_TOKEN on purpose: closing an issue must chain to
+      # nothing — and it is this job's own token, not the PAT, so the close raises no event even by accident.
+      # An agent that DIED (max turns, an API error) without pushing is not an agent that had nothing to change:
+      # the old shape closed the issue as "nothing to change" either way. `agent_outcome` tells them apart.
+      #
+      # Nor is an agent that ended in `success` with its work unpushed (work item 398: issue #118 was closed as
+      # "finished without changes" over two edited pages). `agent_left` is what the agent job's own step found
+      # in the checkout, and the issue is closed on 'false' alone: this step takes every other case, a failed
+      # agent, work left behind, and a checkout nobody looked at (an empty `agent_left`), says which it was,
+      # and leaves the issue open under a red job.
+      - name: Leave the issue open when the agent pushed nothing and may have left work
+        if: steps.create_pr.outputs.pr_created == 'false' && (needs.agent.outputs.agent_outcome != 'success' || needs.agent.outputs.agent_left != 'false')
+        env:
+          GH_TOKEN: ${{ github.token }}      # a job-token comment raises no workflow event, and it carries no @claude
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AGENT_OUTCOME: ${{ needs.agent.outputs.agent_outcome }}
+          AGENT_LEFT: ${{ needs.agent.outputs.agent_left }}
+          AGENT_LEFT_SUMMARY: ${{ needs.agent.outputs.agent_left_summary }}
+        run: |
+          set -euo pipefail
+          # Written under RUNNER_TEMP and read back with --body-file, so the summary needs no shell quoting. It
+          # is fenced: its lines are file names from an agent's checkout, and the script that wrote it keeps
+          # only names made of plain characters.
+          {
+            if [ "$AGENT_LEFT" = "true" ]; then
+              echo "The agent's run ended without pushing a branch, and its checkout held work that it never pushed ($RUN_URL):"
+              echo
+              echo '```'
+              printf '%s\n' "$AGENT_LEFT_SUMMARY"
+              echo '```'
+              echo
+              echo "That work went with the runner."
+            elif [ "$AGENT_OUTCOME" != "success" ]; then
+              echo "The agent run ended in failure without pushing a branch ($RUN_URL)."
+            else
+              echo "The agent's run pushed no branch, and nothing looked at what its checkout held ($RUN_URL)."
+            fi
+            echo "Leaving this issue open: re-apply the \`claude\` label to run it again."
+          } > "$RUNNER_TEMP/no-branch-comment.md"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$RUNNER_TEMP/no-branch-comment.md"
+          echo "::error::The agent pushed nothing (agent step: $AGENT_OUTCOME; work left in its checkout: ${AGENT_LEFT:-not looked at}) — issue #$ISSUE_NUMBER left open for a retry"
           exit 1
 
       - name: Close issue when the agent had nothing to change
-        if: steps.create_pr.outputs.pr_created == 'false' && needs.agent.outputs.agent_outcome == 'success'
+        if: steps.create_pr.outputs.pr_created == 'false' && needs.agent.outputs.agent_outcome == 'success' && needs.agent.outputs.agent_left == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -468,7 +591,7 @@ jobs:
           fi
           gh issue close "$ISSUE_NUMBER" \
             --reason completed \
-            --comment "The agent finished this run without changes, so there is no PR to close this issue. Closing automatically — its comment above records what was reviewed. Reopen if the run looks wrong."
+            --comment "The agent finished this run and left its checkout as it found it, with no file changed and no commit made, so there is no PR to close this issue. Closing automatically — its comment above records what was reviewed. Reopen if the run looks wrong."
 
   # ------------------------------------------------------------------ brake 3b: the loop approves its own fixer
   # GitHub holds every run a fixer push raises: `ci` and `review pr` on the new head sit at `action_required`

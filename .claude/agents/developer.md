@@ -72,6 +72,13 @@ and `e2e` jobs are what will actually run them on your PR.
   session's to resolve, in place" is for a person's session, which can ask its user and runs `make push`; it is
   not for you.
 - One logical change per commit; several commits on a branch are fine (the merge is a squash).
+- **Never end your session with work in the checkout.** The checkout goes with the runner: what you did not
+  commit and push is lost. On this runner a command runs in the foreground until it ends, fifteen minutes
+  unless you give it another limit and thirty at most, and one that outlives its limit is stopped, never moved
+  to the background (`claude.yml` sets it so; `make build test` took 222 s in CI's `fast` job, four packages at a
+  time, and your `make test` runs two at a time). So wait for a gate, read
+  what it printed, then commit and push. When you cannot finish, commit and push what stands and say what is
+  missing: the workflow leaves an issue open under a red job when it finds unpushed work in your checkout.
 
 ## Never, on pain of a blocked PR
 

@@ -460,6 +460,20 @@ silent-no-op failure modes — a reviewer that ends green having submitted nothi
 without pushing — into red runs. Brigade adds a fifth, deterministic brake: the release-pin guard in 4.2
 (`scripts/ci/pr-guard.sh`, called by `review-pull-request.yml` before the agent runs).
 
+> **Since 2026-11-22 (work item 398) a work order does not vanish.** Two ways were seen. (1) The first arrow of
+> the diagram raises three `labeled` events at once, the three runs met in `claude.yml`'s concurrency group, and
+> the group held one waiting run: on 2026-10-01 the `claude` one was the one a newer run replaced, and October's
+> dependency update never ran. The group now has `queue: max`, so every run waits its turn. (2) A writer that
+> ended in `success` with edits it never committed read to `open-pr` as "nothing to change", and its issue was
+> closed. A third verifier, `scripts/ci/agent-leftover.sh`, now looks at the checkout after the agent step of a
+> work order, and the issue is closed only when it was found unchanged; and the agent's commands run in the
+> foreground for up to fifteen minutes, never in the background. With every run waiting its turn, each event
+> that matches the agent job's `if:` runs an agent of its own, so the pull request clause now matches the
+> `claude` label's own `labeled` event alone and `opened` is no longer listened for: a pull request opened with
+> three labels raised four matching events before. The copies of `claude.yml` in §4.1 below, and §5 (i)'s
+> `[opened, labeled]`, are the brief as it was written and show none of this. The measurements are in
+> `docs/experiments/agentic-workflows-first-runs.md` under 2026-11-22.
+
 ---
 
 ## 4. Files to add
