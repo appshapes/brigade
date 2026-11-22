@@ -17,6 +17,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/procutil"
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 type grokTask struct {
@@ -27,8 +28,34 @@ type grokTask struct {
 	Description string `json:"description"`
 }
 
-func (r *run) isGrok() bool {
-	return r.args.host == config.HostGrok || config.HostOf(r.environ) == config.HostGrok
+// nativeJSON is Grok Build's dialect (config.DialectNative; cards 132,
+// 135): the hook speaks Grok's own protocol whole. Its stdout is native
+// hook JSON, never prompt frames; its document carries members the shared
+// one has not; and the session's name and model come from Grok's own
+// summary, since the document's title is blanked at a start.
+type nativeJSON struct{ plugin }
+
+func (nativeJSON) native() bool { return true }
+
+func (nativeJSON) run(r *run) int { return r.runGrok() }
+
+func (nativeJSON) decode(r *run, data []byte, in *input) error { return r.decodeGrok(data, in) }
+
+// identity: the title is local metadata, not the hook document.
+// SessionStart blanks session_title. With no title yet the roster keeps
+// the host's own word until a later heartbeat sees one.
+func (nativeJSON) identity(r *run, f facts, in input) (identity, bool) {
+	name := string(f.host)
+	title, model := r.grokFacts(in)
+	if title != "" {
+		name = title
+	}
+	return identity{name: name, activity: protocol.ActivityIdle, harnessVersion: unknownVersion, model: model}, true
+}
+
+func (nativeJSON) title(r *run, in input) (string, bool) {
+	title, _ := r.grokFacts(in)
+	return title, true
 }
 
 // Grok stdout is native hook JSON, never prompt frames. Startup systemMessage
@@ -47,7 +74,7 @@ func (r *run) runGrok() int {
 	// inherited, so no identity here can be proven and the hook serves
 	// nothing. Said once, where the person can see it — a deferred hook is
 	// otherwise a stderr line nobody reads.
-	if _, err := config.NativeID(config.HostGrok, r.environ); err != nil {
+	if _, err := config.NativeID(r.spokenHost(), r.environ); err != nil {
 		if _, reason := codeOf(err); reason == config.ReasonAmbiguousHost {
 			if r.args.sub == SubSessionStart && original != nil {
 				_, _ = io.WriteString(original, "{\"systemMessage\":\"Brigade: this Grok session's environment also carries another harness's session marker, so its identity cannot be proven and Brigade is off here. Start Grok from a plain terminal.\"}\n")
@@ -162,7 +189,7 @@ func (r *run) decodeGrok(data []byte, in *input) error {
 	if in.HookEventName != expected {
 		return errors.New("unknown or mismatched Grok hook event")
 	}
-	id, err := config.NativeID(config.HostGrok, r.environ)
+	id, err := config.NativeID(r.spokenHost(), r.environ)
 	if err != nil {
 		return err
 	}
@@ -334,7 +361,7 @@ func claimGrokArming(marker string) bool {
 // resume hint. Retire only a proven dead incarnation's watcher before reuse.
 func (r *run) claimGrok(f facts, in input) bool {
 	store := sessionmap.Store{StateDir: f.stateDir}
-	ptr, err := store.ReadByHost("grok", in.SessionID)
+	ptr, err := store.ReadByHost(string(f.host), in.SessionID)
 	if errors.Is(err, os.ErrNotExist) {
 		return true
 	}

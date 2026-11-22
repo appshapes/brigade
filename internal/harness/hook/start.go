@@ -175,7 +175,7 @@ type resolved struct {
 // running, which is kept where it is and says so (keep, stay,
 // keepUnresolved); the exit status is the caller's 0.
 func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.Duration) {
-	if f.host == config.HostGrok && !r.claimGrok(f, in) {
+	if f.host.BindsReceiver() && !r.claimGrok(f, in) {
 		return
 	}
 	// A start over a session that is running is a `/clear` of it, and its
@@ -215,9 +215,9 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	}
 	res.workspaceLabel = workspaceLabel(res.opts, in.Cwd)
 	existing := r.existingMap(res.store, f.pid)
-	sameGrok := f.host == config.HostGrok && existing != nil && r.grokMatches(existing, in) && existing.TeamKey == res.teamKey && existing.ConfigDir == res.opts.ConfigDir && slices.Equal(existing.AdapterCommand, res.argv)
+	sameGrok := f.host.BindsReceiver() && existing != nil && r.grokMatches(existing, in) && existing.TeamKey == res.teamKey && existing.ConfigDir == res.opts.ConfigDir && slices.Equal(existing.AdapterCommand, res.argv)
 	var prior *sessionmap.ByPID
-	if f.host == config.HostGrok && existing != nil && (in.Source == "load" || !sameGrok) {
+	if f.host.BindsReceiver() && existing != nil && (in.Source == "load" || !sameGrok) {
 		// A load creates a fresh receiver even if the PID/native UUID
 		// recurs. Repeated new hooks for the same live receiver are idempotent.
 		// The previous incarnation's sink files move after register when the
@@ -345,8 +345,8 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			// does, or a "sync changed" respawn would run the OLD sync
 			// members while the line below announces the new ones.
 			// finish() writes it again, harmlessly.
-			if f.host == config.HostGrok {
-				if !r.publishGrok(res.store, m, now) {
+			if f.host.BindsReceiver() {
+				if !r.publishGrok(f, res.store, m, now) {
 					return
 				}
 			} else if err := res.store.WriteByPID(m); err != nil {
@@ -486,8 +486,8 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		r.fail("session-start: grok backlog not moved", err, notConnected(protocol.CodeConfig))
 		return
 	}
-	if f.host == config.HostGrok {
-		if !r.publishGrok(res.store, m, now) {
+	if f.host.BindsReceiver() {
+		if !r.publishGrok(f, res.store, m, now) {
 			r.restoreGrokBacklog(f.stateDir, res.store, prior, m)
 			return
 		}
@@ -518,7 +518,7 @@ func (r *run) continueMap(f facts, in input, res resolved, existing *sessionmap.
 	if existing.Checkout != "" {
 		m.Checkout = existing.Checkout
 	}
-	if f.host == config.HostGrok && existing.ValidGrokReceiver() {
+	if f.host.BindsReceiver() && existing.ValidGrokReceiver() {
 		g := *existing.Grok
 		if g.LaunchCwd == "" {
 			g.LaunchCwd = in.launchCwd
@@ -561,12 +561,12 @@ func (r *run) restoreGrokBacklog(stateDir string, store sessionmap.Store, prior,
 	}
 }
 
-func (r *run) publishGrok(store sessionmap.Store, m *sessionmap.ByPID, now time.Time) bool {
+func (r *run) publishGrok(f facts, store sessionmap.Store, m *sessionmap.ByPID, now time.Time) bool {
 	if err := store.WriteByPID(m); err != nil {
 		r.log.Warn("Grok receiver map not published", log.Err(err))
 		return false
 	}
-	if err := store.WriteByHost("grok", m.ClaudeSessionID, &sessionmap.ByHost{HostPID: m.ClaudePID, BrigadeSessionID: m.BrigadeSessionID, UpdatedAt: now}); err != nil {
+	if err := store.WriteByHost(string(f.host), m.ClaudeSessionID, &sessionmap.ByHost{HostPID: m.ClaudePID, BrigadeSessionID: m.BrigadeSessionID, UpdatedAt: now}); err != nil {
 		r.log.Warn("Grok receiver pointer not published", log.Err(err))
 		return false
 	}
@@ -1243,7 +1243,7 @@ func (r *run) followMove(ctx context.Context, f facts, in input, opts config.Opt
 		return false
 	}
 	if !r.starting {
-		if f.host == config.HostGrok {
+		if f.host.StaysOnMove() {
 			// Grok Build discards what a prompt hook prints, so a session
 			// there could not be told that it followed: it follows when it
 			// starts.
@@ -1510,7 +1510,7 @@ func (r *run) register(ctx context.Context, c *adapterclient.Client, reg *protoc
 // offered (work item 327), and the caller offers none at all for a map
 // that names another key.
 func (r *run) resumeHint(f facts, in input, store sessionmap.Store, existing *sessionmap.ByPID, teamKey string) *protocol.ResumeRef {
-	if f.host == config.HostGrok && in.Source != "load" {
+	if f.host.BindsReceiver() && in.Source != "load" {
 		return nil
 	}
 	hint := ""
@@ -1615,7 +1615,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		RegisteredAt:           registeredAt,
 		UpdatedAt:              now,
 	}
-	if f.host == config.HostGrok {
+	if f.host.BindsReceiver() {
 		info, _ := r.grokProcess()
 		m.Model, m.TranscriptPath = "", ""
 		m.Grok = &sessionmap.GrokReceiver{Cwd: in.Cwd, LaunchCwd: in.launchCwd, ProcessStart: info.StartToken, Incarnation: in.grokIncarnation, MonitorState: "unarmed"}
@@ -1709,8 +1709,10 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 // session, continued it or kept it where it is.
 func (r *run) sayContext(f facts, m *sessionmap.ByPID) {
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
-	switch {
-	case f.host == config.HostGrok:
+	// What follows the start line says how a message reaches the model in
+	// this host, so it goes by the host's delivery.
+	switch f.host.Delivery() {
+	case config.DeliverPagedSink:
 		state := "unverified"
 		if m.Grok != nil {
 			switch m.Grok.MonitorState {
@@ -1719,16 +1721,17 @@ func (r *run) sayContext(f facts, m *sessionmap.ByPID) {
 			}
 		}
 		r.say("Brigade: monitor " + state + " (last local observation). If unarmed, setup follows the first completed turn; use /brigade:team-messaging for status or explicit retry. Startup notices are UI-only. Local backlog may already be locally ACKed.")
-	case f.muse():
+	case config.DeliverFollowedSink:
 		// The monitor is what makes a Muse session a peer (card 88): the
 		// arming line follows the context line on every SessionStart but
 		// compact, because a resume starts a new process and the old
 		// monitor died with the old one.
 		r.say(armLine(r.commandName(f)))
-	case f.codex():
+	case config.DeliverQueue:
 		// Nothing to arm on Codex (card 107): the line says how a message
 		// arrives and where the command is.
 		r.say(codexLine(r.commandName(f)))
+	case config.DeliverSocket:
 	}
 }
 
@@ -1743,8 +1746,8 @@ func (r *run) retirePointer(f facts, store sessionmap.Store, existing *sessionma
 	if !f.pointed() || existing == nil || existing.ClaudeSessionID == "" || existing.ClaudeSessionID == in.SessionID {
 		return
 	}
-	if f.host == config.HostGrok {
-		p, err := store.ReadByHost("grok", existing.ClaudeSessionID)
+	if f.host.BindsReceiver() {
+		p, err := store.ReadByHost(string(f.host), existing.ClaudeSessionID)
 		if err != nil || p.HostPID != existing.ClaudePID || p.BrigadeSessionID != existing.BrigadeSessionID {
 			return
 		}
@@ -1753,8 +1756,8 @@ func (r *run) retirePointer(f facts, store sessionmap.Store, existing *sessionma
 		r.log.Debug("the previous thread's pointer was not removed", log.Err(err))
 		return
 	}
-	if f.host == config.HostGrok {
-		_ = store.DeleteStartPointer("grok", existing.ClaudeSessionID)
+	if f.host.BindsReceiver() {
+		_ = store.DeleteStartPointer(string(f.host), existing.ClaudeSessionID)
 	}
 	r.log.Info("retired the pointer of the previous native session of this process")
 }

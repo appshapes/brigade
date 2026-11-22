@@ -43,15 +43,19 @@ no, is a column of one table, and `make lint` refuses a host's name anywhere els
   of its own (`hostfacts_codex.go`, `hostfacts_muse.go`, `grokname.go`), behind the `history` interface of
   `hostfacts.go`. A harness that files its sessions as another does shares that kind and adds nothing; one that
   files them its own way adds a kind and a reader.
-- **What a table cannot hold**, in the files the lint rule lists by name in `.golangci.yml`, and in those alone,
-  until work item 381 gives each a place of its own:
-  - the hook's dialect, in six files of `internal/harness/hook`: what the session-start, prompt and session-end
-    hooks read and print for the host, and how its session is keyed and claimed;
+- **Its hook's dialect**, what its hook is handed and may print and how its session is keyed: the table names the
+  kind (`config.DialectKind`: a plugin's hook, the same with a monitor and a cap in bytes, a hook named on its
+  argv and keyed by a thread, the host's own JSON), and `internal/harness/hook` has one implementation a kind,
+  in a file of its own (`dialect.go` for the plugin's and the interface, `dialect_muse.go`, `dialect_codex.go`,
+  `grok.go`). A session that binds a receiver, as Grok Build's does, is asked of the table too
+  (`config.Host.BindsReceiver`), and the line a start prints about how messages arrive goes by the delivery.
 - **The by-host pointer**, `internal/harness/sessionmap`: from the native id to the by-pid map. It sits below
   `config` and names no host constant; where it must tell a host, it compares the map's `harness` string.
 
-A change that needs a host's name in a file that is not on that list fails `make lint` with the rule's message:
-add the column, or, when it is more than a value, say why the file joins the list.
+No file of the watcher, the hook or the commands names a host: the lint rule's list holds the table, the tests
+and the frame's own names, and nothing else. A change that needs a host's name anywhere else fails `make lint`
+with the rule's message: add the column, or, when it is more than a value, add a kind and its implementation
+([ADR 0020](../../decisions/0020-put-delivery-local-facts-and-the-hooks-dialect-behind-three-interfaces.md)).
 
 ## The checks and the release
 
