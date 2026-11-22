@@ -316,10 +316,11 @@ test-integration-adapter: ## The Supabase adapter's live tests, the fault tests 
 # `brigade-webhook-gateway` as real processes, the gateway its own host for the bundled `supabase` adapter. It is
 # the one live test outside the adapter's package, so it is a target of its own, and it runs after the adapter's
 # tests and never beside them: their fault tests restart the stack. No `build` prerequisite: the test builds what
-# it runs. Without BRIGADE_TEST_DOCKER: it stops nothing.
+# it runs. Without BRIGADE_TEST_DOCKER: it stops nothing. With -v, so that the log of the job says what a bare
+# `ok` does not: that the test ran and was not skipped, and what the gateway answered on the stack.
 .PHONY: test-integration-gateway
 test-integration-gateway: ## The webhook gateway for a team on the local stack, through the built binaries (reads $(env_test)) (CI)
-	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 go test -count=1 -timeout 5m -run '^TestTheWebhookGatewayOnSupabaseThroughTheRealBinary$$' ./internal/harness/e2e/
+	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 go test -count=1 -timeout 5m -v -run '^TestTheWebhookGatewayOnSupabaseThroughTheRealBinary$$' ./internal/harness/e2e/
 
 # No --setup on the conformance line: with the BRIGADE_SUPABASE_* pair in the environment, `team create`/`team join`
 # bind an empty profile themselves (4.1's rule for a human shell, and the suite is one), so the suite provisions its

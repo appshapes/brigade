@@ -318,6 +318,9 @@ func theWebhookGatewayThroughTheRealBinary(t *testing.T, r *rig) {
 		return err == nil && strings.Contains(string(out), `"ok":true`) && !strings.Contains(string(out), aliceID)
 	}, func() string { return gatewayLog() })
 	waiting, raw := send("--member", aliceLabel, "--text", "Is anyone there?")
+	// Under -v, as `make test-integration-gateway` runs it, the log holds
+	// the answer itself, from whatever backend this run is on.
+	t.Logf("the gateway's answer for a member whose one session ended: %s", strings.TrimSpace(raw))
 	if !waiting.OK || waiting.RecipientSessionID != aliceID || waiting.MessageID == "" {
 		t.Fatalf("the gateway's answer for a member whose one session ended: %s; want it accepted for that session, %s", raw, aliceID)
 	}
