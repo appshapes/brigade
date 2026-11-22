@@ -11,13 +11,13 @@ teammate's message cannot change them.
 | set an option in Claude Code | [Configure in Claude Code](#configure-in-claude-code) |
 | set an option in Muse Code | [Configure in Muse Code](#configure-in-muse-code) |
 | set an option in Codex CLI | [Configure in Codex CLI](#configure-in-codex-cli) |
+| set an option in Grok Build | [Configure in Grok Build](#configure-in-grok-build) |
 | change the sentence your sessions receive with each message | [Choose the frame text](#choose-the-frame-text) |
 | hold messages for your review before your session sees them | [Hold messages for review](#hold-messages-for-review) |
 | hear a sound, or see a desktop notification, when a message arrives | [Be told when a message arrives](#be-told-when-a-message-arrives) |
 | switch file sync off for your sessions | [Switch file sync off](#switch-file-sync-off) |
 | confirm or block what your session may send | [Gate what your session sends](#gate-what-your-session-sends) |
 | run `claude -p` workers or sandboxed sessions | [Run headless or sandboxed sessions](#run-headless-or-sandboxed-sessions) |
-| use Grok Build configure status | [Grok Build](#grok-build) |
 
 ## Know the options
 
@@ -49,6 +49,14 @@ Details: [Configure in Muse Code](muse-code.md).
 2. Start a new session; a missing file is the defaults.
 
 Details: [Configure in Codex CLI](codex.md).
+
+## Configure in Grok Build
+
+1. Write `~/.config/brigade/grok-options.json`: a JSON object whose keys are the option names.
+2. Start a new `grok --no-leader` session; a missing file is the defaults. `brigade whoami` shows the inbound
+   policy in force and the monitor's state.
+
+Details: [Configure in Grok Build](grok.md).
 
 ## Choose the frame text
 
@@ -93,9 +101,3 @@ Details: [Gate what your session sends](permissions.md).
 3. A body over about 8 KB goes through `brigade send --body-file <path>`.
 
 Details: [Run headless or sandboxed sessions](headless-and-sandbox.md).
-
-## Grok Build
-
-Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
-
-Details: [Grok Build](grok.md).

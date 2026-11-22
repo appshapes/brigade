@@ -12,6 +12,11 @@ Rjae Fable review, PR and release remain pending; this is not a released or
 unrestricted compatibility claim. See the [production checkpoint](#installed-package-acceptance-checkpoint)
 and its [sanitized evidence](grok-participation-evidence/production-checkpoint.json).
 
+**Since this checkpoint** (added 2026-11-22, work item 383): the review and the pull request it names are done
+and the package shipped in Brigade 0.35.0 on 2026-10-19. "Pending" in this report is the state at the
+checkpoint, kept as it was written. Grok Build 1.0.67 (card 131) and 1.0.92 (a live session of 2026-11-22,
+work item 381) have run the package since.
+
 The coordinator used normal plugin trust, default permissions and exact command
 approvals in an owned isolated fs team with scratch HOME and SHA256-pinned copied
 development binaries. Page reads and synthetic replies were approved explicitly;

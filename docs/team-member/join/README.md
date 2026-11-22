@@ -10,10 +10,10 @@ secret your administrator sent you, saved outside the repository, lets you in. Y
 | join from a Claude Code session | [Join in Claude Code](#join-in-claude-code) |
 | join from a Muse Code session | [Join in Muse Code](#join-in-muse-code) |
 | join from a Codex CLI session | [Join in Codex CLI](#join-in-codex-cli) |
+| join from a Grok Build session | [Join in Grok Build](#join-in-grok-build) |
 | join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
 | choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
 | know what to do when your team moves to a Brigade server, from Supabase or from another server: nothing | [When your team moves](#when-your-team-moves) |
-| use Grok Build join status | [Grok Build](#grok-build) |
 
 ## Join in Claude Code
 
@@ -40,6 +40,16 @@ Details: [Join in Muse Code](muse-code.md).
 3. The session attaches at your next prompt; `brigade sessions` shows who is on the team.
 
 Details: [Join in Codex CLI](codex.md).
+
+## Join in Grok Build
+
+1. Save the secret file your administrator sent you outside the project folder.
+2. In a `grok --no-leader` session opened in the checkout: `/brigade:join ~/brigade-<team>.secret`; or, in a
+   terminal, `brigade team join --secret-file ~/brigade-<team>.secret`.
+3. The session attaches at your next prompt; `brigade sessions` shows who is on the team, and `brigade whoami`
+   whether the inbox monitor is armed.
+
+Details: [Join in Grok Build](grok.md).
 
 ## Join another checkout
 
@@ -74,9 +84,3 @@ Details: [Choose your label](your-label.md).
    with the secret file.
 
 Details: [When your team moves](follow-a-move.md).
-
-## Grok Build
-
-Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
-
-Details: [Grok Build](grok.md).

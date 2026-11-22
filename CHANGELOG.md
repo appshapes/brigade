@@ -162,6 +162,28 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   document is on its stdin. Brigade is inactive in such a program. In
   a terminal, and in a session's own shell, `brigade` with no
   arguments still prints its usage error. The hooks keep their form.
+- **Grok Build's skills carry what the other packages' do** (work item
+  383). `team-messaging`, `setup` and `update` in Grok Build's package
+  were written new and fell behind the other three. They are now the
+  other packages' text, with Grok Build's own sections on its inbox
+  monitor kept. A Grok Build session can address a member with
+  `brigade send --member`, reads what `brigade send` printed
+  (`recipient:` and `waiting:`), has the form of `brigade doing`, the
+  table of refusals, and what a `Decision for <label>:` message asks
+  of it. `setup` has the commands to create a team, join, leave and
+  reset. Three things these skills still hold back: a doing line only
+  when Brigade asks for one, a gateway send only when the user
+  authorized it, an update only when the user requests it.
+- **Grok Build's pages say what shipped.** The install page called the
+  release pending; the package has shipped since 0.35.0. Each of the
+  five topics of the Team Member's pages has a Grok Build section with
+  its commands. Three things are new on those pages, measured in Grok
+  Build 1.0.92. `grok plugin marketplace add` is left out where Claude
+  Code already has the `brigade` marketplace. An uninstall leaves the
+  plugin's name in Grok Build's `config.toml`. And `grok plugin
+  marketplace remove brigade` takes the marketplace out of Claude
+  Code's list too, so it is left alone on a machine that runs both
+  ([Leave and uninstall from Grok Build](docs/team-member/leave/grok.md)).
 
 ## [0.57.0] — 2026-11-15
 

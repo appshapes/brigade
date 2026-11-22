@@ -26,19 +26,21 @@ import (
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
-// The copies, relative to the repository root, each with the witnesses it carries: the two setup skills carry
-// every form; since card 110 the member and admin pages carry the forms of their own procedures.
+// The copies, relative to the repository root, each with the witnesses it carries: the four setup skills carry
+// every form (Grok Build's since work item 383, when it was carried over from Codex CLI's); since card 110 the
+// member and admin pages carry the forms of their own procedures.
 var setupDocFiles = map[string][]string{
 	"plugin/skills/setup/SKILL.md":              setupDocWitnesses,
 	"muse/brigade/skills/setup/SKILL.md":        setupDocWitnesses,
 	"codex/brigade/skills/setup/SKILL.md":       setupDocWitnesses,
+	"grok/brigade/skills/setup/SKILL.md":        setupDocWitnesses,
 	"docs/team-admin/create/create-the-team.md": {setupDocWitnesses[0], setupDocWitnesses[1]},
 	"docs/team-member/join/muse-code.md":        {setupDocWitnesses[2]},
 	"docs/team-member/join/codex.md":            {setupDocWitnesses[2]},
+	"docs/team-member/join/grok.md":             {setupDocWitnesses[2]},
 	"docs/team-member/leave/leave-the-team.md":  {setupDocWitnesses[3], setupDocWitnesses[4]},
 	// The one command of a team's move (work item 328): the setup skills name it, the `move` skill of each
 	// package runs it, and the Team Admin's and the Project Owner's pages are its procedure.
-	"grok/brigade/skills/setup/SKILL.md":              {setupDocWitnesses[5]},
 	"plugin/skills/move/SKILL.md":                     {setupDocWitnesses[5]},
 	"muse/brigade/skills/move/SKILL.md":               {setupDocWitnesses[5]},
 	"codex/brigade/skills/move/SKILL.md":              {setupDocWitnesses[5]},
