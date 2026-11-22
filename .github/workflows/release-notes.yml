@@ -59,7 +59,7 @@ jobs:
     timeout-minutes: 30         # not a p90: two bounded agent sessions, at most four, plus a build and two writes
     permissions:
       contents: write           # `gh release edit --notes` is a contents write
-      issues: write             # the one announcement issue
+      issues: write             # the one announcement issue, and closing the earlier releases' (work item 403)
       id-token: write           # claude-code-action's OIDC
     env:
       RELEASE_TAG: ${{ inputs.tag }}
@@ -409,23 +409,13 @@ jobs:
         run: gh release edit "$RELEASE_TAG" --notes-file "$NOTES_DIR/notes.md"   # never --draft or --latest: release.yml owns the publish state
         env: {GH_TOKEN: "${{ github.token }}"}
       - name: Announce, once
-        # The guard lists the bot's own issues through the issues endpoint (newest first, so the issue of the tag
-        # being announced is on the first page) and compares titles exactly; the endpoint lists pull requests
-        # too, hence `.pull_request == null`. It replaced `gh issue list --search "… in:title"`, which is backed
-        # by the search index: for v0.6.1 the index had not caught up with the issue the other run had created one
-        # second earlier, and both runs opened one (#10, #11). A listing is consistent with the write, and the
-        # `concurrency` group keeps a second run behind the first. An existing issue skips the announcement, not
-        # the gate: the notes above were rewritten anyway, because a re-dispatch that rewrites the same notes is
-        # a legitimate path (the header) and P9-8's fix cycle relies on it. An API error here fails the step
-        # loud rather than opening a second issue: the notes are published either way, and a re-dispatch retries.
-        run: |
-          version=${RELEASE_TAG#v}
-          title="$version is out — run /brigade:update"
-          existing=$(TITLE="$title" gh api "repos/${GITHUB_REPOSITORY}/issues?state=all&creator=github-actions%5Bbot%5D&per_page=100" --jq '[.[] | select(.pull_request == null) | select(.title == env.TITLE)] | length')
-          if [ "$existing" -gt 0 ]; then
-            echo "announcement exists ($existing issue(s) titled \"$title\"); not opening a second one"; exit 0
-          fi
-          # shellcheck disable=SC2016  # the backticks in the single-quoted format are Markdown, meant literally
-          gh issue create --title "$title" --body "$(printf 'Brigade %s is published. To get it, run:\n\n```\n/brigade:update\n```\n\nthen `/reload-plugins`.\n\nRelease notes: https://github.com/%s/releases/tag/%s\n' "$version" "$GITHUB_REPOSITORY" "$RELEASE_TAG")"
+        # scripts/ci/announce-release.sh opens the announcement issue unless one with this title exists, and closes
+        # the announcements of the releases before it, so the one open is the newest release's (work item 403:
+        # nothing closed one, and 71 of the repository's 74 open issues were announcements). Its header has the
+        # guard's history: the issues endpoint in place of the search index, after v0.6.1's two runs each opened
+        # one (#10, #11). An existing issue skips the announcement, not the gate: the notes above were rewritten
+        # anyway, because a re-dispatch that rewrites the same notes is a legitimate path (the header) and P9-8's
+        # fix cycle relies on it. An API error here fails the step loud rather than opening a second issue: the
+        # notes are published either way, and a re-dispatch retries.
+        run: scripts/ci/announce-release.sh
         env: {GH_TOKEN: "${{ github.token }}"}
-        # No `claude` label: it is an announcement, not a work order, and the label would start an agent on it.
