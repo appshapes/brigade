@@ -221,3 +221,27 @@ commits an agent's uncommitted work itself only when the agent's branch already 
 checkout alone, so nothing caught the two edited pages. What is not known: that the test run was the command
 that was moved, and why the session did not wait for it. `show_full_output: false` keeps the session out of the
 log, and it stays so.
+
+**The dispatch after the fix (`dc59f5c0`): one agent run, a whole `make test`, a push and a merge.** `gh workflow
+run update-documentation.yml` at 12:47:47 UTC → run 45024125812 → issue #120 with the three labels at 12:47:55 →
+three `claude` runs at 12:47:58. Run 45024141723 ran the agent. Run 45024141644 was skipped at once. Run
+45024141991 waited its turn (`pending`) and was skipped when it came, and so was run 45024174972, which the
+agent's tracking comment raised. None was cancelled. The agent step ended `success` after 122 turns and 15m13s
+(9m04s on issue #118), again with `permission_denials_count` 12, so the denials were not what ended the first
+session. Its comment says that `make docs-check` and `make test` pass, and it had committed (13:02:50) and
+pushed `claude/issue-120-20261122-1248`. The step "Say what the agent left unpushed" printed `nothing: no path
+changed, no commit unpushed, nothing stashed, no make or go still running`. `open-pr` opened pull request #121,
+`15: Refresh the structural documentation`: nine lines in the two pages that the first run had edited and lost.
+`claude[bot]` approved it at the head at 13:04:58, `auto merge` run 45025596619 armed the merge, CI run
+45025504927 ended green at 13:07:46, and GitHub squash-merged at 13:07:49 as `c5f46056`; the merge closed #120.
+Not seen live: `open-pr` leaving an issue open over unpushed work, since this agent pushed. The tests hold that
+path.
+
+**Seen on the way.** `gh pr create` in `open-pr`, with two labels, raised each `labeled` event twice (the
+timeline of #121 has four), so four `claude` runs started on the pull request and were skipped. With one label
+(pull requests #105 and #119) there is one event. No pull request of the loop carries the `claude` label, so the
+clause that this work item narrowed to that label's own event matched none of them, as the old one would not
+have.
+
+**Issue #50** is closed as not planned, with a comment that says why October's update never ran and that
+November's did (pull request #102).
