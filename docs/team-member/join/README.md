@@ -50,9 +50,10 @@ Details: [Join another checkout](another-checkout.md).
 
 ## Choose your label
 
-1. By default teammates see the email address of the Claude account your install is signed in to.
-2. Set the plugin option `label` to `none`, or to any text, **before** you join; `--label` on the join command does
-   the same for that one command.
+1. By default teammates see the email address of the Claude account on this machine, on every harness; with no
+   Claude account, no label.
+2. Set `label` to `none`, or to any text, **before** you join: the plugin option in Claude Code, the `label` key of
+   the harness's options file elsewhere. `--label` on the join command does the same for that one command.
 3. Every Claude profile on one machine is the same member, under the label of the profile that joined:
    `brigade whoami` shows the label and where it came from, and the option `config_dir` gives a profile a
    membership of its own.

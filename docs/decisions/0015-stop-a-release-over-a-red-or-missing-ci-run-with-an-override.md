@@ -1,4 +1,4 @@
-# 0014. Stop a release over a red or missing CI run, with an override
+# 0015. Stop a release over a red or missing CI run, with an override
 
 - **Status:** Accepted
 - **Date:** 2026-11-22

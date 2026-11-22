@@ -54,6 +54,25 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **The `work-item` skill** in the four packages follows: a session
   that retitles a work item sends the title alone, and one that changes
   a description starts from `show --description`.
+- **The Claude account's email is the default label on every harness**
+  (work item 379, ADR 0014). Where a Claude account is on the machine,
+  a Muse Code, Codex CLI or Grok Build session now sends its email
+  address as your default label, as a Claude Code session does: at a
+  join, and at a session start while the team holds no label for you.
+  Until now it depended on which part of Brigade spoke last. A Muse
+  Code or Codex CLI join and watcher sent it and the session start did
+  not, a Grok Build session sent none, and the join pages said it was
+  not read.
+- **To send no label, or a text of your own**, set `label` to `none` or
+  to that text in the harness's options file (`muse-options.json`,
+  `codex-options.json` or `grok-options.json` under
+  `~/.config/brigade`) before you update. A label the team already
+  holds for you is not changed. On a machine with no Claude account
+  nothing changes.
+- **`brigade whoami` promises a label only where one will come.** With
+  no label recorded it said that a session start fills one from the
+  Claude account. It says so now only when the `label` option is
+  `account` and the machine has an account to read.
 
 ### Fixed
 

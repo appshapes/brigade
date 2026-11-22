@@ -7,12 +7,21 @@
 // `oauthAccount` key at all, which is exactly the "" case below).
 //
 // It exists for ONE purpose: the default display label a `team create` or
-// `team join` sends when it was given no --label, so a roster reads as
+// `team join` sends when it was given no --label, and a session's
+// registration sends for a membership that has none, so a roster reads as
 // people rather than as UUIDs (P15-1). The value is an ordinary unverified
 // label like any other and proves nothing; the server-stamped principal
 // remains the identity. `brigade whoami` reads the same default to say
 // whether this session's account is the label its membership carries
 // (card 191): several Claude profiles on one machine share one membership.
+//
+// The rule is one, in one place, [Label], and it is the same on every
+// harness (ADR 0014, work item 379): where a Claude account is on the
+// machine, its email is the default label of a session of Claude Code,
+// Muse Code, Codex CLI or Grok Build alike, and the `label` option turns
+// it off. Until then the rule was written five times under three
+// conditions, and what a team held for a member of another harness
+// depended on which of them had spoken last.
 //
 // Best effort without exception. A missing file, an unreadable one,
 // malformed JSON, a missing `oauthAccount`, a missing, empty or
@@ -80,16 +89,38 @@ var (
 	ErrNoEmail = errors.New("account: the Claude Code config file carries no account email")
 )
 
+// Label is the member's default display label under the `label` option,
+// and the one place the rule lives (ADR 0014): nothing for `none`, the
+// member's own text for a literal, and for `account`, the default, the
+// email of the Claude account on this machine, with the file it was read
+// from. No harness is left out and none is asked about: a session of any
+// of them, and a terminal, read the same files (Paths).
+//
+// Best effort, as Email is: an account that cannot be read is an empty
+// label and a DIAGNOSTIC error, worth a debug line that carries neither
+// the value nor a path, and never a refusal. file is "" unless the label
+// is an account's.
+func Label(option string, environ []string) (label, file string, err error) {
+	label = config.LabelFor(config.ParseLabelOption(option), func() string {
+		var email string
+		email, file, err = EmailFile(environ)
+		return email
+	})
+	return label, file, err
+}
+
 // Paths are the files Email reads, in order: the one under the Claude
 // Code config directory (CLAUDE_CONFIG_DIR when set, else HOME/.claude —
 // config.ClaudeConfigDir, never a hardcoded ~/.claude), then the one
 // directly under HOME. Empty when neither can be resolved.
+//
+// They are the same in a session of every harness and at a terminal (ADR
+// 0014). A Muse Code, Codex CLI or Grok Build session resolves Brigade's
+// own directories from HOME alone and ignores XDG_* and BRIGADE_*; the
+// Claude account is not Brigade's, and it is looked for where Claude Code
+// keeps it: under CLAUDE_CONFIG_DIR when the session inherited one from
+// the shell it was started in, else under HOME.
 func Paths(environ []string) []string {
-	if config.HostOf(environ) == config.HostGrok {
-		// No Grok account source is measured. Never use Claude's account
-		// as the fallback for a different harness.
-		return nil
-	}
 	var paths []string
 	if dir, err := config.ClaudeConfigDir(environ); err == nil {
 		paths = append(paths, filepath.Join(dir, FileName))
@@ -151,7 +182,7 @@ func OwnEmailFile(environ []string) (string, string, error) {
 		return EmailFile(environ)
 	}
 	dir, err := config.ClaudeConfigDir(environ)
-	if err != nil || config.HostOf(environ) == config.HostGrok {
+	if err != nil {
 		// A relative CLAUDE_CONFIG_DIR names no profile Brigade can read,
 		// and never falls through to the home file.
 		return "", "", ErrNoConfigDir

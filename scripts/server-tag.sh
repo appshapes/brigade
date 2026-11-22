@@ -5,7 +5,7 @@
 # It refuses unless the three places that name the version agree, the tree is clean and is origin/master's
 # head, the tag does not exist yet, and ci.yml's run on that head is green. It changes nothing but the tag.
 #
-# The CI check (work item 399, ADR 0014; scripts/release-ci-check.sh does the looking): until 2026-11-22 this
+# The CI check (work item 399, ADR 0015; scripts/release-ci-check.sh does the looking): until 2026-11-22 this
 # script tagged whatever the head's run said, and the `server` job of ci.yml is the only test a server release
 # has, since the server-release workflow runs none. A run in progress is waited for; a red or a missing one
 # stops the tag. The owner's ruling is stop, with an override: `release_over_ci=<the red run's id>`, or

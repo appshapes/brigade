@@ -29,7 +29,7 @@
   the `server-release` workflow publishes; never tag one by hand and never mark one latest. The contract
   (`docs/backend-rest-v1.md`) is frozen at version 1 since that release and still changes only in one commit
   with the adapter, the stand-in and a green conformance run.
-- **A release stands on a green run** (work item 399, ADR 0014; the owner's ruling of 2026-11-22). `make release`
+- **A release stands on a green run** (work item 399, ADR 0015; the owner's ruling of 2026-11-22). `make release`
   and `make server-tag` read `ci.yml`'s run with `scripts/release-ci-check.sh` and print what it is: the plugin
   release on the commit it starts from, before anything is changed, and on the release commit, between its push
   and the tag; the server release on the head it tags. A run in progress is waited for, in every case. Over a

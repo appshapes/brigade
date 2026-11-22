@@ -175,7 +175,7 @@ The release sequence of plan 7.7, in five steps: pin `plugin/bin/VERSION` and `p
 to the version, rebuild and re-checksum the cross-compiled binaries, commit through the push chain, then tag
 `v<version>` and push the tag — which is what fires `release.yml`.
 
-Since work item 399 (ADR 0014) the sequence stands on CI. `scripts/release-ci-check.sh <full sha>` reads the
+Since work item 399 (ADR 0015) the sequence stands on CI. `scripts/release-ci-check.sh <full sha>` reads the
 newest run of `ci.yml` on a commit with `gh`, waits while it is in progress, prints it, and exits 0 over a green
 one alone. The release asks it before anything is changed, about the commit it starts from, and again between
 the push of the release commit and the tag, about that commit; `scripts/server-tag.sh` asks it about the head

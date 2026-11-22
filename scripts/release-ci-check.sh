@@ -2,7 +2,7 @@
 # usage: scripts/release-ci-check.sh <full commit sha>
 #        release_over_ci=<run id | missing:<full commit sha>> scripts/release-ci-check.sh <full commit sha>
 #
-# Says what `ci.yml` made of a commit, for a release to stand on (work item 399, ADR 0014). Until 2026-11-22 no
+# Says what `ci.yml` made of a commit, for a release to stand on (work item 399, ADR 0015). Until 2026-11-22 no
 # release looked: `make release` tagged about thirty seconds after its push, CI takes about four minutes, and two
 # plugin releases went out over a red job. `scripts/release-prep.sh` and `scripts/server-tag.sh` both call this.
 #

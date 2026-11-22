@@ -11,6 +11,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
 
@@ -125,4 +126,90 @@ func TestTheByPIDMapCarriesTheOptionAndNeverTheEmail(t *testing.T) {
 	if got := f.mustMap().LabelOption; got != config.LabelAccount {
 		t.Errorf("by-pid map label_option %q, want %q", got, config.LabelAccount)
 	}
+}
+
+// TestSessionStartRegistersTheAccountLabelOnEveryHost is ADR 0014 at the
+// hook (work item 379): the registration a SessionStart sends carries the
+// Claude account's email as the member's default label in a session of
+// each of the four harnesses, read from the home directory's own file as
+// an install with no CLAUDE_CONFIG_DIR keeps it, and `label: none` sends
+// none on each. Until then the hook sent a label in a Claude Code session
+// alone, while a Muse Code or Codex CLI session's `team join` and watcher
+// sent the account's: what a team held for the member depended on which
+// of the three had spoken last.
+func TestSessionStartRegistersTheAccountLabelOnEveryHost(t *testing.T) {
+	t.Parallel()
+	for _, host := range []config.Host{config.HostClaude, config.HostMuse, config.HostCodex, config.HostGrok} {
+		for _, tc := range []struct{ option, want string }{{"", accountEmail}, {config.LabelNone, ""}} {
+			t.Run(string(host)+" label "+tc.option, func(t *testing.T) {
+				t.Parallel()
+				var f *fixture
+				if host == config.HostGrok {
+					f = grokFixture(t)
+				} else {
+					f = buildFixture(t, host)
+					f.spawner.watcherPID = testutil.NewSleeper(t)
+				}
+				f.seedTeam(t)
+				doc := `{"oauthAccount":{"emailAddress":"` + accountEmail + `"},"numStartups":3}`
+				if err := os.WriteFile(filepath.Join(f.dirs.Home, ".claude.json"), []byte(doc), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "x", false))}})
+				var exit int
+				var errOut string
+				switch host {
+				case config.HostGrok:
+					// Grok Build's options are a file, and the fixture's
+					// names the adapter there.
+					if tc.option != "" {
+						body, _ := json.Marshal(map[string]string{"adapter_command": f.adapterOption(), "sync": "off", "label": tc.option})
+						if err := os.WriteFile(filepath.Join(f.configDir, config.GrokOptionsFile), body, 0o600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					exit, _, errOut = grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+				case config.HostMuse:
+					exit, _, errOut = f.run(SubSessionStart, f.museStartDoc("default"), hostLabelEnv(tc.option)...)
+				case config.HostCodex:
+					exit, _, errOut = f.run(SubSessionStart, f.codexDoc("SessionStart", "startup"), append(hostLabelEnv(tc.option), "CODEX_HOME="+f.dirs.Home+"/.codex")...)
+				case config.HostClaude:
+					exit, _, errOut = f.run(SubSessionStart, f.startDoc("startup"), hostLabelEnv(tc.option)...)
+				}
+				if exit != 0 {
+					t.Fatalf("exit %d: %s", exit, errOut)
+				}
+				calls := seam.callsFor("session register")
+				if len(calls) != 1 {
+					t.Fatalf("%d registrations, want one\n%s", len(calls), errOut)
+				}
+				var reg protocol.SessionRegistration
+				if err := json.Unmarshal(calls[0].Stdin, &reg); err != nil {
+					t.Fatal(err)
+				}
+				switch {
+				case tc.want == "" && reg.HumanLabel != nil:
+					t.Errorf("human_label %q on the wire, want the member absent", *reg.HumanLabel)
+				case tc.want != "" && (reg.HumanLabel == nil || *reg.HumanLabel != tc.want):
+					t.Errorf("human_label %v on the wire, want %q", reg.HumanLabel, tc.want)
+				}
+				wantHarness := string(host)
+				if host == config.HostClaude {
+					wantHarness = "claude-code"
+				}
+				if reg.Harness != wantHarness {
+					t.Errorf("registered as harness %q, want %q", reg.Harness, wantHarness)
+				}
+			})
+		}
+	}
+}
+
+// hostLabelEnv is the `label` option as a hook's environment carries it,
+// nothing when the option is left at its default.
+func hostLabelEnv(option string) []string {
+	if option == "" {
+		return nil
+	}
+	return []string{config.OptionLabel + "=" + option}
 }

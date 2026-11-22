@@ -162,12 +162,32 @@ func TestGrokAppendFailuresAreNotSuccess(t *testing.T) {
 	}
 }
 
-func TestGrokWatcherDoesNotBorrowClaudeLabel(t *testing.T) {
+// TestTheWatcherSendsTheAccountLabelOnEveryHost is ADR 0014 at the
+// watcher (work item 379): the label it sends when it registers a session
+// anew is the Claude account's email on each of the four harnesses, and
+// the `label` option turns it off or names a text on each. Until then the
+// watcher of a Grok Build session sent none, and this test was that rule's:
+// "a Grok watcher does not borrow a Claude label".
+func TestTheWatcherSendsTheAccountLabelOnEveryHost(t *testing.T) {
 	t.Parallel()
-	w := monitorWatcher(t)
-	w.environ = []string{"HOME=" + t.TempDir(), "CLAUDE_CONFIG_DIR=/synthetic/unrelated"}
-	if label := w.humanLabel("account"); label != "" {
-		t.Fatal("borrowed Claude account label")
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"oauthAccount":{"emailAddress":"member@example.com"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range []config.Host{config.HostClaude, config.HostMuse, config.HostCodex, config.HostGrok} {
+		w := monitorWatcher(t)
+		w.harness = string(host)
+		w.environ = []string{"HOME=" + home}
+		for option, want := range map[string]string{"": "member@example.com", "account": "member@example.com", "none": "", "Rae on the laptop": "Rae on the laptop"} {
+			if label := w.humanLabel(option); label != want {
+				t.Errorf("%s, label option %q: the watcher sends %q, want %q", host, option, label, want)
+			}
+		}
+		// No account on the machine: no label, and the session registers.
+		w.environ = []string{"HOME=" + t.TempDir()}
+		if label := w.humanLabel(""); label != "" {
+			t.Errorf("%s with no account on the machine: the watcher sends %q", host, label)
+		}
 	}
 }
 

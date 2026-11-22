@@ -39,23 +39,20 @@ type whoamiLabel struct {
 	CredentialSince *time.Time `json:"credential_since,omitzero"`
 	// SessionAccount is the email of the Claude account this session is
 	// signed in to, read from this profile's own config alone, and only
-	// where it can explain the label: a Claude Code session whose `label`
-	// option is `account`, with no label or one read from an account (or
-	// of unknown source). Absent otherwise or when it cannot be read.
+	// where it can explain the label: a session whose `label` option is
+	// `account`, with no label or one read from an account (or of unknown
+	// source). A session of any harness: the default label is the same on
+	// all four (ADR 0014). Absent otherwise or when it cannot be read.
 	SessionAccount string `json:"session_account,omitzero"`
 
 	// The human form's own facts; --json never carries a path.
 	accountFile, sessionFile, home string
-	// claude: a Claude Code session, whose start fills an empty label from
-	// its account; a Muse Code, Codex CLI or Grok Build session never does.
-	claude bool
 }
 
 // label reads the facts. Every one is best effort, as the delivery facts
 // are: a file that cannot be read leaves its fact out, with a debug line.
 func (inv Invocation) label(t *target) whoamiLabel {
 	l := whoamiLabel{Source: teamstore.LabelUnrecorded, home: adapterkit.HomeDir(inv.Environ)}
-	l.claude = t.session == nil || !config.Host(t.session.Harness).Pointed()
 	raw := ""
 	if b, err := teamstore.LoadBinding(t.configDir, t.profile); err == nil {
 		raw = b.HumanLabel
@@ -89,10 +86,10 @@ func (inv Invocation) label(t *target) whoamiLabel {
 		}
 	}
 	explains := l.HumanLabel == "" || l.Source == teamstore.LabelFromAccount || l.Source == teamstore.LabelUnrecorded
-	if !l.claude || !explains || inv.sessionLabelOption(t.stateDir) != config.LabelAccount {
-		// A host with no Claude account (cards 88, 107, 120), a label the
-		// member chose as text, or a `label` option other than `account`:
-		// the session's account explains nothing, so it is not read.
+	if !explains || inv.sessionLabelOption(t.stateDir) != config.LabelAccount {
+		// A label the member chose as text, or a `label` option other than
+		// `account`: the session's account explains nothing, so it is not
+		// read.
 		return l
 	}
 	email, file, err := account.OwnEmailFile(inv.Environ)
@@ -109,7 +106,12 @@ func (l whoamiLabel) lines() []string {
 	account := oneLine(l.SessionAccount)
 	if l.HumanLabel == "" {
 		line := "label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds"
-		if l.claude {
+		if account != "" {
+			// Only where a start will: the `label` option is `account`
+			// and an account was read. A machine with no Claude account,
+			// or a session whose option is `none` or a text, is promised
+			// nothing (work item 379: every harness reads the account
+			// now, and a member of another harness often has none).
 			line += ", which a session start fills from its Claude account while there is none"
 		}
 		out := []string{line}

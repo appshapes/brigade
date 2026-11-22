@@ -1,7 +1,7 @@
 //go:build !windows
 
 // scripts/release-ci-check.sh: what `ci.yml` made of a commit, for a release to stand on (work item 399,
-// ADR 0014). Until 2026-11-22 neither release script looked, and two plugin releases went out over a red job.
+// ADR 0015). Until 2026-11-22 neither release script looked, and two plugin releases went out over a red job.
 //
 // The script is run for real against a stand-in `gh` that answers from a file, one line per call, so a run
 // can be in progress on the first call and ended on the third. Every case is written against `reporter` and

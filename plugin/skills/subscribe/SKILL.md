@@ -52,7 +52,7 @@ came after the command name, `/brigade:subscribe`: typed by the user, or passed 
    folder only when git ignores it; tell the user to add the state folder to `.gitignore` or to name a Slack
    handle or channel instead, and run nothing else. `config` with `no_state_folder` — the project shares no state
    folder, so there is no digest here. `config` with `no_state_entry` — the session's entry is not there yet; the
-   user's next prompt creates it. `config` with `label_needed` — the session has no roster label; the plugin's `label` option (on Claude Code the account's email by default)
+   user's next prompt creates it. `config` with `label_needed` — the session has no roster label; the plugin's `label` option (the Claude account's email by default)
    names one. `not_found` with `not_subscribed` on `off` — nothing to undo.
 
 Rules that hold throughout:

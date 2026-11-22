@@ -1,6 +1,6 @@
 //go:build !windows
 
-// The two CI steps of scripts/release-prep.sh, and scripts/server-tag.sh's one (work item 399, ADR 0014).
+// The two CI steps of scripts/release-prep.sh, and scripts/server-tag.sh's one (work item 399, ADR 0015).
 //
 // release_ci_check_test.go holds what the shared check does with each answer. This file holds that the two
 // release scripts ask it at the right moments and obey it: the plugin release before anything is changed and

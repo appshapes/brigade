@@ -17,6 +17,9 @@ booleans or numbers:
   start and the defaults. Unknown keys and nested values are ignored.
 - `claude_inbound_setting` has no meaning here: the hooks see no Claude settings, so `team_inbound` is the one
   inbound knob, `accept` by default.
+- `label` left out is `account`, as in Claude Code: where a Claude account is on this machine, its email address
+  is your default label, read from Claude Code's configuration file and nothing else of Claude's ([Choose your
+  label](../join/your-label.md)). `none` sends no label, and any other text is your label.
 - A Codex session resolves Brigade's directories from `HOME` alone. A member who sets `XDG_CONFIG_HOME` and keeps
   the credential store there puts `config_dir` in this file.
 - A change takes effect at the next session start.

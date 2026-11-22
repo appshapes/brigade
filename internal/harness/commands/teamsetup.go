@@ -546,20 +546,18 @@ func (inv Invocation) recordLabelOrigin(configDir, key string, c labelChoice) {
 // it is a debug line and an empty label, never a refusal: a member whose
 // account cannot be read joins unlabelled, exactly as every member did
 // before this version.
+//
+// The rule is account.Label's, the same on every harness and at a
+// terminal (ADR 0014, work item 379).
 func (inv Invocation) defaultLabel() labelChoice {
 	option := inv.labelOption()
-	var file string
-	text := config.LabelFor(option, func() string {
-		email, path, err := account.EmailFile(inv.Environ)
-		if err != nil {
-			// Diagnostic only, and deliberately without the value: whether
-			// an email was found is a fact about the configuration; the
-			// email itself is the member's and belongs in no log line.
-			inv.logger().Debug("claude account email unavailable", adapterlog.Err(err))
-		}
-		file = path
-		return email
-	})
+	text, file, err := account.Label(option, inv.Environ)
+	if err != nil {
+		// Diagnostic only, and deliberately without the value: whether
+		// an email was found is a fact about the configuration; the
+		// email itself is the member's and belongs in no log line.
+		inv.logger().Debug("claude account email unavailable", adapterlog.Err(err))
+	}
 	if option == config.LabelAccount {
 		return labelChoice{text: text, source: teamstore.LabelFromAccount, accountFile: file}
 	}

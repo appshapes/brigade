@@ -15,8 +15,9 @@ notice is UI-only. A completed turn offers one monitor setup attempt using norma
 explicit user retry after a refusal/failure. The team-messaging skill defines exact monitor setup and receiving.
 Leader-backed TUIs are unsupported. Do not change trust files or permission policies to work around this.
 
-Grok options are in `~/.config/brigade/grok-options.json`. Set `label` to a literal or `none` before joining;
-no Claude account is borrowed. Membership joining and monitor readiness are separate. Refer to the member's
+Grok options are in `~/.config/brigade/grok-options.json`. Left at its default, `label` sends the email address of
+the Claude account on this machine when there is one, as on every harness; set `label` to a literal or `none`
+before joining to send that instead. Membership joining and monitor readiness are separate. Refer to the member's
 `install/join/configure/update/leave/grok.md` pages for ordered procedures, status and retained local backlog.
 Transfer ownership before an administrator leaves; revoke membership before deleting credential copies.
 

@@ -22,7 +22,7 @@
 #   4b the release's CI     ci.yml's run on the release commit, waited for and read: the tag follows a green one
 #   5  tag                  git tag -a v<v> && git push origin v<v>  ->  release.yml builds, verifies, publishes
 #
-# The two CI steps (work item 399, ADR 0014; scripts/release-ci-check.sh does the looking). Until 2026-11-22 the
+# The two CI steps (work item 399, ADR 0015; scripts/release-ci-check.sh does the looking). Until 2026-11-22 the
 # sequence never looked: step 5 followed step 4's push by about thirty seconds, CI takes about four minutes, and
 # v0.6.6 and v0.43.0 went out over a red job. Step 0 stops before anything is changed when the commit the
 # release starts from is red or has no run, so that no release commit is put on a branch that was not green.

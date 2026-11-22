@@ -63,7 +63,7 @@ release-ci: ci.yml on <sha>: success (run <id>, <url>)
 and its value has to name what was found, one run or one commit, so it covers neither the other of the
 release's two checks nor another release. The rule is in
 [gates.md](../../agent/repository/gates.md) and the decision in
-[ADR 0014](../../decisions/0014-stop-a-release-over-a-red-or-missing-ci-run-with-an-override.md).
+[ADR 0015](../../decisions/0015-stop-a-release-over-a-red-or-missing-ci-run-with-an-override.md).
 
 A stop at the first check changes nothing. A stop at the second leaves the release commit pushed and no tag:
 when its run is green (`gh run rerun <id> --failed` for a flake), or with the override, run the same command

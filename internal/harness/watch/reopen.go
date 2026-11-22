@@ -24,17 +24,16 @@ import (
 // ever holds a member's email. Best effort without exception: an
 // unreadable account is a debug line WITHOUT the value and an empty
 // label, never a failed registration.
+//
+// The rule is account.Label's, the same on every harness (ADR 0014, work
+// item 379): the watcher of a Grok Build session sent no label here,
+// where a Muse Code or Codex CLI session's sent the account's.
 func (w *watcher) humanLabel(option string) string {
-	if w.harness == string(config.HostGrok) && config.ParseLabelOption(option) == config.LabelAccount {
-		return ""
+	label, _, err := account.Label(option, w.environ)
+	if err != nil {
+		w.log.Debug("claude account email unavailable", adlog.Err(err))
 	}
-	return config.LabelFor(config.ParseLabelOption(option), func() string {
-		email, err := account.Email(w.environ)
-		if err != nil {
-			w.log.Debug("claude account email unavailable", adlog.Err(err))
-		}
-		return email
-	})
+	return label
 }
 
 // doingModeCarries reports whether the map's doing_mode lets a re-open

@@ -21,7 +21,8 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0011. Remove a team from a server by the operator's command](0011-remove-a-team-from-a-server-by-the-operators-command.md)
 - [0012. Show the board in a browser from a page on the member's own machine](0012-show-the-board-in-a-browser-from-a-page-on-the-members-own-machine.md)
 - [0013. Derive a send's key from the reply and the summary too](0013-derive-a-sends-key-from-the-reply-and-the-summary-too.md)
-- [0014. Stop a release over a red or missing CI run, with an override](0014-stop-a-release-over-a-red-or-missing-ci-run-with-an-override.md)
+- [0014. Read the Claude account's email as the default label on every harness](0014-read-the-claude-accounts-email-as-the-default-label-on-every-harness.md)
+- [0015. Stop a release over a red or missing CI run, with an override](0015-stop-a-release-over-a-red-or-missing-ci-run-with-an-override.md)
 
 ## Record a decision
 
