@@ -444,6 +444,17 @@ from deletion and from being moved, as the plugin's are.
 - Every run is a new recording, on one line of positions. A restart reads the earlier recordings back through a
   replay over `cavalry:ipc`. A process held still for more than ten seconds comes back with its Cavalry client
   closed: the next append connects again and offers only the records the feed does not hold.
+- The reader (`play` in `feed.rs`) takes a replay as read to its end when the last frame it was handed ends
+  there, or when the replay's image has stood there in any pass of its loop. It keeps the image's position
+  across the passes because the driver withdraws the image once it is read to the end of stream, and `replay
+  stopped` can reach the client after that. A recording that ends in a term's padding, as a kill in the moment
+  after an offer met a term's end can leave it, has no frame at its end, so only the image says that the end
+  was read (work item 375: a reader that looked for both in one pass failed 9 of 12 starts on such a
+  recording). The test in `feed.rs` writes such a recording and reads it back twice: with the replay's end
+  told only after the image has gone, and as the server asks. It holds that the position is kept. It does not
+  hold where the reader looks at the image, which is right after the frames' poll and before any other; the
+  comment there says why. It is the crate's one test on a running driver, it writes a whole term, and like the
+  server's process tests it puts the driver directory in the temporary directory, which needs the room.
 - A recording that is live cannot be let go of. So when a snapshot is taken and the live recording holds
   `--feed-roll-bytes` or more, the feed is rolled into a new recording at the same position, and the recordings
   that end before the oldest snapshot the server keeps are purged. The newest stopped recording always stays:

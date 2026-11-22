@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use cavalry::{
-    Cavalry, Driver, Flags, Image, NULL_LENGTH, Offer, Publication, Recording, ReplayStopReason, Subscription,
+    Cavalry, Driver, Flags, Image, NULL_LENGTH, Offer, Publication, Recording, Replay, ReplayStopReason,
+    Subscription,
 };
 use cavalry_log::catalog::CatalogReader;
 use cavalry_log::layout::State;
@@ -112,6 +113,26 @@ pub struct CavalryLog {
     roll_bytes: u64,
     /// What the operator should be told, until the caller asks.
     notes: Vec<String>,
+    /// How a read back learns that a replay ended.
+    ended: Ended,
+}
+
+/// How a reader learns that a replay ended: the replay's own word, asked with whether the replay's image is
+/// still in sight. The server asks the replay and nothing else. A test asks late, as a driver can make a
+/// client learn it: `replay stopped` may reach the client after the driver has withdrawn the image.
+type Ended = fn(&Replay, bool) -> Option<(i64, Option<ReplayStopReason>)>;
+
+/// The replay's own word, whenever it is asked.
+fn as_the_replay_says(replay: &Replay, _in_sight: bool) -> Option<(i64, Option<ReplayStopReason>)> {
+    replay.ended()
+}
+
+/// The image of one session on a subscription, while the subscription holds it.
+fn image_of(subscription: &Subscription, session: i32) -> Option<&Image> {
+    subscription
+        .images()
+        .iter()
+        .find(|image| image.session_id() == session)
 }
 
 fn failed(doing: &str, error: impl std::fmt::Display) -> LogError {
@@ -294,6 +315,7 @@ impl CavalryLog {
             max_record_bytes,
             roll_bytes: options.roll_bytes,
             notes: Vec::new(),
+            ended: as_the_replay_says,
         })
     }
 
@@ -419,6 +441,7 @@ impl CavalryLog {
         from: i64,
         stop: i64,
         each: &mut Each<'_>,
+        ended: Ended,
     ) -> Result<i64, LogError> {
         let doing = "reading the feed back";
         let replay = client
@@ -431,19 +454,22 @@ impl CavalryLog {
         let mut heard = Instant::now();
         // The position after the last frame this reader was handed.
         let mut delivered = from;
+        // The furthest the replay's image has stood in any pass of the loop below. The image's own position
+        // counts the padding at a term's end, which reaches no handler, so for a recording that ends in
+        // padding it is the only thing that says the end was read. It is kept across the passes because the
+        // two things a reader waits for can come apart: the driver withdraws a replay's image once it has
+        // been read to the end of stream, and `replay stopped` can reach this client after that. Until work
+        // item 375 the reader looked for the image and the end in one pass, found neither in that order,
+        // and failed the start on a recording that was whole.
+        let mut stood = from;
         loop {
             // The images first, so that the replay's position arithmetic is in hand before its frames.
             subscription
                 .poll(|_, _| {}, 0)
                 .map_err(|error| failed(doing, error))?;
-            let image = subscription
-                .images()
-                .iter()
-                .find(|image| image.session_id() == session);
             if arithmetic.is_none() {
-                arithmetic = image.map(Image::positions);
+                arithmetic = image_of(subscription, session).map(Image::positions);
             }
-            let (reached, in_sight) = (image.map(Image::position), image.is_some());
             let mut read = 0;
             if let Some(positions) = &arithmetic {
                 read = subscription
@@ -480,6 +506,17 @@ impl CavalryLog {
                     )
                     .map_err(|error| failed(doing, error))?;
             }
+            // Where the image stands is read here, after the frames and before any other poll. The poll
+            // above is what takes the image past a padding frame, and an image leaves a subscription only
+            // inside a poll, so an image the driver withdraws next is still seen here at its last position.
+            // Read before the frames instead, a withdrawal that lands between that poll and the next pass
+            // would hide the end. The test holds that the position is kept; no test can force that moment,
+            // so this comment is all that holds the line's place.
+            let image = image_of(subscription, session);
+            let in_sight = image.is_some();
+            if let Some(image) = image {
+                stood = stood.max(image.position());
+            }
             if let Some(error) = refused {
                 return Err(error);
             }
@@ -487,13 +524,13 @@ impl CavalryLog {
                 heard = Instant::now();
                 continue;
             }
-            if let Some((end, reason)) = replay.ended() {
+            if let Some((end, reason)) = ended(&replay, in_sight) {
                 // The replay is read to its end when the last frame handed over ends there, or the image
-                // stands there: the image's own position counts the padding that reaches no handler.
-                // Nothing else is the end. An image that is not in sight yet has delivered nothing, and
-                // one that has gone may have gone unread: the driver lets go of a replay's image a few
-                // seconds after the replay stops, whether or not its subscriber read it.
-                if delivered >= end || reached.is_some_and(|reached| reached >= end) {
+                // has stood there in this pass or an earlier one. Nothing else is the end. An image that is
+                // not in sight yet has delivered nothing, and one that has gone may have gone unread: the
+                // driver lets go of a replay's image a few seconds after the replay stops, whether or not
+                // its subscriber read it.
+                if delivered >= end || stood >= end {
                     return match reason {
                         Some(ReplayStopReason::Ended) | None if end >= stop => Ok(end),
                         _ => Err(LogError::new(format!(
@@ -504,9 +541,10 @@ impl CavalryLog {
                 }
                 if arithmetic.is_some() && !in_sight {
                     return Err(LogError::new(format!(
-                        "the replay of recording {} was let go of at position {delivered}, before it was read to \
-                         its end at {end}: start the server again",
-                        recorded.id
+                        "the replay of recording {} was let go of at position {}, before it was read to its \
+                         end at {end}: start the server again",
+                        recorded.id,
+                        delivered.max(stood)
                     )));
                 }
             }
@@ -635,6 +673,7 @@ impl Log for CavalryLog {
                 self.begin
             )));
         }
+        let ended = self.ended;
         let Some(client) = &mut self.client else {
             return Err(LogError::new("the feed is closed"));
         };
@@ -656,7 +695,7 @@ impl Log for CavalryLog {
                         recorded.start
                     )));
                 }
-                position = Self::play(client, &mut subscription, &recorded, position, stop, each)?;
+                position = Self::play(client, &mut subscription, &recorded, position, stop, each, ended)?;
                 if let Some(feed) = &mut self.feed {
                     drain(feed);
                 }
@@ -740,5 +779,152 @@ impl Drop for CavalryLog {
         if let Some(driver) = self.driver.take() {
             let _ = driver.close();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory of the test's own, removed when the test ends, however it ends. The driver directory is
+    /// in it, as in the tests of the running server, so the temporary directory needs the room `check_room`
+    /// asks for.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(test: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("brigade-log-{test}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A UDP port nothing is bound to now, and that no other call of this run was given: the system hands a
+    /// port out again as soon as it is free.
+    fn free_udp() -> String {
+        static GIVEN: std::sync::Mutex<std::collections::BTreeSet<u16>> =
+            std::sync::Mutex::new(std::collections::BTreeSet::new());
+        loop {
+            let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            let address = socket.local_addr().unwrap();
+            if GIVEN.lock().unwrap().insert(address.port()) {
+                return address.to_string();
+            }
+        }
+    }
+
+    fn options(scratch: &Scratch) -> FeedOptions {
+        FeedOptions {
+            log_dir: scratch.0.join("log"),
+            driver_dir: Some(scratch.0.join("driver")),
+            data_dir: scratch.0.join("data"),
+            control: free_udp(),
+            own_endpoint: free_udp(),
+            roll_bytes: u64::MAX,
+        }
+    }
+
+    /// `replay stopped` as it can reach a client: only after the driver has withdrawn the replay's image.
+    fn told_after_the_image_went(replay: &Replay, in_sight: bool) -> Option<(i64, Option<ReplayStopReason>)> {
+        if in_sight { None } else { replay.ended() }
+    }
+
+    /// Writes a recording that stops right after a term's padding, and returns the length of each of its
+    /// records with the position after it. It is what a kill leaves in the moment after an offer met the end
+    /// of a term and before the offer was made again: the feed's last frame is padding, which no reader's
+    /// handler is given.
+    fn a_recording_that_ends_in_padding(options: &FeedOptions) -> Vec<(usize, i64)> {
+        let term = i64::try_from(SHAPE.term_length).unwrap();
+        let mut log = CavalryLog::open(options).unwrap();
+        let mut appended = Vec::new();
+        // Large records up to the last megabytes of the term, then small ones up to its last kilobytes.
+        for (length, room) in [(1 << 20, 3 << 20), (16 << 10, 64 << 10)] {
+            let record = vec![7_u8; length];
+            while term - log.end > room {
+                let after = log.append(std::slice::from_ref(&record)).unwrap();
+                appended.push((length, i64::try_from(after).unwrap()));
+            }
+        }
+        // One offer more, of a record the term has no room for: it writes the padding to the term's end
+        // and takes nothing. It is not made again. Until the feed has room to look at the offer it says
+        // what an append waits out, and that is waited out here too.
+        let (feed, client) = (log.feed.as_mut().unwrap(), log.client.as_mut().unwrap());
+        let (too_long, deadline) = (vec![7_u8; 1 << 20], Instant::now() + PATIENCE);
+        loop {
+            match feed.publication.offer(&too_long) {
+                Err(Offer::AdminAction) => break,
+                Err(Offer::NotConnected | Offer::BackPressured) if Instant::now() < deadline => {
+                    drain(feed);
+                    std::thread::sleep(Duration::from_micros(200));
+                }
+                answer => panic!("the offer at the term's end was answered {answer:?}"),
+            }
+        }
+        while feed.recording.position() < term {
+            assert!(
+                !client.is_closed() && Instant::now() < deadline,
+                "the recorder did not reach the padding: it stands at {}",
+                feed.recording.position()
+            );
+            drain(feed);
+            std::thread::sleep(Duration::from_micros(200));
+        }
+        drop(log);
+        let stops: Vec<_> = recordings(&options.log_dir)
+            .unwrap()
+            .iter()
+            .map(|recorded| recorded.stop)
+            .collect();
+        assert_eq!(
+            stops,
+            [Some(term)],
+            "the recording does not stop at the term's end"
+        );
+        assert!(
+            appended.last().is_some_and(|(_, after)| *after < term),
+            "the last record ends at the term's end: {:?}",
+            appended.last()
+        );
+        appended
+    }
+
+    /// Opens the directory as a start does and reads every record back: each one's length and the position
+    /// after it, and where the read ended.
+    fn read_back(options: &FeedOptions, ended: Ended) -> Result<(Vec<(usize, i64)>, Position), LogError> {
+        let mut log = CavalryLog::open(options).unwrap();
+        log.ended = ended;
+        let mut read = Vec::new();
+        let end = log.read_from(0, &mut |record, after| {
+            read.push((record.len(), i64::try_from(after).unwrap()));
+            Ok(())
+        })?;
+        Ok((read, end))
+    }
+
+    /// A recording that stops right after a term's padding is read to its end, whichever of the driver's two
+    /// messages reaches the reader first (work item 375).
+    #[test]
+    fn a_recording_that_ends_in_padding_is_read_to_its_end_when_its_image_goes_before_the_replays_end_is_told()
+     {
+        let scratch = Scratch::new("ends-in-padding");
+        let options = options(&scratch);
+        let appended = a_recording_that_ends_in_padding(&options);
+        let term = Position::try_from(SHAPE.term_length).unwrap();
+
+        // The order that failed: the image is withdrawn, and only then is the replay's end told.
+        let (read, end) = read_back(&options, told_after_the_image_went).unwrap();
+        assert_eq!((read, end), (appended.clone(), term));
+        // And asked as the server asks, in whichever order the driver's two threads make of it. That is not
+        // the order that holds on its own: on the reader as it was, 9 of 12 such reads of this recording
+        // failed on the machine the fix was written on.
+        let (read, end) = read_back(&options, as_the_replay_says).unwrap();
+        assert_eq!((read, end), (appended, term));
     }
 }

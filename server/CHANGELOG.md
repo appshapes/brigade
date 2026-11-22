@@ -16,6 +16,13 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
   stop like any other. A stop that comes just before the server is up ends the start there, with `stopping: the
   stop came before the server was up`, and the server does not first say that it listens. A stop while the log
   is still being read ends the process by the signal, as before. No option, no file and no format changes.
+- **A start no longer fails on a log that ends in a term's padding** (work item 375). On the Cavalry feed, a
+  server that was killed in the moment after an append met the end of a term, about 200 µs every 16 MiB of
+  feed, could leave a recording whose last bytes are padding. A start on it then ended with `the replay of
+  recording <n> was let go of at position <p>, before it was read to its end`, on a directory that was whole,
+  whenever two messages from the driver came in one order and not the other: 9 of 12 starts in a measurement.
+  Each start had the same odds, so the server came up after some tries, and nothing was lost. The reader now
+  takes such a recording as read. Nothing changes for a server on the file log, and no file or format changes.
 
 ## [0.9.0] — 2026-11-15
 
