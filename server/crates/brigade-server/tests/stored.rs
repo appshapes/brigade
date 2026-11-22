@@ -100,11 +100,13 @@ fn key_file() -> String {
 #[test]
 fn every_kept_directory_is_sealed_under_the_tests_own_key() {
     for release in &releases() {
-        assert_eq!(
-            std::fs::read_to_string(kept(release).join("data/record.key")).unwrap(),
-            key_file(),
-            "server {release}"
-        );
+        for data in ["data", "feed-data"] {
+            assert_eq!(
+                std::fs::read_to_string(kept(release).join(data).join("record.key")).unwrap(),
+                key_file(),
+                "server {release}, {data}"
+            );
+        }
     }
 }
 
@@ -195,12 +197,13 @@ impl Asking<'_> {
     }
 }
 
-/// Runs one of the operator's commands of `binary` on the directory, which no server is running on.
-fn operator(binary: &Path, scratch: &Scratch, arguments: &[&str]) {
+/// Runs one of the operator's commands of `binary` on the directory, which no server is running on, with
+/// the options `log` of the log the directory holds.
+fn operator(binary: &Path, scratch: &Scratch, log: &[String], arguments: &[&str]) {
     let output = Command::new(binary)
         .arg("--data")
         .arg(scratch.path("data"))
-        .args(["--log", "file"])
+        .args(log)
         .args(arguments)
         .stdin(Stdio::null())
         .output()
@@ -323,31 +326,23 @@ fn first_run(server: &Server) -> FirstRun {
 
 /// What the operator does between the two runs: takes a team in, opens and closes its move, and removes a
 /// team.
-fn between_the_runs(binary: &Path, scratch: &Scratch, first: &FirstRun) -> String {
+fn between_the_runs(binary: &Path, scratch: &Scratch, log: &[String], first: &FirstRun) -> String {
     let secret = format!("brg1.{ELSEWHERE}.kept-from-the-other-backend");
     let secret_file = scratch.path("elsewhere.join-secret");
     std::fs::write(&secret_file, format!("{secret}\n")).unwrap();
     let (secret_file, ticket_file) = (
         secret_file.display().to_string(),
-        scratch.path("elsewhere.move-ticket"),
+        scratch.path("elsewhere.move-ticket").display().to_string(),
     );
-    operator(
-        binary,
-        scratch,
+    let commands: [&[&str]; 4] = [
         &["--import-team", "elsewhere", "--join-secret-file", &secret_file],
-    );
-    operator(
-        binary,
-        scratch,
-        &[
-            "--open-move",
-            ELSEWHERE,
-            "--ticket-file",
-            &ticket_file.display().to_string(),
-        ],
-    );
-    operator(binary, scratch, &["--close-move", ELSEWHERE]);
-    operator(binary, scratch, &["--remove-team", &first.doomed]);
+        &["--open-move", ELSEWHERE, "--ticket-file", &ticket_file],
+        &["--close-move", ELSEWHERE],
+        &["--remove-team", &first.doomed],
+    ];
+    for command in commands {
+        operator(binary, scratch, log, command);
+    }
     secret
 }
 
@@ -430,46 +425,81 @@ fn second_run(server: &Server, first: &FirstRun, elsewhere: &str) {
 /// A retry key as a client mints one.
 const RETRY_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-/// Copies what a server keeps of `from` into `to`: the key, the log and the snapshots, as private as a
-/// server makes them. A checkout keeps none of the modes.
-fn copy_the_directory(from: &Path, to: &Path) {
-    use std::os::unix::fs::PermissionsExt;
+/// The files a server keeps its state in, under its data directory: the key, the snapshots, and the log,
+/// which is one file or the directory of a Cavalry feed. Its lock and its certificate are not among them.
+fn kept_files(data: &Path) -> Vec<PathBuf> {
+    let mut files = vec![PathBuf::from("record.key")];
+    for dir in ["snapshots", "log", "feed"] {
+        let Ok(entries) = std::fs::read_dir(data.join(dir)) else {
+            continue;
+        };
+        files.extend(entries.map(|entry| Path::new(dir).join(entry.unwrap().file_name())));
+    }
+    files.sort();
+    files
+}
 
-    for dir in ["", "log", "snapshots"] {
-        std::fs::create_dir_all(to.join(dir)).unwrap();
-        std::fs::set_permissions(to.join(dir), std::fs::Permissions::from_mode(0o700)).unwrap();
-    }
-    let mut files = vec![PathBuf::from("record.key"), PathBuf::from("log/records.log")];
-    for snapshot in std::fs::read_dir(from.join("snapshots")).unwrap() {
-        files.push(Path::new("snapshots").join(snapshot.unwrap().file_name()));
-    }
-    for file in files {
+/// Copies what a server keeps of `from` into `to`, as private as a server makes it. A checkout keeps none
+/// of the modes.
+fn copy_the_directory(from: &Path, to: &Path) {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+    for file in kept_files(from) {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(to.join(&file).parent().unwrap())
+            .unwrap();
         std::fs::copy(from.join(&file), to.join(&file)).unwrap();
         std::fs::set_permissions(to.join(&file), std::fs::Permissions::from_mode(0o600)).unwrap();
     }
 }
 
-/// Not a test of this build: it writes the directory a released server leaves, for the tests here and in
-/// `brigade-core` to read. It runs only when it is asked by name with the released binary and the place to
-/// write to in its environment, and `server/testdata/stored/README.md` has the command.
-#[test]
-#[ignore = "writes a fixture with a released server's binary"]
-fn write_the_directory_a_released_server_leaves() {
+/// Copies a feed's data directory into the place it is kept, and returns the lengths that were cut. A
+/// recording's file is 128 MiB long whatever it holds, and all but its first kilobytes are zeros that the
+/// file system never stored: it is kept up to its last byte that is not zero, with its length on a line of
+/// the list this returns, `<length> <file>`. Every other file is kept as it is.
+#[cfg(feature = "cavalry")]
+fn keep_the_feed(from: &Path, to: &Path) -> String {
+    let mut lengths = String::new();
+    for file in kept_files(from) {
+        std::fs::create_dir_all(to.join(&file).parent().unwrap()).unwrap();
+        let mut bytes = std::fs::read(from.join(&file)).unwrap();
+        if file.extension().is_some_and(|extension| extension == "rec") {
+            lengths.push_str(&format!("{} {}\n", bytes.len(), file.display()));
+            let held = bytes
+                .iter()
+                .rposition(|byte| *byte != 0)
+                .map_or(0, |last| last + 1);
+            bytes.truncate(held);
+        }
+        std::fs::write(to.join(&file), bytes).unwrap();
+    }
+    lengths
+}
+
+/// Puts a feed's data directory back as its server left it: a copy of what is kept, with every file that
+/// was cut given its length again. The zeros come back as a hole, which costs nothing on the disk.
+#[cfg(feature = "cavalry")]
+fn the_feed_a_release_left(release: &str, scratch: &Scratch) {
+    copy_the_directory(&kept(release).join("feed-data"), &scratch.path("data"));
+    let lengths = std::fs::read_to_string(kept(release).join("feed-lengths")).unwrap();
+    for line in lengths.lines() {
+        let (length, file) = line.split_once(' ').expect("a length and a file");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(scratch.path("data").join(file))
+            .unwrap()
+            .set_len(length.parse().unwrap())
+            .unwrap();
+    }
+}
+
+/// Makes the data directory with the test's key in it, before the server's first start, so that the server
+/// makes none.
+fn with_the_tests_key(scratch: &Scratch) {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
-    let (binary, out) = match (
-        std::env::var("BRIGADE_RELEASED_SERVER"),
-        std::env::var("BRIGADE_STORED_OUT"),
-    ) {
-        (Ok(binary), Ok(out)) => (PathBuf::from(binary), PathBuf::from(out)),
-        // Asked for with the other tests that are ignored, and not to write anything.
-        (Err(_), Err(_)) => return,
-        _ => panic!("BRIGADE_RELEASED_SERVER and BRIGADE_STORED_OUT go together, and one of them is not set"),
-    };
-    assert!(!out.exists(), "{} is there already", out.display());
-    let scratch = Scratch::new("stored-writer");
-    let arguments = ["--log".to_owned(), "file".to_owned()];
-    // The directory with the test's key in it before the server's first start, so that the server makes none.
     std::fs::DirBuilder::new()
         .mode(0o700)
         .create(scratch.path("data"))
@@ -484,27 +514,105 @@ fn write_the_directory_a_released_server_leaves() {
         key_file().as_bytes(),
     )
     .unwrap();
-    let start = || Server::try_start_the(&binary, &scratch, &arguments).unwrap();
+}
+
+/// Has the released server leave a directory on the file log, stopped, and puts it and its log opened into
+/// `whole`.
+fn leave_a_directory(binary: &Path, whole: &Path) {
+    let scratch = Scratch::new("stored-writer");
+    let log = ["--log".to_owned(), "file".to_owned()];
+    with_the_tests_key(&scratch);
+    let start = || Server::try_start_the(binary, &scratch, &log).unwrap();
 
     let server = start();
     let first = first_run(&server);
     server.stop();
-    let elsewhere = between_the_runs(&binary, &scratch, &first);
+    let elsewhere = between_the_runs(binary, &scratch, &log, &first);
     let server = start();
     second_run(&server, &first, &elsewhere);
     server.stop();
 
-    // Put together in the test's own directory first: what can fail, the reading of the log among it, has
-    // failed before anything is at the place asked for, so a directory with a release's name is whole.
-    let whole = scratch.path("whole");
     copy_the_directory(&scratch.path("data"), &whole.join("data"));
     let opened: Vec<u8> = entries_of(&whole.join("data"))
         .into_iter()
         .flat_map(|entry| [entry, b"\n".to_vec()].concat())
         .collect();
     std::fs::write(whole.join("entries.jsonl"), opened).unwrap();
-    copy_the_directory(&whole.join("data"), &out.join("data"));
-    std::fs::copy(whole.join("entries.jsonl"), out.join("entries.jsonl")).unwrap();
+}
+
+/// Has the released server leave a directory on the Cavalry feed, killed, and puts it into `whole` with
+/// what that server itself makes of it. The feed is rolled at every snapshot and a snapshot is taken every
+/// eight entries, so the directory holds what a server's does after months: recordings one after another on
+/// one line of positions, the earliest purged, and a last one that the kill left live with entries in it
+/// that no snapshot covers.
+#[cfg(feature = "cavalry")]
+fn leave_a_feed(binary: &Path, whole: &Path) {
+    let scratch = Scratch::new("stored-writer-feed");
+    let roll = ["--feed-roll-bytes".to_owned(), "1".to_owned()];
+    let log = [common::log_arguments("cavalry", &scratch), roll.to_vec()].concat();
+    let running = [log.clone(), vec!["--snapshot-every".to_owned(), "8".to_owned()]].concat();
+    with_the_tests_key(&scratch);
+    let start = || Server::try_start_the(binary, &scratch, &running).unwrap();
+
+    let server = start();
+    let first = first_run(&server);
+    server.stop();
+    let elsewhere = between_the_runs(binary, &scratch, &log, &first);
+    let server = start();
+    second_run(&server, &first, &elsewhere);
+    // Killed while nothing is being answered: everything the directory holds was answered.
+    server.kill();
+    let lengths = keep_the_feed(&scratch.path("data"), &whole.join("feed-data"));
+    std::fs::write(whole.join("feed-lengths"), lengths).unwrap();
+
+    // What the release itself makes of what it left: started again, it reads the entries after its newest
+    // snapshot and writes the state at the feed's end.
+    start().stop();
+    let (_, end) = snapshots_of(&scratch.path("data")).pop().unwrap();
+    std::fs::copy(end, whole.join("feed-end.json")).unwrap();
+}
+
+/// Copies a directory and everything in it.
+#[cfg(feature = "cavalry")]
+fn copy_everything(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let (path, name) = (entry.as_ref().unwrap().path(), entry.unwrap().file_name());
+        if path.is_dir() {
+            copy_everything(&path, &to.join(name));
+        } else {
+            std::fs::copy(&path, to.join(name)).unwrap();
+        }
+    }
+}
+
+/// Not a test of this build: it writes the directories a released server leaves, for the tests here and in
+/// `brigade-core` to read. It runs only when it is asked by name with the released binary and the place to
+/// write to in its environment, and `server/testdata/stored/README.md` has the command.
+#[test]
+#[ignore = "writes a fixture with a released server's binary"]
+fn write_the_directory_a_released_server_leaves() {
+    let (binary, out) = match (
+        std::env::var("BRIGADE_RELEASED_SERVER"),
+        std::env::var("BRIGADE_STORED_OUT"),
+    ) {
+        (Ok(binary), Ok(out)) => (PathBuf::from(binary), PathBuf::from(out)),
+        // Asked for with the other tests that are ignored, and not to write anything.
+        (Err(_), Err(_)) => return,
+        _ => panic!("BRIGADE_RELEASED_SERVER and BRIGADE_STORED_OUT go together, and one of them is not set"),
+    };
+    assert!(!out.exists(), "{} is there already", out.display());
+    // Put together in the test's own directory first: what can fail, the reading of the log among it, has
+    // failed before anything is at the place asked for, so a directory with a release's name is whole.
+    let whole = Scratch::new("stored-whole");
+    leave_a_directory(&binary, &whole.path("0"));
+    // A kept directory has both, and the tests ask every one for both.
+    #[cfg(not(feature = "cavalry"))]
+    panic!("the writer leaves a directory on the Cavalry feed too: run it with the default features");
+    #[cfg(feature = "cavalry")]
+    leave_a_feed(&binary, &whole.path("0"));
+    #[cfg(feature = "cavalry")]
+    copy_everything(&whole.path("0"), &out);
 }
 
 /// The snapshots of a data directory, the oldest first: each one's position and its path.
@@ -608,6 +716,103 @@ fn this_build_starts_on_the_directory_a_release_left_and_reaches_the_state_the_r
             state_in(newest_file),
             "server {release} held one state at the end of its log, and this build reaches another from \
              its entries"
+        );
+    }
+}
+
+/// This build starts on the feed a release left when it was killed, and the feed goes on (work item 387).
+/// The directory holds what a server's does after months on the Cavalry of that release: recordings in that
+/// Cavalry's format and with its terms, the earliest purged, the last still live in the catalog.
+///
+/// The first start reads the entries after the release's newest snapshot out of the release's recordings
+/// and reaches the state the release itself reached when it was started again on what it had left: the same
+/// position, and the same state member for member. Then a team is created, which the feed takes in a
+/// recording of this build's own shape. And a start from the release's snapshot once more, as after a kill
+/// with this build's snapshots lost, reads the release's recordings and this build's in one read, which
+/// crosses the two term lengths.
+#[cfg(feature = "cavalry")]
+#[test]
+fn this_build_starts_on_the_feed_a_release_left_killed_and_the_feed_goes_on() {
+    for release in &releases() {
+        let scratch = Scratch::new(&format!("stored-feed-{release}"));
+        the_feed_a_release_left(release, &scratch);
+        let arguments = common::log_arguments("cavalry", &scratch);
+        let entries = |snapshot: &Path| state_in(snapshot)["entries"].as_u64().unwrap();
+        let left = snapshots_of(&scratch.path("data"));
+        let (newest, newest_file) = left.last().unwrap().clone();
+        // What the release reached: its own snapshot of the feed's end, with its position in its header.
+        let reached = kept(release).join("feed-end.json");
+        let header = std::fs::read_to_string(&reached).unwrap();
+        let header: Value = serde_json::from_str(header.split_once('\n').unwrap().0).unwrap();
+        let end = header["position"].as_u64().unwrap();
+        let after = entries(&reached) - entries(&newest_file);
+        assert!(
+            newest < end && after > 0,
+            "server {release}: {newest} {end} {after}"
+        );
+        let said_after_stopping = |server: Server| {
+            server.stop();
+            let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+            assert!(!said.contains("passed over"), "server {release}: {said}");
+            said
+        };
+
+        // The first start on the release's directory.
+        let said = said_after_stopping(Server::start(&scratch, &arguments));
+        assert!(
+            said.contains(&format!("read {after} records after the newest snapshot")),
+            "{after} entries: {said}"
+        );
+        let written = snapshots_of(&scratch.path("data"));
+        let (position, file) = written.last().unwrap();
+        assert_eq!(*position, end, "this build's feed ends where the release's did");
+        assert_eq!(
+            state_in(file),
+            state_in(&reached),
+            "server {release} reached one state on the feed it had left, and this build reaches another"
+        );
+
+        // The feed goes on: a team is created, in a recording of this build's own.
+        let server = Server::start(&scratch, &arguments);
+        let (status, created) = server.post(
+            None,
+            "/v1/team/create",
+            &json!({"team_name": "after-the-move", "human_label": "zoe"}),
+        );
+        assert_eq!(status, 200, "{created}");
+        said_after_stopping(server);
+
+        // From the release's snapshot once more: its recordings and this build's, in one read. The snapshot
+        // is still there, and what it needs of the feed is, because a server keeps three snapshots and lets
+        // go of nothing after the oldest of them, and this test has started it twice.
+        assert!(
+            snapshots_of(&scratch.path("data"))
+                .iter()
+                .any(|(position, _)| *position == newest),
+            "the release's newest snapshot is gone after two starts: the server keeps fewer than three now, \
+             or this test starts it more often before this stage"
+        );
+        for (position, file) in snapshots_of(&scratch.path("data")) {
+            if position > newest {
+                std::fs::remove_file(file).unwrap();
+            }
+        }
+        let said = said_after_stopping(Server::start(&scratch, &arguments));
+        assert!(
+            said.contains(&format!("read {} records after the newest snapshot", after + 1)),
+            "{} entries: {said}",
+            after + 1
+        );
+        let (_, file) = snapshots_of(&scratch.path("data")).pop().unwrap();
+        let state = state_in(&file);
+        assert_eq!(state["entries"].as_u64(), Some(entries(&reached) + 1));
+        assert!(
+            state["teams"]
+                .as_object()
+                .unwrap()
+                .values()
+                .any(|team| team["team_name"] == json!("after-the-move")),
+            "the team created after the move is in the state"
         );
     }
 }

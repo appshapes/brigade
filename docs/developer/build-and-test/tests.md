@@ -79,7 +79,9 @@ builds the Go binaries, runs the workspace's tests, and then runs `brigade-confo
 `rest` adapter against a server it starts: on the file log, and with `--slow` on the Cavalry feed. One more
 test there drives the built adapter against the built server through a front that loses an answer: a `team
 take-in` whose answer never arrives, run again, owns the team. It needs
-`cargo`, Linux or macOS, and 201 MiB of room where Cavalry's driver directory goes (`/dev/shm` on Linux).
+`cargo`, Linux or macOS, and room in the temporary directory, where the tests put Cavalry's driver directory:
+21 MiB for each test on the feed that runs at a time, and 201 MiB for the one that reads back what the released
+0.9.0 recorded.
 
 ## The drift tests in scripts/ci
 

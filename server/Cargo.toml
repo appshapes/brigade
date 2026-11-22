@@ -32,7 +32,7 @@ http-body-util = "0.1"
 # `client` is the gateways' one way out: a request to Slack or to a mail provider, over a connection of its own.
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-nix = { version = "0.31", default-features = false, features = ["fs", "user"] }
+nix = { version = "0.32", default-features = false, features = ["fs", "user"] }
 # The gateway's patterns, searched with the lazy DFA. Without `unicode` no pattern can lean on a Unicode
 # table (the gateway spells out JavaScript's own classes), and without `perf-literal` regex brings nothing
 # beside regex-automata and regex-syntax.

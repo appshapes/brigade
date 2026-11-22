@@ -125,8 +125,9 @@ volume: it is the data directory.
 
 ## Memory and ports
 
-- **Shared memory.** The log's driver keeps its pages in `/dev/shm`. The server needs 201 MiB there and checks
-  before it starts; without it, it ends with the number it found. A container gets 64 MiB unless you pass
-  `--shm-size`. `--driver-dir <dir>` names another place.
+- **Shared memory.** The log's driver keeps its pages in `/dev/shm`. The server needs 21 MiB there, and 201 MiB
+  for as long as its data directory holds what 0.9.0 or an earlier release recorded, which a start reads back.
+  It checks before it goes on; without the room, it ends with the number it found. A container gets 64 MiB
+  unless you pass `--shm-size`; 256 MiB serves both. `--driver-dir <dir>` names another place.
 - **Ports.** Members reach the TCP port of `--listen`. The log uses UDP ports 8744 and 8745 on loopback; they are
   the server's own and are not to be opened to anyone.

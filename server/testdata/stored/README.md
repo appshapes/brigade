@@ -7,6 +7,13 @@ behind (work item 385):
   the file log.
 - `entries.jsonl` is that log opened with that key, one entry to a line, so that the stored form of a record
   can be read here and seen in a diff. A test holds that the lines are the bytes the sealed log holds.
+- `feed-data/` is its data directory after it was killed on the Cavalry feed (work item 387): `record.key`,
+  `snapshots/` and `feed/`, which is Cavalry's own: the catalog, and an index and a file for each recording.
+  A recording's file is 128 MiB long whatever it holds, and all of it past the first kilobytes is zeros that
+  the disk never stored. It is kept up to its last byte that is not zero, and `feed-lengths` has the length to
+  give it back; the test does that, and the zeros return as a hole.
+- `feed-end.json` is the snapshot that server wrote when it was started again on the feed it had left: what
+  the release itself made of that directory.
 
 Every build is held to every directory. `crates/brigade-core/tests/stored.rs` reads each entry and each
 snapshot's state and writes them back the same. `crates/brigade-server/tests/stored.rs` opens the sealed log,
@@ -14,6 +21,11 @@ starts the server on the directory, and holds that from the release's older snap
 release had. `make server-test` runs both. A member added to a record or to the state without a default fails
 them with the member's name, where it would otherwise be a server that does not start on an operator's
 directory.
+
+The same file starts this build on the feed: it reads the entries after the release's newest snapshot out of
+the release's recordings, ends at the position and with the state of `feed-end.json`, takes a new team, and
+reads the release's recordings and its own in one read. That is what stands behind a move of the Cavalry the
+server is pinned to: a pin that cannot open the feed a release left fails here, and is not moved to.
 
 A directory is never changed and never removed: what a release wrote is somebody's data until they say
 otherwise.
@@ -23,7 +35,10 @@ otherwise.
 The scenario is `first_run`, `between_the_runs` and `second_run` in `crates/brigade-server/tests/stored.rs`: a
 team whose sessions hold pending and acknowledged messages, a session with every fact a registration carries,
 a session closed and opened again, a team with every record of its administration, teams taken in by the
-operator and by a request, and a team the operator removed.
+operator and by a request, and a team the operator removed. It is run twice: on the file log, stopped at the
+end, and on the Cavalry feed with a snapshot every eight entries and the feed rolled at each, killed at the
+end. So the feed's directory holds what a server's does after months: recordings one after another, the
+earliest purged, and a last one that the kill left live with entries no snapshot covers.
 
 Its log holds 18 of the 20 kinds of record. The two it does not hold are `team.move_recorded` and
 `team.move_cleared`: a recorded move keeps the move ticket whole, in the log and in the state, and a ticket has
@@ -64,4 +79,7 @@ directories stay as they are.
 ## The directories
 
 - `0.9.0`: written on 2026-11-22 by the server built from the tag `server-v0.9.0` (commit `c009f190`) with
-  `cargo build --release --locked`, on macOS, arm64. 45 entries and three snapshots of format 3.
+  `cargo build --release --locked`, on macOS, arm64. On the file log, 45 entries and three snapshots of format
+  3. On the feed, written the same day by a second run of the writer, for work item 387: recordings 6 to 8 of
+  nine with the last live, in the format of Cavalry at `620a2e29` and with its 16 MiB terms, three snapshots,
+  and the feed's end at position 20416.

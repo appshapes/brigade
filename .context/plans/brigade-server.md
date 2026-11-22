@@ -138,7 +138,8 @@ at `0d28208`; the earlier plan's §3 has the table):
 - Nothing on the wire is encrypted or authenticated, and a subscription must be reachable by its publisher. Both
   now matter only between instances.
 - A log is 48 MiB of memory today (a 16 MiB term). A recording adds a sparse 128 MiB segment file. Nothing in the
-  log's format is frozen before 0.1.0.
+  log's format is frozen before 0.1.0. (Since 2026-11-22, work item 387: the pin is `d265af82`, a term is
+  1 MiB and a log 3 MiB.)
 - The 2026-11-11 spike ran on one macOS host. On 2026-11-12, at `54ad5e0`, the Cavalry session ran three and
   five instances, each recording a feed and following every other, on macOS and in a Linux container (aarch64,
   loopback): 12 checks pass (its answers, section F). Not checked: a real network between hosts, a published port
@@ -189,8 +190,9 @@ at `0d28208`; the earlier plan's §3 has the table):
   to be survived the same way, new feeds starting from the snapshot. **Struck on 2026-11-22** (work item 386,
   ADR 0016, the owner's ruling): no command does it, and none is built until a change of the format needs
   one. An upgrade opens the directory in place, which Cavalry's gate holds for a directory written at the pin of
-  that day, `620a2e29`, under Cavalry's master (its work item 362; Brigade's own gate has no such test yet, work
-  item 387). A pin that cannot open it is not moved to, and operators stay on the release they have.
+  that day, `620a2e29`, under Cavalry's master (its work item 362). Brigade's own gate holds it since the pin
+  moved to `d265af82` on 2026-11-22 (work item 387): this build starts on the feed directory the released 0.9.0
+  left. A pin that cannot open it is not moved to, and operators stay on the release they have.
 - **Record format.** `{version, team, kind, at, payload}`, sealed with AES-256-GCM under a key the operator
   gives every instance in a file. The seal is for the link between instances, which Cavalry does not encrypt,
   and it lets a follower treat a record that fails as a hole to fetch again.
@@ -589,7 +591,8 @@ recommendations), and the server moves its pin and its `Shape` when a commit wit
   nothing to size. Until it lands, the server's container needs `/dev/shm` set (the Cavalry session's formula for
   a full mesh of n is 8 MiB + 48 MiB × 4n), and **the server checks the room at start and refuses to start with
   a plain message** rather than fail quietly. Built in phase 2: the check is sized from the term the feed asks
-  for, 201 MiB for one instance at the current pin and about 20 MiB on a 1 MiB term. In a container with Docker's
+  for, 201 MiB for one instance at the current pin and about 20 MiB on a 1 MiB term (21 MiB since work item 387
+  moved the pin, and 201 MiB while a directory still holds a recording with 16 MiB terms). In a container with Docker's
   default 64 MiB the server ends at once with "has room for 64 MiB and the feed needs 201 MiB" and how to give it
   more (measured 2026-11-12).
 - **Appending with no receiver** (its B5) removes the self-subscription and one log.

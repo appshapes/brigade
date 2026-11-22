@@ -328,7 +328,8 @@ jobs:
                                           # process (work item 384), which `cargo test` runs before the Go
                                           # test: 7 s to 20 s on 18 cores, and 7 s of this step on run
                                           # 45052780563. The tests that read what released servers left
-                                          # (work item 385) run before it too, in under 3 s, inside the same
+                                          # (work item 385) and start this build on the feed one left (work
+                                          # item 387) run before it too, in under 3 s, inside the same
                                           # allowance. cargo's own tests have no timeout:
                                           # cargo names a test that runs over a minute, and brigade-log's
                                           # wait at most 90 s for their process.

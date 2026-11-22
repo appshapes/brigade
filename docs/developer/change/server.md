@@ -443,22 +443,34 @@ from deletion and from being moved, as the plugin's are.
 
 - The pin is one commit, named twice in `crates/brigade-log/Cargo.toml` (`cavalry` and `cavalry-log`). Nothing in
   Cavalry is frozen before its 0.1.0.
-- A new pin has to open, in place, the directory the pin before it wrote. Cavalry's own gate
-  (`conformance/upgrade/log-directory.sh`, Cavalry's work item 362) has one older tree write a directory and
-  holds that Cavalry's `master` opens it; on 2026-11-22 that older tree is this pin, `620a2e29`. Before a move
-  of the pin, check that the tree Cavalry's gate writes from is the pin being left: it covers no other.
-  Brigade's gate has no such test yet (work item 387).
+- A new pin has to open, in place, the directory the pin before it wrote. Brigade's gate holds it on the feed
+  a release left (work item 387): `this_build_starts_on_the_feed_a_release_left_killed_and_the_feed_goes_on`
+  in `crates/brigade-server/tests/stored.rs` starts this build on the data directory that the released 0.9.0
+  left on the Cavalry feed when it was killed. It reads the entries after that server's newest snapshot out of
+  that server's recordings, ends at the position and with the state that server reached on the same
+  directory, takes a new team, and reads the old recordings and its own in one read.
+  [`server/testdata/stored/README.md`](../../../server/testdata/stored/README.md) says how the directory is
+  kept and written. Cavalry's own gate (`conformance/upgrade/log-directory.sh`, Cavalry's work item 362) has
+  one older tree write a directory and holds that Cavalry's `master` opens it; that older tree is
+  `620a2e29`, the pin of 0.9.0, which the server left on 2026-11-22. Before the next move of the pin, check
+  that the tree Cavalry's gate writes from is the pin being left: it covers no other.
 - A pin that cannot open the directory is not moved to, no release is made on it, and operators stay on the
   release they have. No command starts a log again from a snapshot, and none is built until a change of the
   format needs one (ADR 0016, the owner's ruling of 2026-11-22; the pages and the plan promised one until then,
   and a start has only ever read the log from a snapshot's position).
-- `Shape` in `crates/brigade-log/src/feed.rs` is the one switch between pins. At the current pin a publication
-  with no receiver refuses every append and a channel names no term length, so the server subscribes to its own
-  feed and a log is three terms of 16 MiB. Cavalry's cards 271 and 272 change both; the comment on `Shape` says
-  what to set when a pin has them.
+- `Shape` in `crates/brigade-log/src/feed.rs` is the one switch between pins. At the current pin, `d265af82`,
+  a channel names its term length and a recording connects a publication whose channel names `ssc`: the
+  feed's terms are 1 MiB, a log is three of them, and the server reads nothing of its own feed. Up to server
+  0.9.0 the pin was `620a2e29`, where every term was 16 MiB and the server subscribed to its own feed so that
+  the feed took appends; the comment on `Shape` has both. A directory that such a server wrote holds
+  recordings with 16 MiB terms until snapshots have covered them, and a start reads them back beside its own.
 - Every page of a log is memory from the moment it exists, and a driver that cannot create one starts all the
   same and refuses every append. So the server checks the room of the driver directory's file system first and
-  refuses to start with the number: 201 MiB at the current pin. A container's default `/dev/shm` is 64 MiB;
+  refuses to start with the number: 21 MiB for a feed of its own shape, and 201 MiB while the directory still
+  holds a recording with 16 MiB terms, because a replay's log has the terms of its recording: the catalog
+  says how long they are. The check comes before the driver opens the log directory, which a driver changes
+  as it opens it, so a start that is refused for the room has touched nothing. A container's default
+  `/dev/shm` is 64 MiB;
   `docker run --shm-size=256m` or `--driver-dir` on a disk. The default driver directory is a name on
   `/dev/shm`, where any user of the host can make a file, so the server makes it private itself and refuses one
   that exists and is not a directory of its own user's.
@@ -468,8 +480,9 @@ from deletion and from being moved, as the plugin's are.
 - The reader (`play` in `feed.rs`) takes a replay as read to its end when the last frame it was handed ends
   there, or when the replay's image has stood there in any pass of its loop. It keeps the image's position
   across the passes because the driver withdraws the image once it is read to the end of stream, and `replay
-  stopped` can reach the client after that. A recording that ends in a term's padding, as a kill in the moment
-  after an offer met a term's end can leave it, has no frame at its end, so only the image says that the end
+  stopped` can reach the client after that. A recording that ends in a term's padding, as a feed leaves it that
+  is stopped or loses its client in the moment after an offer met a term's end, has no frame at its end, so
+  only the image says that the end
   was read (work item 375: a reader that looked for both in one pass failed 9 of 12 starts on such a
   recording). A test in `feed.rs` writes such a recording and reads it back twice: with the replay's end
   told only after the image has gone, and as the server asks. It holds that the position is kept. It does not
@@ -483,10 +496,12 @@ from deletion and from being moved, as the plugin's are.
   most the records of the append the kill was in. Four kills: after 20 MiB on one recording, which crosses the
   term's end; after rolls and purges, with the two snapshots a server keeps, read from the newest and from
   the one before it, which lies in the middle of a recording; at four moments of a roll; and right after a
-  term's padding, which is work item 375 from a real kill. A reader that drops a frame, one that ends a
-  record with its poll and one that stops at a term's end each turn them red. They take their sizes from
-  `SHAPE`, so they cross a term at the 1 MiB the feed is to move to as well; the pinned driver refuses that
-  channel, so they have not run at it. Like the server's process tests they put the driver directory in the
+  term's padding. Under the pin of 0.9.0 that last kill left a recording that ended in padding, which was work
+  item 375 from a real kill. The driver of the current pin cuts a recording that a crash left live to the
+  last position a sync covered (Cavalry's ADR 0144), so the feed ends at the last record answered, and the
+  test holds that. A reader that drops a frame, one that ends a record with its poll and one that stops at a
+  term's end each turn them red. They take their sizes from `SHAPE`: they ran at 16 MiB terms under the pin
+  of 0.9.0 and run at 1 MiB now. Like the server's process tests they put the driver directory in the
   temporary directory, which needs the driver's room (the number is above) for each test running at a time.
 - A recording that is live cannot be let go of. So when a snapshot is taken and the live recording holds
   `--feed-roll-bytes` or more, the feed is rolled into a new recording at the same position, and the recordings

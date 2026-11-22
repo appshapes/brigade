@@ -25,7 +25,9 @@
   change. Cavalry is a git dependency pinned to one commit in `server/crates/brigade-log/Cargo.toml`: a new pin
   has to open in place the directory the pin before it wrote, because no command starts a log again from a
   snapshot (ADR 0016), and `Shape` in `feed.rs` is the one place a pin's differences
-  go. CI's `server` job runs the gate and is required by the `master` ruleset since the first server release
+  go. `crates/brigade-server/tests/stored.rs` starts each build on the feed the last release left (work item
+  387), and `server/testdata/stored/README.md` says how a release's directory is written: a pin that cannot
+  open it fails the `server` job and is not moved to. CI's `server` job runs the gate and is required by the `master` ruleset since the first server release
   (the plan's ruling 5). The server is released apart from the plugin: `server/VERSION`, the workspace's version
   and a `## [<version>]` section of `server/CHANGELOG.md` (the heading its `## [Unreleased]` section takes, where
   work that landed between releases waits; `make server-tag` refuses while one is left), then `make server-tag`, whose tag `server-v<version>`

@@ -146,10 +146,13 @@ fn state_in(snapshot: &Path) -> String {
 #[test]
 fn every_snapshot_a_release_wrote_is_read_and_is_written_the_same() {
     for release in &releases() {
-        let mut snapshots: Vec<PathBuf> = std::fs::read_dir(kept(release).join("data/snapshots"))
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .collect();
+        // The snapshots of the directory on the file log, those of the one on the Cavalry feed, and the
+        // one the release wrote when it was started again on the feed it had left.
+        let mut snapshots = vec![kept(release).join("feed-end.json")];
+        for data in ["data", "feed-data"] {
+            let held = std::fs::read_dir(kept(release).join(data).join("snapshots")).unwrap();
+            snapshots.extend(held.map(|entry| entry.unwrap().path()));
+        }
         snapshots.sort();
         assert!(!snapshots.is_empty(), "server {release} left no snapshot");
         let (mut sessions, mut pending, mut acked, mut keys) = (0, 0, 0, 0);

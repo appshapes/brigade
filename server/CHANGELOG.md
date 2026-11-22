@@ -6,6 +6,25 @@ between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **The server runs on a later Cavalry, and its log is smaller** (work item 387). The Cavalry the feed is
+  built on moves from the commit `620a2e29` to `d265af82`. The feed's terms are 1 MiB where they were 16 MiB,
+  and the feed no longer reads itself to keep taking appends. For an operator:
+  - **Update as always**: stop, replace the binary, start on the same data directory. The directory a 0.9.0
+    left opens in place, stopped or killed, and the server reads back what that release recorded; a test
+    starts this build on such a directory. **Take a copy of the data directory before the first start**:
+    Cavalry's files are in a later format once this release has written to them, and nothing promises that
+    a 0.9.0 starts on them again. The copy, with the 0.9.0 binary, is the way back.
+  - **Shared memory**: a server needs 21 MiB of room where its driver directory is (`/dev/shm` by default),
+    where it needed 201 MiB. It still needs the 201 MiB for as long as its data directory holds what 0.9.0
+    recorded, which is until snapshots have covered those recordings and the feed has been rolled past them;
+    the server checks before it opens the directory, and ends with the number when the room is short, with
+    nothing in the directory changed. A container started with `--shm-size=256m` needs no change.
+  - **After a crash** the log ends at the last position that had reached the disk, where it used to end at
+    whatever had been written. Nothing an answer was given for is lost, as before.
+  - No option changes, and no request or answer changes.
+
 ### Fixed
 
 - **A stop in the server's first moment is a stop** (work item 374). The server wrote its address file and its

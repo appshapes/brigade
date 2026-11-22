@@ -67,8 +67,9 @@ Details: [Hand over the values](hand-over-the-values.md).
 ## Keep the server
 
 1. Everything is in the data directory. To back it up: stop the server, copy the directory, start the server.
-2. To update: stop it, replace the binary, start it on the same directory. To move it to another machine at the
-   same URL: copy the directory. To another URL: a fresh server there, and each team moved with one command.
+2. To update: stop it, replace the binary, start it on the same directory. For the update past 0.9.0, copy the
+   directory before the start: that copy is the way back. To move it to another machine at the same URL: copy
+   the directory. To another URL: a fresh server there, and each team moved with one command.
 3. Losing the directory with no copy loses every team in it: there is one instance and no standby yet. With a
    copy the teams return as of the copy, and the files outside the directory are placed again.
 4. A monitor asks `POST /v1/info`, which needs no credential.

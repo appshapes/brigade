@@ -42,12 +42,17 @@ const PATIENCE: Duration = Duration::from_secs(15);
 
 /// How the feed is shaped by the Cavalry commit this crate is pinned to.
 ///
-/// At `620a2e2` a publication with no connected receiver refuses every offer, a recording does not count as
-/// one, and a channel names no term length. So the server subscribes to its own feed, and a log is three
-/// terms of 16 MiB. Cavalry's cards 271 and 272 change both (its ADRs 0098 and 0099, built on branches on
-/// 2026-11-12): with a pin that has them, `channel_keys` becomes `|ssc=true|term-length=1m`, `term_length`
-/// 1 MiB and `own_subscription` false, and nothing else in this file changes. A channel that names either
-/// key is refused by a driver without it, so the switch is made here and not at run time.
+/// At `d265af8` a channel names its term length, and a recording connects a publication whose channel names
+/// `ssc` (Cavalry's ADRs 0098 and 0099, its cards 271 and 272). So the feed's terms are 1 MiB, a log is three
+/// of them, and the server reads nothing of its own feed to keep it taking appends.
+///
+/// At `620a2e2`, the pin of server 0.9.0 and of every release before it, a channel named neither: a term of
+/// `cavalry:udp` was 16 MiB, a publication with no connected receiver refused every offer and a recording
+/// did not count as one, so the server subscribed to its own feed (`channel_keys` empty, `term_length`
+/// 16 MiB, `own_subscription` true). A directory such a server wrote holds recordings of that shape, and a
+/// start reads them back beside its own: one read of the feed crosses both term lengths, which is why the
+/// reader takes a replay's position arithmetic from its image and never from this constant. A driver refuses
+/// a channel key it does not know, so the switch is made here and not at run time.
 struct Shape {
     /// What the feed's channel adds after its control address.
     channel_keys: &'static str,
@@ -58,9 +63,9 @@ struct Shape {
 }
 
 const SHAPE: Shape = Shape {
-    channel_keys: "",
-    term_length: 16 << 20,
-    own_subscription: true,
+    channel_keys: "|ssc=true|term-length=1m",
+    term_length: 1 << 20,
+    own_subscription: false,
 };
 
 /// What the feed is opened with.
@@ -86,6 +91,8 @@ struct Recorded {
     start: i64,
     /// Where it stopped; `None` while it is live.
     stop: Option<i64>,
+    /// The term length it was recorded with, which is the shape of the feed that wrote it.
+    term_length: u64,
 }
 
 /// The feed's publication, its recording and what keeps it connected. All of it belongs to one client and
@@ -211,20 +218,30 @@ fn taken(dir: &Path) -> u64 {
         .sum()
 }
 
+/// How many bytes the driver directory's file system needs for logs whose terms are `term_length` long.
+///
+/// A log is three terms and a page of metadata. The feed holds its publication and, while it reads itself,
+/// an image; a restart's replay holds two more for a moment; twice that leaves room for the ones that linger
+/// while they are replaced (the Cavalry session's rule, its section F4).
+fn room_for(term_length: u64) -> u64 {
+    DRIVER_FILES_BYTES + 4 * (3 * term_length + 4096)
+}
+
 /// Refuses a driver directory whose file system has no room for the feed's logs.
 ///
 /// Every page of a log is real memory from the moment the log is created, and a driver that cannot create
 /// one starts all the same: the feed is added and every append is refused `not-connected`, with nothing in
 /// the client's answer to say why. A container's default `/dev/shm` of 64 MiB is such a place. So the room
 /// is checked here and the refusal names the number.
+///
+/// It is asked for logs with terms of `term_length`: the feed's own, or the longest a recording of the feed
+/// has when that is longer. A replay's log has the terms of its recording, so a directory that a server of
+/// an earlier shape wrote needs that shape's room until its recordings are let go of.
 // The two fields are 64 bits wide on Linux and narrower on macOS, so the conversions are needed on one and
 // idle on the other.
 #[allow(clippy::useless_conversion)]
-fn check_room(driver_dir: &Path) -> Result<(), LogError> {
-    // A log is three terms and a page of metadata. The feed holds its publication and, while it reads
-    // itself, an image; a restart's replay holds two more for a moment; twice that leaves room for the ones
-    // that linger while they are replaced (the Cavalry session's rule, its section F4).
-    let needed = DRIVER_FILES_BYTES + 4 * (3 * SHAPE.term_length + 4096);
+fn check_room(driver_dir: &Path, term_length: u64) -> Result<(), LogError> {
+    let needed = room_for(term_length);
     let mut existing = driver_dir;
     while !existing.exists() {
         existing = existing
@@ -237,12 +254,17 @@ fn check_room(driver_dir: &Path) -> Result<(), LogError> {
     let room = u64::from(stat.blocks_available()) * u64::from(stat.fragment_size()) + taken(driver_dir);
     if room < needed {
         return Err(LogError::new(format!(
-            "the file system of the driver directory {} has room for {} MiB and the feed needs {} MiB: \
+            "the file system of the driver directory {} has room for {} MiB and the feed needs {} MiB{}: \
              give the container more shared memory (docker run --shm-size, or an emptyDir with medium Memory \
              mounted at /dev/shm), or name another directory with --driver-dir",
             driver_dir.display(),
             room >> 20,
             needed.div_ceil(1 << 20),
+            if term_length > SHAPE.term_length {
+                ", because it still holds recordings that an earlier server wrote with longer terms"
+            } else {
+                ""
+            },
         )));
     }
     Ok(())
@@ -264,6 +286,7 @@ fn recordings(log_dir: &Path) -> Result<Vec<Recorded>, LogError> {
                 id,
                 start: descriptor.start_position(),
                 stop,
+                term_length: u64::try_from(descriptor.term_length()).unwrap_or(0),
             });
         }
     }
@@ -291,7 +314,18 @@ impl CavalryLog {
             .clone()
             .unwrap_or_else(|| default_driver_dir(&options.data_dir));
         claim(&driver_dir)?;
-        check_room(&driver_dir)?;
+        // The room is asked for before the driver opens the log directory, because a driver changes a
+        // directory as it opens it: a start that is refused for the room has touched nothing. A recording
+        // of longer terms than the feed's own is replayed into a log of its own terms, and the catalog
+        // says how long they are, also the catalog of a directory an earlier driver wrote. A directory with
+        // no catalog yet holds no recording.
+        let longest = recordings(&options.log_dir).map_or(0, |held| {
+            held.iter()
+                .map(|recorded| recorded.term_length)
+                .max()
+                .unwrap_or(0)
+        });
+        check_room(&driver_dir, SHAPE.term_length.max(longest))?;
         let driver = Driver::start(&driver_dir, &options.log_dir)
             .map_err(|error| failed("starting the Cavalry driver", error))?;
         let mut client = Cavalry::connect_to(&driver_dir)
@@ -1437,27 +1471,63 @@ mod tests {
         }
     }
 
-    /// A process killed in the moment after an offer met a term's end, which is work item 375 with a kill in
-    /// the place of a close. The kill leaves the recording live. The next start stops it at the term's end,
-    /// after the padding, and reads it back whole, in both orders in which a replay's end can reach the reader.
+    /// A process killed in the moment after an offer met a term's end. The kill leaves the recording live.
+    ///
+    /// Under the Cavalry of server 0.9.0 the next start stopped it at the term's end, after the padding, and
+    /// this was work item 375 from a real kill: the reader as it was failed on it. The driver this build is
+    /// pinned to cuts a recording that a crash left live to the last position a sync covered (Cavalry's ADR
+    /// 0144), and the feed syncs after every append and not after the padding. So the padding the kill came
+    /// after is gone: the feed ends at the last record that was answered, and it is read back whole in both
+    /// orders in which a replay's end can reach the reader. A feed that is closed in that moment still ends
+    /// in padding, which the first test of this file holds.
     #[test]
-    fn a_feed_whose_process_was_killed_right_after_a_terms_padding_is_read_back_whole() {
+    fn a_feed_whose_process_was_killed_right_after_a_terms_padding_ends_at_its_last_record() {
         let scratch = Scratch::new("padded");
         let options = options(&scratch);
-        let term = i64::try_from(SHAPE.term_length).unwrap();
         let answered = appended_and_killed(&scratch, &options, true, Duration::ZERO, |answered| {
             answered.padded
         });
+        let last = answered.before_the_padding.last().unwrap().1;
+        assert!(last < i64::try_from(SHAPE.term_length).unwrap());
         assert_eq!(held(&options), [(0, None)], "the kill leaves the recording live");
 
         let read = read_back(&options, told_after_the_image_went).unwrap();
-        assert_eq!(read, (answered.before_the_padding.clone(), SHAPE.term_length));
+        assert_eq!(
+            read,
+            (
+                answered.before_the_padding.clone(),
+                Position::try_from(last).unwrap()
+            )
+        );
         assert_eq!(
             held(&options),
-            [(0, Some(term))],
-            "the start stops the recording at the term's end, after the padding"
+            [(0, Some(last))],
+            "the start cuts the recording at the last position a sync covered"
         );
         let read = read_back(&options, as_the_replay_says).unwrap();
-        assert_eq!(read, (answered.before_the_padding, SHAPE.term_length));
+        assert_eq!(
+            read,
+            (answered.before_the_padding, Position::try_from(last).unwrap())
+        );
+    }
+
+    /// The room the server asks of its driver directory is for the longest term a log there can have. The
+    /// feed's own terms are 1 MiB. A recording that server 0.9.0 wrote has terms of 16 MiB, the catalog says
+    /// so, and a replay's log has the terms of its recording: a directory that still holds one needs what
+    /// that server needed (work item 387). The catalog here is the one the released 0.9.0 left, as it left it.
+    #[test]
+    fn the_room_asked_for_is_that_of_the_longest_term_a_recording_has() {
+        let left = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/stored/0.9.0/feed-data/feed");
+        let longest = recordings(&left)
+            .unwrap()
+            .iter()
+            .map(|recorded| recorded.term_length)
+            .max();
+        assert_eq!(longest, Some(16 << 20));
+        assert_eq!(room_for(16 << 20).div_ceil(1 << 20), 201);
+        assert_eq!(
+            (SHAPE.term_length, room_for(SHAPE.term_length).div_ceil(1 << 20)),
+            (1 << 20, 21)
+        );
     }
 }
