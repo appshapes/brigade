@@ -43,7 +43,8 @@ those hosts reads it.
 - **The frame's preamble names no Claude Code surface:** it says the message came from "another person's coding
   session", names AGENTS.md beside CLAUDE.md, and says Muse's own session messaging cannot reach a Brigade session.
 - **`brigade` is not on the shell's PATH** unless you put it there: the session-start line names the bootstrap's
-  path, and a symlink gives your terminal and the session the bare word.
+  path, and that path is the command, in the session and in your terminal. A symlink goes stale at the next
+  update ([Use brigade in a terminal](../../docs/team-member/install/terminal.md)).
 
 The measurements behind these choices are in [the live test](../../docs/experiments/muse-participation.md); what
 Muse's own layers add and what has not been measured, [docs/security.md, section 15](../../docs/security.md#15-muse-code-sessions).

@@ -23,7 +23,7 @@ trust the folder. At the prompt:
 - If it asks nothing and shows the plugin's options, this account already has Brigade: run `/brigade:update`.
 - The command copies the plugin into `<configuration directory>/plugins/cache/brigade/brigade/<version>/` and ends
   with `Plugin is now active.` or `Run /reload-plugins to activate.`; do what it says.
-- `14 userConfig options not yet set` is information, not a to-do: every option has a working default
+- `<n> userConfig options not yet set` is information, not a to-do: every option has a working default
   ([Options](../configure/options.md)).
 
 ## The first machine of a project

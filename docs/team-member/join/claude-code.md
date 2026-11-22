@@ -21,8 +21,8 @@ There is no `--profile`, no `--url` and no `--key`: the project file supplies al
 ## What to know
 
 - The URL in `.brigade.json` must start with `https://`; the adapter refuses anything else except a loopback host.
-- With the Bash sandbox on, add the project host (`<ref>.supabase.co`) to `sandbox.network.allowedDomains`, or the
-  first send is refused.
+- With the Bash sandbox on, add the host of the URL in `.brigade.json` to `sandbox.network.allowedDomains`, or the
+  first send is refused: `<ref>.supabase.co` for a Supabase project, the server's name for a Brigade server.
 - Joined from inside a session, that session attaches at your next prompt. A session already attached to another
   team stays there until you start a new session or exit and resume that one, and the join says so;
   `/reload-plugins` does not move it. A session attached to this team on the backend the team left moves at its
@@ -32,8 +32,9 @@ There is no `--profile`, no `--url` and no `--key`: the project file supplies al
 - A project that syncs folders (its `.brigade.json` carries a `sync` member) needs Syncthing on your PATH:
   `brew install syncthing`, `sudo apt install syncthing`. Without it the session connects and a prompt soon after
   says file sync is off.
-- A backend other than the bundled Supabase adapter is named in the file's `adapter` field and resolves to a
-  command through your own `adapters.json` ([docs/adapter-authors.md](../../adapter-authors.md)).
+- The file's `adapter` field names the backend's kind. `supabase` (or no name) and `rest`, a Brigade server, are
+  bundled with Brigade; any other name resolves to a command through your own `adapters.json`
+  ([docs/adapter-authors.md](../../adapter-authors.md)).
 - On Windows the command is the same, in Claude Desktop's Code tab or Claude Code with Git for Windows:
   `~/brigade-<team>.secret` is `C:\Users\<you>\brigade-<team>.secret`, outside the repository
   ([Install on Windows](../install/windows.md)).

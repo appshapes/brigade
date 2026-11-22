@@ -21,8 +21,10 @@ cannot be woken.
 
 Hooks and the background watcher run **outside** the sandbox; only the commands the model runs are inside it.
 
-- Add the project's host, `<ref>.supabase.co`, to `sandbox.network.allowedDomains`, or the first send is refused.
-  The allowlist matches the literal host in the team file's URL.
+- Add the host of the team file's URL to `sandbox.network.allowedDomains`, or the first send is refused:
+  `<ref>.supabase.co` for a Supabase project, the server's own name for a team on a Brigade server. The allowlist
+  matches the literal host in that URL, so when a team moves to a server the host to add is the server's
+  ([When your team moves](../join/follow-a-move.md)).
 - A sandboxed command cannot write to the credential directory, so a credential refresh there happens in memory
   only; the watcher is the process that refreshes and saves. An in-session `team create` or `team join` writes the
   credential directory and so fails under the sandbox: run them in a terminal.

@@ -19,6 +19,7 @@ the team is:
 | The team's join secret file | The file `team create` wrote, outside the repository. The command reads it. You never type the secret, and nobody else needs the file. |
 | To administer the team where it is | In a Supabase project, only the member who created the team can move it. On a server, only its owner: the member who created it or took it in there, or whoever it was transferred to. Either way from a machine that is joined to it. |
 | Every member on a plugin that follows | 0.55.0 or later when the team leaves a Supabase project, 0.57.0 or later when it leaves a server. An older plugin does not follow. The command names the sessions that are online on one. |
+| The server's host, for members with sandboxed sessions | A session that runs with the Bash sandbox on reaches only the hosts in its `sandbox.network.allowedDomains`. Tell those members the server's host before the move: with the old host alone, their sends are refused after it ([Run headless or sandboxed sessions](../../team-member/configure/headless-and-sandbox.md#the-bash-sandbox)). |
 
 ## 1. Run the one command
 

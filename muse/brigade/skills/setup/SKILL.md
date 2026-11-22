@@ -135,9 +135,9 @@ Either way the secret never reaches your scrollback, your shell history or a cha
 - A project that syncs folders (its `.brigade.json` has a `sync` member) needs Syncthing on your `PATH`:
   `brew install syncthing` on macOS, `sudo apt install syncthing` on Debian or Ubuntu. Without it the session
   joins all the same and says file sync is off.
-- A backend other than the bundled Supabase adapter is named in the project file's `adapter` field, and the name
-  resolves to a command through your own `adapters.json` (an absolute path or a JSON array);
-  `docs/adapter-authors.md` in the Brigade repository explains the forms. `brigade team status`, run in the
+- The project file's `adapter` field names the backend's kind. `supabase` (or no name) and `rest`, a Brigade
+  server, are bundled with Brigade; any other name resolves to a command through your own `adapters.json` (an
+  absolute path or a JSON array); `docs/adapter-authors.md` in the Brigade repository explains the forms. `brigade team status`, run in the
   checkout, names the team and its adapter.
 
 ## 3. Leaving and uninstalling

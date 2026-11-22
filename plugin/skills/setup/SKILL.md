@@ -133,8 +133,9 @@ Either way the secret never reaches your scrollback, your shell history or a cha
 `--url` and no `--key`: the project file supplies all of that.
 
 - The URL in the file must be `https://`; the adapter refuses anything else except a loopback host.
-- If your Claude Code sessions run with the Bash sandbox on, add the project host (`<ref>.supabase.co`) to
-  `sandbox.network.allowedDomains`, or the first send is refused.
+- If your Claude Code sessions run with the Bash sandbox on, add the host of the URL in the project file to
+  `sandbox.network.allowedDomains`, or the first send is refused: `<ref>.supabase.co` for a Supabase project,
+  the server's name for a team on a Brigade server.
 - Joined from a terminal, start a Claude Code session in the checkout; one you already have there that is on
   no team attaches at a prompt within a minute. Joined from a session, it attaches at your next prompt. The
   session-start line names your team, this session's name and id, and the inbound policy.
@@ -149,9 +150,9 @@ Either way the secret never reaches your scrollback, your shell history or a cha
   files live under `%APPDATA%\brigade` and `%LOCALAPPDATA%\brigade`; the secret file path is
   `C:\Users\<you>\brigade-<team>.secret`, which Git Bash spells `~/brigade-<team>.secret`. No message sound and
   no desktop notification on Windows.
-- A backend other than the bundled Supabase adapter is named in the project file's `adapter` field, and the name
-  resolves to a command through your own `adapters.json` (an absolute path or a JSON array);
-  `docs/adapter-authors.md` in the Brigade repository explains the forms. `brigade team status`, run in the
+- The project file's `adapter` field names the backend's kind. `supabase` (or no name) and `rest`, a Brigade
+  server, are bundled with Brigade; any other name resolves to a command through your own `adapters.json` (an
+  absolute path or a JSON array); `docs/adapter-authors.md` in the Brigade repository explains the forms. `brigade team status`, run in the
   checkout, names the team and its adapter.
 
 ## 3. Leaving and uninstalling

@@ -9,6 +9,9 @@
 
 - **The URL** is the one members' machines can reach: a name they resolve, or an address. A member's session
   refuses a plain `http://` URL unless the host is the member's own machine.
+- **The host** in the URL is also what a member whose Claude Code sessions run with the Bash sandbox on adds to
+  `sandbox.network.allowedDomains`: say so when you hand the URL over
+  ([Run headless or sandboxed sessions](../../team-member/configure/headless-and-sandbox.md#the-bash-sandbox)).
 - **The fingerprint** goes with a certificate members' machines do not already trust: the one the server made
   with `--tls-self-signed`, or one from an authority of your own. With a certificate from a public authority,
   hand over the URL alone.

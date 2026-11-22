@@ -64,6 +64,8 @@ Details: [Review the project's settings](project-settings.md).
 
 1. An unacknowledged message at least 7 days; an acknowledged one may go 24 hours after the acknowledgement; a closed
    session and its messages after 7 days; an anonymous principal that never joined after 7 days.
-2. Nothing here needs your hand.
+2. On Supabase, a team with at most one membership and no session for 7 days is deleted once it is 7 days old; a
+   Brigade server removes no team by itself.
+3. Nothing here needs your hand.
 
 Details: [Know the retention](retention.md).

@@ -82,6 +82,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `work-item` skill in the four packages says what a session does when
   it meant the other one, and `work-item-start` asks which of the two
   is meant before it takes one.
+- **Pages and skills that said what the code does not** (work item 394).
+  Seven statements are corrected. A session that runs with the Bash
+  sandbox on lists the host of the team file's URL: `<ref>.supabase.co`
+  for a Supabase project, the server's name once the team is on a
+  Brigade server. The pages of a move now say so. The `rest` adapter is
+  bundled beside `supabase`, and the `setup` skill and the join page no
+  longer call Supabase the one bundled backend. The `team-messaging`
+  skill in the Claude Code, Muse Code and Codex CLI packages no longer
+  counts its commands as six. The retention page says that a Supabase
+  project deletes a team with at most one membership that nobody used
+  for 7 days, and that a Brigade server removes none. The install page
+  no longer quotes a count of options, Muse Code updates from a
+  refreshed marketplace, and the agent's page no longer suggests a
+  symlink for `brigade`. No command changes.
 
 ## [0.57.0] — 2026-11-15
 

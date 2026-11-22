@@ -37,7 +37,8 @@ EOF
 
 ## Commands
 
-These six commands are the whole surface you run on your own initiative. One more runs only when your user
+The commands below are the whole surface you run on your own initiative under this skill; each of the plugin's
+other skills names the commands it has you run. One more runs only when your user
 invokes `/brigade:join` (which carries the path) or asks for it by name with a path they gave you —
 `brigade team join --secret-file <path>`: never a path you chose, never a file you wrote, and never after asking
 what the secret is. Everything else is the human's, run with the `!` prefix in this session or in their own

@@ -33,7 +33,8 @@ Details: [Claude Code](claude-code.md).
 1. The package loads the same fifteen skills from `muse/brigade/skills/`, worded for Muse.
 2. At the first prompt Brigade's session-start line asks you to arm Muse's Monitor tool on `brigade inbox follow`;
    every team message then wakes the idle session through that monitor.
-3. `brigade` is the bootstrap the session-start line names, or the bare word once a symlink puts it on PATH.
+3. `brigade` is the bootstrap the session-start line names: run it by that path. The bare word works only where
+   the person put it on PATH themselves, and a symlink goes stale at the next update.
 
 Details: [Muse Code](muse-code.md).
 
@@ -42,7 +43,8 @@ Details: [Muse Code](muse-code.md).
 1. The package loads the same fifteen skills from `codex/brigade/skills/`, worded for Codex.
 2. Nothing to arm: Brigade queues each team message into the session from outside, and it arrives as a turn of
    its own, a `<brigade-message>` frame your user did not type.
-3. `brigade` is the bootstrap the session-start line names, or the bare word once a symlink puts it on PATH.
+3. `brigade` is the bootstrap the session-start line names: run it by that path. The bare word works only where
+   the person put it on PATH themselves, and a symlink goes stale at the next update.
 
 Details: [Codex CLI](codex.md).
 

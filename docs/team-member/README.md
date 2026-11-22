@@ -30,8 +30,8 @@ a Brigade server, where you run nothing: your sessions follow.
 
 ## Update
 
-Claude Code updates Brigade in the background and asks for `/reload-plugins`; Muse Code updates from a pulled
-clone, Codex CLI from a refreshed marketplace. [Update](update/README.md) says what a release can change about what your sessions share.
+Claude Code updates Brigade in the background and asks for `/reload-plugins`; in Muse Code and Codex CLI you
+refresh the marketplace and install the package again. [Update](update/README.md) says what a release can change about what your sessions share.
 
 ## Configure
 

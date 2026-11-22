@@ -88,7 +88,8 @@ Details: [Gate what your session sends](permissions.md).
 ## Run headless or sandboxed sessions
 
 1. `claude -p` receives team messages like any session; a worker that must not: `team_inbound` `refuse` through `--settings`.
-2. With the Bash sandbox on, add `<ref>.supabase.co` to `sandbox.network.allowedDomains`.
+2. With the Bash sandbox on, add the host of the team file's URL to `sandbox.network.allowedDomains`:
+   `<ref>.supabase.co`, or the name of the team's Brigade server.
 3. A body over about 8 KB goes through `brigade send --body-file <path>`.
 
 Details: [Run headless or sandboxed sessions](headless-and-sandbox.md).

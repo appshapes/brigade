@@ -42,6 +42,10 @@ ends. Nothing is asked of you.
   prompt before you are told. A message sent to that id meanwhile may wait on the server until that prompt,
   and in Muse Code and Codex CLI a `brigade` command of the session may be refused until then.
 - **A quiet session stays quiet.** `/brigade:quiet` holds on the server as it did before.
+- **A sandboxed session needs the server's host.** With the Bash sandbox on, the commands a session runs reach
+  only the hosts in `sandbox.network.allowedDomains`, and the team's host is now the server's: add it, or the
+  session's sends are refused ([Run headless or sandboxed sessions](../configure/headless-and-sandbox.md#the-bash-sandbox)).
+  Messages still arrive, because the watcher runs outside the sandbox.
 - **Held messages keep it back.** A message that is held for your review is on the backend the team left and
   does not move. The session says so once and stays until you release it (`brigade inbox`, then `brigade inbox
   release`, in your own terminal), and moves at its next prompt after that. `/clear` does not move it either:

@@ -45,7 +45,8 @@ The procedures are in the documentation tree: [install](../../docs/team-member/i
 - **The frame's preamble names no Claude Code surface:** it says the message came from "another person's coding
   session", names AGENTS.md beside CLAUDE.md, and says `codex queue` cannot reach a Brigade session.
 - **`brigade` is not on the shell's PATH** unless you put it there: the session-start line names the bootstrap's
-  path, and a symlink gives your terminal and the session the bare word.
+  path, and that path is the command, in the session and in your terminal. A symlink goes stale at the next
+  update ([Use brigade in a terminal](../../docs/team-member/install/terminal.md)).
 - **Trusting the hooks is the person's step.** Installing a Codex plugin does not trust its hooks: the first
   launch afterwards asks ("Trust all and continue"), and `/hooks` then `t` does the same later, once. The
   `--dangerously-bypass-hook-trust` flag runs them too, but puts Codex in embedded mode, where delivery waits for a

@@ -6,6 +6,10 @@ and Postmark ship as connectors and the installer deploys them for you. A team o
 connector of its own, in any language, anywhere with HTTPS, and nothing in Brigade changes. This page is the
 contract between the two halves.
 
+The contract is the Supabase gateway's. On a Brigade server the mail gateway is part of `brigade-server`, which
+speaks to Resend and Postmark itself: there is no connector there, and no other provider
+([Open the gateways](project-owner/server/gateways.md)).
+
 ```
  person ──mail──▶ provider ──webhook──▶ connector ──POST inbound mail, bearer secret──▶ core (mail-in) ──▶ session
  session ──▶ core (mail-out, every minute) ──POST mail to send, bearer secret──▶ connector ──provider API──▶ person
