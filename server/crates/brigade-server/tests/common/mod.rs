@@ -113,10 +113,19 @@ impl Server {
 
     /// Starts a server; when it ends before it listens, the error is what it wrote to stderr.
     pub fn try_start(scratch: &Scratch, arguments: &[String]) -> Result<Self, String> {
+        Self::try_start_the(
+            Path::new(env!("CARGO_BIN_EXE_brigade-server")),
+            scratch,
+            arguments,
+        )
+    }
+
+    /// Starts the server that `binary` is: this build's, or a released one whose directory a test reads.
+    pub fn try_start_the(binary: &Path, scratch: &Scratch, arguments: &[String]) -> Result<Self, String> {
         let address = scratch.path("address");
         let _ = std::fs::remove_file(&address);
         let stderr = std::fs::File::create(scratch.path("stderr")).unwrap();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+        let mut child = Command::new(binary)
             .arg("--data")
             .arg(scratch.path("data"))
             .args(["--listen", "127.0.0.1:0", "--address-file"])

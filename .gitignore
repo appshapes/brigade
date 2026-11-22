@@ -37,6 +37,9 @@ lerna-debug.log*
 # seventeen stdin-writes.log fixtures to the rule above at `git add` time and CI failed on a clean checkout while every
 # local run passed (2026-09-04, run 33915532579). scripts/ci/fixtures_test.go fails `make test` on any ignored fixture.
 !scripts/ci/testdata/**/*.log
+# The same for the data directories released servers left (work item 385): a server's file log is `records.log`,
+# and without it a kept directory is a key and snapshots with no log.
+!server/testdata/**/*.log
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json

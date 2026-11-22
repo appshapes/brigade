@@ -49,6 +49,9 @@ process shows: a kill and a start, a receive that waits, TLS, a process held sti
 The tests in `crates/brigade-log/src/feed.rs` hold the feed's read back on its own, at a size the others do not
 reach: a process that appends about 20 MiB of records, of one frame and of many, is killed, and the next start
 reads back every record it had answered ("Cavalry" below says which kills).
+And `server/testdata/stored/` holds what released servers left on the disk, a data directory for each release
+from 0.9.0 on, which `crates/brigade-core/tests/stored.rs` and `crates/brigade-server/tests/stored.rs` read
+("What stays true" below).
 
 The member's side has one test of its own, `TestATeamOnAServerThroughTheRealBinary` in `internal/harness/e2e`: the
 built `brigade` creates a team with `--adapter rest`, a second member joins from inside a session, both sessions
@@ -392,6 +395,11 @@ The server is released apart from the plugin, by a tag of its own that `release.
    that `ci.yml`'s run on that head is green, waiting for one in progress; then it pushes the tag
    `server-v<version>`. Over a red or missing run it stops, and `release_over_ci=<run id|missing:sha>` is the owner's
    override ([The two CI checks](../release/cut-a-release.md#the-two-ci-checks)). `DRY_RUN=1` stops before the tag.
+5. Once the release is out, write the directory its binary leaves and land it, so that every later build is
+   held to what this release wrote: the command is in
+   [`server/testdata/stored/README.md`](../../../server/testdata/stored/README.md). The release does not wait
+   on it. The first change that puts work under `## [Unreleased]` afterwards does: a test asks for the
+   directory from then on.
 
 The `server-release` workflow then builds the Linux binaries on Debian 12, so that they start on glibc 2.36 and
 later, the macOS binary, and `server/Dockerfile` on a runner of each architecture; it publishes the binaries
@@ -417,6 +425,16 @@ from deletion and from being moved, as the plugin's are.
   record, and retention's sweep is part of applying one.
 - A record and a snapshot each name the version of their format, and a reader refuses a version it does not know.
   A snapshot's checksum covers its position, and its position must be the one in its name.
+- Every record and every snapshot a released server wrote is read by this build, and written by it with the
+  same members (work item 385). A member added to a record or to the state needs a default and is written
+  only when it has something to say, or every data directory there is refuses the next release. Without the
+  default, `every_entry_a_release_wrote_is_read_and_is_written_the_same` or its neighbour for snapshots fails
+  with the member's name; a member that is always written fails them too, and is then a decision to write
+  down, since a build before it reads a state without it. The start test in `brigade-server` holds one thing
+  more: a snapshot this build cannot read is passed over without a failure, and the start goes on from an
+  older one or from the log's beginning, which a feed that was shortened no longer holds.
+  [`server/testdata/stored/README.md`](../../../server/testdata/stored/README.md) says what the directories
+  hold, and which two kinds of record they do not.
 - No entry is longer than `record::LONGEST_ENCODED_BYTES`. The server refuses to start on a log that takes less,
   and a member BAP/1 gives no cap (`harness`, `harness_version`) has one of the server's own.
 - A change to the contract lands in one commit with the adapter, the stand-in and a green conformance run.

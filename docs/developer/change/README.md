@@ -46,6 +46,7 @@ Details: [Change the backend](backend.md).
 1. `server/` is a Rust workspace of its own: no code shared with the Go side, outside the acceptance gate.
 2. `make server-check server-test` before pushing; a new crate goes on `server/deny.toml` (`make server-deps-check`).
 3. The oracle is the conformance suite through the `rest` adapter against a running server.
+4. A member added to a record or to the state gets a default: the tests read what released servers wrote (`server/testdata/stored/`).
 
 Details: [Change the server](server.md).
 
