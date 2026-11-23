@@ -304,6 +304,7 @@ test-db: ## pgTAP tests in supabase/tests against the running local stack (CI)
 test-integration: ## Adapter integration, the webhook gateway + conformance(supabase) against the local stack (reads $(env_test))
 	$(MAKE) test-integration-adapter
 	$(MAKE) test-integration-gateway
+	$(MAKE) test-integration-functions
 	$(MAKE) test-integration-conformance
 
 # No `build` prerequisite: these tests run the adapter in process, and the only things they spawn are `docker`
@@ -321,6 +322,14 @@ test-integration-adapter: ## The Supabase adapter's live tests, the fault tests 
 .PHONY: test-integration-gateway
 test-integration-gateway: ## The webhook gateway for a team on the local stack, through the built binaries (reads $(env_test)) (CI)
 	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 go test -count=1 -timeout 5m -v -run '^TestTheWebhookGatewayOnSupabaseThroughTheRealBinary$$' ./internal/harness/e2e/
+
+# The mail and Slack gateways' inbound Edge Functions on the local stack (work item 388): mail-in and slack-in as
+# they are served, run by Deno against the stack's database, with a stand-in for the connector and for Slack's API
+# (supabase/functions/_live/). `make functions-check` type-checks that directory and runs none of it: it has no
+# stack. It runs after the adapter's tests and never beside them, as the gateway's test above.
+.PHONY: test-integration-functions
+test-integration-functions: ## The mail and Slack gateways' inbound functions against the local stack's database (reads $(env_test)) (CI)
+	set -a; . ./$(env_test); set +a; cd supabase/functions && $(deno) task test-live
 
 # No --setup on the conformance line: with the BRIGADE_SUPABASE_* pair in the environment, `team create`/`team join`
 # bind an empty profile themselves (4.1's rule for a human shell, and the suite is one), so the suite provisions its

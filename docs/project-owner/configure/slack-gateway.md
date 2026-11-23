@@ -64,6 +64,13 @@ replace with what the first pass prints → Save Changes → Install App → Rei
 refuses to deploy until the token carries the new scopes, and until then a channel post's footer keeps asking
 people to mention the bot.
 
+Run it again as well after the Team Admin evicted everyone who joined with an old join secret
+([Rotate a leaked secret](../../team-admin/members/rotate-the-secret.md)): the gateway is one of them, and
+the installer makes it a member again. Until then the gateway carries nothing for that team. The other teams
+the app serves are served as before, and someone who writes to a session of that team is told that nothing
+matches what they named. Where it is the only team the app serves, a person's message is answered with an error:
+Slack delivers it again for a few minutes and then stops.
+
 If people cannot message the bot: Slack refuses direct messages to a bot whose Messages tab is off. The manifest
 turns it on; for an app created from an older manifest, open App Home and turn on **Messages Tab** and **Allow
 users to send Slash commands and messages from the messages tab**.

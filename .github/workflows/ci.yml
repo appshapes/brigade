@@ -261,6 +261,15 @@ jobs:
       # the step before it ended 181 s into the job on runs 45038662396 and 45040179199, so a hang here ends by
       # 3 + 5 + 1 = 9 minutes, well under the 21.8 above.
       - run: make test-integration-gateway
+      # The mail and Slack gateways' inbound Edge Functions on this stack (work item 388): mail-in and slack-in
+      # as they are served, run by Deno against the stack's database (supabase/functions/_live/). `fast` checks
+      # their types and has no stack to run them on. Deno has no limit of its own for a test that hangs, so the
+      # step has one: eight tests of about a second together, and three minutes for a cold fetch of the two
+      # packages they import.
+      - uses: denoland/setup-deno@v2
+        with: {deno-version: v2.6.2}
+      - run: make test-integration-functions deno=deno
+        timeout-minutes: 3
       - if: always()
         run: make supabase-clean supabase=supabase
 

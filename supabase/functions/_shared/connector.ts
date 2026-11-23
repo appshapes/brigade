@@ -131,6 +131,9 @@ export function toInboundWire(m: InboundMail): InboundWire {
   };
 }
 
+/** The longest id of a mail the core takes: brigade_gateway.received.provider_mail_id's own bound. */
+export const MAX_ID = 128;
+
 export function fromInboundWire(raw: string): Parsed<InboundMail> {
   const d = parseObject(raw);
   if (!d.ok) return d;
@@ -138,6 +141,10 @@ export function fromInboundWire(raw: string): Parsed<InboundMail> {
   if (o.brigade_mail !== CONTRACT_VERSION) return bad(`brigade_mail must be ${CONTRACT_VERSION}`);
   const id = str(o.id);
   if (!id) return bad("id is required");
+  // The id is what the core writes a mail down under once it is done with it (work item 388), in a column of
+  // 128 characters: a longer one is refused here, before anything is carried, where it would otherwise fail the
+  // mark after the mail was carried, on every delivery of it.
+  if (id.length > MAX_ID) return bad(`id must be at most ${MAX_ID} characters`);
   const from = (str(o.from) ?? "").toLowerCase();
   if (!isAddress(from)) return bad("from must be an email address");
   if (!Array.isArray(o.to) || o.to.some((a) => typeof a !== "string")) {

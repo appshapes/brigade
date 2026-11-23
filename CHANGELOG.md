@@ -252,6 +252,30 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   path, as the line at the session's start already did. A Muse Code
   session used to run `brigade doing`, get "command not found", and
   try again with the path. In Claude Code the lines are unchanged.
+- **The Supabase mail and Slack gateways no longer lose a person's
+  message when a delivery fails** (work item 388). The functions
+  `mail-in` and `slack-in` wrote a mail or a Slack event down as
+  received before they carried it. When anything failed after that,
+  the provider's next delivery was answered as a duplicate and the
+  message was gone: no bounce, and no session told. They now write it
+  down once they are done with it, as a Brigade server's gateways do.
+  A delivery that comes while an earlier one of the same message is
+  still being carried is told to come again. A project gets this when
+  its functions are deployed again: run the gateway's installer again
+  ([the mail gateway](docs/project-owner/configure/mail-gateway.md#running-it-again),
+  [the Slack gateway](docs/project-owner/configure/slack-gateway.md#running-it-again)).
+  Nothing in the plugin changes.
+- **One evicted team no longer stops Slack for every team of a
+  Supabase project** (work item 388). A Slack app may serve several
+  teams of one project. When one team's gateway member was revoked,
+  every message to every team failed. That team is now left out until
+  its installer has run again, and the others are served.
+- **After an eviction, a Supabase team runs its gateways' installers
+  again.** `brigade team revoke-member --max-version` evicts everyone
+  who joined with an old join secret, and the gateways are among
+  them. The installer makes the gateway a member again, with no secret
+  file. The page says so now
+  ([Rotate a leaked secret](docs/team-admin/members/rotate-the-secret.md)).
 
 ## [0.57.0] — 2026-11-15
 
