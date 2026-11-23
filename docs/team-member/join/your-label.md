@@ -27,7 +27,8 @@ The option that changes it is `label`: the plugin option in Claude Code, and the
 Set it **before** you join: a `team join` sends whatever the option resolves to and prints no label line.
 `--label` on `brigade team join` or `brigade team create` overrides the option for that one command. Changing the
 option later changes what your next first join on this machine sends; it does not rewrite the label a team already
-holds for you, and joining a second checkout of a team you are already on sends no label at all. In your own
+holds for you, and joining a second checkout of a team you are already on sends no label at all
+([Correct your label](#correct-your-label) is how a label a team holds is changed). In your own
 terminal, `BRIGADE_LABEL` stands in for the option; inside a session Brigade ignores it, as it ignores every
 `BRIGADE_*` variable.
 
@@ -45,6 +46,50 @@ still shows that label.
 To make a profile a member of its own, set its `config_dir` plugin option to a directory of its own, then join from
 a session of that profile: it gets its own principal and sends its own account's email. Teammates see it as another
 member.
+
+## Join from a terminal
+
+`brigade team join` in your own terminal reads the default from the Claude account of the profile that terminal
+names: the `.claude.json` under `CLAUDE_CONFIG_DIR` when the terminal's environment sets it, else the default
+profile's, in your home directory. A terminal that names no profile sends the default profile's address,
+whichever profile your sessions of that team run under. On a machine with several Claude profiles, name the label
+on the command:
+
+```sh
+brigade team join --label 'you@example.com' --secret-file ~/brigade-<team>.secret
+```
+
+`BRIGADE_LABEL` in the terminal's environment does the same. A join prints no label line: `brigade team members`
+shows the label the team holds for you.
+
+## Correct your label
+
+In a checkout that is joined, name the label you want on the join and give it the team's join secret:
+
+```sh
+brigade team join --label 'you@example.com' --secret-file ~/brigade-<team>.secret
+```
+
+```
+label: team "ops" holds "you@example.com" for this machine's membership now; this machine had joined with "other@example.com"
+```
+
+- **It is a join again, as the member you are.** The team keeps your membership and your principal reference and
+  takes the label. So it needs the join secret, in a file outside the project or typed at a terminal's prompt
+  without echo; in a session, `--secret-file` is the only way. Ask your administrator for the file when you no
+  longer have it. Nobody can send it for you: the join is made with your machine's own credential.
+- **Without `--label` nothing changes.** `brigade team join` in a checkout that is joined answers
+  `already joined`, and a second checkout is joined without a label, whatever the `label` option says. With the
+  label the machine joined with, the command answers `unchanged:` and sends nothing. The secret is read before
+  anything is recorded: a command that cannot go through leaves the checkout as it was.
+- **Teammates see it at once**: the roster, `brigade team members` and the sender line of your messages read the
+  label the team holds.
+- **What is kept under the earlier label stays there.** A digest subscription: run `brigade report subscribe`
+  again in a session that was running when you changed the label, which replaces it; from a session started
+  since, subscribe again and take the earlier entry out of `reports.json` by hand
+  ([Notes and decisions](../use/notes-and-decisions.md)). Work items assigned to the earlier label keep it:
+  assign them again.
+- **On a Supabase project and on a Brigade server alike.** Nothing is applied to the backend for it.
 
 ## Where your label came from
 

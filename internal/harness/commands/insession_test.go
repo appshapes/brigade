@@ -846,3 +846,70 @@ func TestTeamJoinInSessionLabelFlagWins(t *testing.T) {
 		t.Fatalf("team join sent human_label %q, want the flag's value", got)
 	}
 }
+
+// In a session a label is corrected with the secret file, the one source
+// a session has; without it nothing is sent and the refusal names the
+// flag (work item 326).
+func TestTeamJoinInSessionWithALabelCorrectsTheLabelOfAMember(t *testing.T) {
+	t.Parallel()
+	f, top := memberFixture(t, "wrong@example.com")
+	writeStartFacts(t, f, f.dirs.BrigadeConfig)
+	secretFile := filepath.Join(f.dirs.Root, "join.secret")
+	writeSecretFile(t, secretFile, setupSecret)
+
+	err := Team(sessionInv(t, f, top, "join", "--label", "Alice of Ops"))
+	if perr := wantCodeErr(t, err, protocol.CodeUsage, ""); !strings.Contains(perr.Message, "--secret-file") || f.rec.count() != 0 {
+		t.Fatalf("without the file: %q, spawned %d", perr.Message, f.rec.count())
+	}
+	if err := Team(sessionInv(t, f, top, "join", "--label", "Alice of Ops", "--secret-file", secretFile)); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team join"); got != "Alice of Ops" {
+		t.Errorf("the join sent human_label %q", got)
+	}
+	if out := f.out.String(); !strings.Contains(out, "label: team \"devs\" holds \"Alice of Ops\" for this machine's membership now; this machine had joined with \"wrong@example.com\"") {
+		t.Errorf("stdout = %q", out)
+	}
+}
+
+// A second checkout of the team is re-consented without the secret, as
+// before, and then the label the command named is sent with it.
+func TestTeamJoinInSessionSecondCheckoutWithALabel(t *testing.T) {
+	t.Parallel()
+	f, _ := memberFixture(t, "wrong@example.com")
+	writeStartFacts(t, f, f.dirs.BrigadeConfig)
+	top := filepath.Join(f.dirs.Root, "checkout2")
+	//nolint:gosec // G301: an ordinary checkout tree
+	if err := os.MkdirAll(filepath.Join(top, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCheckoutFile(t, top)
+	f.rec.on("session list", answer{result: `{"sessions":[],"server_time":"2026-09-08T18:00:00Z"}`})
+	secretFile := filepath.Join(f.dirs.Root, "join.secret")
+	writeSecretFile(t, secretFile, setupSecret)
+	canon, _ := teamfile.Canonicalize(top)
+
+	// Without the secret the command cannot go through, and it leaves the
+	// checkout as it found it: no consent line, no pin.
+	err := Team(sessionInv(t, f, top, "join", "--label", "Alice of Ops"))
+	if perr := wantCodeErr(t, err, protocol.CodeUsage, ""); !strings.Contains(perr.Message, "--secret-file") {
+		t.Fatalf("without the file: %q", perr.Message)
+	}
+	if _, ok, _ := teamstore.LookupPin(f.dirs.BrigadeConfig, canon); ok || f.out.Len() != 0 || slices.Contains(f.rec.verbs(), "team join") {
+		t.Fatalf("without the file: pinned %v, stdout %q, verbs %q", ok, f.out.String(), f.rec.verbs())
+	}
+
+	if err := Team(sessionInv(t, f, top, "join", "--label", "Alice of Ops", "--secret-file", secretFile)); err != nil {
+		t.Fatal(err)
+	}
+	out := f.out.String()
+	if !strings.Contains(out, "re-consented team \"devs\"") || !strings.Contains(out, "label: team \"devs\" holds \"Alice of Ops\"") {
+		t.Errorf("stdout = %q", out)
+	}
+	if got := sentLabel(t, f, "team join"); got != "Alice of Ops" {
+		t.Errorf("the join sent human_label %q", got)
+	}
+	if _, ok, _ := teamstore.LookupPin(f.dirs.BrigadeConfig, canon); !ok {
+		t.Error("the second checkout was not pinned")
+	}
+}

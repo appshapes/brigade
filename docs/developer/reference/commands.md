@@ -35,7 +35,7 @@ Commands:
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
   team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [--on <url-or-host>] [adapter flags]
-                                              create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved; `rotate-secret` and `revoke-member` say which backend they act on, and `--on` names it when this machine has joined the team on more than one
+                                              create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved; `team join --label <label> --secret-file <path>` in a checkout that is joined corrects the label the team holds for you; `rotate-secret` and `revoke-member` say which backend they act on, and `--on` names it when this machine has joined the team on more than one
   inbox [release] [--session <id>] [--all | <message_id>…] | follow [--incarnation <token>] | read [--cursor <token>]
                                               show and release held messages; follow prints each team message as it lands (a native inbox monitor's command)
   hook session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>] | follow --checkout <dir> --config-dir <dir> --state-dir <dir> [--key <n>]
@@ -233,7 +233,7 @@ show the folders this project syncs, the sync engine and the teammates' peers
 ```text
 Usage: brigade team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [--on <url-or-host>] [adapter flags] [--json] [--log-level debug|info|warn|error]
 
-create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved; `rotate-secret` and `revoke-member` say which backend they act on, and `--on` names it when this machine has joined the team on more than one
+create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved; `team join --label <label> --secret-file <path>` in a checkout that is joined corrects the label the team holds for you; `rotate-secret` and `revoke-member` say which backend they act on, and `--on` names it when this machine has joined the team on more than one
 ```
 
 ## brigade inbox

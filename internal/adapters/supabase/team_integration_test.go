@@ -359,3 +359,49 @@ func TestIntegrationRotateSecret(t *testing.T) {
 		t.Fatalf("A's roster after B's rejoin = %v", byRef)
 	}
 }
+
+// TestIntegrationAJoinAgainWithALabelReplacesIt is what a member's
+// `team join --label` stands on where the checkout is already joined
+// (work item 326): a join of a member who is active, with a label, is a
+// rejoin that keeps the membership and its principal and takes the label
+// (join_team's upsert), and one with no label keeps the label the team
+// holds. Nobody else's label is touched.
+func TestIntegrationAJoinAgainWithALabelReplacesIt(t *testing.T) {
+	a := liveRig(t)
+	created := createLive(t, a, "relabel-"+t.Name(), "alice@example.com")
+	secret, aRef := str(t, created, "join_secret"), str(t, created, "principal_ref")
+	b := liveRig(t)
+	joined, _ := decode(t, joinLive(t, b, secret, "wrong@example.com").stdout)["result"].(map[string]any)
+	bRef := str(t, joined, "principal_ref")
+
+	labels := func() (string, string) {
+		t.Helper()
+		_, byRef := members(t, a)
+		if len(byRef) != 2 || byRef[aRef] == nil || byRef[bRef] == nil {
+			t.Fatalf("the roster = %v, want the two members", byRef)
+		}
+		al, _ := byRef[aRef]["human_label"].(string)
+		bl, _ := byRef[bRef]["human_label"].(string)
+		return al, bl
+	}
+	for _, step := range []struct{ send, want string }{
+		{"bob of billing", "bob of billing"},
+		{"", "bob of billing"},
+		{"bob@example.com", "bob@example.com"},
+	} {
+		got := joinLive(t, b, secret, step.send)
+		if got.code != 0 {
+			t.Fatalf("a join again with the label %q: exit %d %s %s", step.send, got.code, got.stdout, got.stderr)
+		}
+		again, _ := decode(t, got.stdout)["result"].(map[string]any)
+		if again["rejoined"] != true || again["principal_ref"] != bRef {
+			t.Fatalf("a join again with the label %q = %v, want the same member rejoined", step.send, again)
+		}
+		if al, bl := labels(); bl != step.want || al != "alice@example.com" {
+			t.Fatalf("after a join again with the label %q the team holds %q for bob and %q for alice, want %q and alice's own", step.send, bl, al, step.want)
+		}
+		if described := b.ok("describe"); described["profile"].(map[string]any)["human_label"] != step.want {
+			t.Errorf("after a join again with the label %q the profile holds %v", step.send, described["profile"])
+		}
+	}
+}

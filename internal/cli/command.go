@@ -190,7 +190,7 @@ func init() {
 		{
 			Name:    "team",
 			Args:    "create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [--on <url-or-host>] [adapter flags]",
-			Summary: "create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved; `rotate-secret` and `revoke-member` say which backend they act on, and `--on` names it when this machine has joined the team on more than one",
+			Summary: "create, join, leave and administer a team, list its members, and move it to a Brigade server (`team move --to <server url> --secret-file <path>`) or record where it moved; `team join --label <label> --secret-file <path>` in a checkout that is joined corrects the label the team holds for you; `rotate-secret` and `revoke-member` say which backend they act on, and `--on` names it when this machine has joined the team on more than one",
 			Raw:     true,
 			Run:     runTeam,
 		},

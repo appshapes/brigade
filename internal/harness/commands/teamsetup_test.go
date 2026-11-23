@@ -1177,3 +1177,122 @@ func TestTeamJoinLiteralLabelOption(t *testing.T) {
 		t.Fatalf("team join sent human_label %q, want the option's literal", got)
 	}
 }
+
+// memberFixture is a checkout that is joined: pinned to the fixture's
+// team, on a machine whose membership was joined with the label given
+// (work item 326). The backend answers a join as a rejoin of that member.
+func memberFixture(t *testing.T, label string) (*fixture, string) {
+	t.Helper()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeCheckoutFile(t, top)
+	canon, _ := teamfile.Canonicalize(top)
+	if err := write.Pin(f.dirs.BrigadeConfig, canon, teamstore.Pin{
+		Adapter: "supabase", URL: "https://abc.supabase.co", PublishableKey: "sb_publishable_x", TeamRef: setupTeamRef,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, key, &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "supabase",
+		URL: "https://abc.supabase.co", PublishableKey: "sb_publishable_x",
+		TeamRef: setupTeamRef, TeamName: "devs", PrincipalRef: "p_keep", HumanLabel: label,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.rec.on("team join", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_keep","rejoined":true}`})
+	return f, top
+}
+
+// A member corrects the label a team holds for them with the join's own
+// flag: the join is sent again with the secret and the label, and the
+// checkout's consent is not asked for a second time (work item 326).
+func TestTeamJoinWithALabelCorrectsTheLabelOfAMember(t *testing.T) {
+	t.Parallel()
+	f, top := memberFixture(t, "wrong@example.com")
+	var prompts []string
+	iv := joinInv(f, top, setupSecret, true, &prompts)
+	iv.Args = []string{"join", "--label", "Alice of Ops"}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if verbs := f.rec.verbs(); !slices.Equal(verbs, []string{"team join"}) {
+		t.Fatalf("spawned %q, want the one join", verbs)
+	}
+	if got := sentLabel(t, f, "team join"); got != "Alice of Ops" {
+		t.Errorf("the join sent human_label %q", got)
+	}
+	var req struct {
+		JoinSecret string `json:"join_secret"`
+	}
+	if err := json.Unmarshal(f.rec.spec(t, 0).Stdin, &req); err != nil || req.JoinSecret != setupSecret {
+		t.Errorf("the join sent the secret %q (%v)", req.JoinSecret, err)
+	}
+	if len(prompts) != 0 {
+		t.Errorf("a checkout that is joined was asked to consent again: %q", prompts)
+	}
+	want := "label: team \"devs\" holds \"Alice of Ops\" for this machine's membership now; this machine had joined with \"wrong@example.com\"\n"
+	if out := f.out.String(); !strings.HasPrefix(out, want) {
+		t.Errorf("stdout = %q, want it to begin %q", out, want)
+	}
+	key := teamstore.Key("supabase", "https://abc.supabase.co", setupTeamRef)
+	if o, err := teamstore.LoadLabelOrigin(f.dirs.BrigadeConfig, key); err != nil || o.Source != teamstore.LabelFromFlag || !o.Describes("Alice of Ops") {
+		t.Errorf("the label's record = %+v, %v; want it to say the flag sent this label", o, err)
+	}
+}
+
+// Without the flag the command is what it was: nothing is sent, whatever
+// the label option resolves to. With the label the machine joined with,
+// nothing is sent either, and the secret is not asked for.
+func TestTeamJoinOfAMemberSendsNothingWithoutANewLabel(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"join"}, {"join", "--label", "same@example.com"}} {
+		f, top := memberFixture(t, "same@example.com")
+		writeAccountFile(t, f.dirs.Home)
+		iv := joinInv(f, top, setupSecret, true, nil)
+		iv.Args = args
+		iv.Deps.ReadSecret = func() (string, error) {
+			t.Errorf("%q asked for the secret", args)
+			return "", nil
+		}
+		if err := Team(iv); err != nil {
+			t.Fatal(err)
+		}
+		want := "already joined: this checkout is pinned to team \"devs\" (" + setupTeamRef + ")\n"
+		if len(args) > 1 {
+			want = "unchanged: this machine joined team \"devs\" with the label \"same@example.com\" already; nothing was sent\n"
+		}
+		if f.rec.count() != 0 || f.out.String() != want {
+			t.Errorf("%q: spawned %d, stdout %q, want %q", args, f.rec.count(), f.out.String(), want)
+		}
+	}
+}
+
+// A secret of another team is refused before anything is sent, as on a
+// first join.
+func TestTeamJoinWithALabelRefusesAnotherTeamsSecret(t *testing.T) {
+	t.Parallel()
+	f, top := memberFixture(t, "wrong@example.com")
+	iv := joinInv(f, top, "brg1.t_other.join-secret-value-123", true, nil)
+	iv.Args = []string{"join", "--label", "Alice of Ops"}
+	perr := wantCodeErr(t, Team(iv), protocol.CodeInvalidInput, "")
+	if perr.Details["reason"] != "secret_team_mismatch" || f.rec.count() != 0 {
+		t.Fatalf("refusal %+v, spawned %d", perr, f.rec.count())
+	}
+}
+
+// A backend that answers another principal did not hold the membership:
+// the line says a member was made, never that a label was changed.
+func TestTeamJoinWithALabelSaysWhenTheBackendMadeAMember(t *testing.T) {
+	t.Parallel()
+	f, top := memberFixture(t, "wrong@example.com")
+	f.rec.on("team join", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_another","rejoined":false}`})
+	iv := joinInv(f, top, setupSecret, true, nil)
+	iv.Args = []string{"join", "--label", "Alice of Ops"}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if out := f.out.String(); !strings.HasPrefix(out, "joined team \"devs\" as a new member [p_anothe] with the label \"Alice of Ops\"") || strings.Contains(out, "label: team") {
+		t.Fatalf("stdout = %q", out)
+	}
+}

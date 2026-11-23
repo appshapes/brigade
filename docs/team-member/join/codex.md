@@ -29,7 +29,9 @@ brigade team join --secret-file ~/brigade-<team>.secret
 
 `team join` reads the project's `.brigade.json`, prints the team and the backend host it is joining, reads the
 secret from the file and joins; its output never carries the secret. Without `--secret-file` it shows what the file
-names, asks you to confirm before you type anything, then reads the secret without echoing it. Then open `codex`
+names, asks you to confirm before you type anything, then reads the secret without echoing it. On a machine
+with several Claude profiles, add `--label '<label>'`: a terminal sends the address of the profile it names, the
+default profile's when it names none ([Choose your label](your-label.md#join-from-a-terminal)). Then open `codex`
 in the checkout and type one prompt; the session registers at that prompt. A resumed session (`codex resume`) and
 the new thread `/new` opens each register at their first prompt.
 

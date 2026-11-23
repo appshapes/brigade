@@ -211,7 +211,12 @@ server's side, and you do yours in three steps.
    [Take in a team that exists](../../project-owner/server/take-in-a-team.md#point-the-team-at-the-server) shows,
    and do not commit yet. Join, in a session opened there: `/brigade:join ~/brigade-<team>.secret`. You are the
    first to join the team on the server, so you own it there. Join before you record the move: a member that the
-   ticket lets in never becomes the owner, and the record is refused until this machine has joined.
+   ticket lets in never becomes the owner, and the record is refused until this machine has joined. A join made
+   in a terminal instead sends the address of the Claude account of the profile that terminal names, the default
+   profile's when it names none: on a machine with several profiles pass `--label '<label>'`, or the server
+   holds you under an address you do not use there
+   ([Choose your label](../../team-member/join/your-label.md#join-from-a-terminal), which also says how a label
+   is corrected).
 3. Record the move, in a terminal or a session, in the same checkout:
 
    ```sh

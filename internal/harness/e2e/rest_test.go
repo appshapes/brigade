@@ -580,6 +580,27 @@ func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
 		t.Errorf("the watcher changed from %d to %d", entry.PID, again.PID)
 	}
 
+	// --- 5b. a member corrects the label the team holds for him ----------
+	// The join's own flag, in a checkout that is joined (work item 326): the
+	// same member under the label he named, and once more to the one he had.
+	for _, to := range []struct{ label, was string }{{"bob of billing", bobLabel}, {bobLabel, "bob of billing"}} {
+		res = r.restJoin(bob, to.label)
+		want := "label: team \"" + teamName + "\" holds \"" + to.label + "\" for this machine's membership now; this machine had joined with \"" + to.was + "\""
+		if res.exit != 0 || !strings.Contains(res.stdout, want) || strings.Contains(res.stdout, "consented by this invocation") {
+			t.Fatalf("team join --label of a member: exit %d\nstdout: %s\nstderr: %s\nwant %q and no consent line", res.exit, res.stdout, res.stderr, want)
+		}
+		members := r.rosterOf(r.configDir)
+		if len(members) != 2 || members[to.label].ref != binding.PrincipalRef || members[aliceLabel].ref == "" {
+			t.Fatalf("the roster after bob named %q: %+v, want alice and the one bob [%s]", to.label, members, binding.PrincipalRef)
+		}
+		if b, err := teamstore.LoadBinding(r.configDirB, r.teamKey); err != nil || b.HumanLabel != to.label || b.PrincipalRef != binding.PrincipalRef {
+			t.Fatalf("bob's binding after he named %q: %+v %v", to.label, b, err)
+		}
+	}
+	if res = r.restJoin(bob, bobLabel); res.exit != 0 || !strings.Contains(res.stdout, "unchanged: this machine joined team \""+teamName+"\" with the label \""+bobLabel+"\" already") {
+		t.Errorf("the label he has, named again: exit %d, stdout %q", res.exit, res.stdout)
+	}
+
 	// --- 6. the sessions end ----------------------------------------------
 	for _, s := range []session{alice, bob} {
 		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))

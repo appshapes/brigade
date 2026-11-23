@@ -36,6 +36,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0026. Keep Grok Build's subagent check and its refusal of another harness's marker](0026-keep-grok-builds-subagent-check-and-its-refusal-of-another-harnesss-marker.md)
 - [0027. Keep the roadmap as work items of another kind, in one order](0027-keep-the-roadmap-as-work-items-of-another-kind-in-one-order.md)
 - [0028. Ask the CI check again in the release workflows, with the override in the tag's message](0028-ask-the-ci-check-again-in-the-release-workflows-with-the-override-in-the-tags-message.md)
+- [0029. Correct a label by joining again with the join secret](0029-correct-a-label-by-joining-again-with-the-join-secret.md)
 
 ## Record a decision
 

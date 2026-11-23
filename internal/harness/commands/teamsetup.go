@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -626,7 +627,13 @@ func (inv Invocation) joinWithFile(path string, f *teamfile.File, label labelCho
 	}
 	binding, berr := teamstore.LoadBinding(t.configDir, t.profile)
 	if berr == nil && binding.TeamRef == f.TeamRef {
-		return inv.reconsent(t, canon, f, binding, secretFile)
+		// Only a label the command itself named goes on: the default is for
+		// the join that makes a member, and a re-consent sends none.
+		named := labelChoice{}
+		if label.source == teamstore.LabelFromFlag {
+			named = label
+		}
+		return inv.reconsent(t, canon, f, binding, named, secretFile)
 	}
 	if berr != nil && !bindingMissing(berr) {
 		return berr
@@ -748,25 +755,36 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 			return inv.writePinAndReport(t, canon, f, "joined")
 		}
 	}
-	if err := inv.alignRestBackend(t, f); err != nil {
+	if _, err := inv.sendJoin(t, f, secret, label); err != nil {
 		return err
+	}
+	return inv.writePinAndReport(t, canon, f, "joined")
+}
+
+// sendJoin sends one join to the backend the file names, with the secret
+// and the label given, and records what it made on this machine: the
+// binding, and where the label came from. It is the wire half of a first
+// join and of a join that corrects a label (relabel).
+func (inv Invocation) sendJoin(t *target, f *teamfile.File, secret string, label labelChoice) (*protocol.TeamJoinResult, error) {
+	if err := inv.alignRestBackend(t, f); err != nil {
+		return nil, err
 	}
 	backend, err := json.Marshal(teammove.JoinBackend(f))
 	if err != nil {
-		return fmt.Errorf("commands: marshal backend: %w", err)
+		return nil, fmt.Errorf("commands: marshal backend: %w", err)
 	}
 	req := &protocol.TeamJoinRequest{JoinSecret: secret, HumanLabel: label.text, Backend: backend}
 	env, err := t.client.Call(context.Background(), "team", "join", nil, req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var answer protocol.TeamJoinResult
 	if uerr := json.Unmarshal(env.Result, &answer); uerr != nil || answer.Validate() != nil {
-		return protocolMismatch("team join answered a shape this build does not read")
+		return nil, protocolMismatch("team join answered a shape this build does not read")
 	}
 	if err := write.EnsureBinding(t.configDir, t.profile, f.Adapter, f.URL, f.PublishableKey, f.Certificate,
 		answer.TeamRef, answer.TeamName, answer.PrincipalRef); err != nil {
-		return err
+		return nil, err
 	}
 	inv.recordLabelOrigin(t.configDir, t.profile, label)
 	// A join there succeeded: what a follow of this machine recorded of a
@@ -776,7 +794,86 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 	if err := write.ClearRejoinRefusal(t.configDir, t.profile); err != nil {
 		inv.logger().Debug("the record of a refused join was not removed", adapterlog.Err(err))
 	}
-	return inv.writePinAndReport(t, canon, f, "joined")
+	return &answer, nil
+}
+
+// relabel is `team join --label <label>` on a machine that is already a
+// member of the file's team (work item 326): the one way a member
+// corrects the label a team holds for them. A backend has no request
+// that changes a label, and needs none: a join whose secret names the
+// team the profile is bound to is a rejoin (4.4.10), made with this
+// machine's own credential, and on a rejoin that carries a label the
+// backend keeps the membership and its principal and takes the label.
+// So it needs the join secret, as a first join does, and nobody can send
+// it for another member. The pin is not touched: the checkout is joined.
+//
+// The backend reads a session's label from the membership, so the roster
+// and a message's sender carry the new one at once. What this machine
+// keeps under a label does not move: a session's entry in a state folder
+// takes the new one at its next start, and until then its `report
+// subscribe` knows the earlier label as its own and replaces a
+// subscription under it (ownLabels, work item 414).
+//
+// A label equal to the one this machine joined with sends nothing.
+func (inv Invocation) relabel(t *target, f *teamfile.File, binding *adapterkit.Profile, label labelChoice, secret string) error {
+	name := nameLine(f.TeamName)
+	if label.text == binding.HumanLabel {
+		// The member named it, so the record of where the label came from
+		// says the flag from now on.
+		inv.recordLabelOrigin(t.configDir, t.profile, label)
+		return writeLines(inv.Out, "unchanged: this machine joined team \""+name+"\" with the label "+strconv.Quote(labelLine(label.text))+" already; nothing was sent")
+	}
+	// The lock a first join holds, for its reason: a follow of this team's
+	// move may be joining on this machine now.
+	if lock, lerr := teammove.Lock(t.configDir, inv.Deps.FollowLockWait); lerr != nil {
+		inv.logger().Warn("a follow of a team's move holds this machine's lock, or the lock cannot be had; the join goes on without it", adapterlog.Err(lerr))
+	} else {
+		defer func() { _ = lock.Unlock() }()
+	}
+	answer, err := inv.sendJoin(t, f, secret, label)
+	if err != nil {
+		return err
+	}
+	// The label as the adapter kept it for the membership after this join,
+	// which is what it sent; the flag's own text where the adapter keeps
+	// none or did not write one.
+	sent := label.text
+	if now, nerr := teamstore.LoadBinding(t.configDir, t.profile); nerr == nil && now.HumanLabel != "" && now.HumanLabel != binding.HumanLabel {
+		sent = now.HumanLabel
+	}
+	if answer.PrincipalRef != binding.PrincipalRef {
+		// The backend did not know this machine's membership and made one:
+		// say so, never that a label was changed.
+		return writeLines(inv.Out, "joined team \""+name+"\" as a new member ["+sanitizeID(shortPrincipal(answer.PrincipalRef))+"] with the label "+strconv.Quote(labelLine(sent))+
+			": the backend did not hold the membership this machine had")
+	}
+	// What the team held is not read: the machine's own record is what it
+	// joined with, and a label a session's start filled in is not in it.
+	was := "this machine had joined with no label"
+	if binding.HumanLabel != "" {
+		was = "this machine had joined with " + strconv.Quote(labelLine(binding.HumanLabel))
+	}
+	return writeLines(inv.Out, "label: team \""+name+"\" holds "+strconv.Quote(labelLine(sent))+" for this machine's membership now; "+was,
+		"the team's roster and this member's messages carry it from now on; a digest subscription stays under the earlier label until brigade report subscribe is run again in a session that was already running")
+}
+
+// relabelSecret reads the join secret a correction of the label needs and
+// checks it against the file, before anything is recorded or sent: a
+// command that cannot go through leaves the checkout as it found it. It
+// answers "" where nothing will be sent: no label was named, or the one
+// the machine joined with.
+func (inv Invocation) relabelSecret(f *teamfile.File, binding *adapterkit.Profile, label labelChoice, secretFile string) (string, error) {
+	if label.text == "" || label.text == binding.HumanLabel {
+		return "", nil
+	}
+	secret, err := inv.joinSecret(secretFile)
+	if err != nil {
+		return "", err
+	}
+	if err := checkJoinSecret(secret, f); err != nil {
+		return "", err
+	}
+	return secret, nil
 }
 
 // alignRestBackend moves an existing profile of a Brigade server to the
@@ -837,12 +934,19 @@ func checkJoinSecret(secret string, f *teamfile.File) error {
 // (correction 4), then the per-field diff against the pin, then either
 // the secret-free key-only path (which also rewrites the binding —
 // correction 1) or a fresh secret join for a cross-team move.
-func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, binding *adapterkit.Profile, secretFile string) error {
+func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, binding *adapterkit.Profile, named labelChoice, secretFile string) error {
 	pin, pinned, err := teamstore.LookupPin(t.configDir, canon)
 	if err != nil {
 		return err
 	}
 	if pinned && pin.Matches(f) && binding.PublishableKey == f.PublishableKey && binding.Certificate == f.Certificate {
+		if named.text != "" {
+			secret, err := inv.relabelSecret(f, binding, named, secretFile)
+			if err != nil {
+				return err
+			}
+			return inv.relabel(t, f, binding, named, secret)
+		}
 		return writeLines(inv.Out, "already joined: this checkout is pinned to team \""+f.TeamName+"\" ("+sanitizeID(f.TeamRef)+")")
 	}
 	// A Brigade server whose certificate the file now names differently:
@@ -855,7 +959,7 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 		if _, err := t.client.ListSessions(context.Background(), false); err != nil {
 			// The credential no longer works (revoked server-side, or the
 			// key rotated under it): fall back to a normal secret join.
-			return inv.firstJoin(t, canon, f, labelChoice{}, secretFile)
+			return inv.firstJoin(t, canon, f, named, secretFile)
 		}
 	}
 	if pinned {
@@ -865,14 +969,28 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 	if crossTeam && inv.inSession() {
 		// The membership-grade path prints its own consent line, after the
 		// secret file has been checked: no half-record on a refusal.
-		return inv.firstJoin(t, canon, f, labelChoice{}, secretFile)
+		return inv.firstJoin(t, canon, f, named, secretFile)
+	}
+	// A label the command named is sent after the re-consent, and its secret
+	// is read before anything is recorded: in a session before the consent
+	// line, as a first join reads it, and at a terminal after the question.
+	var secret string
+	if inv.inSession() {
+		if secret, err = inv.relabelSecret(f, binding, named, secretFile); err != nil {
+			return err
+		}
 	}
 	if err := inv.confirmGate(f, "re-consent to"); err != nil {
 		return err
 	}
 	if crossTeam {
 		// The high fix: a cross-team re-point is a membership-grade event.
-		return inv.firstJoin(t, canon, f, labelChoice{}, secretFile)
+		return inv.firstJoin(t, canon, f, named, secretFile)
+	}
+	if !inv.inSession() {
+		if secret, err = inv.relabelSecret(f, binding, named, secretFile); err != nil {
+			return err
+		}
 	}
 	if binding.PublishableKey != f.PublishableKey {
 		// Key-only drift: rewrite pin AND binding together, no secret.
@@ -893,7 +1011,13 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 			return err
 		}
 	}
-	return inv.writePinAndReport(t, canon, f, "re-consented")
+	if err := inv.writePinAndReport(t, canon, f, "re-consented"); err != nil {
+		return err
+	}
+	if named.text != "" {
+		return inv.relabel(t, f, binding, named, secret)
+	}
+	return nil
 }
 
 // printDiff shows old → new for every drifted pin member.

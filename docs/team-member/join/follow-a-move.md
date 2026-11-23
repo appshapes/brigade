@@ -147,7 +147,9 @@ and the file is the right one, and the backend the team moved to answered: it do
 machine holds for it, or it no longer counts you a member and did not take the move's ticket. Waiting does not
 mend that. Ask your administrator for the file of the team's current join secret and run
 `brigade team join --secret-file <path>` in the project (`/brigade:join <path>` in a session); the session
-connects at its next prompt.
+connects at its next prompt. From a terminal on a machine with several Claude profiles, add `--label '<label>'`:
+the terminal sends the address of the profile it names, the default one when it names none
+([Choose your label](your-label.md#join-from-a-terminal)).
 
 A session that said so because the move was not recorded yet needs no new start, except in Grok Build: while
 you prompt it asks again, at most once a minute, says once that it is asking, and follows within a prompt or

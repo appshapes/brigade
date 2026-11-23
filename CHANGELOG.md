@@ -15,6 +15,30 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
 
+### Added
+
+- **A member corrects the label a team holds for them** (work item
+  326, ADR 0029). `brigade team join --label '<label>' --secret-file
+  <path>` in a checkout that is already joined joins again as the
+  member you are and sends the label: the team keeps your membership
+  and your principal reference and holds the label you named, on a
+  Supabase project and on a Brigade server alike, with nothing applied
+  to either. The command says what the team holds now and what this
+  machine had joined with. Until now it answered `already joined` and
+  dropped `--label` without a word, and no command changed a label.
+  Without `--label` it does what it did. It needs the join secret,
+  from its file or typed at a terminal's prompt; nobody can send it
+  for another member. A digest subscription and work items assigned
+  under the earlier label stay under it
+  ([Correct your label](docs/team-member/join/your-label.md#correct-your-label)).
+- **The join pages say which account a join from a terminal reads**
+  (work item 326). A terminal sends the address of the Claude account
+  of the profile it names in `CLAUDE_CONFIG_DIR`, the default profile's
+  when it names none, whichever profile your sessions run under. On a
+  machine with several profiles, pass `--label`: the label's page, each
+  harness's join page and the page for a team's move now say so
+  ([Join from a terminal](docs/team-member/join/your-label.md#join-from-a-terminal)).
+
 ## [0.59.0] — 2026-11-23
 
 **Who must act**

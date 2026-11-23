@@ -29,6 +29,10 @@ There is no `--profile`, no `--url` and no `--key`: the project file supplies al
   next prompt when you joined in the checkout it was started in ([When your team moves](follow-a-move.md)).
   Joined from a terminal, start a session in the checkout; one you already have there that is on no team
   attaches at a prompt within a minute.
+- A join from a terminal (`brigade team join --secret-file <path>`) sends the address of the Claude account of
+  the profile that terminal names, the default profile's when it names none. Where your sessions run under
+  another profile, pass `--label '<label>'`; a label the team already holds is corrected the same way
+  ([Choose your label](your-label.md#join-from-a-terminal)).
 - A project that syncs folders (its `.brigade.json` carries a `sync` member) needs Syncthing on your PATH:
   `brew install syncthing`, `sudo apt install syncthing`. Without it the session connects and a prompt soon after
   says file sync is off.

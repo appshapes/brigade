@@ -93,7 +93,9 @@ email with the members of that team, and with whoever runs its backend (section 
 option `label` to `none` before you join, or to any text you would rather be known by; `--label` on the join
 command does the same for that one command. Changing the option later changes what the next **first** join on this
 machine sends; it does not rewrite the label the team already holds, and a re-consent (`team join` in a second
-checkout of a team you are already on) sends no label at all. The address is unverified text like every other
+checkout of a team you are already on) sends no label at all. Only your own word changes a label the team holds:
+`brigade team join --label <label>` in a checkout that is already joined joins again with the join secret, as the
+member you are, and the team then holds the label you named. The address is unverified text like every other
 label: a message marks it so for the model that receives it, and the session roster says so in the `note` of its
 `--json` form.
 

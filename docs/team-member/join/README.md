@@ -66,7 +66,10 @@ Details: [Join another checkout](another-checkout.md).
    the harness's options file elsewhere. `--label` on the join command does the same for that one command.
 3. Every Claude profile on one machine is the same member, under the label of the profile that joined:
    `brigade whoami` shows the label and where it came from, and the option `config_dir` gives a profile a
-   membership of its own.
+   membership of its own. A join from a terminal reads the account of the profile that terminal names, the
+   default one when it names none: pass `--label` there.
+4. To correct the label a team holds for you, in a checkout that is joined:
+   `brigade team join --label '<label>' --secret-file ~/brigade-<team>.secret`.
 
 Details: [Choose your label](your-label.md).
 
