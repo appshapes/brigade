@@ -34,7 +34,8 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   `server/CHANGELOG.md` has the same lines from the release after 0.9.0, the Project Owner there being the
   server's operator. The lines are read outside the file: the release-notes email takes its "Before you
   update" from them (`.claude/agents/release-notes-email.md`), the server's release text is its section and so
-  begins with them, and the plugin's release notes are drafted from the section that carries them. So a link
+  begins with them, and the plugin's release notes carry them after their first line, word for word
+  (`scripts/ci/release-notes-lint.sh` holds it, work item 418). So a link
   in them is absolute, under `https://github.com/appshapes/brigade/blob/master/`, and they name an entry by
   its title and never by a work item's number. The sections of the releases before have none and are given
   none: what each asked of whom is for whoever led that work to say.

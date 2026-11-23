@@ -2,7 +2,8 @@
 #
 # Four stages, in one job: a writer agent DRAFTS the notes to a file outside the checkout; a deterministic lint
 # (scripts/ci/release-notes-lint.sh) refuses anything that does not exist — a skill, a CLI command, an asset — or
-# that is placeholder, "Unreleased" or secret-shaped; a reviewer agent reads the draft against CHANGELOG.md, the
+# that is placeholder, "Unreleased" or secret-shaped, and holds the notes to the changelog's "who must act" lines;
+# a reviewer agent reads the draft against CHANGELOG.md, the
 # tag's log and the plugin tree and answers APPROVED or CHANGES_REQUESTED with findings; the writer gets exactly
 # one fix cycle; and only an APPROVED, lint-clean draft is published. The publish and the announcement issue are
 # shell steps, not the agent: the two writes are deterministic and idempotent UNDER SERIALISATION -- a re-dispatch
@@ -29,6 +30,17 @@
 # round 2 -- and published on the third dispatch; the release-notes email was refused the same way twice
 # (send-release-notes.yml's header), which is where the bound was first put and verified. What the second
 # reviewer notices outside its bound goes after a `NOTES` line in review.md, for the people who read the artifact.
+#
+# The order of the notes is said ONCE, in the job's NOTES_ORDER, and each of the four prompts carries it by
+# `${{ env.NOTES_ORDER }}` (work item 418; scripts/ci/release_notes_lint_test.go holds that all four do). Since
+# work item 396 a changelog section opens with who must act, a line each for a Team Member, a Team Admin and a
+# Project Owner, and the notes carry those lines right after their first. Said to the writer alone that is worse
+# than nothing: the reviewer's own rule was "a USER of the plugin first", which lines for an administrator and an
+# owner break, and a reviewer told to assume every claim wrong asks for them to be moved; the fixer and the second
+# reviewer each had their own list of the rules, which did not name the lines; and the one fix cycle cannot settle
+# an order two prompts disagree on, so no notes are published. With one text there is no second opinion to hold,
+# and whether the lines are there and right is the lint's finding alone: it compares them with the changelog word
+# for word, which no reviewer has to. Change the order in NOTES_ORDER, and the lint with it when the lines move.
 #
 # The agents write their files with `tee` from the Bash tool, under a `Bash(tee <path>:*)` prefix rule: the first
 # gated run (34541118273) showed the action honouring every Bash rule and none of the `Write(//tmp/…)` rules —
@@ -64,6 +76,27 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       NOTES_DIR: /tmp/brigade-notes
+      # The order of the notes, said once for the four agent steps (the header). The words in backticks after
+      # "may read" are the lint's `pointer`, letter for letter.
+      NOTES_ORDER: |
+        1. The first line: one sentence saying what the release is, with the version number, whole on ONE
+           line, then a blank line.
+        2. Who must act, ONLY when the section of `CHANGELOG.md` for this version opens with the line
+           `**Who must act**`: that line, a blank line, and the section's three bullets after it,
+           `- **Team Member:**`, `- **Team Admin:**` and `- **Project Owner:**`, in that order and in the
+           changelog's own words, nothing left out and nothing added. Each bullet is ONE line: the changelog wraps
+           them, and a release page shows a newline as a line break. One change is allowed in a bullet: where it
+           points to an entry of the changelog as `below`, the word `below` may read
+           `in [the changelog](https://github.com/appshapes/brigade/blob/master/CHANGELOG.md)`, because the
+           notes need not keep that entry under its title. Nothing stands between the first line and these
+           lines but the blank line, and a blank line follows the last bullet. They are for a Team Admin and a Project Owner as well as for a user, and they come before
+           everything else on purpose. Whether they are there, in their place and in the changelog's words is
+           the lint's finding and nobody else's: the lint compares them with the changelog word for word and
+           prints, each after `want: `, the four lines it wants. A section that does not open with
+           `**Who must act**` gets no such lines: never compose them.
+        3. What changed for a USER of the plugin.
+        4. Anything an ADAPTER AUTHOR must know.
+        5. The assets and their checksums file, every one of them by name.
     steps:
       - uses: actions/checkout@v7
         with:
@@ -111,16 +144,18 @@ jobs:
                do not restate the commit log over it.
             2. Read `git log --oneline <previous tag>..${{ inputs.tag }}` for anything the changelog omitted, and
                `gh release view ${{ inputs.tag }} --json assets` for the assets that actually shipped.
-            3. Compose: what changed for a USER of the plugin, then anything an ADAPTER AUTHOR must know, then the
-               assets and their checksums file, every one of them by name. Keep the changelog's own wording where
-               it exists. Never invent a change that is not in the changelog or the log.
+            3. Compose the notes in the order below, which the reviewer holds them to as well. Keep the
+               changelog's own wording where it exists. Never invent a change that is not in the changelog or
+               the log.
             4. Name a slash command or a skill ONLY if it exists: list `plugin/skills/` and `plugin/commands/` and
                name only what is there — the listing of the checkout you are drafting for, never a name you
                remember. Name a `brigade <verb>` ONLY if `/tmp/brigade-notes/brigade --help` lists that verb. The
                v0.5.0 notes named a `/brigade:sessions` skill that had not been written yet, and that slip is why
                you are being checked.
-            5. The first line is one sentence saying what the release is. Use the version number, never
-               "Unreleased". No placeholders.
+            5. Use the version number, never "Unreleased". No placeholders.
+
+            The order of the notes:
+            ${{ env.NOTES_ORDER }}
 
             Do not edit any file in the repository. Do not push. Do not run `gh release edit` or `gh issue create`.
           settings: |
@@ -189,10 +224,13 @@ jobs:
             - Every `/brigade:<name>` exists under `plugin/skills/` or `plugin/commands/`; every `brigade <verb>`
               is listed by `/tmp/brigade-notes/brigade --help`.
             - The assets named are exactly `gh release view ${{ inputs.tag }} --json assets`.
-            - The notes address a USER of the plugin first, then an ADAPTER AUTHOR; they name the version;
-              they say "Unreleased" nowhere; there is no placeholder.
+            - The notes follow the order below, which is the writer's too; they name the version; they say
+              "Unreleased" nowhere; there is no placeholder.
             - If /tmp/brigade-notes/lint.txt has `FAIL:` lines, every one of them is a finding.
             Approve only when you found nothing. Do not edit any file but review.md. Do not push.
+
+            The order of the notes:
+            ${{ env.NOTES_ORDER }}
           settings: |
             {
               "permissions": {
@@ -265,9 +303,12 @@ jobs:
             `tee /tmp/brigade-notes/notes.md <<'EOF'` … `EOF` (the Write tool is NOT available). The same rules apply: only what is in `CHANGELOG.md`
             or the tag's `git log`; only skills under `plugin/skills/` or `plugin/commands/`; only verbs that
             `/tmp/brigade-notes/brigade --help` lists; every shipped asset named; the version named; no
-            "Unreleased", no placeholder. Change the sentences the findings name and what making room for them
-            requires, and leave every other line as it is: the second review re-reads only what changed. Do nothing
-            else: do not publish, do not edit the repository, do not push.
+            "Unreleased", no placeholder; the order below. Change the sentences the findings name and what making
+            room for them requires, and leave every other line as it is: the second review re-reads only what
+            changed. Do nothing else: do not publish, do not edit the repository, do not push.
+
+            The order of the notes, the same as for your draft and for the reviewer:
+            ${{ env.NOTES_ORDER }}
           settings: |
             {
               "permissions": {
@@ -330,7 +371,7 @@ jobs:
             `git log --oneline <previous tag>..${{ inputs.tag }}`, every `/brigade:<name>` under `plugin/skills/`
             or `plugin/commands/`, every `brigade <verb>` in `/tmp/brigade-notes/brigade --help`, the assets exactly
             `gh release view ${{ inputs.tag }} --json assets`, the version named, no "Unreleased", no placeholder,
-            no `FAIL:` line left in lint.txt): that every finding of your first review is fixed, and that the lines
+            the order below, no `FAIL:` line left in lint.txt): that every finding of your first review is fixed, and that the lines
             the fix changed are right. A line your first review did not name and the fix did not change was
             approved by your first review; it is not re-read, and nothing you notice in it changes the verdict. If
             notes-round1.md is absent, the writer wrote no first draft: review the whole draft as a first review.
@@ -339,6 +380,9 @@ jobs:
             `tee /tmp/brigade-notes/review.md <<'EOF'` … `EOF` (the Write tool is NOT available): the FIRST line is
             exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line, then, after a line that reads
             exactly `NOTES`, whatever you noticed outside the bound. Approve when the two things hold. Do nothing else.
+
+            The order of the notes, the same as for your first review and for the writer:
+            ${{ env.NOTES_ORDER }}
           settings: |
             {
               "permissions": {

@@ -39,8 +39,10 @@ checksums; goreleaser builds a draft; `scripts/ci/release-verify.sh` compares it
 file; the draft is published and the release-notes workflow dispatched. A failure deletes the draft and publishes
 nothing.
 
-The release-notes workflow (`release-notes.yml`) writes the release's notes behind a lint and a review, then
-tells the members: one issue titled `<v> is out — run /brigade:update`. The same step closes the announcement of
+The release-notes workflow (`release-notes.yml`) writes the release's notes behind a lint and a review. The
+notes open with one sentence and then with the section's "who must act" lines as the changelog has them, which
+the lint holds word for word (work item 418): read those lines before the release, because the release page
+shows them at its top, right after that sentence. Then it tells the members: one issue titled `<v> is out — run /brigade:update`. The same step closes the announcement of
 each release before, so the one open announcement is the newest release's and the repository's open issues are
 the ones that need an answer. `scripts/ci/announce-release.sh plan` shows what it would open and close
 ([scripts/ci/README.md](../../../scripts/ci/README.md)).

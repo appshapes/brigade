@@ -32,7 +32,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `.github/workflows/_create-claude-issue.yml` | `workflow_call` | Reusable factory: creates the `claude`-labelled work order with `GH_ACTIONS_TOKEN` so the `issues: labeled` event fires. |
 | `.github/workflows/update-documentation.yml` | monthly cron, `workflow_dispatch` | Structural documentation refresh through the loop. Opens its PR **with** the auto-merge label. |
 | `.github/workflows/review-repository.yml` | monthly cron, `workflow_dispatch` | Reviewer pass over the tree; opens a PR with minimal fixes and **no** auto-merge label — that one merges by hand. |
-| `.github/workflows/release-notes.yml` | `workflow_dispatch` only — from `release.yml` after the publish, or by hand with `-f tag=v…` (the `release: published` and `workflow_call` triggers are gone: the job token raises no `release` event, and a call from the tag-push workflow ran the action under `push`, which it refuses, run 34537045037) | Drafts the published release's notes from `CHANGELOG.md` and the log with one agent, refuses anything that does not exist with `release-notes-lint.sh`, has a second agent review the draft against the sources, allows one fix cycle whose review is bounded to the first review's findings and the lines the fix changed, and only then publishes the notes and opens the "run `/brigade:update`" announcement — both from shell steps, idempotently. The announcement step, `announce-release.sh`, also closes the announcements of the releases before it. |
+| `.github/workflows/release-notes.yml` | `workflow_dispatch` only — from `release.yml` after the publish, or by hand with `-f tag=v…` (the `release: published` and `workflow_call` triggers are gone: the job token raises no `release` event, and a call from the tag-push workflow ran the action under `push`, which it refuses, run 34537045037) | Drafts the published release's notes from `CHANGELOG.md` and the log with one agent, in an order said once for its four prompts (the changelog's "who must act" lines right after the first line), refuses anything that does not exist and notes without those lines with `release-notes-lint.sh`, has a second agent review the draft against the sources, allows one fix cycle whose review is bounded to the first review's findings and the lines the fix changed, and only then publishes the notes and opens the "run `/brigade:update`" announcement — both from shell steps, idempotently. The announcement step, `announce-release.sh`, also closes the announcements of the releases before it. |
 | `.github/workflows/send-release-notes.yml` | weekly cron (`23 14 * * 1` UTC) and `workflow_dispatch` (`audience` = `preview` or `recipients`, `from` = the first tag to cover, `draft_run` = an earlier run whose approved draft is sent as it is) | Emails a list of recipients what changed in the releases published since the last email (card 43). `send-release-notes.sh` decides which releases and reads the list; one agent drafts from the changelog and the published notes, `release-notes-lint.sh` in its `email` kind and a second agent gate the draft with one fix cycle, the second review bounded to the first review's findings and the lines the fix changed, and a mail step sends it with every reader as `bcc`. A run by hand is a preview unless it says `audience=recipients`. With `draft_run` no agent runs: what was previewed is what is sent. Without the mail configuration the scheduled run is a green no-op. |
 | `.github/workflows/update-dependencies.yml` | monthly cron, `workflow_dispatch` | Dependency bump through the loop: `go.mod`, `tools.mod` and, when `golang.org/x/sys` moves, the rebuilt Windows launcher by the agent; the action pins reported, not edited, in the agent's closing comment on the issue, since the PR body is minted `Closes #<n>`; the owner moves them on master directly, because `claude-code-action` refuses to run on a PR whose workflow file differs from master's (`.claude/agents/developer.md`, dependency-update mode). Opens its PR **with** the auto-merge label. |
 
@@ -299,14 +299,33 @@ scripts/ci/release-verify.sh dist/checksums.txt plugin/bin/checksums.txt
 The deterministic half of the release-notes gate: `release-notes-lint.sh <notes-file> <tag>` refuses a drafted
 set of notes that names a `/brigade:<skill>` the plugin does not have (read from `plugin/skills/` and
 `plugin/commands/` of the checkout), a `brigade <verb>` the CLI does not have, or an asset that did not ship;
-that leaves a shipped asset unnamed; that never names the released version or says "Unreleased"; or that carries
-a placeholder or anything secret-shaped. One `FAIL:` line per finding (the writer's fix cycle reads them back),
+that leaves a shipped asset unnamed; that never names the released version or says "Unreleased"; that carries
+a placeholder or anything secret-shaped; or that lacks the changelog's "who must act" lines. One `FAIL:` line per finding (the writer's fix cycle reads them back),
 `ok:` lines for what passed, exit 1 on any finding. Born of the v0.5.0 notes, which named a `/brigade:sessions`
 skill that had not been written yet. That skill exists now, so the tree-reading test derives a name the checkout
 does not carry (`absentSkill`) rather than hard-coding one — a literal there went stale the day the skill landed.
 
+**Who must act** (work item 418). Where the version's section of `CHANGELOG.md` opens with `**Who must act**`
+and its three lines (a Team Member, a Team Admin, a Project Owner; the rule is in
+[documentation.md](../../docs/agent/repository/documentation.md)), the four lines of the notes after the first
+are those four: in the changelog's words, each bullet on one line, because the changelog wraps them and a
+release page shows a newline as a break. The first line is the whole first sentence, and a blank line stands
+before the four and after them, without which a release page runs them into the text around. One difference passes: a line that points to an entry as `below` may
+say `in [the changelog](https://github.com/appshapes/brigade/blob/master/CHANGELOG.md)` for that word, since
+the notes need not keep the entry under its title. A finding prints the four lines it wants after `want: `, so
+the fix is a copy. A section that does not open with the lines asks nothing; a changelog that cannot be read or
+has no section for the version, or an opening that says who must act and is not that heading and the three
+lines in their order, is a finding of its own, because the script then cannot say what the notes are held to. The lines are held to every other check as the rest of the
+notes are: one that trips a check is wrong in the changelog, and is mended there and the workflow dispatched
+again, which reads `master`'s head. `BRIGADE_NOTES_CHANGELOG` names another file for the tests. The workflow's
+four prompts carry the same order from one text, the job's `NOTES_ORDER`, and
+`TestTheNotesWorkflowSaysTheOrderOnce` holds that each does and that none says an order of its own: a reviewer
+whose prompt put a user of the plugin first asked for the lines to be moved, and one fix cycle cannot settle
+an order two prompts disagree on.
+
 With `BRIGADE_NOTES_KIND=email` the file is the release-notes email of `send-release-notes.yml` and `<tag>` is the
-newest release it covers: the asset checks are skipped (an email lists none, and `BRIGADE_NOTES_ASSETS` is not
+newest release it covers: it is not held to the "who must act" lines, which its brief turns into a section in
+the reader's words; the asset checks are skipped (an email lists none, and `BRIGADE_NOTES_ASSETS` is not
 read) and three are added — the email carries nobody's address; no card, work item or plan row, which the changelog it is
 composed from is full of; and the draft renders, read in `-check` mode by the email's renderer
 (`cmd/brigade-release-email`, the path in `BRIGADE_EMAIL_RENDERER`, card 73), which knows the shape the writer's
@@ -320,7 +339,7 @@ of a fresh build and `BRIGADE_NOTES_ASSETS` from `gh release view --json assets`
 overrides the tree for the tests. `scripts/ci/release_notes_lint_test.go` runs it on fixtures with a passing
 control beside every refusal.
 
-Needs `sh`, `grep`, `sed`, `sort`, and for the email kind the built renderer.
+Needs `sh`, `grep`, `sed`, `sort`, `awk`, `tr`, and for the email kind the built renderer.
 
 ## `scripts/ci/announce-release.sh`
 

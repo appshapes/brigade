@@ -6,7 +6,8 @@
 # exist at the time — a grounding slip that more thinking makes rarer and that this script makes impossible. (That
 # skill was written later and is real now; the slip was naming it before it was.) It exits 1 on the
 # first class of failure, printing one `FAIL:` line per finding so the writer's fix cycle can read them back, and
-# `ok:` lines for what it checked. It reads nothing but the notes, the plugin tree and four environment variables:
+# `ok:` lines for what it checked. It reads nothing but the notes, the plugin tree, the changelog and these
+# environment variables:
 #
 #   BRIGADE_NOTES_COMMANDS   the CLI's top-level commands, space-separated (release-notes.yml derives them from
 #                            `brigade --help` of a fresh build; the tests set them by hand)
@@ -18,13 +19,28 @@
 #                            newest release the email covers
 #   BRIGADE_EMAIL_RENDERER   the email kind only: the path of the email's renderer (`go build
 #                            ./cmd/brigade-release-email`), which reads the draft in -check mode
+#   BRIGADE_NOTES_CHANGELOG  optional: the changelog whose section for the version says who must act; when unset,
+#                            CHANGELOG.md of the checkout (the tests set a file of their own)
 #
 # Checks, in order: the file is non-empty and carries no placeholder; it names the released version and never
 # "Unreleased"; every `/brigade:<name>` is a skill or command that exists; every backticked `brigade <verb>` (and
 # every fenced line that starts with one) names a command the CLI has; every asset-shaped token it names shipped,
-# and every shipped asset is named at least once; nothing secret-shaped is in it.
+# and every shipped asset is named at least once; nothing secret-shaped is in it; and it carries the changelog's
+# "who must act" lines right after its first line.
 #
-# An email differs in three ways. It lists no assets, so the asset check is skipped and BRIGADE_NOTES_ASSETS is
+# Who must act (work item 418). Since work item 396 a changelog section opens with `**Who must act**` and a line
+# each for a Team Member, a Team Admin and a Project Owner, and a release page is where many read them. The
+# writer's prompt asks for them and a prompt holds nothing: so where the version's section opens with those lines,
+# the four lines of the notes after the first are those four, in the changelog's words, each bullet on one line
+# (the changelog wraps them, and a release page shows a newline as a break). One difference is allowed: a line
+# that points to an entry as `below` may say `$pointer` (the variable, further down) for that word, because the
+# notes need not keep the entry under its title; release-notes.yml's NOTES_ORDER names the same words, and a test
+# holds the two together. A section that does not open with the lines asks nothing here. A finding prints the
+# lines it wants, so that the fix is a copy. The lines are held to every other check as the rest of the notes
+# are: one that trips a check is wrong in the changelog, and is mended there and the workflow run again.
+#
+# An email differs in four ways. It is not held to those lines: its brief turns them into a section of its own, in
+# the reader's words. It lists no assets, so the asset check is skipped and BRIGADE_NOTES_ASSETS is
 # not read. It leaves the repository for readers who never saw its tracker or its plans, so it may carry no
 # address of anyone and no card or plan-row reference -- the changelog it is composed from is full of both. And
 # it is laid out as HTML by a renderer that knows the brief's shape and nothing else (card 73), so the draft must
@@ -115,6 +131,66 @@ if [ "$kind" = email ]; then
   else
     printf '%s\n' "$findings"
     fail "the draft does not render as the email (above)"
+  fi
+fi
+
+# 9. One release's notes only: the changelog's "who must act" lines, right after the first line (the header).
+pointer='in [the changelog](https://github.com/appshapes/brigade/blob/master/CHANGELOG.md)'
+# The notes' second to fifth lines that are not blank. With `swap` 1, a line that points to the changelog is
+# read as saying `below`. A line in brackets stands for a blank line that is missing: before the second line,
+# without which a release page runs the heading into the first sentence, and after the fifth, without which it
+# runs what follows into the last bullet. Neither is a line of the changelog, so either one is a difference.
+notes_lines() {
+  awk -v pointer="$pointer" -v swap="$1" '
+    /^[[:space:]]*$/ { blank = 1; next }
+    { seen++; spaced = blank; blank = 0 }
+    seen < 2 { next }
+    seen == 2 && !spaced { print "(no blank line before these lines)" }
+    seen > 5 { if (!spaced) print "(no blank line after these lines)"; exit }
+    {
+      sub(/[[:space:]]+$/, "")
+      out = ""
+      while (swap && (at = index($0, pointer)) > 0) { out = out substr($0, 1, at - 1) "below"; $0 = substr($0, at + length(pointer)) }
+      print out $0
+    }
+  ' "$notes"
+}
+if [ "$kind" = notes ]; then
+  changelog=${BRIGADE_NOTES_CHANGELOG:-CHANGELOG.md}
+  section=1
+  if [ -r "$changelog" ]; then
+    # The section's opening lines, each bullet joined to one line: nothing when the section does not open with
+    # them, and status 3 when the changelog has no such section. A first line that says who must act in
+    # another form is printed as it is, and is then not the heading the next check asks for.
+    want=$(awk -v version="$version" '
+      function flush() { if (line != "") { print line; line = "" } }
+      { sub(/[[:space:]]+$/, "") }
+      !found { if (index($0, "## [" version "]") == 1) found = 1; next }
+      $0 == "" { next }
+      !opened { if ($0 != "**Who must act**" && tolower($0) !~ /who must act/) exit; opened = 1; print; next }
+      /^- / { flush(); line = $0; next }
+      /^[[:space:]]/ && line != "" { sub(/^[[:space:]]+/, ""); line = line " " $0; next }
+      { exit }
+      END { flush(); if (!found) exit 3 }
+    ' "$changelog")
+    section=$?
+  fi
+  if [ ! -r "$changelog" ]; then
+    fail "$changelog cannot be read: what the notes are held to is not there"
+  elif [ "$section" -eq 3 ]; then
+    fail "$changelog has no section for $version: what the notes are held to is not there"
+  elif [ "$section" -ne 0 ]; then
+    fail "awk ended with status $section on $changelog: whether the notes are held to who must act is not known"
+  elif [ -z "$want" ]; then
+    ok "the changelog's section for $version does not open with who must act: none asked of the notes"
+  elif [ "$(printf '%s\n' "$want" | sed -e 's/^\(- \*\*[A-Za-z ]*:\*\*\) [^ ].*$/\1 said/' | tr '\n' '|')" != '**Who must act**|- **Team Member:** said|- **Team Admin:** said|- **Project Owner:** said|' ]; then
+    printf '%s\n' "$want" | sed 's/^/changelog: /'
+    fail "the section for $version in $changelog opens with who must act, and its opening (above) is not the line \`**Who must act**\` and then three lines, for a Team Member, a Team Admin and a Project Owner in that order: mend the changelog"
+  elif [ "$(notes_lines 0)" = "$want" ] || [ "$(notes_lines 1)" = "$want" ]; then
+    ok "the notes carry the changelog's who must act lines after their first line"
+  else
+    printf '%s\n' "$want" | sed 's/^/want: /'
+    fail "the notes do not carry the changelog's who must act lines: the four lines above, without the \`want: \` that marks them here, go after the notes' first line, which is the whole first sentence on one line and the only thing before them, with a blank line before them and a blank line after them; word for word, each on one line, and only the word \`below\` in them may read \`$pointer\`"
   fi
 fi
 
