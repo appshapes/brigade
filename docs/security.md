@@ -1336,7 +1336,7 @@ rides on file sync, section 12).
 A team's backend can be a Brigade server, a program its organisation runs on a machine of its own, in place of a
 Supabase project (work item 89; [Project Owner › Server](project-owner/server/README.md)). Sections 1 to 19 hold
 for such a team as they are, with the server's operator where they say the project's owner. This section says
-what differs. The server is experimental in its 0.1.0.
+what differs. The server is one instance with no standby yet; a standby on a second node is planned.
 
 - **Whoever runs the server can read everything**, as section 2 says of the project's owner, and so can anyone who
   can read its data directory. The log's entries are sealed under a key that sits in the same directory, and the

@@ -17,8 +17,8 @@ the one who moves the team to a Brigade server, from a Supabase project or from 
 
 ## Create
 
-One command in the project checkout creates the team, writes `.brigade.json` and the secret file, and stores your
-credential. [Create](create/README.md) also covers handing out the secret, adding a repository and the backup.
+One command in the project checkout creates the team on a Brigade server, writes `.brigade.json` and the secret
+file, and stores your credential. [Create](create/README.md) also covers handing out the secret, adding a repository and the backup.
 
 ## Configure
 

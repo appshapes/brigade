@@ -1,4 +1,7 @@
-# Create the team
+# Create the team in a Supabase project
+
+A new team starts on a Brigade server: [Create the team on a server](create-on-a-server.md). This page is for a
+team whose backend is a Supabase project, which stays supported.
 
 ## What you need
 

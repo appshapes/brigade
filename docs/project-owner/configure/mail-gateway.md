@@ -4,6 +4,10 @@ People without a session write to a session by email, and the session writes bac
 travels through a connector for the team's provider: Resend and Postmark ship with Brigade, and any other provider
 is a small connector of the team's own ([docs/mail-connectors.md](../../mail-connectors.md)).
 
+**Fixes only.** This is the mail gateway of a team in a Supabase project. A new team starts on a Brigade server,
+whose gateway is the one that gains what is new ([Open the gateways](../server/gateways.md)); this one stays
+supported for the teams that use it and takes fixes, not features ([ADR 0023](../../decisions/0023-start-a-new-team-on-a-brigade-server.md)).
+
 ## What you need
 
 - **Resend:** an account whose sending domain is verified; the `from` address must be on it; a full-access API key

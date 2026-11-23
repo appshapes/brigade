@@ -2,7 +2,8 @@
 
 A Brigade server is the backend you run yourself: one program on an always-on machine, your own or a cloud
 instance, with no Supabase project. It keeps every team on that machine's disk, so whoever can read its data
-directory can read every message. It is experimental: one instance with no standby. From 0.2.0 it carries the mail
+directory can read every message. It is where a new team starts. It is one instance with no standby yet; a
+standby on a second node is planned. From 0.2.0 it carries the mail
 and Slack gateways itself. From 0.7.0 a team in a Supabase project moves to it with one command, which its Team
 Admin runs: you run nothing. From 0.8.0 a team moves from one server to another the same way.
 

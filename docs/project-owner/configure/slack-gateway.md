@@ -4,6 +4,10 @@ The Slack twin of the mail gateway. A person writes to a session by messaging a 
 person or a channel; replies thread both ways. Slack authenticates the author, so a user id in a message is a
 verified identity. You run one command twice, with a step at Slack in between.
 
+**Fixes only.** This is the Slack gateway of a team in a Supabase project. A new team starts on a Brigade server,
+whose gateway is the one that gains what is new ([Open the gateways](../server/gateways.md)); this one stays
+supported for the teams that use it and takes fixes, not features ([ADR 0023](../../decisions/0023-start-a-new-team-on-a-brigade-server.md)).
+
 ## What you need
 
 A Slack workspace where you may create and install an app (one app per Supabase project, serving every team on

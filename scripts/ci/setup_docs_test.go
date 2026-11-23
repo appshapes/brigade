@@ -30,15 +30,17 @@ import (
 // every form (Grok Build's since work item 383, when it was carried over from Codex CLI's); since card 110 the
 // member and admin pages carry the forms of their own procedures.
 var setupDocFiles = map[string][]string{
-	"plugin/skills/setup/SKILL.md":              setupDocWitnesses,
-	"muse/brigade/skills/setup/SKILL.md":        setupDocWitnesses,
-	"codex/brigade/skills/setup/SKILL.md":       setupDocWitnesses,
-	"grok/brigade/skills/setup/SKILL.md":        setupDocWitnesses,
-	"docs/team-admin/create/create-the-team.md": {setupDocWitnesses[0], setupDocWitnesses[1]},
-	"docs/team-member/join/muse-code.md":        {setupDocWitnesses[2]},
-	"docs/team-member/join/codex.md":            {setupDocWitnesses[2]},
-	"docs/team-member/join/grok.md":             {setupDocWitnesses[2]},
-	"docs/team-member/leave/leave-the-team.md":  {setupDocWitnesses[3], setupDocWitnesses[4]},
+	"plugin/skills/setup/SKILL.md":                 setupDocWitnesses,
+	"muse/brigade/skills/setup/SKILL.md":           setupDocWitnesses,
+	"codex/brigade/skills/setup/SKILL.md":          setupDocWitnesses,
+	"grok/brigade/skills/setup/SKILL.md":           setupDocWitnesses,
+	"docs/team-admin/create/create-the-team.md":    {setupDocWitnesses[0], setupDocWitnesses[1]},
+	"docs/team-admin/create/create-on-a-server.md": {setupDocWitnesses[6], setupDocWitnesses[1]},
+	"docs/team-admin/create/README.md":             {setupDocWitnesses[6], setupDocWitnesses[0]},
+	"docs/team-member/join/muse-code.md":           {setupDocWitnesses[2]},
+	"docs/team-member/join/codex.md":               {setupDocWitnesses[2]},
+	"docs/team-member/join/grok.md":                {setupDocWitnesses[2]},
+	"docs/team-member/leave/leave-the-team.md":     {setupDocWitnesses[3], setupDocWitnesses[4]},
 	// The one command of a team's move (work item 328): the setup skills name it, the `move` skill of each
 	// package runs it, and the Team Admin's and the Project Owner's pages are its procedure.
 	"plugin/skills/move/SKILL.md":                     {setupDocWitnesses[5]},
@@ -80,8 +82,8 @@ var pluginBinPrefix = regexp.MustCompile(`(\$\{CLAUDE_PLUGIN_ROOT\}|<plugin>)/bi
 // one line in one copy and across two in another; that is formatting, not drift, and must not fail the join.
 var whitespaceRun = regexp.MustCompile(`\s+`)
 
-// The six witnesses: the invocation forms of the procedures a person types (create, join, leave, reset), and of
-// the one a person or their session types to move a team (work item 328).
+// The seven witnesses: the invocation forms of the procedures a person types (create in its two forms, join,
+// leave, reset), and of the one a person or their session types to move a team (work item 328).
 var setupDocWitnesses = []string{
 	"brigade team create --url https://<ref>.supabase.co --key sb_publishable_",
 	"--name <team> --secret-file ~/brigade-<team>.secret",
@@ -89,6 +91,9 @@ var setupDocWitnesses = []string{
 	"brigade team leave",
 	"brigade team reset",
 	"brigade team move --to <url> --secret-file <path>",
+	// The server form of `team create` (work item 376, ADR 0023): a new team starts on a Brigade server, so the
+	// four setup skills lead with it and the Team Admin's pages carry it.
+	"brigade team create --adapter rest --url https://<host>:8743",
 }
 
 // checkSetupDocs asserts each copy's witnesses in every copy that exists, with the path prefix normalised away.

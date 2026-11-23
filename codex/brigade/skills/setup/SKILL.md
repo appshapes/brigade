@@ -2,7 +2,7 @@
 name: setup
 description: >-
   How a HUMAN creates or joins a Brigade team — `team create` from a terminal, `$brigade:join <path>` (or `brigade team
-  join --secret-file <path>` in a terminal) to join — and how to leave and uninstall: the Supabase project prerequisites,
+  join --secret-file <path>` in a terminal) to join — and how to leave and uninstall: the server form and the Supabase form of
   `team create` (which writes the project's committed `.brigade.json`), the one-line join, and
   the removal order. Use when someone asks how to set Brigade up, join a team, add a teammate, leave, or remove
   the plugin. It never asks anyone to paste a join secret into the chat.
@@ -28,7 +28,27 @@ and `team transfer` — and so does the release of a held message (`docs/team-me
 
 ## 1. Administrator: create a team
 
-For a first Supabase setup, `docs/project-owner/install/README.md` in the Brigade repository is the project
+A team lives on a backend the project owner runs. A new team starts on a **Brigade server**, a program the
+project owner runs on a machine of their own. A Supabase project is the other backend: it stays supported for
+the teams on one, and its form of the command follows this one.
+
+**On a Brigade server.** The project owner gives you the server's URL, and where they apply the fingerprint of
+its certificate and a file that holds a creation token. `docs/team-admin/create/create-on-a-server.md` in the
+Brigade repository is the administrator's page, and `docs/project-owner/server/README.md` the project owner's.
+Run this **in the project checkout**, in a terminal:
+
+```sh
+brigade team create --adapter rest --url https://<host>:8743 \
+  --name <team> --secret-file ~/brigade-<team>.secret
+```
+
+`--adapter rest` is what says the backend is a Brigade server, and there is no `--key`: a server has none. Add
+`--certificate sha256:…` when the project owner gave you a fingerprint (leave it out for a certificate from a
+public authority), and `--create-token-file <path>` when they gave you a creation token: the token is read from
+the file and is never an argument. Every member's plugin must be 0.52.0 or later. Then commit `.brigade.json`,
+as below. The server is one instance with no standby yet; a standby on a second node is planned.
+
+**In a Supabase project.** For a first Supabase setup, `docs/project-owner/install/README.md` in the Brigade repository is the project
 owner's ordered procedure, and `docs/team-admin/create/create-the-team.md` the administrator's. The publishable key is under Project Settings → API Keys and starts with `sb_publishable_`;
 the `sb_secret_` key on the same page is never used. The short form follows.
 

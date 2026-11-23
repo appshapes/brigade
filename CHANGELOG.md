@@ -71,6 +71,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **A new team starts on a Brigade server** (work item 376, ADR 0023).
+  The pages and the `setup` skill of each package showed a new
+  administrator the Supabase form of `brigade team create` and no
+  other. They now lead with the server form, `brigade team create
+  --adapter rest --url https://<host>:8743 …`, and give the Supabase
+  form after it. Nothing is taken away: Supabase stays supported for
+  the teams on it, and `team create` without `--adapter` works as
+  before.
+- **The server is no longer called experimental.** Its pages say what
+  it is: one instance with no standby yet, with a standby on a second
+  node planned.
+- **The Supabase mail and Slack gateways take fixes only.** What is
+  new for a gateway is built for the server's. Each of the two pages
+  says so.
 - **Each harness has a status** (work item 378, ADR 0022). The pages
   showed Claude Code, Muse Code, Codex CLI and Grok Build as four equal
   ways in, which they are not. Each now carries one of three statuses,
