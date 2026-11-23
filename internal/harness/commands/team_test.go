@@ -500,6 +500,7 @@ func TestAdminRefusedAddsTheSentenceToABackendsUnauthorizedAlone(t *testing.T) {
 	other := &protocol.Error{Code: protocol.CodeNotFound, Message: notAMemberWords}
 	ownWords := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "only the team's creator may"}
 	for _, same := range []error{reasoned, other, ownWords, errors.New("not an envelope"), nil} {
+		//nolint:errorlint // identity is the point here: the very error that went in comes back, unwrapped.
 		if after := adminRefused(same); after != same {
 			t.Errorf("adminRefused changed %v into %v", same, after)
 		}
