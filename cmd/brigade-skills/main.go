@@ -31,7 +31,7 @@ func run(args []string) int {
 			return 2
 		}
 		for _, s := range stale {
-			fmt.Fprintf(os.Stderr, "brigade-skills: %s %s from its source under %s/: run `make skills-generate`, never edit a copy\n", s.Path, s.Why, skillgen.SourceDir)
+			fmt.Fprintf(os.Stderr, "brigade-skills: %s\n", s)
 		}
 		if len(stale) > 0 {
 			return 1

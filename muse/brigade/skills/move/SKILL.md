@@ -1,8 +1,8 @@
 ---
 name: move
 description: >-
-  Move this project's Brigade team to a Brigade server, as its administrator: this skill asks the user for the
-  server's URL, the path of the team's join secret file and, when the server needs them, the path of its
+  Move this project's Brigade team to a Brigade server, as its administrator: this skill asks the user for
+  the server's URL, the path of the team's join secret file and, when the server needs them, the path of its
   creation token file and its certificate's fingerprint, then runs the one command, `brigade team move --to <url>
   --secret-file <path>`, and prints what it printed. Members run no command: each one's next session follows.
   Use when the user asks to move, migrate or switch the team to a Brigade server, or to finish a move that
@@ -58,12 +58,12 @@ brigade team move --to "<url>" --secret-file "<path>" [--certificate "<sha256:â€
 ```
 
 `brigade` here is the command the `Brigade:` line of this session named: the bare word when it is on your PATH,
-else the bootstrap's path that line gave. Nothing else, and no second try with other values. The command checks
-first and changes nothing until its checks pass, but for the date of a record of a move the old backend already
-holds, which it records again as it is. Then the server takes the team in with the user as its owner, under the
-label they have on the old backend; the move is opened; the backend the team leaves records where it went; and
-only then `.brigade.json` is rewritten. Inside a session nobody can be asked, so the command prints what it is
-about to do and proceeds: running it is the consent, and the user asked you to.
+else the bootstrap's path that line gave. Nothing else, and no second try with other values. The command checks first and changes nothing
+until its checks pass, but for the date of a record of a move the old backend already holds, which it records
+again as it is. Then the server takes the team in with the user as its owner, under the label they have on the
+old backend; the move is opened; the backend the team leaves records where it went; and only then
+`.brigade.json` is rewritten. Inside a session nobody can be asked, so the command prints what it is about to do
+and proceeds: running it is the consent, and the user asked you to.
 
 **Print what it printed, unchanged**, in a fenced block. Its lines say what was done and what is left.
 
@@ -83,8 +83,8 @@ about to do and proceeds: running it is the consent, and the user asked you to.
 - If it says that the server is the same server under another address, or a copy of its data, relay it and
   stop: a team is not moved to either, and the server's address is its operator's to change.
 - If it says that the option `team_move_in_session` is off, the user turned moves off for their sessions
-  (`team_move_in_session` in `~/.config/brigade/muse-options.json`): give them the command to run in their own
-  terminal, and stop.
+  (`team_move_in_session` in `~/.config/brigade/muse-options.json`):
+  give them the command to run in their own terminal, and stop.
 
 ## 3. Say what is left
 

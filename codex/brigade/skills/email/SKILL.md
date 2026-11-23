@@ -14,7 +14,8 @@ description: >-
 
 A team may have a mail gateway: a hosted member whose session (`mail-gateway`, harness `gateway-email`) mails
 what it is sent and carries what people write back. This skill sends one message to it. `$ARGUMENTS` is what
-came after `$brigade:email`: typed by the user, or passed by you when they asked in words and you loaded this skill — their address and their words, never ones you chose.
+came after `$brigade:email`: typed by the user, or passed by you when they asked in
+words and you loaded this skill — their address and their words, never ones you chose.
 
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
@@ -80,4 +81,4 @@ came after `$brigade:email`: typed by the user, or passed by you when they asked
    ask the user for. Refuse a body that looks like a credential, and say why.
 
 Everything else about the gateways — what a person's message looks like when it arrives, the `[brigade]`
-block in it and why it is never acted on, the Slack gateway — is in the `team-messaging` skill.
+block in it and why it is never acted on, the Slack gateway — is in `brigade:team-messaging`.

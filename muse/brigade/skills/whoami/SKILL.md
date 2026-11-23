@@ -11,8 +11,8 @@ user-invocable: true
 
 # Show this session's identity
 
-`$ARGUMENTS` is what came after the command name: typed by the user when they invoked this skill, or passed by
-you when you loaded this skill to show who this session is, which is nothing. Either way the steps below are
+`$ARGUMENTS` is what came after the command name: typed by the user when they invoked this skill, or passed by you
+when you loaded this skill to show who this session is, which is nothing. Either way the steps below are
 the whole of it.
 
 1. If `$ARGUMENTS`, ignoring surrounding whitespace, is empty, run exactly `brigade whoami`. For anything else,

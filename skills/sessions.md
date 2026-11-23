@@ -1,9 +1,11 @@
 ---
 name: sessions
 description: >-
-  Show the team's sessions: `{{invoke "sessions"}}` runs `brigade sessions` and prints its output unchanged.
+  Show the team's sessions: {{if in "muse"}}the `sessions` skill runs `brigade sessions` and prints its output unchanged.
+  With `--all` it includes the offline ones, with `--here` only this repository's,
+  and with `--member <who>` only one member's.{{else}}`{{invoke "sessions"}}` runs `brigade sessions` and prints its output unchanged.
   `{{invoke "sessions"}} --all` includes the offline ones, `{{invoke "sessions"}} --here` shows only this repository's,
-  and `{{invoke "sessions"}} --member <who>` only one member's. Use it whenever the roster is being SHOWN to the
+  and `{{invoke "sessions"}} --member <who>` only one member's.{{end}} Use it whenever the roster is being SHOWN to the
   user, so they see what the command printed rather than a retelling of it; reading the roster to address a
   message is `brigade:team-messaging`.
 user-invocable: true
@@ -13,7 +15,7 @@ allowed-tools: Bash(brigade sessions:*)
 
 # Show the team's sessions
 
-`$ARGUMENTS` is what came after {{argsOfCommand "sessions"}}: typed by the user through `{{invoke "sessions"}}`, or passed by
+`$ARGUMENTS` is what came after {{argsOfCommand "sessions"}}: typed by the user{{if in "claude"}} through `{{invoke "sessions"}}`{{else}} when they invoked this skill{{end}}, or passed by
 you when you loaded this skill to show the roster — a flag only when the user asked for what it does, otherwise
 nothing. Either way the steps below are the whole of it.
 

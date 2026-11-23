@@ -1,9 +1,9 @@
 ---
 name: sessions
 description: >-
-  Show the team's sessions: the `$brigade:sessions` skill runs `brigade sessions` and prints its output unchanged.
-  with `--all` it includes the offline ones, with `--here` only this repository's,
-  and with `--member <who>` only one member's. Use it whenever the roster is being SHOWN to the
+  Show the team's sessions: `$brigade:sessions` runs `brigade sessions` and prints its output unchanged.
+  `$brigade:sessions --all` includes the offline ones, `$brigade:sessions --here` shows only this repository's,
+  and `$brigade:sessions --member <who>` only one member's. Use it whenever the roster is being SHOWN to the
   user, so they see what the command printed rather than a retelling of it; reading the roster to address a
   message is `brigade:team-messaging`.
 ---

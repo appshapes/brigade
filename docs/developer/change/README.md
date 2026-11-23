@@ -9,6 +9,7 @@
 | write a sync adapter or a mail connector | [Write a sync adapter or a mail connector](#write-a-sync-adapter-or-a-mail-connector) |
 | add a migration, a function, or change the Supabase adapter | [Change the backend](#change-the-backend) |
 | change the Brigade server, the backend with no Supabase project | [Change the server](#change-the-server) |
+| change what a skill says, in all four packages or in one | [Change a skill](#change-a-skill) |
 | add Brigade support for another harness | [Add a harness](#add-a-harness) |
 | know where things are | [Know the layout](#know-the-layout) |
 
@@ -49,6 +50,14 @@ Details: [Change the backend](backend.md).
 4. A member added to a record or to the state gets a default: the tests read what released servers wrote (`server/testdata/stored/`).
 
 Details: [Change the server](server.md).
+
+## Change a skill
+
+1. Edit the one source, `skills/<name>.md`. Never a package's `SKILL.md`: those are generated.
+2. `make skills-generate`, then `make muse-digest`. `make skills-check` fails on a copy that is stale.
+3. A difference between harnesses is a mark in the source or a row of the table in `internal/skillgen`.
+
+Details: [Change a skill](skills.md).
 
 ## Add a harness
 

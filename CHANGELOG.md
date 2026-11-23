@@ -71,6 +71,28 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **Each skill is written once** (work item 393, ADR 0024). The fifteen
+  skills were four hand-edited copies each, one for every harness, and
+  they had drifted apart. Each now has one source, and the four
+  packages' copies are generated from it; a check fails on a copy that
+  is stale. Claude Code's copies are unchanged to the byte. In the
+  others, what a skill tells a session changed in these places only.
+  In Muse Code: a sentence of `team-messaging` that a search and
+  replace had garbled is whole again; `setup` no longer names the `!`
+  prefix it says Muse Code lacks; four unclosed parentheses in `email`
+  and `slack` are closed; `slack` says "a teammate's session", not "a
+  teammate's Muse Code session"; and `team-messaging` no longer
+  carries an `allowed-tools` line, which no other Muse Code skill has.
+  In Muse Code and Codex CLI: `team-messaging` no longer says never to
+  run `brigade` by its full path, which is how both run it. In Codex
+  CLI and Grok Build: the description of `slack` no longer ends by
+  pointing at `email`; `sessions`, `whoami` and `join` give the typed
+  form where they described it ("`$brigade:sessions --all`" for "with
+  `--all` it"); and four skills name `brigade:team-messaging` where
+  they said "the `team-messaging` skill". In Grok Build: `subscribe`
+  and `quiet` name the options file where their options are set. A
+  Codex CLI member reviews Brigade's hooks once more for it, as the
+  opening lines say.
 - **A new team starts on a Brigade server** (work item 376, ADR 0023).
   The pages and the `setup` skill of each package showed a new
   administrator the Supabase form of `brigade team create` and no

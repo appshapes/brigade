@@ -168,7 +168,7 @@ should reach for; `$brigade:whoami` is the same for `brigade whoami`, this sessi
    over **10,000 characters** is longer than the permission analysis can parse (measured to the character), so it
    is denied outright in unattended (`-p`) runs and prompts interactively with **no way to pre-approve it**.
    Writing the body file is itself a Write-tool permission in Manual mode. Never reach for an evasive form: no
-   `$VAR` or `$(...)` inside the command, no unquoted heredoc, no `sh -c`, and never the binary by its full path.
+   `$VAR` or `$(...)` inside the command, no unquoted heredoc, no `sh -c`.
    And if a `brigade` command is denied or raises a prompt, **say what was denied and stop** — do not propose a
    different invocation form to your user.
 

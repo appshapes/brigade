@@ -1,7 +1,7 @@
 ---
 name: whoami
 description: >-
-  Show who this session is on the team: `{{invoke "whoami"}}` runs `brigade whoami` and prints its output
+  Show who this session is on the team: {{if in "muse"}}the `whoami` skill{{else}}`{{invoke "whoami"}}`{{end}} runs `brigade whoami` and prints its output
   unchanged, the lines that give this session's ids, name and team, its member label and whether it is receiving.
   Use it whenever this session's Brigade identity is being SHOWN to the user (who am I on the team, which session
   is this, what is my label, am I receiving), so they see what the command printed rather than a retelling of it;
@@ -12,7 +12,7 @@ allowed-tools: Bash(brigade whoami:*)
 
 # Show this session's identity
 
-`$ARGUMENTS` is what came after {{argsOfCommand "whoami"}}: typed by the user through `{{invoke "whoami"}}`, or passed by you
+`$ARGUMENTS` is what came after {{argsOfCommand "whoami"}}: typed by the user{{if in "claude"}} through `{{invoke "whoami"}}`{{else}} when they invoked this skill{{end}}, or passed by you
 when you loaded this skill to show who this session is, which is nothing. Either way the steps below are
 the whole of it.
 

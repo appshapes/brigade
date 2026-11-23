@@ -216,8 +216,16 @@ func Copy(h Harness, skill string) string {
 // A Stale copy is one that is not what its source renders.
 type Stale struct {
 	Path string
-	// Why is "missing" or "differs".
+	// Why is "missing", "differs" or "has no source".
 	Why string
+}
+
+// String says what is wrong with the copy and what puts it right.
+func (s Stale) String() string {
+	if s.Why == "has no source" {
+		return s.Path + " has no source under " + SourceDir + "/: write its source, or remove the copy"
+	}
+	return s.Path + " " + s.Why + " from its source under " + SourceDir + "/: run `make skills-generate`, never edit a copy"
 }
 
 // Check reports the copies under root that are not what their source
@@ -238,7 +246,38 @@ func Check(root string) ([]Stale, error) {
 		}
 		return nil
 	})
-	return stale, err
+	if err != nil {
+		return nil, err
+	}
+	orphans, err := unsourced(root)
+	return append(stale, orphans...), err
+}
+
+// unsourced are the skills a package carries that no source renders: one
+// written by hand into a package, or left behind when its source was
+// renamed or removed. Write never deletes one: the copy is removed by hand,
+// or given its source.
+func unsourced(root string) ([]Stale, error) {
+	names, err := Sources(root)
+	if err != nil {
+		return nil, err
+	}
+	var out []Stale
+	for _, h := range Harnesses {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(h.Skills)))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if e.IsDir() && !slices.Contains(names, e.Name()) {
+				out = append(out, Stale{Path: Copy(h, e.Name()), Why: "has no source"})
+			}
+		}
+	}
+	return out, nil
 }
 
 // Write writes every copy under root (into out, when it is not empty, in

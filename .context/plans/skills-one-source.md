@@ -44,13 +44,15 @@ A change of what a skill tells a model is not this work item's.
 ## Parts, and where the work stands
 
 1. **The generator, the table, the first sources, their tests.** No package file changes. Done: 2f629a7a.
-2. **The other seven sources.** No package file changes. Done in this part: all fifteen skills have a source.
-3. **The switch**, in one commit: `brigade-skills write` rewrites the sixty copies, `make skills-generate` and
-   `make skills-check` are added, the check joins `make test` and CI's `fast` job, `make muse-digest` rewrites the
-   catalog, the rule files say how a skill is changed, and the interim tests give way to the check. This is the
-   one change of the four packages: Codex CLI members review Brigade's hooks once more, and Grok Build and
-   Codex CLI take the new text from the default branch at once. **Next.**
-4. **Each harness loads its skills once in a live session**: waits on the owner's word on live sessions.
+2. **The other seven sources.** No package file changes. Done: 1ce73167 (merge 969ca97a).
+3. **The switch**, in one commit. Done in this part: `brigade-skills write` rewrote the copies (26 of the sixty
+   changed, in 86 lines, each read; 34 came out byte for byte, Claude Code's fifteen among them); `make skills-generate` and `make skills-check`;
+   the check in CI's `fast` job and, as `TestCopiesAreCurrent`, in `make test`; `make muse-digest`; ADR 0024;
+   `docs/developer/change/skills.md`. The interim tests are gone: the check holds the copies now. This is the one
+   change of the four packages.
+4. **The rule files' sentence** on how a skill is changed: waits for work item 395, which is rewriting those
+   files, to land; then one sentence in `docs/agent/repository/conventions.md` or where 395 puts skills.
+5. **Each harness loads its skills once in a live session**: waits on the owner's word on live sessions.
 
 ### The fifteen sources
 
@@ -58,7 +60,7 @@ A change of what a skill tells a model is not this work item's.
 | --- | --- | --- |
 | `work-item`, `work-item-next`, `work-item-start`, `work-items` | Claude Code's text with the invocation marks | reproduced word for word |
 | `update` | a block for each harness: the commands that refresh a package are the harness's own from the first line to the last | reproduced byte for byte |
-| `sessions`, `whoami`, `join`, `email`, `slack` | Claude Code's text with the marks | the other three said the same in other words ("the `sessions` skill … with `--all` it includes", "typed by the user when they invoked this skill"); the source keeps Claude Code's wording (rule 2) |
+| `sessions`, `whoami`, `join`, `email`, `slack` | Claude Code's text with the marks | Muse Code's keep their own wording wherever a skill is named or asked for ("the `join` skill", "this skill, given a path", "when they invoked this skill"): a Muse Code member asks for a skill in words, as `docs/team-member/join/muse-code.md` says, so that is a fact of the harness (rule 1), in a block. Codex CLI's and Grok Build's said the same as Claude Code's in other words, and take the source's wording (rule 2); the list is below |
 | `subscribe`, `quiet`, `move` | Claude Code's text with the marks | where an option is set, the tool's word, where `brigade` is found and Claude Code's pre-approved commands are marked for each harness (rule 1); the rest as the row above |
 | `setup`, `team-messaging` | paragraph by paragraph from the four copies: a paragraph, list item or code block that all four carry with the same words is written once; between two such, each harness keeps its own text in a block, and harnesses with the same text share the block | reproduced word for word but for the choices below |
 
@@ -66,13 +68,28 @@ A change of what a skill tells a model is not this work item's.
 a block that says for three harnesses what a mark could say once is still three texts. That narrowing changes no
 copy and can be done a block at a time, with `brigade-skills check` holding the copies still.
 
-Held by tests until the switch (`internal/skillgen/skillgen_test.go`): every source renders for every harness with
-that harness's frontmatter keys and no other; rendered for Claude Code it is the package's copy byte for byte; and
-each copy listed there keeps its words.
+Until the switch, tests held every source to the hand-written copies: rendered for Claude Code it was the package's
+copy byte for byte, and each copy no choice touches kept its words. Since the switch the copies are the sources'
+renderings, and `make skills-check` holds that.
+
+## One wording where there were two (rule 2)
+
+What changed in a copy at the switch without a choice behind it. Each is the same thing in the source's words.
+
+- **Codex CLI's and Grok Build's `email`, `slack`, `quiet` and `subscribe`**: "the `team-messaging` skill" reads
+  "`brigade:team-messaging`", the name every package's `sessions`, `whoami` and work-item skills already use.
+- **Codex CLI's and Grok Build's `sessions` and `whoami`**: "the `$brigade:sessions` skill runs" reads
+  "`$brigade:sessions` runs", and "with `--all` it includes … with `--here` only … with `--member <who>` only"
+  reads "`$brigade:sessions --all` includes … `$brigade:sessions --here` shows only … `$brigade:sessions
+  --member <who>` only". Both harnesses take a typed skill with arguments (their join pages show it).
+- **Codex CLI's and Grok Build's `join`**: "`$brigade:join` with no path" reads "`$brigade:join` alone", and
+  "typed by them after" reads "typed by them through".
+
+Nothing else differs but line breaks.
 
 ## Choices (rule 3)
 
-Each changes a word of a copy at the switch.
+Each changed a word of a copy at the switch.
 
 - **Muse Code's `team-messaging`**: the sentence a search and replace garbled on 2026-10-17 ("the `email` skill
   ( <address> <text>` …") reads as Claude Code's does, with Muse Code's form: "`brigade:email <address> <text>`
@@ -84,16 +101,16 @@ Each changes a word of a copy at the switch.
   does and the table does not give Muse Code. Left out.
 - **Muse Code's `setup`**: step 1 of leaving said "(with `!` in a session)", and the same copy says higher up
   that a Muse Code session has no `!` prefix. The words are gone from Muse Code's copy.
-- **Muse Code's `email` and `slack`**: the unbalanced parenthesis of "the `email` skill (`brigade:email …` sends"
-  is gone with the source's wording.
+- **Muse Code's `email` and `slack`**: four parentheses the same search and replace left open ("the `email`
+  skill (`brigade:email <address> <text>` sends", "through the `email` skill (`brigade:email`, or") are closed.
 - **Muse Code's `slack`**: "A teammate's Muse Code session is addressed with…" named one harness for a teammate
   who may use any; it reads "A teammate's session".
+- **Muse Code's `sessions`**: a sentence began "with `--all` it includes", lower case after a full stop. It
+  begins with a capital.
 - **Codex CLI's and Grok Build's `slack`**: their description ended "; a person on email with `$brigade:email`",
   which Claude Code's and Muse Code's never had. Left out, as `email`'s own description says when it is used.
-- **`sessions`**, in the three other packages: a sentence began "with `--all` it includes", lower case after a
-  full stop. Gone with the source's wording.
 - **Grok Build's `subscribe` and `quiet`**: "the `label` option" and "the `team_inbound` option" named no options
-  file where the other two packages' copies name theirs. The source names Grok Build's, as it has one.
+  file where the other two packages' copies name theirs. Grok Build's now say it as theirs do.
 
 **Seen and left as it is**, because changing it would change what a skill tells a model: the rule on a long
 command in Muse Code's and Codex CLI's `team-messaging` still gives Claude Code's measured 10,000 characters and
@@ -101,8 +118,15 @@ its `-p` runs; the three non-Claude copies of `join` and `move` say that the `Br
 the command, which in Grok Build reaches the user and not the model; Codex CLI's `setup` says "(with `!` in a
 session)" for leaving, which was not checked against Codex CLI.
 
+**The review before the switch** (2026-11-23) found that the sources of parts 1 and 2 would have given Muse
+Code's copies Claude Code's typed forms ("`brigade:join <path>` runs") and Codex CLI's and Grok Build's a doubled
+invocation ("came after `$brigade:email`: typed by the user through `$brigade:email`"). Both were put right in
+the sources before any copy was written. It also asked for two things the check now does: a skill in a package
+with no source fails it, and a test ties the table to `docs/harnesses.json`.
+
 ## What it will cost members, at the switch
 
-Every package's skills change in one commit. Codex CLI asks its members to review Brigade's hooks again;
-`marketplace.json` gets a new digest; Grok Build and Codex CLI read the new text from the default branch at once,
-before a release. The changelog's opening lines say so when the switch lands.
+Three packages' skills changed in one commit; Claude Code's did not change by a byte. Codex CLI asks its members
+to review Brigade's hooks again, which the changelog's opening lines already said for this release;
+`marketplace.json` has a new digest; Grok Build and Codex CLI read the new text from the default branch at once,
+before a release.

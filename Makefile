@@ -498,6 +498,14 @@ docs-check: ## The documentation gate (cards 110, 112; work item 309): README an
 grok-plugin-check: ## Validate Grok native package, four hooks, fifteen skills and canonical release assets (CI)
 	go run ./cmd/brigade-packages check grok
 
+.PHONY: skills-generate
+skills-generate: ## Write the four packages' skills from their one source each, skills/<name>.md (work item 393, ADR 0024): after any change to a source; then `make muse-digest`
+	go run ./cmd/brigade-skills write
+
+.PHONY: skills-check
+skills-check: ## Fail when a package's copy of a skill is not what its source under skills/ renders: a copy is generated, never edited (CI)
+	go run ./cmd/brigade-skills check
+
 .PHONY: docs-generate
 docs-generate: ## Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines and commands.md from internal/cli's command table (docs-check fails when either is stale)
 	go run ./cmd/brigade-docs generate

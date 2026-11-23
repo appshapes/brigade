@@ -48,6 +48,8 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `codex-plugin-check` | Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI) |
 | `docs-check` | The documentation gate (cards 110, 112; work item 309): README and persona shapes, links and anchors, orphans, harness pages, options, the generated make-target and command pages, a page for every command, the changelog section, the ADRs and that a landed one keeps its text (CI) |
 | `grok-plugin-check` | Validate Grok native package, four hooks, fifteen skills and canonical release assets (CI) |
+| `skills-generate` | Write the four packages' skills from their one source each, skills/<name>.md (work item 393, ADR 0024): after any change to a source; then `make muse-digest` |
+| `skills-check` | Fail when a package's copy of a skill is not what its source under skills/ renders: a copy is generated, never edited (CI) |
 | `docs-generate` | Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines and commands.md from internal/cli's command table (docs-check fails when either is stale) |
 | `plugin-validate` | claude plugin validate on the marketplace and the plugin root |
 | `plugin-dev-pointer` | Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; a prerequisite of plugin-dev and the manual step of docs/experiments/E3-interactive.md |

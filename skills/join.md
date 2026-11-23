@@ -1,8 +1,8 @@
 ---
 name: join
 description: >-
-  Join this project's Brigade team from inside the session: `{{invoke "join"}} <path>` runs
-  `brigade team join --secret-file <path>` on the secret file the administrator sent, and `{{invoke "join"}}` alone
+  Join this project's Brigade team from inside the session: {{if in "muse"}}this skill, given a path,{{else}}`{{invoke "join"}} <path>`{{end}} runs
+  `brigade team join --secret-file <path>` on the secret file the administrator sent, and {{if in "muse"}}the skill with no path{{else}}`{{invoke "join"}}` alone{{end}}
   re-consents a second checkout of a team this machine already holds. Use when the user asks to join and names
   the path of the secret file they saved — never with a path you chose or a file you wrote.
 user-invocable: true
@@ -12,7 +12,7 @@ allowed-tools: Bash(brigade:*)
 
 # Join the team
 
-`$ARGUMENTS` is the path of the secret file the user saved, or empty: typed by them through `{{invoke "join"}}`, or
+`$ARGUMENTS` is the path of the secret file the user saved, or empty: typed by them {{if in "muse"}}when they invoked this skill{{else}}through `{{invoke "join"}}`{{end}}, or
 passed by you when they asked in words and you loaded this skill — the path exactly as they wrote it, or nothing
 if they named none. The path is always **theirs**: never one you chose, guessed or wrote.
 

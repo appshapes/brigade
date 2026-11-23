@@ -49,7 +49,7 @@ came after `/brigade:subscribe`: typed by the user, or passed by you when they a
    folder only when git ignores it; tell the user to add the state folder to `.gitignore` or to name a Slack
    handle or channel instead, and run nothing else. `config` with `no_state_folder` — the project shares no state
    folder, so there is no digest here. `config` with `no_state_entry` — the session's entry is not there yet; the
-   user's next prompt creates it. `config` with `label_needed` — the session has no roster label; the `label` option
+   user's next prompt creates it. `config` with `label_needed` — the session has no roster label; the `label` option in the host's options file
    names one. `not_found` with `not_subscribed` on `off` — nothing to undo.
 
 Rules that hold throughout:
@@ -60,4 +60,4 @@ Rules that hold throughout:
 - Only this project's digest changes: no option, no settings file, no other project.
 - A subagent never runs any of this.
 
-What the digest holds, `brigade decision --to <label>` and `brigade report show` are in the `team-messaging` skill.
+What the digest holds, `brigade decision --to <label>` and `brigade report show` are in `brigade:team-messaging`.

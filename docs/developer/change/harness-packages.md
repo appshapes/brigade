@@ -14,7 +14,8 @@ did, and record the answer under `docs/experiments/`.
 
 A directory beside `plugin/`, `muse/brigade/`, `codex/brigade/` and `grok/brigade/` holding the harness's native
 manifest, its hooks (one wrapper per hook that execs `bin/brigade hook <event>`, or hook commands that run it), the
-fifteen skills worded for the harness, a `README.md`, and `bin/` copies of `plugin/bin`'s bootstrap, `VERSION` and
+fifteen skills, which are generated from the sources under `skills/` once the harness has a row in the table
+of `internal/skillgen` ([Change a skill](skills.md)), a `README.md`, and `bin/` copies of `plugin/bin`'s bootstrap, `VERSION` and
 `checksums.txt`, which the release sequence keeps equal.
 
 ## The code

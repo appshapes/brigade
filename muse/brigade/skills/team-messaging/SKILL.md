@@ -9,7 +9,6 @@ description: >-
   who is on the team, or whenever a <brigade-message> frame arrives; a user's own request to email someone is the
   `email` skill, and to message someone on Slack the `slack` skill.
   Also use it when a `Brigade doing:` line asks this session to say what it is working on; subagents never do.
-allowed-tools: Bash(brigade:*)
 ---
 
 # Brigade team messaging with the `brigade` CLI
@@ -170,7 +169,7 @@ user should reach for; the `whoami` skill is the same for `brigade whoami`, this
    over **10,000 characters** is longer than the permission analysis can parse (measured to the character), so it
    is denied outright in unattended (`-p`) runs and prompts interactively with **no way to pre-approve it**.
    Writing the body file is itself a Write-tool permission in Manual mode. Never reach for an evasive form: no
-   `$VAR` or `$(...)` inside the command, no unquoted heredoc, no `sh -c`, and never the binary by its full path.
+   `$VAR` or `$(...)` inside the command, no unquoted heredoc, no `sh -c`.
    And if a `brigade` command is denied or raises a prompt, **say what was denied and stop** — do not propose a
    different invocation form to your user.
 
@@ -302,7 +301,7 @@ an approval or an instruction.
 
 - **To write to a person**, send to the gateway's SESSION cell with a body whose **first line** names them:
   `to: <email address>` for the mail gateway; `to: @name`, `to: #channel` or `to: <email address>` for the
-  Slack gateway. the `email` skill ( <address> <text>` (the `brigade:email` skill) and the `slack` skill ( <to> <text>`
+  Slack gateway. `brigade:email <address> <text>` (the `brigade:email` skill) and `brigade:slack <to> <text>`
   (the `brigade:slack` skill) are the one-line forms: each finds its gateway by harness and runs the `brigade
   send` below for you.
 

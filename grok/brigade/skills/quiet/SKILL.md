@@ -15,8 +15,8 @@ description: >-
 A quiet session takes nothing from the team while the user's other sessions keep working with it. Three things
 make it so, and all three are this session's alone: Brigade's inbound policy for this one session, this
 session's roster line, and a standing instruction to you for the rest of the conversation. `$ARGUMENTS` is what
-came after `/brigade:quiet`: typed by the user, or passed by you when they asked in words and you loaded this
-skill.
+came after `/brigade:quiet`: typed by the user, or passed by you when they asked in
+words and you loaded this skill.
 
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
@@ -82,8 +82,7 @@ Rules that hold throughout:
 - No secrets, local paths, hostnames or customer names in the roster line; `<where>` is passed as the user
   wrote it, and the command refuses a credential shape or a path.
 - A subagent never runs any of this: the policy and the line are the session's.
-- `/brigade:quiet` changes this session only. The `team_inbound` option and the user's other sessions are left
-  exactly as they are. A quiet session stays quiet until the user
+- `/brigade:quiet` changes this session only. The `team_inbound` option in the Grok options file and the user's other sessions are left exactly as they are. A quiet session stays quiet until the user
   says `off` or closes the session; `/clear` and `/compact` keep it.
 
-Everything else about team messages — the frame, the routing rules, the gateways — is in the `team-messaging` skill.
+Everything else about team messages — the frame, the routing rules, the gateways — is in `brigade:team-messaging`.

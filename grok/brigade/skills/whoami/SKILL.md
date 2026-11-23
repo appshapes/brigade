@@ -1,7 +1,7 @@
 ---
 name: whoami
 description: >-
-  Show who this session is on the team: the `/brigade:whoami` skill runs `brigade whoami` and prints its output
+  Show who this session is on the team: `/brigade:whoami` runs `brigade whoami` and prints its output
   unchanged, the lines that give this session's ids, name and team, its member label and whether it is receiving.
   Use it whenever this session's Brigade identity is being SHOWN to the user (who am I on the team, which session
   is this, what is my label, am I receiving), so they see what the command printed rather than a retelling of it;
@@ -10,8 +10,8 @@ description: >-
 
 # Show this session's identity
 
-`$ARGUMENTS` is what came after `/brigade:whoami`: typed by the user when they invoked this skill, or passed by
-you when you loaded this skill to show who this session is, which is nothing. Either way the steps below are
+`$ARGUMENTS` is what came after `/brigade:whoami`: typed by the user when they invoked this skill, or passed by you
+when you loaded this skill to show who this session is, which is nothing. Either way the steps below are
 the whole of it.
 
 1. If `$ARGUMENTS`, ignoring surrounding whitespace, is empty, run exactly `brigade whoami`. For anything else,

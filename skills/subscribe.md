@@ -1,7 +1,7 @@
 ---
 name: subscribe
 description: >-
-  Subscribe the user to the project's Brigade digest, or unsubscribe: `{{invoke "subscribe"}}` runs `brigade report subscribe`
+  Subscribe the user to the project's Brigade digest, or unsubscribe: {{if in "muse"}}the `subscribe` skill ({{end}}`{{invoke "subscribe"}}`{{if in "muse"}}){{end}} runs `brigade report subscribe`
   for the user's own roster label, so the team's sessions send them the digest on the period and a
   `brigade decision --to <their label>` reaches them at once (one their own session asks, after their wait); `--recipients "<@name | #channel | address>"`,
   `--every <duration>` or `--at <HH:MM> --tz <zone>`, `--only mine` and `--wait <duration>` are the only flags; `{{invoke "subscribe"}} off` runs

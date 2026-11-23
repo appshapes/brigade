@@ -166,7 +166,7 @@ Either way the secret never reaches your scrollback, your shell history or a cha
 
 The order matters. Every step is optional except step 3 when the goal is to remove the plugin.
 
-1. `brigade team leave` (with `!` in a session) closes your open sessions in that team and revokes the
+1. `brigade team leave` closes your open sessions in that team and revokes the
    membership; teammates stop seeing your sessions immediately. Skip it and the membership stays active
    indefinitely while your sessions merely go offline after the lease expires.
 2. `brigade team reset` revokes the credential family on the backend and deletes the

@@ -1,12 +1,12 @@
 ---
 name: slack
 description: >-
-  Message a person or a channel on Slack through the team's Brigade Slack gateway: the `slack` skill (`brigade:slack <to> <text>`
+  Message a person or a channel on Slack through the team's Brigade Slack gateway: the `slack` skill (`brigade:slack <to> <text>`)
   sends the text to `@name`, `#channel`, an email address or a Slack id, as a Brigade message to the gateway
   session, which posts it; `--summary "<line>"`, `--reply-to <message-id>` (answer in the person's own Slack
   thread, no `<to>`) and `--body-file <path>` are the only flags. Use when the user asks to Slack someone, to
   message, tell, ask or notify a person or a channel on Slack, or to answer a Slack message that reached this
-  session through the gateway. A teammate's Muse Code session is addressed with `brigade:team-messaging`.
+  session through the gateway. A teammate's session is addressed with `brigade:team-messaging`.
 user-invocable: true
 argument-hint: "<@name|#channel|email> [--summary \"<line>\"] [--reply-to <message-id>] [--body-file <path>] <text>"
 ---
@@ -15,7 +15,7 @@ argument-hint: "<@name|#channel|email> [--summary \"<line>\"] [--reply-to <messa
 
 A team may have a Slack gateway: a hosted member whose session (`slack-gateway`, harness `gateway-slack`) posts
 what it is sent to Slack and carries what people write back. This skill sends one message to it. `$ARGUMENTS`
-is what came after the command name: typed by the user through the `slack` skill (`brigade:slack`, or passed by you when they
+is what came after the command name: typed by the user through the `slack` skill (`brigade:slack`), or passed by you when they
 asked in words and you loaded this skill — their address and their words, never ones you chose.
 
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:

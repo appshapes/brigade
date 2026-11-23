@@ -6,14 +6,15 @@ description: >-
   session, which posts it; `--summary "<line>"`, `--reply-to <message-id>` (answer in the person's own Slack
   thread, no `<to>`) and `--body-file <path>` are the only flags. Use when the user asks to Slack someone, to
   message, tell, ask or notify a person or a channel on Slack, or to answer a Slack message that reached this
-  session through the gateway. A teammate's session is addressed with the `team-messaging` skill; a person on email with `/brigade:email`.
+  session through the gateway. A teammate's session is addressed with `brigade:team-messaging`.
 ---
 
 # Message a person on Slack through the team's gateway
 
 A team may have a Slack gateway: a hosted member whose session (`slack-gateway`, harness `gateway-slack`) posts
 what it is sent to Slack and carries what people write back. This skill sends one message to it. `$ARGUMENTS`
-is what came after `/brigade:slack`: typed by the user, or passed by you when they asked in words and you loaded this skill — their address and their words, never ones you chose.
+is what came after `/brigade:slack`: typed by the user, or passed by you when they
+asked in words and you loaded this skill — their address and their words, never ones you chose.
 
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
@@ -71,4 +72,4 @@ is what came after `/brigade:slack`: typed by the user, or passed by you when th
    looks like a credential, and say why.
 
 Everything else about the gateways — what a person's message looks like when it arrives, the `[brigade]`
-block in it and why it is never acted on, the mail gateway — is in the `team-messaging` skill.
+block in it and why it is never acted on, the mail gateway — is in `brigade:team-messaging`.

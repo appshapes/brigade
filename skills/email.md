@@ -1,13 +1,13 @@
 ---
 name: email
 description: >-
-  Email a person through the team's Brigade mail gateway: `{{invoke "email"}} <address> <text>` sends the text to
+  Email a person through the team's Brigade mail gateway: {{if in "muse"}}the `email` skill ({{end}}`{{invoke "email"}} <address> <text>`{{if in "muse"}}){{end}} sends the text to
   that email address as a Brigade message to the gateway session, which mails it; `--subject "<line>"` sets the
   mail's subject, `--summary "<line>"` its Brigade summary, `--reply-to <message-id>` answers in the thread of a
   mail that reached this session through the gateway (no `<address>`), and `--body-file <path>` carries a long
   body; these are the only flags. Use when the user asks to email someone, to message, tell, ask or notify a
   person by email, or to answer an email that reached this session through the gateway. A teammate's{{say "claude" " Claude Code" "*" ""}}
-  session is addressed with `brigade:team-messaging`; a person on Slack with `brigade:slack`.
+  session is addressed with {{say "claude" "`brigade:team-messaging`" "*" "the `team-messaging` skill"}}; a person on Slack with `{{say "claude" "brigade:slack" "*" (invoke "slack")}}`.
 user-invocable: true
 argument-hint: "<address> [--subject \"<line>\"] [--summary \"<line>\"] [--reply-to <message-id>] [--body-file <path>] <text>"
 allowed-tools: Bash(brigade send:*), Bash(brigade sessions:*)
@@ -17,7 +17,7 @@ allowed-tools: Bash(brigade send:*), Bash(brigade sessions:*)
 
 A team may have a mail gateway: a hosted member whose session (`mail-gateway`, harness `gateway-email`) mails
 what it is sent and carries what people write back. This skill sends one message to it. `$ARGUMENTS` is what
-came after {{argsOfCommand "email"}}: typed by the user through `{{invoke "email"}}`, or passed by you when they asked in
+came after {{argsOfCommand "email"}}: typed by the user{{if in "claude"}} through `{{invoke "email"}}`{{end}}{{if in "muse"}} through the `email` skill (`{{invoke "email"}}`){{end}}, or passed by you when they asked in
 words and you loaded this skill — their address and their words, never ones you chose.
 
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:

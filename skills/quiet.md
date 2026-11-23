@@ -1,7 +1,7 @@
 ---
 name: quiet
 description: >-
-  Make THIS session quiet: `{{invoke "quiet"}}` (or `{{invoke "quiet"}} on`) stops it taking team messages — Brigade
+  Make THIS session quiet: {{if in "muse"}}the `quiet` skill (`{{invoke "quiet"}}`, or `{{invoke "quiet"}} on`){{else}}`{{invoke "quiet"}}` (or `{{invoke "quiet"}} on`){{end}} stops it taking team messages — Brigade
   holds them for the user's own `brigade inbox release` — and sets its roster line to say so; `--to <where>`
   names where teammates should write instead, `--refuse` turns messages away rather than holding them.
   `{{invoke "quiet"}} off` returns the session to normal; `{{invoke "quiet"}} status` shows the policy in force and how
@@ -18,7 +18,7 @@ allowed-tools: Bash(brigade inbound:*), Bash(brigade doing:*)
 A quiet session takes nothing from the team while the user's other sessions keep working with it. Three things
 make it so, and all three are this session's alone: Brigade's inbound policy for this one session, this
 session's roster line, and a standing instruction to you for the rest of the conversation. `$ARGUMENTS` is what
-came after {{argsOfCommand "quiet"}}: typed by the user through `{{invoke "quiet"}}`, or passed by you when they asked in
+came after {{argsOfCommand "quiet"}}: typed by the user{{if in "claude"}} through `{{invoke "quiet"}}`{{end}}{{if in "muse"}} through the `quiet` skill (`{{invoke "quiet"}}`){{end}}, or passed by you when they asked in
 words and you loaded this skill.
 
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:

@@ -60,4 +60,4 @@ Rules that hold throughout:
 - Only this project's digest changes: no option, no settings file, no other project.
 - A subagent never runs any of this.
 
-What the digest holds, `brigade decision --to <label>` and `brigade report show` are in the `team-messaging` skill.
+What the digest holds, `brigade decision --to <label>` and `brigade report show` are in `brigade:team-messaging`.

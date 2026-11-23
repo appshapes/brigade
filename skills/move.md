@@ -1,7 +1,7 @@
 ---
 name: move
 description: >-
-  Move this project's Brigade team to a Brigade server, as its administrator: `{{invoke "move"}}` asks the user for
+  Move this project's Brigade team to a Brigade server, as its administrator: {{if in "muse"}}this skill{{else}}`{{invoke "move"}}`{{end}} asks the user for
   the server's URL, the path of the team's join secret file and, when the server needs them, the path of its
   creation token file and its certificate's fingerprint, then runs the one command, `brigade team move --to <url>
   --secret-file <path>`, and prints what it printed. Members run no command: each one's next session follows.
@@ -30,8 +30,9 @@ user what it asked, and move nothing.
 
 ## 1. Ask for what you do not know
 
-Ask **one question at a time**, and only for a value the user has not already given (in `$ARGUMENTS`, typed after
-`{{invoke "move"}}`, or earlier in the conversation). Take each value exactly as they give it.
+Ask **one question at a time**, and only for a value the user has not already given (in `$ARGUMENTS`, {{if in "muse"}}typed when
+they invoked this skill{{else}}typed after
+`{{invoke "move"}}`{{end}}, or earlier in the conversation). Take each value exactly as they give it.
 
 1. **The server's URL**: `https://<host>[:<port>]`. The server's operator gives it.
 2. **The path of the team's join secret file**: the file `team create` wrote when the team was made, kept outside
@@ -97,7 +98,7 @@ Repeat what the command said is left, in its words. Then:
    (its commit skill or script where it has one). Until the file is pushed, nobody follows.
 2. **The team's other repositories** carry the same `.brigade.json`. Name them as the user's to do, or to direct
    you to: the file this checkout now has goes into each, committed by that repository's rule.
-3. **Members on an older plugin**, when the command named any: they update (`{{invoke "update"}}`), or join the server
+3. **Members on an older plugin**, when the command named any: they update ({{if in "muse"}}the `update` skill{{else}}`{{invoke "update"}}`{{end}}), or join the server
    with the secret file as before.
 4. **The gateways**, when the command named them: they are the server operator's to configure.
 5. **The server the team left**, when the team was on one: it keeps the team as it is, and the command says so.
