@@ -17,6 +17,8 @@ import (
 	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -708,6 +710,183 @@ func TestSyncSharesTheBoardAlone(t *testing.T) {
 	if len(apply.Peers) != 0 || len(apply.TeamPeers) != 1 || apply.TeamPeers[0].Peer != "PEER-C" {
 		t.Fatalf("the apply's peers = %+v, team peers = %+v", apply.Peers, apply.TeamPeers)
 	}
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+// leftOverFixture is a session with two listed folders whose checkout the
+// member's store joins to team: its own, another, or none ("").
+func leftOverFixture(t *testing.T, team func(fx *fixture) string, board bool) (*fixture, *fakesync.Fake, watch.Deps, string) {
+	t.Helper()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	fx.useFS()
+	fx.registerPeer(ptr(syncRepo), ptr("syncthing:PEER-A"), false)
+	root := t.TempDir()
+	fx.writeMapWith(func(m *sessionmap.ByPID) {
+		m.WorkspaceLabel = syncRepo
+		m.SyncAdapter = "syncthing"
+		m.SyncFolders = []string{".context/plans", "docs"}
+		m.SyncRoot = root
+		m.SyncScope = syncScope
+		// The session registered in another checkout than the one whose folders it shares: the store is asked
+		// about the folders' own, the sync root's.
+		m.Checkout = t.TempDir()
+		if board {
+			m.BoardFolder = filepath.Join(t.TempDir(), "boards", "team-key")
+		}
+	})
+	if ref := team(fx); ref != "" {
+		// The store's own file, written here as its two writers write it: this package is not one of them.
+		canon, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pins, err := json.Marshal(teamstore.PinsFile{Version: teamstore.PinsVersion, Projects: map[string]teamstore.Pin{canon: {Adapter: "fs", TeamRef: ref}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(fx.dirs.BrigadeConfig, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(teamstore.PinsPath(fx.dirs.BrigadeConfig), pins, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{
+		Apply: `{"folders":[{"id":"a","state":"idle"}],"peers":[{"peer":"PEER-A","connected":true}]}`,
+	})
+	deps := fx.deps()
+	deps.SyncCommand = fake.Argv
+	deps.HeartbeatInterval = time.Hour
+	deps.SyncInterval = time.Hour
+	deps.SyncListInterval = time.Hour
+	return fx, fake, deps, root
+}
+
+// What a left-over session's notice says, as a prompt prints it.
+const (
+	leftOverNote    = "this checkout is joined to another team now, and this session leaves its folders to that team's sessions"
+	leftOverSummary = "Brigade sync: " + leftOverNote
+)
+
+// TestALeftOverSessionAsksNothingForItsCheckoutsFolders: a session whose
+// checkout the member's own store joins to another team is left over from
+// the checkout's earlier team (work item 276). It asks the adapter for none
+// of the checkout's folders and names no root, whatever the team file in
+// the working tree says, so it cannot move a folder back to its team. With
+// no board there is nothing left to ask, and no apply runs; with one, the
+// board is asked for alone. The notice says why.
+func TestALeftOverSessionAsksNothingForItsCheckoutsFolders(t *testing.T) {
+	t.Parallel()
+	other := func(*fixture) string { return "another-team-ref" }
+
+	t.Run("no board: no apply", func(t *testing.T) {
+		t.Parallel()
+		fx, fake, deps, _ := leftOverFixture(t, other, false)
+		r := fx.start(deps, fx.args()...)
+		testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.readNotice() == leftOverSummary })
+		if got := fake.Verbs(t); !slices.Equal(got, []string{"describe", "attach"}) {
+			t.Fatalf("verbs before the stop = %v, want no apply", got)
+		}
+		if code := r.stopAndWait(); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+
+	t.Run("a board: the board alone, and no root", func(t *testing.T) {
+		t.Parallel()
+		fx, fake, deps, root := leftOverFixture(t, other, true)
+		r := fx.start(deps, fx.args()...)
+		testutil.Eventually(t, waitShort, pollEvery, func() bool { return strings.HasSuffix(fx.readNotice(), "; "+leftOverNote) })
+		var apply foldersync.ApplyRequest
+		recs := fake.Records(t)
+		if err := json.Unmarshal(recs[len(recs)-1].Request, &apply); err != nil || recs[len(recs)-1].Verb != "apply" {
+			t.Fatalf("the last call is %s %s (%v)", recs[len(recs)-1].Verb, recs[len(recs)-1].Request, err)
+		}
+		if len(apply.Folders) != 1 || !apply.Folders[0].Team || apply.Root != "" || strings.Contains(string(recs[len(recs)-1].Request), root) {
+			t.Fatalf("the apply asks for more than the board, or names the checkout: %s", recs[len(recs)-1].Request)
+		}
+		if code := r.stopAndWait(); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+}
+
+// TestASessionWhoseCheckoutIsItsTeamsAsksAsBefore: the store's record of
+// the session's own team, no record, and a record that cannot be read each
+// leave the session asking for its checkout's folders, as before.
+func TestASessionWhoseCheckoutIsItsTeamsAsksAsBefore(t *testing.T) {
+	t.Parallel()
+	for name, team := range map[string]func(fx *fixture) string{
+		"its own team": func(fx *fixture) string { return fx.teamRef },
+		"no record":    func(*fixture) string { return "" },
+		"a record that cannot be read": func(fx *fixture) string {
+			if err := os.MkdirAll(filepath.Dir(teamstore.PinsPath(fx.dirs.BrigadeConfig)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(teamstore.PinsPath(fx.dirs.BrigadeConfig), []byte("{not json"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return ""
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fx, fake, deps, root := leftOverFixture(t, team, false)
+			r := fx.start(deps, fx.args()...)
+			testutil.Eventually(t, waitShort, pollEvery, func() bool {
+				return fx.readNotice() == "Brigade sync: 1 folders, 1 of 1 peers connected"
+			})
+			var apply foldersync.ApplyRequest
+			recs := fake.Records(t)
+			if err := json.Unmarshal(recs[len(recs)-1].Request, &apply); err != nil || recs[len(recs)-1].Verb != "apply" {
+				t.Fatalf("the last call is %s %s (%v)", recs[len(recs)-1].Verb, recs[len(recs)-1].Request, err)
+			}
+			if len(apply.Folders) != 2 || !strings.HasPrefix(apply.Folders[0].Path, root) || !strings.HasPrefix(apply.Folders[1].Path, root) {
+				t.Fatalf("the apply does not ask for the checkout's two folders: %s", recs[len(recs)-1].Request)
+			}
+			if code := r.stopAndWait(); code != 0 {
+				t.Fatalf("exit %d", code)
+			}
+		})
+	}
+}
+
+// TestALeftOverSessionStaysSoWhenTheStoreCannotBeReadForARound: one round's
+// asking is enough to move a folder back, so a read of the store that fails
+// after the session was found left over changes nothing. Once the store
+// reads again and names the session's own team, it asks as before.
+func TestALeftOverSessionStaysSoWhenTheStoreCannotBeReadForARound(t *testing.T) {
+	t.Parallel()
+	fx, fake, deps, root := leftOverFixture(t, func(*fixture) string { return "another-team-ref" }, false)
+	deps.SyncInterval = 200 * time.Millisecond
+	r := fx.start(deps, fx.args()...)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.readNotice() == leftOverSummary })
+	pinsPath := teamstore.PinsPath(fx.dirs.BrigadeConfig)
+	if err := os.WriteFile(pinsPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Several rounds with a store that cannot be read: still no apply.
+	attaches := func() int { return len(fake.Verbs(t)) }
+	before := attaches()
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return attaches() >= before+3 })
+	if slices.Contains(fake.Verbs(t), "apply") {
+		t.Fatalf("a left-over session asked while the store could not be read: %v", fake.Verbs(t))
+	}
+	// The store reads again and names the session's own team: it asks.
+	canon, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := json.Marshal(teamstore.PinsFile{Version: teamstore.PinsVersion, Projects: map[string]teamstore.Pin{canon: {Adapter: "fs", TeamRef: fx.teamRef}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pinsPath, own, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return slices.Contains(fake.Verbs(t), "apply") })
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

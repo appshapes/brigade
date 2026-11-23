@@ -15,6 +15,8 @@ import (
 	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/polling"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -57,6 +59,10 @@ type syncSetup struct {
 	// (card 263), "" for a team with none: a folder of the team's, not of
 	// this repository, shared with every teammate's peer.
 	board string
+	// configDir is this member's store, where the team of the checkout
+	// the folders are in is on record (leftOver); "" in a map that does
+	// not carry it, and the question is then not asked.
+	configDir string
 }
 
 // enabled reports whether the map froze a sync configuration.
@@ -259,6 +265,16 @@ func (w *watcher) syncAttach(ctx context.Context, client *foldersync.Client) err
 // the apply did not complete (logged; the next round tries again).
 func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peers syncPeerSets) string {
 	folders := foldersync.Folders(w.teamRef, w.sync.root, w.sync.scope, w.sync.folders)
+	root := w.sync.root
+	leftOver := w.leftOver()
+	if leftOver {
+		// Asked for nothing of the checkout: no folder of it, and no root
+		// either, which is what an adapter pauses a dropped folder by.
+		folders, root = nil, ""
+		if w.sync.board == "" {
+			return leftOverSummary
+		}
+	}
 	offered := len(peers.repo)
 	if w.sync.board != "" {
 		// The board is Brigade's own folder, private like the state
@@ -272,7 +288,7 @@ func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peer
 		// Every peer of the repository's sessions is one of the team's.
 		offered = len(peers.team)
 	}
-	res, err := client.Apply(ctx, w.sessionID, foldersync.ApplySet{Folders: folders, Peers: peers.repo, TeamPeers: peers.team, Root: w.sync.root})
+	res, err := client.Apply(ctx, w.sessionID, foldersync.ApplySet{Folders: folders, Peers: peers.repo, TeamPeers: peers.team, Root: root})
 	if err != nil {
 		if ctx.Err() == nil {
 			w.log.Warn("sync apply failed", slog.String("code", string(codeOf(err))), adlog.Err(err))
@@ -284,11 +300,67 @@ func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peer
 		states = append(states, protocol.SanitizeAttribute(f.State))
 	}
 	summary, connected := syncSummary(res, folders)
+	if leftOver {
+		summary += "; " + leftOverNote
+	}
 	w.log.Info("sync applied",
 		slog.Int("folders", len(res.Folders)), slog.Int("peers_offered", offered),
 		slog.Int("peers", len(res.Peers)), slog.Int("connected", connected),
 		slog.String("folder_states", strings.Join(states, ",")))
 	return summary
+}
+
+// leftOverNote is what a session says of a checkout that is another
+// team's now, and leftOverSummary the whole notice of one that has no
+// board to share either.
+const (
+	leftOverNote    = "this checkout is joined to another team now, and this session leaves its folders to that team's sessions"
+	leftOverSummary = "Brigade sync: " + leftOverNote
+)
+
+// leftOver reports whether the checkout this session started in is joined,
+// in this member's own store, to another team than the session's (work
+// item 276). Such a session is left over from the checkout's earlier team.
+// It is still a member of that team, so its messages and its board go on,
+// and it stops asking for the checkout's folders: the adapter reads the
+// team file fresh every round and moves a folder to the team the file
+// names (work item 275), so a working tree switched to a branch whose
+// file still names the earlier team, an old branch, a bisect, a revert,
+// would have a left-over session move the folder back and share it with
+// the earlier team's devices again. The store is the member's own consent,
+// which no commit changes.
+//
+// The checkout asked about is the one the folders are in, the sync root's,
+// which is not always the one the session registered in: a session that
+// began again from a second checkout of its team shares that one's folders.
+//
+// The store is read at every apply, a round a minute. A checkout that has
+// no record, or whose record cannot be read, is treated as before: the
+// session asks. A read that fails after the session was found left over
+// changes nothing, though: the last answer stands until the store is read
+// again, because one round's asking is enough to move a folder back. Only
+// runSync's goroutine calls it.
+func (w *watcher) leftOver() bool {
+	if w.sync.root == "" || w.sync.configDir == "" {
+		return false
+	}
+	checkout, err := teamfile.Canonicalize(w.sync.root)
+	if err != nil {
+		return w.wasLeftOver
+	}
+	pin, pinned, err := teamstore.LookupPin(w.sync.configDir, checkout)
+	if err != nil {
+		if w.wasLeftOver {
+			w.log.Warn("sync: this member's record of the checkout's team could not be read; the last answer stands", adlog.Err(err))
+		}
+		return w.wasLeftOver
+	}
+	now := pinned && pin.TeamRef != "" && pin.TeamRef != w.teamRef
+	if now != w.wasLeftOver {
+		w.log.Info("sync: the checkout's team on this member's record", slog.Bool("another_team", now))
+	}
+	w.wasLeftOver = now
+	return now
 }
 
 // syncSummary is an apply's notice line — `Brigade sync: <f> folders, <c>

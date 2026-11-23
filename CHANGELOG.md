@@ -211,6 +211,19 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   characters now, with nothing a session needs gone: what it said of
   hidden lists is in the skill's body. The package checks now fail on
   any skill whose description is over 1,024 characters.
+- **A session left over from a checkout's earlier team leaves the
+  checkout's folders alone** (work item 276). When a repository's team
+  file is pointed at another team, the first session there moves each
+  shared folder to that team. A session that was already running
+  under the earlier team went on asking for the folders, and the sync
+  adapter reads the team file fresh every round: with the working
+  tree switched to a branch whose file still named the earlier team
+  (an old branch, a bisect, a revert), that session moved the folder
+  back and shared it with the earlier team's devices again. It now
+  asks nothing for the checkout's folders once your machine has
+  joined the checkout to another team, says so at your next prompt,
+  and stays a session of its own team for messages and the board
+  ([Sync folders](docs/team-member/use/sync-folders.md)).
 - **Two identical short replies inside a minute are both sent** (work
   item 392, ADR 0013). A session that answered two messages of one
   sender with the same words, a "Done." to each, inside one minute lost

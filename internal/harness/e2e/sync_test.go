@@ -929,3 +929,112 @@ func relTo(root string, paths []string) []string {
 	}
 	return out
 }
+
+// TestALeftOverSessionLeavesItsCheckoutsFolderAloneThroughSyncthing is work
+// item 276 through the built binaries: the real hooks, the real detached
+// watcher, the bundled Syncthing adapter and a Syncthing of its own.
+//
+// A session shares its checkout's folder. A folder that goes from the
+// instance comes back within a round, because the session asks for it every
+// round: that is the control. Then the member's own store joins the checkout
+// to another team, while the team file in the working tree still names the
+// session's team, as on a branch from before the change. The folder goes
+// again, as it does when the other team's session takes it. The session,
+// left over from the checkout's earlier team, says at a prompt that it
+// leaves the folders to that team's sessions, and the folder does not come
+// back.
+func TestALeftOverSessionLeavesItsCheckoutsFolderAloneThroughSyncthing(t *testing.T) {
+	syncthing := syncthingOnPath(t)
+	r := newRig(t)
+	r.createTeam()
+	b := r.fsBackend()
+	pathDir := r.bundledSync(syncthing)
+	r.writeCheckout(r.checkout, syncOrigin, r.teamFileWithSync(syncDir))
+	sock := fakesock.New(t)
+	alice := r.newSession("alice", "", aliceName, sock.Path(), "cc-messaging-secret-MUST-NOT-LEAK-"+testutil.RunID())
+	alice.extraEnv = []string{"PATH=" + r.emptyPath + string(os.PathListSeparator) + pathDir, config.OptionWorkspaceLabel + "=" + syncLabel}
+	home := filepath.Join(r.stateDirOf(alice), "sync", "syncthing")
+	t.Cleanup(func() {
+		r.reapWatchers()
+		stopDaemon(t, home)
+	})
+	res := b.hook(alice, "session-start", alice.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if !strings.Contains(res.stdout, "Brigade: file sync on: 1 folder(s) through syncthing.") {
+		t.Fatalf("session-start did not turn file sync on:\nstdout: %s\nstderr: %s", res.stdout, res.stderr)
+	}
+	r.liveWatcher(alice)
+
+	folderID := foldersync.FolderID(r.teamRef, syncRepo, syncDir)
+	configured := func() bool {
+		// Before the watcher has attached there is no engine to ask: the folder is not configured yet.
+		res := r.run(b.env(alice), "", "sync", "status", "--json")
+		if res.exit != 0 {
+			return false
+		}
+		for _, f := range jsonResult[syncStatus](t, res.stdout).Folders {
+			if f.ID == folderID {
+				return true
+			}
+		}
+		return false
+	}
+	// remove takes the folder out of the instance's configuration, by Syncthing's own API, and leaves its files.
+	remove := func() {
+		t.Helper()
+		port, err := os.ReadFile(filepath.Join(home, "port")) //nolint:gosec // G304: the instance's own file under the test's tree
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), waitLong)
+		defer cancel()
+		url := "http://127.0.0.1:" + strings.TrimSpace(string(port)) + "/rest/config/folders/" + folderID
+		req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-API-Key", apiKey(t, home))
+		resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req)
+		if err != nil {
+			t.Fatalf("remove the folder: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("remove the folder: HTTP %d", resp.StatusCode)
+		}
+		if configured() {
+			t.Fatal("the folder is still configured after its removal")
+		}
+	}
+	start := time.Now()
+	testutil.Eventually(t, waitSync, pollSync, configured)
+	t.Logf("the folder was configured %s after SessionStart", time.Since(start).Round(time.Millisecond))
+
+	// --- the control: a session of the checkout's own team asks every round ---
+	start = time.Now()
+	remove()
+	testutil.Eventually(t, waitSync, pollSync, configured)
+	t.Logf("a session of the checkout's team put the folder back %s after it went", time.Since(start).Round(time.Millisecond))
+
+	// --- the member's store joins the checkout to another team; the file still names the session's ---
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := write.Pin(r.configDir, canon, teamstore.Pin{
+		Adapter: "fs", URL: "http://127.0.0.1:1", PublishableKey: "placeholder", TeamRef: "another-team-" + testutil.RunID(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	start = time.Now()
+	remove()
+	testutil.Eventually(t, waitSync, pollSync, func() bool {
+		res := r.hook(alice, "prompt", alice.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default", "prompt": "never read"}))
+		return strings.Contains(res.stdout, "this checkout is joined to another team now, and this session leaves its folders to that team's sessions")
+	})
+	t.Logf("the left-over session said so %s after the folder went", time.Since(start).Round(time.Millisecond))
+	// One more round, to be past any apply that was on its way: the folder has not come back.
+	time.Sleep(75 * time.Second)
+	if configured() {
+		t.Fatal("a session left over from the checkout's earlier team put its folder back")
+	}
+}

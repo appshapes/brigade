@@ -699,7 +699,10 @@ type watcher struct {
 	// team name for the digest's header; produceAt and produceRoster are
 	// the producer's: when this session produces the due digest and the
 	// roster it ranked itself on, the state goroutine's alone.
-	sync          syncSetup
+	sync syncSetup
+	// wasLeftOver is the last answer of leftOver, kept across a read of the
+	// store that fails. runSync's goroutine alone reads and writes it.
+	wasLeftOver   bool
 	stateFolder   string
 	teamName      string
 	produceAt     time.Time
@@ -852,7 +855,10 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath, m.ClaudeSessionID),
-		sync:        syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin, board: m.BoardFolder},
+		sync: syncSetup{
+			adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin, board: m.BoardFolder,
+			configDir: rc.env.ConfigDir,
+		},
 		stateFolder: m.StateFolder,
 		teamName:    m.TeamName,
 		startedAt:   d.Clock(),

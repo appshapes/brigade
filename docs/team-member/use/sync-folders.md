@@ -85,8 +85,13 @@ sees all of it: a tracked folder syncs like any other, so list folders the repos
 - A repository whose team file is pointed at another team keeps its folders. The first session to start in the
   checkout afterwards moves each one to its id in that team by itself, no file touched, and shares it with that
   team's sessions. A session that was already running there under the earlier team stops sharing the folder and
-  says `1 folder is held by another checkout`: end it, because left running it moves the folder back to the
-  earlier team if the checkout is switched to a branch whose team file still names that team. A folder outside
+  says `1 folder is held by another checkout`. Once the checkout is joined to the other team on your machine,
+  which that first session or your own `brigade team join` does, the session left over from the earlier team
+  asks nothing more for the checkout's folders and says `this checkout is joined to another team now, and this
+  session leaves its folders to that team's sessions`. It does not move a folder back, whatever branch the
+  working tree is switched to, an old one whose team file still names the earlier team included. It is still a
+  session of the earlier team: its messages and that team's board go on, and you can end it when you like. A
+  folder outside
   its checkout (`../shared`), and the folders of a checkout whose team file is not at the repository's toplevel,
   are not moved; remove the earlier entry in the web GUI. Until the last member has the new team file the team
   is in two groups that exchange nothing, as in the update to 0.16.0 below.
