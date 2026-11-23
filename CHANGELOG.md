@@ -32,8 +32,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   digest: run `brigade report unsubscribe` before you update, and
   `brigade report subscribe` after it, with the recipients you want.
   Your subscription is under your Claude account's address, where a
-  decision sent to your roster label does not find it ("A digest
-  subscription is under the label the team holds", below).
+  decision sent to your roster label does not find it, and Brigade
+  does not move it ("A digest subscription is under the label the
+  team holds", below;
+  [Notes and decisions](https://github.com/appshapes/brigade/blob/master/docs/team-member/use/notes-and-decisions.md)).
   Everyone else: nothing.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
@@ -357,9 +359,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   label the team holds, the one `brigade sessions` shows, and `brigade
   report subscribe` writes the subscription under it. A session's
   entry changes at its next start. A subscription made before, under
-  the address, is not moved: a session that made it and is still
-  running replaces it at its next `subscribe`; otherwise remove it
-  with `unsubscribe` before the update.
+  the address, is not moved, by the owner's choice of 2026-11-23:
+  the address can be a teammate's roster label, so Brigade cannot
+  show that such an entry is yours. Remove it with `brigade report
+  unsubscribe` before the update and subscribe again after it. If
+  you have updated already: a session that was running before the
+  update still replaces the old entry at its next `subscribe`, and
+  removes it with `unsubscribe`; from a session started since,
+  subscribe again and take the entry under your account's address
+  out of `reports.json` in the state folder by hand. Until you have
+  subscribed again, a decision sent to your roster label goes to a
+  session of yours that can receive it, and not to your Slack or
+  mail; with no such session it is only recorded, and the digest
+  lists it
+  ([Notes and decisions](docs/team-member/use/notes-and-decisions.md)).
 - **`brigade whoami` names the account a session start reads.** In a
   Claude profile whose own file names no account, a start reads the
   home directory's file for the default label, and `whoami` named

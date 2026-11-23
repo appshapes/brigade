@@ -138,9 +138,13 @@ decision one of your own sessions asks you is held before it is sent (`10m` when
 once). A second `subscribe` replaces the first, every flag of it; `unsubscribe` removes it. Nobody writes anyone else's entry: there is no `--label`.
 If you joined with `--label` and subscribed on a plugin of 0.57.0 or earlier, your entry is under your Claude
 account's address, where no decision looks for it. Run `brigade report unsubscribe` before you update and
-`brigade report subscribe` after. If you have updated already, subscribe again and take the entry under your
-account's address out of `reports.json` in the state folder by hand: Brigade does not remove an entry it cannot
-show is yours. **The address
+`brigade report subscribe` after. If you have updated already: a session that was running before the update
+still replaces that entry at its next `subscribe`, and removes it with `unsubscribe`; from a session started
+since, subscribe again and take the entry under your account's address out of `reports.json` in the state folder
+by hand. Brigade does not remove an entry it cannot show is yours, because that address can be a teammate's
+roster label. Until you have subscribed again, a decision addressed to you goes to a session of yours that can
+receive it, and not to your Slack or mail; with no such session it is only recorded, and the digest lists it.
+**The address
 rule:** an email address, one you give or your label as the default, is written only when git ignores the
 folder; add it to `.gitignore` or name a Slack handle or channel. A session with no state entry yet
 (`no_state_entry`) or no roster label (`label_needed`) cannot subscribe.
