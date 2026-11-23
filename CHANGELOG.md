@@ -303,6 +303,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   them. The installer makes the gateway a member again, with no secret
   file. The page says so now
   ([Rotate a leaked secret](docs/team-admin/members/rotate-the-secret.md)).
+- **The Supabase mail gateway no longer answers its own addresses**
+  (work item 271). Where a team's public address forwards to the
+  gateway's inbox and the gateway's mail is from that address, a mail
+  from it that could not be delivered was bounced to it, came back
+  through the forwarding and was bounced again, without end. The
+  gateway now sends neither a bounce nor a command's reply to its
+  inbox or a tag of it, to the public address, or to the address its
+  mail is from, as a Brigade server's gateway does. A project gets
+  this when its functions are deployed again: run the installer again
+  ([the mail gateway](docs/project-owner/configure/mail-gateway.md#running-it-again)).
 
 ## [0.57.0] — 2026-11-15
 

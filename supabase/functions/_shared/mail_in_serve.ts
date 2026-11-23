@@ -34,9 +34,9 @@ import {
   threadByMailIds,
 } from "./db.ts";
 import {
-  addressedToInbox,
   brigadeBody,
   gatewayForMail,
+  ownAddress,
   resolveInbound,
   resolveRecipient,
   rosterText,
@@ -109,8 +109,9 @@ export function mailInHandler(deps: MailInDeps = {}): (req: Request) => Promise<
       // What a person is told by mail is their answer, and the gateway is done with the mail once it is decided,
       // whether or not the answer could be mailed.
       const bounce = async (reason: string) => {
-        // Never answer the gateway's own inbox or a tagged reply address of it: that would be a loop.
-        if (!m.from || addressedToInbox([m.from], inbox)) return;
+        // Never answer an address of the gateway's own: the inbox or a tag of it, the public address or the
+        // address its mail is from. That would be a loop (ownAddress, work item 271).
+        if (!m.from || ownAddress(gw, m.from)) return;
         const text = `Your email was not delivered to a Brigade session.\n\n${reason}\n\n${rosterNote}`;
         const headers: Record<string, string> = { "Auto-Submitted": "auto-replied" };
         if (m.messageId) {
@@ -144,17 +145,20 @@ export function mailInHandler(deps: MailInDeps = {}): (req: Request) => Promise<
           const text = resolution.command === "sessions" || resolution.command === "help"
             ? rosterNote
             : `Unknown command "${resolution.command}". Commands: sessions, help.\n\n${rosterNote}`;
-          try {
-            await mail.send({
-              from,
-              to: m.from,
-              replyTo: inbox,
-              subject: `[brigade/${gw.teamName}] ${resolution.command}`,
-              text,
-              headers: { "Auto-Submitted": "auto-replied" },
-            });
-          } catch (e) {
-            console.error("command reply failed", e instanceof Error ? e.message : String(e));
+          // The same guard as a bounce's: a command that came from an address of the gateway's own gets no reply.
+          if (!ownAddress(gw, m.from)) {
+            try {
+              await mail.send({
+                from,
+                to: m.from,
+                replyTo: inbox,
+                subject: `[brigade/${gw.teamName}] ${resolution.command}`,
+                text,
+                headers: { "Auto-Submitted": "auto-replied" },
+              });
+            } catch (e) {
+              console.error("command reply failed", e instanceof Error ? e.message : String(e));
+            }
           }
           return await decided({ command: resolution.command });
         }

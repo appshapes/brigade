@@ -7,6 +7,7 @@ import {
   type Envelope,
   gatewayForMail,
   MAX_BODY_BYTES,
+  ownAddress,
   renderOutbound,
   replyTag,
   resolveInbound,
@@ -287,6 +288,40 @@ Deno.test("resolveRecipientAcross: a label on two teams is answered with each te
   const shared = errOf(resolveRecipientAcross("sam@example.com", [gamma, delta]));
   assertStringIncludes(shared, "2 members");
   assertStringIncludes(shared, "p1, 9f3c1a20");
+});
+
+Deno.test("ownAddress is the inbox or a tag of it, the public address and the address the gateway's mail is from", () => {
+  const gw = {
+    inbox: "brigade-ops@in.example.com",
+    publicAddress: "Team@Example.com",
+    from: "Brigade Ops <ops-bot@example.com>",
+  };
+  for (
+    const own of [
+      "brigade-ops@in.example.com",
+      "brigade-ops+r.0123@in.example.com",
+      "BRIGADE-OPS@in.example.com",
+      "team@example.com",
+      "Team Example <TEAM@example.com>",
+      "ops-bot@example.com",
+      "Somebody Else <Ops-Bot@Example.com>",
+    ]
+  ) assertEquals(ownAddress(gw, own), true, own);
+  for (
+    const other of [
+      "pat@example.com",
+      "brigade-ops@other.example.com",
+      "brigade-opsx@in.example.com",
+      "team@example.org",
+      "ops-bot+x@example.com",
+      "",
+    ]
+  ) assertEquals(ownAddress(gw, other), false, other);
+  // A gateway with no public address and no From of its own counts nobody as itself but its inbox.
+  const bare = { inbox: "brigade-ops@in.example.com", publicAddress: "", from: "" };
+  assertEquals(ownAddress(bare, "pat@example.com"), false);
+  assertEquals(ownAddress(bare, ""), false);
+  assertEquals(ownAddress(bare, "brigade-ops@in.example.com"), true);
 });
 
 Deno.test("addressedToInbox accepts the inbox and its tags, refuses another team's inbox on the same account", () => {
