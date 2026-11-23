@@ -1,5 +1,5 @@
 {
-  "_comment": "The harnesses Brigade ships a package for (card 110). The documentation gate (make docs-check) requires, for each entry, the member pages docs/team-member/{install,join,update,configure,leave}/<id>.md, the agent page docs/agent/in-a-team/<id>.md listing every skill under <skills>, and a <package>/README.md that links to the install page. Add an entry with the package; the gate names what is missing.",
+  "_comment": "The harnesses Brigade ships a package for (card 110). The documentation gate (make docs-check) requires, for each entry, the member pages docs/team-member/{install,join,update,configure,leave}/<id>.md, the agent page docs/agent/in-a-team/<id>.md listing every skill under <skills>, and a <package>/README.md that links to the install page. Add an entry with the package; the gate names what is missing. status (work item 378, ADR 0022) is one of \"Primary\", \"Supported, with known gaps\" and \"In trial\": the install root, the harness's install page and its package page each show it on a line that begins \"Status: \", and the install page of a harness that is not Primary says what the status means for it under \"## Known gaps\" or \"## In trial\". It is set from evidence and read again before each release (docs/developer/release/cut-a-release.md).",
   "harnesses": [
     {
       "id": "claude-code",
@@ -7,7 +7,8 @@
       "vendor": "Anthropic",
       "host": "claude-code",
       "package": "plugin",
-      "skills": "plugin/skills"
+      "skills": "plugin/skills",
+      "status": "Primary"
     },
     {
       "id": "muse-code",
@@ -15,7 +16,8 @@
       "vendor": "Meta",
       "host": "muse",
       "package": "muse/brigade",
-      "skills": "muse/brigade/skills"
+      "skills": "muse/brigade/skills",
+      "status": "In trial"
     },
     {
       "id": "codex",
@@ -23,7 +25,8 @@
       "vendor": "OpenAI",
       "host": "codex",
       "package": "codex/brigade",
-      "skills": "codex/brigade/skills"
+      "skills": "codex/brigade/skills",
+      "status": "Supported, with known gaps"
     },
     {
       "id": "grok",
@@ -31,7 +34,8 @@
       "vendor": "xAI",
       "host": "grok",
       "package": "grok/brigade",
-      "skills": "grok/brigade/skills"
+      "skills": "grok/brigade/skills",
+      "status": "Supported, with known gaps"
     }
   ]
 }

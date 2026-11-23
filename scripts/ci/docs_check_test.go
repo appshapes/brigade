@@ -222,6 +222,32 @@ var docsMutations = []struct {
 		t.Helper()
 		docsWrite(t, root, "other/.grok-plugin/plugin.json", "{}\n")
 	}},
+	// Work item 378, ADR 0022: a harness's status is one of three values, and three pages show it.
+	{"harness: an entry with no status", "harness", func(t *testing.T, root string) {
+		t.Helper()
+		docsReplace(t, root, docscheck.RegistryFile, `"skills": "plugin/skills",
+      "status": "Primary"`, `"skills": "plugin/skills"`)
+	}},
+	{"harness: a status that is none of the three", "harness", func(t *testing.T, root string) {
+		t.Helper()
+		docsReplace(t, root, docscheck.RegistryFile, `"status": "In trial"`, `"status": "Experimental"`)
+	}},
+	{"harness: a package page that does not show the status", "harness", func(t *testing.T, root string) {
+		t.Helper()
+		docsReplace(t, root, "codex/brigade/README.md", "Status: Supported, with known gaps.", "Supported.")
+	}},
+	{"harness: an install page that does not show the status", "harness", func(t *testing.T, root string) {
+		t.Helper()
+		docsReplace(t, root, "docs/team-member/install/grok.md", "Status: Supported, with known gaps.", "It is supported.")
+	}},
+	{"harness: an install page with no section for its status", "harness", func(t *testing.T, root string) {
+		t.Helper()
+		docsReplace(t, root, "docs/team-member/install/muse-code.md", "## In trial\n", "## What is in trial\n")
+	}},
+	{"harness: the install root's section without the status", "harness", func(t *testing.T, root string) {
+		t.Helper()
+		docsReplace(t, root, "docs/team-member/install/README.md", "Status: Primary. Brigade is built and proven on Claude Code first.\n", "")
+	}},
 	{"harness: a skill missing from the agent page", "harness", func(t *testing.T, root string) {
 		t.Helper()
 		docsWrite(t, root, "plugin/skills/extra/SKILL.md", "---\nname: extra\n---\n")

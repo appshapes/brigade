@@ -1,5 +1,7 @@
 # Brigade for Claude Code
 
+Status: Primary. Claude Code is the harness Brigade is built and proven on first.
+
 This directory is the Claude Code package of Brigade: team messaging between the coding sessions of different
 people and machines. A session registers itself as an addressable *session* in a *team*; another person's session
 sends it a text message; the message is stored durably by a backend and injected into the recipient session's

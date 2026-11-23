@@ -3,6 +3,8 @@
 Brigade ships a package for OpenAI's Codex CLI, so a Codex session joins the same team as the Claude Code and Muse
 Code ones.
 
+Status: Supported, with known gaps. It works, and [Known gaps](#known-gaps) below names what does not.
+
 ## Install
 
 In a terminal:
@@ -55,6 +57,24 @@ thread — when you archive or delete it, or 30 minutes after the quit (Codex's 
 the session was offline at 30:00). A message sent to it meanwhile is accepted and waits in Codex's own queue; it
 appears as a turn when you `codex resume` that thread. The same holds for the thread you leave behind with `/new`. (In embedded mode `/quit` ends the session at
 once.)
+
+## Known gaps
+
+It works: a message sent to an idle Codex session starts a turn there and is answered (Codex CLI 0.166.0 on macOS
+arm64, 2026-11-22: the reply was stored 14 seconds after the send).
+
+- **Codex asks you to review Brigade's hooks again after every update of the package**, and until you trust them
+  nothing of Brigade runs: no registration, no message. Its trust covers more of the package than the hooks'
+  own definition (measured 2026-11-22), so any release that changes the package asks again.
+- **A launch flag can slow delivery to a poll.** `-c`, `--enable`, `--disable`, `--no-daemon` and
+  `--dangerously-bypass-hook-trust` put Codex in embedded mode ([Keep Codex in daemon mode](#keep-codex-in-daemon-mode)).
+- **Under the default profile each `brigade` command that reaches the backend asks for your approval**: the
+  model's shell has no network there. What that profile's sandbox does to Brigade was not measured.
+- **A quit is not an end.** The session stays `idle` on the roster for up to 30 minutes after `/quit`, and a
+  message sent meanwhile waits for your `codex resume`.
+- **One platform.** The measurements are on macOS arm64; Linux is not measured, and the package does not run on
+  Windows.
+- **No Codex CLI session has been seen on a team that lives on a Brigade server.**
 
 ## What differs from Claude Code
 

@@ -1,5 +1,7 @@
 # Brigade for Muse Code
 
+Status: In trial. It may not work for you yet: [what is and is not proven](../../docs/team-member/install/muse-code.md#in-trial).
+
 This directory is the Muse Code package of Brigade: team messaging between the coding sessions of different people
 and machines, with a Muse Code session taking part beside Claude Code, Codex CLI and Grok Build ones. It ships the
 same bootstrap, version pin and checksums as the Claude Code package (`plugin/`), a native Muse manifest with one

@@ -55,16 +55,20 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   belongs in one of those files, never in `CLAUDE.md` itself, and every file under `docs/agent/repository/` must
   be imported there and linked from `AGENTS.md`. Inside a team, a Brigade skill is the agent's documentation:
   `docs/agent/in-a-team/<harness>.md` lists each package's skills by path.
-- **A harness** is one entry in `docs/harnesses.json` (id, name, vendor, host, package, skills) and six pages:
+- **A harness** is one entry in `docs/harnesses.json` (id, name, vendor, host, package, skills, status) and six pages:
   `docs/team-member/{install,join,update,configure,leave}/<id>.md` and `docs/agent/in-a-team/<id>.md`, each
-  linked from its topic root, plus a `<package>/README.md` that links to the install page. A directory carrying a
+  linked from its topic root, plus a `<package>/README.md` that links to the install page. Its `status` is one of
+  `Primary`, `Supported, with known gaps` and `In trial` (work item 378, ADR 0022): the install root's section,
+  the install page and the package page each show it on a line that begins `Status: `, and the install page of a
+  harness that is not `Primary` has a `## Known gaps` or `## In trial` section. The value is set from evidence,
+  never from a wish, and whoever cuts a release reads it again first. A directory carrying a
   plugin manifest (`.claude-plugin/`, `.muse-plugin/`, `.codex-plugin/`, `.grok-plugin/`) that the registry does
   not list fails the gate.
 - **The gate** is `make docs-check` (`internal/docscheck`, `cmd/brigade-docs`, `scripts/ci/docs_check_test.go`),
   offline, in `make test`, CI's `fast` job, `scripts/release-prep.sh` and `release.yml`. Its rules: the README
   shape; the persona and topic shapes above; every relative link and `#anchor` in the tree, the changelog and the
   package pages resolves; every page under `docs/` outside `docs/research/` is reachable from `README.md`, and
-  every experiment report is in its index; the six pages of every harness; the rule files' imports; every
+  every experiment report is in its index; the six pages of every harness and its status on three of them; the rule files' imports; every
   `userConfig` option of `plugin/.claude-plugin/plugin.json` named in `docs/team-member/configure/options.md`;
   `docs/developer/reference/make-targets.md` equal to what `make docs-generate` writes from the Makefile's `##`
   help lines; `docs/developer/reference/commands.md` equal to what it writes from `internal/cli`'s command table

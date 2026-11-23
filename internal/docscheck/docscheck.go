@@ -101,6 +101,10 @@ type Harness struct {
 	Host    string `json:"host"`
 	Package string `json:"package"`
 	Skills  string `json:"skills"`
+	// Status is how far Brigade is proven in the harness (work item 378,
+	// ADR 0022): one of Statuses. The install root, the harness's install
+	// page and its package page each show it.
+	Status string `json:"status"`
 }
 
 // Registry is docs/harnesses.json.
@@ -939,6 +943,91 @@ func (c *checker) reach() {
 
 // --- 6. harnesses -------------------------------------------------------------
 
+// The three statuses a harness can carry (work item 378, ADR 0022; the
+// owner's rulings of 2026-11-22), and the section of the harness's install
+// page that says what a status other than the first means for it.
+const (
+	StatusPrimary   = "Primary"
+	StatusSupported = "Supported, with known gaps"
+	StatusTrial     = "In trial"
+)
+
+// Statuses are the values the registry's status may take.
+var Statuses = []string{StatusPrimary, StatusSupported, StatusTrial}
+
+// statusSection is the heading the install page of a harness of that
+// status carries: its gaps, or what is not yet proven. "" for Primary.
+func statusSection(status string) string {
+	switch status {
+	case StatusSupported:
+		return "Known gaps"
+	case StatusTrial:
+		return "In trial"
+	}
+	return ""
+}
+
+// statusLine is how a page shows a harness's status: these words, at the
+// start of a line.
+func statusLine(status string) string { return "Status: " + status }
+
+// shows reports whether the lines from to (exclusive) of d carry line at
+// the start of one of them.
+func (d *doc) shows(line string, from, to int) bool {
+	for i := from; i < to && i < len(d.raw); i++ {
+		if strings.HasPrefix(strings.TrimSpace(d.raw[i]), line) {
+			return true
+		}
+	}
+	return false
+}
+
+// harnessStatus holds a harness's status (work item 378, ADR 0022): one
+// of the three values; shown on its package page, on its install page and
+// in its section of the install root; and, for a harness that is not
+// Primary, an install page that says what the status means for it.
+func (c *checker) harnessStatus(h Harness) {
+	if !slices.Contains(Statuses, h.Status) {
+		c.find("harness", RegistryFile, "entry %q: status %q is not one of %q", h.ID, h.Status, Statuses)
+		return
+	}
+	line := statusLine(h.Status)
+	readme := path.Join(h.Package, "README.md")
+	if rd := c.docs[readme]; rd != nil && !rd.shows(line, 0, len(rd.raw)) {
+		c.find("harness", readme, "the package page of harness %q does not show its status: a line that begins %q", h.Name, line)
+	}
+	install := path.Join(DocsDir, "team-member", "install", h.ID+".md")
+	if id := c.docs[install]; id != nil {
+		if !id.shows(line, 0, len(id.raw)) {
+			c.find("harness", install, "the install page of harness %q does not show its status: a line that begins %q", h.Name, line)
+		}
+		if want := statusSection(h.Status); want != "" && !slices.ContainsFunc(id.headings, func(hd heading) bool { return hd.level == 2 && hd.text == want }) {
+			c.find("harness", install, "harness %q is %q, and its install page has no %q section that says what that means for it", h.Name, h.Status, "## "+want)
+		}
+	}
+	root := path.Join(DocsDir, "team-member", "install", "README.md")
+	rd := c.docs[root]
+	if rd == nil {
+		return
+	}
+	for _, s := range rd.sections() {
+		details := false
+		for i := s.from; i < s.to && i < len(rd.raw); i++ {
+			if strings.HasPrefix(rd.raw[i], DetailsPrefix) && strings.Contains(rd.raw[i], "]("+h.ID+".md)") {
+				details = true
+			}
+		}
+		if !details {
+			continue
+		}
+		if !rd.shows(line, s.from, s.to) {
+			c.find("harness", root, "the section %q of the install root does not show the status of harness %q: a line that begins %q", s.text, h.Name, line)
+		}
+		return
+	}
+	c.find("harness", root, "the install root has no section whose Details line names %s.md, so harness %q shows no status there", h.ID, h.Name)
+}
+
 func (c *checker) harnesses() {
 	ids := map[string]bool{}
 	packages := map[string]bool{}
@@ -985,6 +1074,7 @@ func (c *checker) harnesses() {
 				}
 			}
 		}
+		c.harnessStatus(h)
 		readme := path.Join(h.Package, "README.md")
 		rd := c.docs[readme]
 		if rd == nil {

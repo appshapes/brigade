@@ -1,7 +1,8 @@
 # Install
 
 Brigade installs into the harness your sessions run in. Nothing is compiled and no server is started: the package
-downloads one pinned, checksum-verified binary on first use.
+downloads one pinned, checksum-verified binary on first use. The four harnesses are not equally far along, and
+each section below opens with its status: Primary; Supported, with known gaps; or In trial.
 
 ## If you want to
 
@@ -16,6 +17,8 @@ downloads one pinned, checksum-verified binary on first use.
 
 ## Install in Claude Code
 
+Status: Primary. Brigade is built and proven on Claude Code first.
+
 1. Open Claude Code in a project that uses Brigade and trust the folder when it asks.
 2. Type `/plugin install brigade@brigade`. When it asks where to install, choose **user**.
 3. Type `/reload-plugins`.
@@ -27,6 +30,8 @@ Details: [Install in Claude Code](claude-code.md).
 
 ## Install in Muse Code
 
+Status: In trial. It may not work for you yet: [what is not proven](muse-code.md#in-trial).
+
 1. In a Muse session: `/plugins marketplace add brigade appshapes/brigade`, then `/plugins install brigade@brigade`.
 2. Approve the hooks: `/plugins`, Installed, `brigade`, Runtime; or `muse plugins approve brigade` in a terminal.
 3. Join in a terminal, then type one prompt in the session.
@@ -37,6 +42,8 @@ Details: [Install in Muse Code](muse-code.md).
 
 ## Install in Codex CLI
 
+Status: Supported, with known gaps. It works, and [its gaps are named](codex.md#known-gaps).
+
 1. In a terminal: `codex plugin marketplace add appshapes/brigade`, then `codex plugin add brigade@brigade`.
 2. The next `codex` asks to trust the plugin's hooks: choose Trust all and continue (or `/hooks`, then `t`, later).
 3. Join in a terminal, then open `codex` in the checkout and type one prompt.
@@ -44,6 +51,8 @@ Details: [Install in Muse Code](muse-code.md).
 Details: [Install in Codex CLI](codex.md).
 
 ## Install in Grok Build
+
+Status: Supported, with known gaps. It works, and [its gaps are named](grok.md#known-gaps).
 
 1. In a terminal: `grok plugin marketplace add appshapes/brigade`, then `grok plugin install brigade --trust` and
    `grok plugin enable brigade`. Leave the first out where `grok plugin marketplace list` already shows `brigade`.

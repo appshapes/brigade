@@ -3,6 +3,8 @@
 Brigade ships a package for Meta's Muse Code, so a Muse session joins the same team as the Claude Code and Codex
 CLI ones. Muse installs it from this repository's marketplace catalog, from inside a session or from a terminal.
 
+Status: In trial. It may not work for you yet; [In trial](#in-trial) below says what is and is not proven.
+
 ## In a session
 
 1. `/plugins marketplace add brigade appshapes/brigade`: Muse clones the repository, reads its `marketplace.json`
@@ -52,6 +54,25 @@ when its model arms Muse's Monitor tool on `brigade inbox follow`, the instructi
 from then on every team message wakes the idle session about 0.2 s after it lands. A session is a mailbox until
 that prompt, and a resumed session (`muse resume`) needs its first prompt again; `/compact` and `/clear` need
 nothing.
+
+## In trial
+
+What is proven: a Muse Code session registers, and once its monitor is armed a team message wakes it and it
+answers (Muse Code 1.4.25 on macOS arm64, 2026-11-22: the reply was stored 5 seconds after the send).
+
+What may not work for you yet:
+
+- **Receiving depends on the model.** A Muse session takes messages only after its model has armed a monitor,
+  which a line in the session's context asks it to do. In the live session of 2026-11-22 the model did not do it
+  after a plain first prompt, and the session was a mailbox until it was asked. If a message you expect does not
+  arrive, tell the session to do what its session-start context asks.
+- **Two faults of that session are fixed and not yet seen fixed.** The arming line led the model to a command
+  that failed once, and a reminder named a command the session's shell does not have. Both are corrected since
+  0.57.0; no live Muse Code session has run the correction yet.
+- **One platform.** The measurements are on macOS arm64. Linux was measured once, on an earlier Muse Code and
+  with no model.
+- **An update is a removal and an install**, and the hooks are approved again each time
+  ([Update in Muse Code](../update/muse-code.md)).
 
 ## What differs from Claude Code
 

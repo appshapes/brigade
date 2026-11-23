@@ -4,6 +4,8 @@ Brigade has shipped a package for xAI's Grok Build since 0.35.0 (2026-10-19): a 
 `grok --no-leader` joins the same team as the Claude Code, Muse Code and Codex CLI sessions, and takes its
 messages through a persistent native monitor.
 
+Status: Supported, with known gaps. It works, and [Known gaps](#known-gaps) below names what does not.
+
 The measured hosts are Grok Build 1.0.62 (`1474f9cbdd91`, kernel name `grok-macos-aarch`), 1.0.67
 (kernel name `grok-1.0.67-maco`) and 1.0.92, where on 2026-11-22 a session installed the package by the
 commands below, armed its monitor and answered a team message; all three on macOS arm64. Linux is not
@@ -47,3 +49,20 @@ cache path. [Configuration](../configure/grok.md), [monitor status and skills](.
 [security limits](../../security.md#17-grok-build-monitor-sessions),
 [measured evidence](../../experiments/grok-participation.md) and
 [package](../../../grok/brigade/README.md).
+
+## Known gaps
+
+It works: a Grok Build session registers, arms its monitor after its first turn, reads a team message and
+answers it (Grok Build 1.0.92 on macOS arm64, 2026-11-22: the reply was stored 48 seconds after the send).
+
+- **Only a direct TUI.** Leader mode is refused, for a measured reason: start `grok --no-leader`.
+- **Nothing is received before the monitor is armed.** The session asks to arm it after its first completed
+  turn, and you approve that one command. Refused or failed, messages wait until you ask for it again.
+- **A message is read in pages**, one tool call each, so an answer takes longer than in the other harnesses.
+- **One platform.** The measurements are on macOS arm64. Linux is not measured, nor is a session left idle for
+  more than half an hour with the whole package, and the package does not run on Windows.
+- **The package comes from the repository's default branch**, so its skills can change between two releases.
+- **Removing it needs care**: an uninstall leaves a line in Grok Build's `config.toml`, and `grok plugin
+  marketplace remove brigade` can take the marketplace out of Claude Code's list too
+  ([Leave and uninstall from Grok Build](../leave/grok.md)).
+- **The roster shows no context size** for a Grok Build session.

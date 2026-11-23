@@ -2,6 +2,9 @@
 
 Brigade is a Claude Code plugin. Two commands inside a session install it; nothing is compiled, no server runs.
 
+Status: Primary. Claude Code is the harness Brigade is built and proven on first: CI drives the no-LLM proof on
+every push, `make proof` wakes a live session before a release, and it is the one harness proven on Windows.
+
 ## Before you start
 
 - **Log in once per configuration directory.** Claude Code keeps your login in its own configuration directory,

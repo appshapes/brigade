@@ -1,5 +1,7 @@
 # Brigade for Grok Build
 
+Status: Supported, with known gaps. It works, and [its gaps are named](../../docs/team-member/install/grok.md#known-gaps).
+
 Team messaging for direct `grok --no-leader` TUIs through a persistent native monitor, shipped since Brigade
 0.35.0. Four native hooks register/maintain the receiver, offer one Stop-assisted setup attempt and signal the
 receiver's watcher at end. The fifteen skills use the same Brigade commands and gateway rules as the other

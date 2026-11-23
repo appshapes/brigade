@@ -1,5 +1,7 @@
 # Brigade for Codex CLI
 
+Status: Supported, with known gaps. It works, and [its gaps are named](../../docs/team-member/install/codex.md#known-gaps).
+
 This directory is the Codex CLI package of Brigade: team messaging between the coding sessions of different people
 and machines, with a Codex session taking part beside Claude Code, Muse Code and Grok Build ones. It ships the same
 bootstrap, version pin and checksums as the Claude Code package (`plugin/`), a native Codex manifest, a

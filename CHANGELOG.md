@@ -24,6 +24,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `~/.config/brigade/grok-options.json` before you update ("Grok
   Build: a session registers where Brigade used to refuse it", below;
   [Configure in Grok Build](https://github.com/appshapes/brigade/blob/master/docs/team-member/configure/grok.md)).
+  On Codex CLI: at its next start after the update Codex asks you to
+  review Brigade's hooks again. Choose "Trust all and continue"; until
+  you do, nothing of Brigade runs in Codex
+  ([Install in Codex CLI](https://github.com/appshapes/brigade/blob/master/docs/team-member/install/codex.md)).
   If you joined a team with `--label` and are subscribed to its
   digest: run `brigade report unsubscribe` before you update, and
   `brigade report subscribe` after it, with the recipients you want.
@@ -67,6 +71,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **Each harness has a status** (work item 378, ADR 0022). The pages
+  showed Claude Code, Muse Code, Codex CLI and Grok Build as four equal
+  ways in, which they are not. Each now carries one of three statuses,
+  shown where you choose a harness and where you install it. Claude
+  Code is **Primary**: Brigade is built and proven on it first. Codex
+  CLI and Grok Build are **Supported, with known gaps**: they work, and
+  the install page of each names what does not. Muse Code is **In
+  trial**: it may not work for you yet, and its install page says what
+  is proven ([Install](docs/team-member/install/README.md)).
 - **Grok Build: a session registers where Brigade used to refuse it**
   (work item 377, ADR 0021). Brigade refused a Grok Build session
   wherever a fact was not the one it expected. Most of those refusals

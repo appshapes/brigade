@@ -13,7 +13,10 @@ is still accepted with the same meaning; given both, they must agree. `scripts/r
    catalog's digest, which counts every file there; no Muse Code is needed since card 114), a
    selectable `go<go.mod line>` toolchain, a `## [<v>]` section in `CHANGELOG.md` (the `## [Unreleased]` section
    given the version and the date; read its "Who must act" lines against its entries first, because they are what
-   a member reads before an update and what the release-notes email's "Before you update" is taken from),
+   a member reads before an update and what the release-notes email's "Before you update" is taken from; and read
+   each harness's `status` in `docs/harnesses.json` against what happened since the last release, a live session
+   that passed or failed, a gap closed or found, because the install pages show it and no check can judge it:
+   ADR 0022),
    `make docs-check` green, no
    tag `v<v>` yet, here or on origin, `git pull --no-edit`, and a head that origin has. Then **the commit's CI**: `ci.yml`'s run on the commit the release
    starts from must be green ([The two CI checks](#the-two-ci-checks)); otherwise it stops with nothing changed.
