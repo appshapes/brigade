@@ -477,10 +477,19 @@ jobs:
           # imperative and unprefixed: maintenance work orders, which take 15, the number of the build-out
           # (umbrella) card of the Trello days and not a work item of the board. Until 2026-09-16 only a
           # literal `15: ` was kept and every other number's PR was minted `15: <title>` and retitled by hand
-          # (PR #8, `15:` → `19:`, the P11-6 row).
-          case "$TITLE" in
-            [0-9]*": "*) PR_TITLE="$TITLE" ;;        # the issue names its work item: keep it
-            *)           PR_TITLE="15: $TITLE" ;;    # unprefixed: the scheduled callers' maintenance work orders
+          # (PR #8, `15:` → `19:`, the P11-6 row). And until work item 292 the pattern was `[0-9]*": "*`, which
+          # kept any title that begins with a digit and holds a colon and a space anywhere: `3 flaky tests: retry
+          # the watcher` landed with a prefix that is no work item's number. A title names its work item when the
+          # text before its FIRST colon is all digits and a space follows that colon; anything else is a
+          # maintenance work order. scripts/ci/loop_pr_title_test.go runs these lines on a handful of titles.
+          number=${TITLE%%:*}
+          case "$number" in
+            ''|*[!0-9]*) PR_TITLE="15: $TITLE" ;;       # no number before the first colon: a maintenance work order
+            *)
+              case "$TITLE" in
+                "$number: "*) PR_TITLE="$TITLE" ;;      # `<number>: <title>`: the issue names its work item, keep it
+                *)            PR_TITLE="15: $TITLE" ;;  # digits alone, or no space after the colon
+              esac ;;
           esac
           # Labels are copied from the ISSUE, which is where the policy decision was made:
           #   auto-merge  — set by the scheduled caller (documentation: yes; repository review: NO)
