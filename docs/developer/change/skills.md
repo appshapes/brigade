@@ -67,7 +67,9 @@ Claude Code alone. The table is `Harnesses` in `internal/skillgen/skillgen.go`.
 
 ## What a change costs members
 
-A changed copy is a changed package. Codex CLI asks its members to review Brigade's hooks again after any change
-of its package, and Grok Build and Codex CLI read their package from the default branch, so a skill reaches
-their members when it is pushed, before a release. So a source is right when it is pushed, and a release's
-"Who must act" says that Codex CLI members review the hooks.
+A changed copy is a changed package, and it reaches every member with the next release and not before: Grok
+Build and Codex CLI take their package at the commit of the last published release, which the release
+sequence's last step moves (work item 424,
+[ADR 0030](../../decisions/0030-pin-the-codex-cli-and-grok-build-packages-to-the-last-release-in-their-marketplace-files.md)).
+Codex CLI asks its members to review Brigade's hooks again once for that release, whatever changed in its
+package, and a release's "Who must act" says so.

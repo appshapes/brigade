@@ -54,7 +54,14 @@
 - **Release pins.** Never commit a `plugin/bin/checksums.txt` or `plugin/bin/VERSION` you did not produce with
   `make release`; `muse/brigade/bin/` carries copies the release sequence writes. `make checksums-check` requires
   the committed file to be reproduced by a fresh cross-compile or backed by the published release (in the
-  pre-release `0.0.0` state it requires the file to be empty and skips the rest).
+  pre-release `0.0.0` state it requires the file to be empty and skips the rest). The commit that
+  `.agents/plugins/marketplace.json` and `.grok-plugin/marketplace.json` name is a release pin too (work item
+  424, ADR 0030): Codex CLI and Grok Build give their members the package at that commit, so it is always the
+  commit of a published release, the same in both files, and only `scripts/release-pin.sh` writes it, as the
+  last step of `make release` or by itself as `make release-pin version=<v> work_item=<n>` after a release that
+  stopped before it. Never edit it, and never put either file back to the package's directory: every push
+  would then reach those members again. A change under `codex/brigade/` or `grok/brigade/` reaches them with
+  the next release.
 - **The Muse marketplace catalog** (cards 115, 114). `marketplace.json` at the repository root is what Muse reads
   first in a checkout; its one entry carries the package digest Muse computes over `muse/brigade/`, and Muse refuses
   an install whose tree does not match it. `internal/musedigest` computes the same value without Muse (SHA-256
@@ -78,7 +85,12 @@
   allowlist, native manifest, one wrapper per hook, assets equal to `plugin/bin`'s; `make codex-plugin-check` for
   `codex/brigade/`: allowlist, native manifest, the three exact hook commands, `.agents/plugins/marketplace.json`,
   assets equal; `make grok-plugin-check` for `grok/brigade/`: allowlist, native manifest, the four exact hook
-  commands, `.grok-plugin/marketplace.json`, assets equal. Each of the four also fails on a skill whose
+  commands, `.grok-plugin/marketplace.json`, assets equal. Those two also hold the pin (`pin.go`): both
+  marketplace files in the pinned form, one commit in both, and, read from git where the clone has the tag of
+  the release `plugin/bin/VERSION` pins, that commit a release tag's and holding both packages; a release that is tagged while the pin is still
+  at the one before prints `behind:` and passes, because that is the state between a release and its last step.
+  `release.yml` runs Grok Build's check at every tag, so change the pin's rules, like the guard, only just
+  after a release. Each of the four also fails on a skill whose
   `description` is over 1,024 characters, the length a host may refuse (work item 306; the limit and its sources
   are beside `DescriptionLimit` in `internal/packagecheck/description.go`). The four targets are names over one check
   (work item 382): `internal/packagecheck`, run by `go run ./cmd/brigade-packages check <harness id>`, with what the

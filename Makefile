@@ -607,6 +607,11 @@ release: ## Pin the plugin to $(version), commit through the push chain as `$(wo
 	@test -n "$(version)" && test -n "$(work_item)$(card)" || { echo "usage: make release version=X.Y.Z work_item=<n> [branch=<name>]   (card=<n> still means work_item=<n>)"; exit 1; }
 	release_over_ci='$(release_over_ci)' work_item='$(work_item)' card='$(card)' scripts/release-prep.sh $(version) $(branch)
 
+.PHONY: release-pin
+release-pin: ## Point the Codex CLI and Grok Build packages at the published release v$(version) with one commit through the push chain: the last step of `make release`, run by itself after a release that stopped before it (usage: make release-pin version=0.60.0 work_item=<n>; work item 424)
+	@test -n "$(version)" && test -n "$(work_item)" || { echo "usage: make release-pin version=X.Y.Z work_item=<n>"; exit 1; }
+	work_item='$(work_item)' scripts/release-pin.sh $(version)
+
 .PHONY: release-dry-run
 release-dry-run: ## goreleaser check + a local release without publishing (needs a clean tree and a tag on HEAD)
 	$(goreleaser) check

@@ -11,7 +11,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 **Who must act**
 
-- **Team Member:** nothing.
+- **Team Member:** on Grok Build, with Brigade installed before
+  2026-11-23: `grok plugin update brigade` now fails with `plugin
+  'grok/brigade' not found in install registry`. Your package keeps
+  working as it is and never updates. Once, in your own terminal:
+  `grok plugin marketplace update brigade`, `grok plugin uninstall
+  brigade`, then `grok plugin install brigade --trust`
+  ([Update in Grok Build](https://github.com/appshapes/brigade/blob/master/docs/team-member/update/grok.md#an-install-from-before-2026-11-23)).
+  On Codex CLI: nothing to run. At a start Codex moves your package to
+  the last release's by itself and then asks you to review Brigade's
+  hooks, once per release: choose "Trust all and continue" ("The Codex
+  CLI and Grok Build packages are the last release's"). Everyone else:
+  nothing.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
 
@@ -38,6 +49,35 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   machine with several profiles, pass `--label`: the label's page, each
   harness's join page and the page for a team's move now say so
   ([Join from a terminal](docs/team-member/join/your-label.md#join-from-a-terminal)).
+
+### Changed
+
+- **The Codex CLI and Grok Build packages are the last release's**
+  (work item 424, ADR 0030). Both harnesses are given this repository
+  as a plugin marketplace and read it from `master`, and until now each
+  took the package as `master` had it: a push reached their members
+  before a release did, a skill could name a command the pinned binary
+  did not have yet, and in Codex CLI every such push stopped Brigade
+  until the hooks were reviewed again. Now each marketplace file names
+  the package at the commit of the last published release, and a
+  release moves it with one commit after it is published. A push
+  changes nothing for a member. A Codex CLI member gets a release at a
+  start of Codex, with one review of Brigade's hooks for it; a Grok
+  Build member at their next update. The install and update commands
+  are the same. This took effect on 2026-11-23, when it reached
+  `master`, with 0.59.0 as the first release pinned: a Codex CLI
+  install from before moves to it by itself, and a Grok Build install
+  from before is removed and installed again once, as the lines above
+  say ([Install in Codex CLI](docs/team-member/install/codex.md#what-you-get-and-when),
+  [Install in Grok Build](docs/team-member/install/grok.md#what-you-get-and-when)).
+- **A release ends with one more commit** (work item 424). `make
+  release` waits until the release is published and then commits
+  `<work item>: Point the Codex CLI and Grok Build packages at
+  <version>`. When that step stops, the release is out and the members
+  of those two harnesses stay on the release before: `make release-pin
+  version=<v> work_item=<n>` finishes it, and the package checks print
+  `behind:` until it has
+  ([Cut a release](docs/developer/release/cut-a-release.md#the-last-step)).
 
 ### Fixed
 

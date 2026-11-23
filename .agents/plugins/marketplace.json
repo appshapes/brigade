@@ -7,8 +7,10 @@
     {
       "name": "brigade",
       "source": {
-        "source": "local",
-        "path": "./codex/brigade"
+        "source": "git-subdir",
+        "url": "https://github.com/appshapes/brigade.git",
+        "path": "codex/brigade",
+        "sha": "b9908ccfc0c2614d1b06085a19157f73a7926226"
       },
       "policy": {
         "installation": "AVAILABLE",

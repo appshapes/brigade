@@ -68,7 +68,7 @@ func TestGrokPackageSourceRejectsDrift(t *testing.T) {
 			case "wrong hook host":
 				replace("grok/brigade/hooks/hooks.json", "--host grok", "--host codex")
 			case "wrong catalog":
-				replace(".grok-plugin/marketplace.json", "./grok/brigade", "./codex/brigade")
+				replace(".grok-plugin/marketplace.json", `"path": "grok/brigade"`, `"path": "codex/brigade"`)
 			case "long end timeout":
 				replace("grok/brigade/hooks/hooks.json", `"timeout": 1`, `"timeout": 3`)
 			case "mcp manifest":

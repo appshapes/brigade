@@ -18,8 +18,9 @@ import (
 // codexTree lays out the Codex CLI package of card 107 in the throwaway
 // tree: the real codex/brigade/ files (manifest, hooks.json, skills, README),
 // the real bootstrap under both bin/ directories with the pre-release pins,
-// and the repository root's marketplace file, every executable recorded
-// 100755 as the repository records it.
+// and the repository root's marketplace file with Grok Build's, which names
+// the same commit (work item 424), every executable recorded 100755 as the
+// repository records it.
 func (tr *tree) codexTree() {
 	tr.t.Helper()
 	repo := testutil.RepoRoot(tr.t)
@@ -37,7 +38,7 @@ func (tr *tree) codexTree() {
 	tr.write("codex/brigade/bin/VERSION", "0.0.0\n")
 	tr.write("codex/brigade/bin/checksums.txt", "")
 	for _, rel := range []string{
-		"codex/brigade/hooks/hooks.json", "codex/brigade/README.md", ".agents/plugins/marketplace.json",
+		"codex/brigade/hooks/hooks.json", "codex/brigade/README.md", ".agents/plugins/marketplace.json", ".grok-plugin/marketplace.json",
 		"codex/brigade/skills/team-messaging/SKILL.md", "codex/brigade/skills/sessions/SKILL.md",
 		"codex/brigade/skills/setup/SKILL.md", "codex/brigade/skills/join/SKILL.md", "codex/brigade/skills/update/SKILL.md",
 		"codex/brigade/skills/email/SKILL.md", "codex/brigade/skills/slack/SKILL.md", "codex/brigade/skills/quiet/SKILL.md", "codex/brigade/skills/subscribe/SKILL.md",
@@ -51,7 +52,7 @@ func (tr *tree) codexTree() {
 		tr.t.Fatalf("reading the manifest: %v", err)
 	}
 	tr.write("codex/brigade/.codex-plugin/plugin.json", replaceVersion(string(manifest), "0.0.0"))
-	tr.git("add", "plugin", "codex", ".agents")
+	tr.git("add", "plugin", "codex", ".agents", ".grok-plugin")
 	for _, exe := range []string{"plugin/bin/brigade", "codex/brigade/bin/brigade"} {
 		tr.git("update-index", "--add", "--chmod=+x", exe)
 		//nolint:gosec // G302: the fixtures must be executable for the check's own -x assertion
@@ -75,7 +76,8 @@ func TestCodexPluginCheck(t *testing.T) {
 		onceInCI(t, "make codex-plugin-check")
 		root := testutil.RepoRoot(t)
 		r := runPackageCheck(t, "codex", root, baseEnv(t, t.TempDir()))
-		wantPass(t, r, "all checks passed", "exact command form", "names the brigade plugin at ./codex/brigade")
+		// The pin's line has three forms, by where a release stands (packages_pin_test.go): what they share.
+		wantPass(t, r, "all checks passed", "exact command form", "the Codex CLI and Grok Build packages are ")
 	})
 
 	t.Run("the pre-release fixture passes", func(t *testing.T) {
@@ -314,7 +316,7 @@ func TestCodexManifestsAreJSON(t *testing.T) {
 	}
 	p, _ := plugins[0].(map[string]any)
 	src, _ := p["source"].(map[string]any)
-	if p["name"] != "brigade" || src["source"] != "local" || src["path"] != "./codex/brigade" {
+	if p["name"] != "brigade" || src["source"] != "git-subdir" || src["path"] != "codex/brigade" {
 		b, _ := json.Marshal(p)
 		t.Errorf("marketplace plugin %s", b)
 	}

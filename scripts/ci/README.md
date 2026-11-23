@@ -47,11 +47,12 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/proof-crash-resume.sh` | nothing since work item 415 (retired); its `catchup` subcommand by `make test` |
 | `scripts/harness-smoke.sh` | `make harness-smoke` |
 | `scripts/release-prep.sh` | `make release` |
+| `scripts/release-pin.sh` | `scripts/release-prep.sh`, as its last step after the tag, and `make release-pin`, by itself after a release that stopped before it (work item 424, ADR 0030) |
 | `scripts/release-ci-check.sh` | `scripts/release-prep.sh` (twice: the commit it starts from, and the release commit before the tag) and `scripts/server-tag.sh` (the head, before the tag); `scripts/ci/release-guard.sh` in the two release workflows; by hand before a tag pushed by hand |
 | `scripts/server-tag.sh` | `make server-tag` |
 | `cmd/brigade-muse-digest` (`go run`) | `make muse-digest` (`write`); `scripts/release-prep.sh`'s precondition (`check`) and step 4 (`write`); `make muse-plugin-check`'s second step and `release.yml`'s guard (`check`) |
 | `cmd/brigade-skills` (Go, not a script; work item 393) | `make skills-generate` writes the four packages' skills from their one source each under `skills/`; `make skills-check` fails on a stale copy → `ci.yml`'s `fast` job, and `make test` repeats it (`internal/skillgen`). [Change a skill](../../docs/developer/change/skills.md) |
-| `cmd/brigade-packages` (Go, not a script; work item 382) | `make plugin-check`, `make muse-plugin-check`, `make codex-plugin-check` and `make grok-plugin-check`, each `go run ./cmd/brigade-packages check <harness id>` → `ci.yml`'s `fast` job; `scripts/release-prep.sh` runs Grok Build's. The Muse target then runs `brigade-muse-digest check`, which verifies the Muse catalog's digest on every machine (card 114). Until work item 382 these were four shell scripts here, `plugin-check.sh`, `muse-plugin-check.sh`, `codex-plugin-check.sh` and `grok-plugin-check.sh` |
+| `cmd/brigade-packages` (Go, not a script; work item 382) | `make plugin-check`, `make muse-plugin-check`, `make codex-plugin-check` and `make grok-plugin-check`, each `go run ./cmd/brigade-packages check <harness id>` → `ci.yml`'s `fast` job; `scripts/release-prep.sh` runs Grok Build's. The Muse target then runs `brigade-muse-digest check`, which verifies the Muse catalog's digest on every machine (card 114). Until work item 382 these were four shell scripts here, `plugin-check.sh`, `muse-plugin-check.sh`, `codex-plugin-check.sh` and `grok-plugin-check.sh`. `brigade-packages pin` says which release the Codex CLI and Grok Build packages are pinned to (`scripts/release-prep.sh` prints it when it starts), and `brigade-packages pin <commit>` writes a release's commit into the two marketplace files: `scripts/release-pin.sh` alone runs that (work item 424) |
 | `scripts/ci/no-secrets.sh` | `make plugin-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/checksums-check.sh` | `make checksums-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/advisor-lints.sql` | `make advisor-lints` → `ci.yml`'s `supabase` job |
@@ -191,7 +192,7 @@ logged-in `claude`, `jq` and a built `bin/brigade`.
 
 ## `scripts/release-prep.sh`
 
-The release sequence of plan 7.7, in five steps: pin `plugin/bin/VERSION` and `plugin/.claude-plugin/plugin.json`
+The release sequence of plan 7.7, in five steps and a sixth after the tag: pin `plugin/bin/VERSION` and `plugin/.claude-plugin/plugin.json`
 to the version, rebuild and re-checksum the cross-compiled binaries, commit through the push chain, then tag
 `v<version>` and push the tag — which is what fires `release.yml`.
 
@@ -217,8 +218,19 @@ the package digest of `muse/brigade/` as Muse does (`internal/musedigest`, card 
 `marketplace.json`, the catalog `muse plugins marketplace add brigade appshapes/brigade` reads (card 115). Muse
 Code is not needed on the release machine.
 
+A sixth step follows the tag since work item 424 (ADR 0030): `scripts/release-pin.sh <version>` waits until
+`release.yml` has published the release (`gh release view`, and `release.yml`'s run on the tag's commit, which
+stops the wait when it ended in anything but success), writes the tag's commit into
+`.agents/plugins/marketplace.json` and `.grok-plugin/marketplace.json` with `go run ./cmd/brigade-packages pin
+<commit>`, and pushes that through the push chain as `<work item>: Point the Codex CLI and Grok Build packages
+at <version>`. Those two harnesses read their marketplace file from `master` and take the package at the commit
+it names, so this commit is what gives their members the release; until it lands they stay on the release
+before. `make release-pin version=X.Y.Z work_item=<n>` runs the step by itself: it ends at once where
+`origin/master` has the pin, and finishes a run that stopped with the two files written or with the commit made
+and not pushed. A pre-release moves nothing.
+
 `DRY_RUN=1` is the rehearsal form, and it is **not** side-effect free: steps 1-3 run for real — step 1 rewrites
-`plugin/bin/VERSION` and `plugin/.claude-plugin/plugin.json` — and only steps 4 and 5 are printed instead of run.
+`plugin/bin/VERSION` and `plugin/.claude-plugin/plugin.json` — and only steps 4 to 6 are printed instead of run.
 Rehearse on a throwaway branch and restore `plugin/` afterwards:
 
 ```sh
@@ -583,6 +595,8 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | `release_ci_check_test.go` | `release-ci-check.sh` (work item 399) against a stand-in `gh` that answers from a file: eighteen answers and overrides (green, red, cancelled, none, in progress then ended, a run that appears late, one that never ends, a `gh` that fails once and one that cannot ask at all, each override that fits and each that does not, a word for another commit among them), what it refuses before asking, the `--jq` filter run through a real `jq`, and seven mutations of the script, each caught by its case. |
 | `release_guard_test.go` | `release-guard.sh` (work item 416) against the same stand-in `gh`: twenty-two answers (on and off `master`, green, red, no run, a run that does not end, each override in the tag's message that fits and each that does not, a tag with no message, two override lines, a tag that names another commit, GitHub not answering at each question), what it asks and in which repository, the filter that reads a tag's message run through a real `jq`, what it refuses before asking, and that each release workflow runs it on the tag's commit and name before it builds, with a token that may read the runs. |
 | `release_prep_ci_test.go` | The two release scripts obey that check, run for real to their last step in fixtures whose `origin` is a bare repository: `release-prep.sh` stops with nothing changed on a red start, tags only after the release commit's run is green, stops over a red one with the commit pushed and no tag, and goes on from there on a second run, green or with the override, refuses a tag only origin has and a head origin does not have, and does not take the word for its start as a word for its release commit; `server-tag.sh` in nine cases, a dry run among them; `make` hands both the override, quoted; the message of the tag each makes is its title alone, or carries the override as a line of its own (work item 416); and two mutations show that a script that tags past the check is caught. |
+| `release_pin_test.go` | `release-pin.sh` (work item 424), run for real in the release fixture with a bare `origin`, the stand-in `gh`, a `make` whose `push` commits and pushes and a `go` that writes the commit into the two files: a published release gets one commit on `master` that names its commit in both files, and the same command again says so and asks nothing; a draft is waited for; a `release.yml` that failed and a release never published stop with nothing moved; a `gh` that cannot ask stops at once; a change that came into the tree during the wait is not swept into the commit; a pre-release moves nothing; a run that stopped with the files written, or with the commit made and not pushed, is finished by the next; nine refusals come before `gh` is asked, an older release than the one `master` pins among them; and `release-prep.sh` runs the step after its tag, leaves the tag's message alone, says what to run when the step stops, says of a pre-release that nothing moves, and names the step in a dry run. |
+| `packages_pin_test.go` | The pin of the Codex CLI and Grok Build packages against git (work item 424; `internal/packagecheck/pin.go`, whose own tests hold the two files' form and the writer): in a fixture with release tags, annotated and not, the Codex CLI check passes and names the release the pin is at, says `behind:` and passes when a newer release is tagged, and refuses a commit that is no release's, a release without Grok Build's package, two files that name two commits and the package's directory on the default branch; with no release tag, or without the tag of the release `plugin/bin/VERSION` pins, it holds the form alone; a pre-release is never what the packages are behind; and a commit that breaks the rules is refused with both files as they were. |
 | `announce_release_test.go` | `announce-release.sh`: what a release opens and closes against a `gh` that answers the listing from a file and records every write — the earlier announcements closed and nothing else (a work order, a person's issue, a title that names a version in passing, a pull request), an older tag's dispatch that leaves the newest open and opens none beside it, a release candidate's announcement closed by its release, versions compared as numbers, the issues read again after the opening, `plan` that writes nothing, and a listing or a close that fails; and that `release-notes.yml`'s step runs the script. |
 | `send_release_notes_test.go` | `send-release-notes.sh`: the window and the adoption of an earlier run's draft against a fake GitHub API, the list of recipients and the footer, that no address is printed outside a mask line and that the token stays off argv, and a join of the send step's name and the secrets to `send-release-notes.yml`. |
 | `keepalive_test.go` | `keepalive.sh`: the four rungs against a fake endpoint, and a join of its endpoints to `gotrue.go`, `postgrest.go` and the schema migration. |

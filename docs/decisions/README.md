@@ -37,6 +37,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0027. Keep the roadmap as work items of another kind, in one order](0027-keep-the-roadmap-as-work-items-of-another-kind-in-one-order.md)
 - [0028. Ask the CI check again in the release workflows, with the override in the tag's message](0028-ask-the-ci-check-again-in-the-release-workflows-with-the-override-in-the-tags-message.md)
 - [0029. Correct a label by joining again with the join secret](0029-correct-a-label-by-joining-again-with-the-join-secret.md)
+- [0030. Pin the Codex CLI and Grok Build packages to the last release in their marketplace files](0030-pin-the-codex-cli-and-grok-build-packages-to-the-last-release-in-their-marketplace-files.md)
 
 ## Record a decision
 

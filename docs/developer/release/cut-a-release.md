@@ -33,6 +33,11 @@ is still accepted with the same meaning; given both, they must agree. `scripts/r
    documentation gate, commit, push).
 5. **The release commit's CI, then the tag**: it waits for `ci.yml`'s run on the commit step 4 pushed, about as
    long as CI takes, and only over a green one runs `git tag -a v<v> <that commit> && git push origin v<v>`.
+6. **The Codex CLI and Grok Build packages**: `scripts/release-pin.sh <v>` waits until `release.yml` has
+   published the release, writes the tag's commit into `.agents/plugins/marketplace.json` and
+   `.grok-plugin/marketplace.json` (`go run ./cmd/brigade-packages pin <commit>`), and pushes that through the
+   same chain as `<work item>: Point the Codex CLI and Grok Build packages at <v>`
+   ([The last step](#the-last-step)). A pre-release moves nothing.
 
 `release.yml` then checks the tag is not already published, asks the CI check again
 ([The workflow asks again](#the-workflow-asks-again)), guards that the plugin pins this tag, the four
@@ -50,6 +55,38 @@ shows them at its top, right after that sentence. Then it tells the members: one
 each release before, so the one open announcement is the newest release's and the repository's open issues are
 the ones that need an answer. `scripts/ci/announce-release.sh plan` shows what it would open and close
 ([scripts/ci/README.md](../../../scripts/ci/README.md)).
+
+## The last step
+
+Codex CLI and Grok Build read their marketplace file from `master`, and each file names its package at one
+commit: the commit of the last published release (work item 424,
+[ADR 0030](../../decisions/0030-pin-the-codex-cli-and-grok-build-packages-to-the-last-release-in-their-marketplace-files.md)).
+So a push changes nothing for their members, and neither do steps 1 to 5. Step 6's commit is what gives them
+the release, and it comes after the publication because the package's bootstrap downloads the release's binary.
+
+The step is its own script, `scripts/release-pin.sh`, and runs by itself as
+`make release-pin version=<v> work_item=<n>`:
+
+| What it finds | What it does |
+| --- | --- |
+| a version that is not the one `origin/master`'s `plugin/bin/VERSION` pins | refuses: the pin never goes back to an older release |
+| `origin/master` names the tag's commit in both files | says so and ends |
+| the release is a draft, or not there yet | waits for it, 15 minutes at most |
+| `release.yml`'s run on the tag's commit ended in anything but success | stops at once |
+| `gh` cannot ask (logged out, no network) | stops at once, with `gh`'s words |
+| the release is published | writes the commit, then `make push`, unless the tree took another change meanwhile |
+| the two files written and not committed, from a run whose chain failed | commits and pushes them |
+| the commit made and not pushed, because origin refused it | `make pull`, then `git push` |
+
+A stop in it, or a release whose step 6 never ran, leaves the release published and the members of the two
+harnesses on the release before. `make release` ends with a line that says so, the package checks print
+`behind:` and the two versions on every run without failing, the next `make release` prints the same line
+when it starts, and `make release-pin` finishes it. Never write the commit by hand: the package checks refuse a
+commit that is not a release tag's, and two files that name two commits.
+
+The pointer commit is an ordinary commit: `ci.yml` runs on it, it changes no release pin, and nothing in the
+release workflows waits for it. Ask the other sessions to hold their pushes until it is on `master`, as for
+step 4: its chain is the same, and origin can move under it.
 
 ## The two CI checks
 
@@ -112,7 +149,9 @@ stops because a run had not ended in its three minutes, run the workflow's run a
 - By hand the tag still follows the check: `scripts/release-ci-check.sh "$(git rev-parse HEAD)" && git tag -a v<v>
   -m v<v> && git push origin v<v>`. The workflow asks again, and over a red or a missing run a tag made this way
   publishes nothing: an override is the scripts' to write into the tag's message, on the owner's word.
-- `DRY_RUN=1 work_item=<n> scripts/release-prep.sh <v>` does steps 1 to 3 for real and prints 4 and 5. It asks
+- After a stop in step 6 the release is out: `make release-pin version=<v> work_item=<n>`, not `make release`,
+  which refuses a version that is tagged ([The last step](#the-last-step)).
+- `DRY_RUN=1 work_item=<n> scripts/release-prep.sh <v>` does steps 1 to 3 for real and prints 4 to 6. It asks
   the first CI check once, without waiting for a run in progress, and goes on whatever it says. On a branch
   other than `master` (`branch=<name>`) a dry run is all the script does: the workflow publishes nothing for a
   tag whose commit `master` does not hold, and the tag could not be removed.
