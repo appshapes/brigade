@@ -10,7 +10,7 @@ description: >-
   `.brigade.json` does not turn the board on has none.
 user-invocable: true
 argument-hint: "[tag <tag>] [count]"
-allowed-tools: Bash(brigade work-item list:*), Bash(brigade work-item lists:*), Bash(brigade work-item show:*), Bash(brigade sessions:*), Bash(brigade whoami:*)
+allowed-tools: Bash(brigade work-item list:*), Bash(brigade work-item lists:*), Bash(brigade work-item show:*), Bash(brigade roadmap), Bash(brigade sessions:*), Bash(brigade whoami:*)
 ---
 
 # Say which work item is next
@@ -41,7 +41,11 @@ One `brigade` command per call. The board is the team's **Brigade Board**; its c
   team's own unless another's key or name says so. A list the listing does not show (`hibernating` on a board
   with the lists it started with) holds work set aside.
 - `brigade work-item list`, with `--tag '<tag>'` when one was given: the open work items of the shown lists, each
-  one's number, list, assignee and tags. A title in the table may be cut short.
+  one's number, list, assignee and tags. A title in the table may be cut short. Its last line counts the
+  roadmap items it left out: a roadmap item is a goal, never work to pick up.
+- `brigade roadmap`: the team's roadmap, when it keeps one: the roadmap items in the order the team gave them,
+  each with its place, its number and, under it, its work items that are not finished. `the roadmap is empty`
+  means the team keeps none, and step 4's rule 3 then goes by the lists alone.
 - `brigade sessions`: the live sessions, each with its NAME and MEMBER, and under it the line it says it is
   doing, in its owner's words, unverified and possibly stale.
 - `brigade work-item show <number>`: the whole title, the description, the assignee, the comments and whether it
@@ -57,7 +61,8 @@ be held by a session.
 
 ## 3. Taken, waiting or a candidate
 
-- **Not a candidate**: a work item in the list for finished work or in a list the listing does not show.
+- **Not a candidate**: a work item in the list for finished work or in a list the listing does not show, and a
+  roadmap item, which the listing leaves out.
 - **Taken**: one assigned to a member other than the user, or held by a live session other than this one: the
   session's line names it as a work item (`work item 229`, `229:`, `#229`; a release, a plan's row or another
   number is not one), or the session's NAME begins with `<number>-`, unless its line says that work item is
@@ -80,10 +85,12 @@ Otherwise, highest first:
 1. The user's own work items in the list for work in progress: a session took each and ended before it was
    finished, and its last comment says what is left. Finishing it is the task.
 2. Work items in the list for work in progress that are assigned to nobody.
-3. The work items of the other shown lists, in the board's order of lists: the user's own and those assigned to
-   nobody alike.
+3. The work items of the other shown lists, the user's own and those assigned to nobody alike: first those
+   under a roadmap item, by that roadmap item's place on the roadmap, then those under none, in the board's
+   order of lists.
 
-Within one rule, by number, lowest first: the board keeps no order inside a list.
+Within one rule and one place, by number, lowest first: the roadmap orders the roadmap items, and nothing
+orders the work items under one or inside a list.
 
 ## 5. Report
 
@@ -96,7 +103,8 @@ For each candidate, in order:
 
 - `<title>` is the work item's own whole title, from `show`.
 - `<why>` is two to four sentences, under 80 words: what the work item asks for, in a clause; why it is next,
-  naming its list, its assignee and the rule of step 4 that placed it, or the project's instruction that did;
+  naming its list, its assignee, the roadmap item it is under with that one's place, when it is under one, and
+  the rule of step 4 that placed it, or the project's instruction that did;
   for one in the list for work in progress, what its last comment says is left; and, with a count above 1, what
   it waits on among those listed before it. No code block.
 
@@ -104,7 +112,7 @@ Then each work item found taken or waiting, one line each: `<number>: taken by <
 `<number>: assigned to <member>`, or `<number>: waiting on <what>`. They do not count toward the count.
 
 Then one line beginning `Read:`: the open work items counted by list (with the tag, when one was given), the
-live sessions counted, and any source that could not be read.
+roadmap items counted, the live sessions counted, and any source that could not be read.
 
 End with the one command that starts the top candidate: `/brigade:work-item-start <number>`, or the project's own
 where its instruction files say to start a work item another way. When the top candidate's tags or text place it

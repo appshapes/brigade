@@ -11,8 +11,10 @@
 // and never rewritten: `items/<id>/<seq>-<millis>-<random>.json` says
 // what one session set on one work item — its number, title, description,
 // list, assignee, tags, whether it is closed — or the comment it added,
-// and `lists/<seq>-<millis>-<random>.json` names the board's lists in
-// order, renames one or hides one from the default listing. A list is a state a work item can be in: it has a key that never
+// `lists/<seq>-<millis>-<random>.json` names the board's lists in
+// order, renames one or hides one from the default listing, and
+// `roadmap/<seq>-<millis>-<random>.json` names the roadmap items in order
+// (roadmap.go). A list is a state a work item can be in: it has a key that never
 // changes, which is what a work item carries, and a name the team calls
 // it by, which can change without a work item noticing. A work item is the fold of its changes: ordered by sequence,
 // then time, then file name, the last change that sets a field wins.
@@ -59,8 +61,9 @@ const Version = 1
 
 // The folder's layout.
 const (
-	ItemsDir = "items"
-	ListsDir = "lists"
+	ItemsDir   = "items"
+	ListsDir   = "lists"
+	RoadmapDir = "roadmap"
 )
 
 // The caps a change keeps to, whoever wrote it. The text caps are in code
@@ -157,6 +160,9 @@ type Change struct {
 	Lists   []ListName `json:"lists,omitzero"`
 	Rename  *ListName  `json:"rename,omitzero"`
 	Hide    *Hide      `json:"hide,omitzero"`
+	// Order, in a change of the roadmap, is the roadmap items' ids in
+	// order (roadmap.go).
+	Order []string `json:"order,omitzero"`
 
 	// name is the file's name, the last key of the fold's order.
 	name string
@@ -164,7 +170,10 @@ type Change struct {
 
 // Fields are the fields of a work item a change can set: a nil member is
 // left as it was. List is a list's key. An empty Assignee is nobody; an
-// empty Tags is none.
+// empty Tags is none. Kind is KindRoadmap for a roadmap item and empty
+// for a work item; Roadmap is the id of the roadmap item a work item is
+// under, empty for none (work item 404, roadmap.go). A reader from before
+// the two knows neither and shows a roadmap item as a work item.
 type Fields struct {
 	Number      *int      `json:"number,omitzero"`
 	Title       *string   `json:"title,omitzero"`
@@ -173,6 +182,8 @@ type Fields struct {
 	Assignee    *string   `json:"assignee,omitzero"`
 	Tags        *[]string `json:"tags,omitzero"`
 	Closed      *bool     `json:"closed,omitzero"`
+	Kind        *string   `json:"kind,omitzero"`
+	Roadmap     *string   `json:"roadmap,omitzero"`
 }
 
 // An Item is one work item, folded from its changes.
@@ -201,6 +212,11 @@ type Item struct {
 	// Closed is true for an item that is finished with: off the board's
 	// lists until it is reopened.
 	Closed bool `json:"closed"`
+	// Kind is KindRoadmap for a roadmap item, empty for a work item.
+	// Roadmap is the id of the roadmap item the work item is under, as its
+	// last change wrote it: Board.RoadmapOf says whether the board has it.
+	Kind    string `json:"kind,omitzero"`
+	Roadmap string `json:"roadmap,omitzero"`
 	// CreatedAt and CreatedBy are the first change's time and writer;
 	// UpdatedAt the latest change's time.
 	CreatedAt time.Time `json:"created_at"`
@@ -253,6 +269,12 @@ type Board struct {
 	// and listsChanges how many of them were read.
 	listsSeq     int
 	listsChanges int
+	// order is the ids the latest change of the roadmap names, in its
+	// order; orderSeq the highest sequence among those changes and
+	// orderChanges how many of them were read.
+	order        []string
+	orderSeq     int
+	orderChanges int
 }
 
 // Read folds the board in folder. A folder that does not exist yet — a
@@ -271,6 +293,18 @@ func Read(folder string) (*Board, error) {
 	b.listsChanges = len(lists)
 	for _, c := range lists {
 		b.listsSeq = max(b.listsSeq, c.Seq)
+	}
+	orders, skipped, err := readChanges(filepath.Join(folder, RoadmapDir), "")
+	if err != nil {
+		return nil, err
+	}
+	b.Skipped += skipped
+	b.orderChanges = len(orders)
+	for _, c := range orders {
+		b.orderSeq = max(b.orderSeq, c.Seq)
+		if len(c.Order) > 0 {
+			b.order = c.Order
+		}
 	}
 	dir := filepath.Join(folder, ItemsDir)
 	entries, skipped, err := readDir(dir)
@@ -470,6 +504,7 @@ func (c *Change) sanitize() {
 	c.Session = protocol.OneLineName(c.Session)
 	c.Comment = protocol.TruncateRunes(Block(c.Comment), MaxCommentChars)
 	c.Lists = cleanLists(c.Lists)
+	c.Order = cleanOrder(c.Order)
 	if r := c.Rename; r != nil {
 		r.Name = protocol.TruncateRunes(Line(r.Name), MaxListChars)
 		if !ValidListKey(r.Key) || r.Name == "" {
@@ -507,6 +542,12 @@ func (c *Change) sanitize() {
 	if s.Tags != nil {
 		l := cleanNames(*s.Tags, MaxTags, MaxTagChars)
 		s.Tags = &l
+	}
+	if s.Kind != nil && *s.Kind != "" && *s.Kind != KindRoadmap {
+		s.Kind = nil
+	}
+	if s.Roadmap != nil && *s.Roadmap != "" && !ValidID(*s.Roadmap) {
+		s.Roadmap = nil
 	}
 }
 
@@ -569,6 +610,9 @@ func fold(id string, changes []*Change, lists []List) *Item {
 			what = []string{"created"}
 			if it.List != "" {
 				what = []string{"created in " + shown(it.List)}
+			}
+			if it.Kind == KindRoadmap {
+				what[0] += " as a roadmap item"
 			}
 			if it.Assignee != "" {
 				what = append(what, "assigned to "+it.Assignee)
@@ -651,6 +695,22 @@ func (it *Item) apply(s *Fields, shown func(key string) string) []string {
 			what = append(what, "reopened")
 		}
 		it.Closed = *s.Closed
+	}
+	if s.Kind != nil && *s.Kind != it.Kind {
+		if *s.Kind == KindRoadmap {
+			what = append(what, "made a roadmap item")
+		} else {
+			what = append(what, "made a work item")
+		}
+		it.Kind = *s.Kind
+	}
+	if s.Roadmap != nil && *s.Roadmap != it.Roadmap {
+		if *s.Roadmap == "" {
+			what = append(what, "taken off its roadmap item")
+		} else {
+			what = append(what, "put under a roadmap item")
+		}
+		it.Roadmap = *s.Roadmap
 	}
 	return what
 }

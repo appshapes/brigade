@@ -71,6 +71,13 @@ type workItemResult struct {
 	// history; Item the one work item every other verb acted on, whole.
 	Items []workItemRow  `json:"items,omitzero"`
 	Item  *workitem.Item `json:"item,omitzero"`
+	// RoadmapItems is how many roadmap items a listing left out: they are
+	// work items of another kind, and `brigade roadmap` shows them (work
+	// item 404). Under is the roadmap item the work item `show` printed is
+	// under, and Carries, for a roadmap item, the work items under it.
+	RoadmapItems int           `json:"roadmap_items,omitzero"`
+	Under        *roadmapRef   `json:"under,omitzero"`
+	Carries      []workItemRow `json:"carries,omitzero"`
 	// Description is the description `show --description` printed, the
 	// work item's own or an earlier one; Shorter the two lengths of a
 	// description an `edit` left shorter than it was.
@@ -157,6 +164,18 @@ type workItemRow struct {
 	Comments  int       `json:"comments"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Roadmap is the number of the roadmap item the work item is under,
+	// absent for one under none (work item 404).
+	Roadmap int `json:"roadmap,omitzero"`
+}
+
+// workItemRowOf is the row of one work item; roadmap is the number of the
+// roadmap item it is under, 0 for none.
+func workItemRowOf(it *workitem.Item, roadmap int) workItemRow {
+	return workItemRow{
+		ID: it.ID, Number: it.Number, Title: it.Title, List: it.List, ListName: it.ListName, Assignee: it.Assignee, Tags: it.Tags,
+		Closed: it.Closed, Comments: len(it.Comments), CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt, Roadmap: roadmap,
+	}
 }
 
 // The verbs of `brigade work-item` (card 263).
@@ -274,42 +293,19 @@ func WorkItem(inv Invocation, opts WorkItemOptions) error {
 		// writes nothing to the board.
 		return inv.workItemPageRun(ask)
 	}
-	if !inv.inSession() {
-		return notInSession("work-item")
-	}
-	m, _, err := inv.sessionMap()
+	m, who, err := inv.boardSession("work-item")
 	if err != nil {
 		return err
 	}
-	if m.BoardFolder == "" {
-		return &protocol.Error{Code: protocol.CodeConfig, Message: WorkItemNoBoard, Details: map[string]string{"reason": ReasonNoBoard}}
-	}
-	who := inv.workItemAuthor(m)
 	if ask.mine {
 		if who.Member == "" {
 			return &protocol.Error{Code: protocol.CodeConfig, Message: WorkItemNoLabel, Details: map[string]string{"reason": ReasonLabelNeeded}}
 		}
 		ask.to = who.Member
 	}
-	store := workitem.Store{Folder: m.BoardFolder, Now: inv.Deps.Now}
-	board, err := workitem.Read(store.Folder)
+	store, board, renumbered, err := inv.readBoard(m, who)
 	if err != nil {
-		return workItemReadError(inv, err)
-	}
-	renumbered, err := store.Repair(board, who)
-	if err != nil {
-		// Not this call's work: the item keeps its number until a later
-		// call renumbers it, and a verb that names the number says so.
-		inv.logger().Warn("work-item: a number two work items carry could not be given anew", log.Err(err))
-	}
-	if len(renumbered) > 0 {
-		// The one other fold of the board a call makes: the numbers moved.
-		if board, err = workitem.Read(store.Folder); err != nil {
-			return workItemReadError(inv, err)
-		}
-	}
-	if board.Skipped > 0 {
-		inv.logger().Debug("work-item: files in the board folder that are no changes were left out", "skipped", board.Skipped)
+		return err
 	}
 	res := workItemResult{SelfSessionID: m.BrigadeSessionID, Verb: ask.verb, Renumbered: renumbered, Note: WorkItemNote}
 	lines, err := inv.runWorkItem(ask, store, board, who, &res)
@@ -332,11 +328,64 @@ func WorkItem(inv Invocation, opts WorkItemOptions) error {
 		return writeLines(inv.Out, lines...)
 	}
 	out := make([]string, 0, len(renumbered)+len(res.Formerly)+1+len(lines))
+	out = append(out, workItemRenumberedLines(renumbered)...)
+	out = append(out, workItemFormerlyLines(res.Formerly, res.FormerlyMore)...)
+	return writeLines(inv.Out, append(out, lines...)...)
+}
+
+// boardSession is the session a command of the board runs in, and who
+// its changes are by: `not_in_session` outside one, `config` for a
+// session whose team has no board.
+func (inv Invocation) boardSession(command string) (*sessionmap.ByPID, workitem.Author, error) {
+	if !inv.inSession() {
+		return nil, workitem.Author{}, notInSession(command)
+	}
+	m, _, err := inv.sessionMap()
+	if err != nil {
+		return nil, workitem.Author{}, err
+	}
+	if m.BoardFolder == "" {
+		return nil, workitem.Author{}, &protocol.Error{Code: protocol.CodeConfig, Message: WorkItemNoBoard, Details: map[string]string{"reason": ReasonNoBoard}}
+	}
+	return m, inv.workItemAuthor(m), nil
+}
+
+// readBoard folds the session's board and, before the command does its
+// own work, gives another number to every work item that carries one an
+// older work item carries too (workitem.Store.Repair): the board it
+// returns is the one after that, and renumbered what it did.
+func (inv Invocation) readBoard(m *sessionmap.ByPID, who workitem.Author) (workitem.Store, *workitem.Board, []workitem.Renumbered, error) {
+	store := workitem.Store{Folder: m.BoardFolder, Now: inv.Deps.Now}
+	board, err := workitem.Read(store.Folder)
+	if err != nil {
+		return store, nil, nil, workItemReadError(inv, err)
+	}
+	renumbered, err := store.Repair(board, who)
+	if err != nil {
+		// Not this call's work: the item keeps its number until a later
+		// call renumbers it, and a verb that names the number says so.
+		inv.logger().Warn("work-item: a number two work items carry could not be given anew", log.Err(err))
+	}
+	if len(renumbered) > 0 {
+		// The one other fold of the board a call makes: the numbers moved.
+		if board, err = workitem.Read(store.Folder); err != nil {
+			return store, nil, nil, workItemReadError(inv, err)
+		}
+	}
+	if board.Skipped > 0 {
+		inv.logger().Debug("work-item: files in the board folder that are no changes were left out", "skipped", board.Skipped)
+	}
+	return store, board, renumbered, nil
+}
+
+// workItemRenumberedLines is one line for each work item a call gave
+// another number.
+func workItemRenumberedLines(renumbered []workitem.Renumbered) []string {
+	out := make([]string, 0, len(renumbered))
 	for _, r := range renumbered {
 		out = append(out, "renumbered: "+strconv.Quote(workItemText(r.Title))+" is now "+itoa(r.To)+"; "+itoa(r.From)+" stays with "+strconv.Quote(workItemText(r.Kept)))
 	}
-	out = append(out, workItemFormerlyLines(res.Formerly, res.FormerlyMore)...)
-	return writeLines(inv.Out, append(out, lines...)...)
+	return out
 }
 
 // workItemFormerlyOf is the work items that carried the number held
@@ -492,7 +541,16 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 		if ask.alone {
 			return inv.showWorkItemDescription(ask, store, it, res)
 		}
-		return showWorkItem(it), nil
+		if r := board.RoadmapOf(it); r != nil {
+			res.Under = &roadmapRef{ID: r.ID, Number: r.Number, Title: r.Title}
+		}
+		if it.IsRoadmap() {
+			res.Carries = []workItemRow{}
+			for _, w := range board.Under(it.ID) {
+				res.Carries = append(res.Carries, workItemRowOf(w, it.Number))
+			}
+		}
+		return showWorkItem(it, board), nil
 	case workItemEdit:
 		set = &workitem.Fields{}
 		if ask.title != it.Title {
@@ -671,6 +729,20 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 		if it.Closed != ask.closed {
 			continue
 		}
+		// passes is whether the listing's own filters take the item.
+		passes := (only == "" || it.List == only) &&
+			(!ask.nobody || it.Assignee == "") &&
+			(ask.to == "" || workitem.SameMember(ask.to, it.Assignee)) &&
+			(ask.tag == "" || slices.ContainsFunc(it.Tags, func(l string) bool { return strings.EqualFold(l, ask.tag) }))
+		if it.IsRoadmap() {
+			// A work item of another kind: the roadmap shows it, whatever
+			// list it is in, and a listing of work says how many of them
+			// its filters take.
+			if passes {
+				res.RoadmapItems++
+			}
+			continue
+		}
 		at := rank(it.List)
 		if at < len(counts) {
 			counts[at]++
@@ -678,10 +750,7 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 			elsewhere[it.List]++
 		}
 		switch {
-		case only != "" && it.List != only:
-		case ask.nobody && it.Assignee != "":
-		case ask.to != "" && !workitem.SameMember(ask.to, it.Assignee):
-		case ask.tag != "" && !slices.ContainsFunc(it.Tags, func(l string) bool { return strings.EqualFold(l, ask.tag) }):
+		case !passes:
 		case leftOut[at]:
 			withheld[at]++
 		default:
@@ -694,10 +763,11 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 	res.Lists, res.Items = board.Lists, make([]workItemRow, 0, len(shown))
 	rows := [][]string{{"LIST", "NUMBER", "TITLE", "ASSIGNED", "TAGS"}}
 	for _, it := range shown {
-		res.Items = append(res.Items, workItemRow{
-			ID: it.ID, Number: it.Number, Title: it.Title, List: it.List, ListName: it.ListName, Assignee: it.Assignee, Tags: it.Tags,
-			Closed: it.Closed, Comments: len(it.Comments), CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt,
-		})
+		under := 0
+		if r := board.RoadmapOf(it); r != nil && !r.Closed {
+			under = r.Number
+		}
+		res.Items = append(res.Items, workItemRowOf(it, under))
 		assigned, tags := "-", "-"
 		if it.Assignee != "" {
 			assigned = labelLine(it.Assignee)
@@ -765,6 +835,12 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 	if len(hidden) > 0 {
 		line += "; not shown: " + strings.Join(hidden, ", ") + "; --all shows them"
 	}
+	switch {
+	case res.RoadmapItems > 0 && ask.closed:
+		line += "; closed roadmap items: " + itoa(res.RoadmapItems) + " (brigade roadmap names them)"
+	case res.RoadmapItems > 0:
+		line += "; roadmap items, which are no work to pick up: " + itoa(res.RoadmapItems) + " (brigade roadmap shows them)"
+	}
 	return append(out, line), nil
 }
 
@@ -773,8 +849,13 @@ const workItemStamp = "2006-01-02 15:04 UTC"
 
 // showWorkItem is `show`: the work item whole — its fields, its
 // description as written, its comments and its history.
-func showWorkItem(it *workitem.Item) []string {
+func showWorkItem(it *workitem.Item, board *workitem.Board) []string {
 	out := []string{"work item " + itoa(it.Number) + ": " + workItemText(it.Title)}
+	if it.IsRoadmap() {
+		// A work item of another kind (work item 404): the same fields, and
+		// the work items under it.
+		out[0] = "roadmap item " + itoa(it.Number) + ": " + workItemText(it.Title)
+	}
 	// The list's name and its key, which is what stays when the name
 	// changes; the key alone for a list the board no longer has.
 	state := it.List + " (no longer one of the board's lists)"
@@ -792,6 +873,34 @@ func showWorkItem(it *workitem.Item) []string {
 	}
 	if len(it.Tags) > 0 {
 		out = append(out, "tags: "+workItemNames(it.Tags))
+	}
+	if r := board.RoadmapOf(it); r != nil {
+		under := "roadmap: under " + itoa(r.Number) + " " + strconv.Quote(workItemText(r.Title))
+		if r.Closed {
+			under += " (closed)"
+		}
+		out = append(out, under)
+	}
+	if it.IsRoadmap() {
+		carries := board.Under(it.ID)
+		finished := 0
+		for _, w := range carries {
+			if board.Finished(w) {
+				finished++
+			}
+		}
+		line := "roadmap: no work items under it (brigade roadmap put <work item> " + itoa(it.Number) + " puts one)"
+		if len(carries) > 0 {
+			line = "roadmap: " + itoa(finished) + " of " + itoa(len(carries)) + " work items under it finished"
+		}
+		out = append(out, line)
+		for _, w := range carries {
+			state := workItemText(w.ListShown())
+			if w.Closed {
+				state += ", closed"
+			}
+			out = append(out, "  "+itoa(w.Number)+" ("+state+") "+protocol.TruncateRunes(workItemText(w.Title), workItemTitleCell))
+		}
 	}
 	out = append(out, "created: "+it.CreatedAt.UTC().Format(workItemStamp)+workItemBy(it.CreatedBy, ""))
 	out = append(out, "updated: "+it.UpdatedAt.UTC().Format(workItemStamp))

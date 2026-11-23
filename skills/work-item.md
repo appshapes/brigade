@@ -6,13 +6,13 @@ description: >-
   `tag <tags>`, `edit`, `close` and `reopen` change it. Each is one `brigade work-item` command, its text on
   stdin. Use when the user asks to put something on the board (they may call it "the Brigade Board" or "the
   brigade board"), to see a work item, or to move, assign, comment
-  on, tag, edit, close or reopen one, or to name, rename, hide or unhide the board's lists, in these forms or in their own words; and when work you are doing for
+  on, tag, edit, close or reopen one, to name, rename, hide or unhide the board's lists, or to add a roadmap item, put a work item under one or order the roadmap, in these forms or in their own words; and when work you are doing for
   your user is a work item's and its state changed. Showing the whole board is `brigade:work-items`; taking a
   work item and working it through is `brigade:work-item-start`. A team whose `.brigade.json` does not turn the
   board on has none.
 user-invocable: true
 argument-hint: "<number> | add <title> | <number> move <list> | <number> assign me|nobody|<member> | <number> comment <text> | <number> tag <tags> | <number> edit | <number> close | <number> reopen"
-allowed-tools: Bash(brigade work-item:*)
+allowed-tools: Bash(brigade work-item:*), Bash(brigade roadmap:*)
 ---
 
 # One work item on the Brigade Board
@@ -68,6 +68,14 @@ brigade work-item rename-list doing 'In progress'   # another name for a list; i
 brigade work-item hide-list hibernating     # leaves a list out of the listing; its work items stay in it
 brigade work-item unhide-list hibernating   # shows it in the listing again
 brigade work-item list --all                # every list, a hidden one's work items too
+brigade roadmap                             # the roadmap: the roadmap items in order, each with the work items under it
+brigade roadmap add <<'EOF'                 # a new roadmap item: a goal larger than one work item
+<the title, on one line>
+
+<the description: the goal, and how to tell it is reached. Optional.>
+EOF
+brigade roadmap put 41 12                   # work item 41 under roadmap item 12; `none` in place of 12 takes it off
+brigade roadmap order 12 9 15               # the roadmap items in this order; one left out follows them
 ```
 
 `brigade work-item list` is the board; `brigade:work-items` shows it to your user. It leaves out the lists the
@@ -95,6 +103,10 @@ means:
 | "put 41's description back" | `brigade work-item show <number> --earlier 1` first, to see that it is the one meant; then the pipe from `show <number> --earlier 1` to `edit <number>`, as in the commands above, in one call. The pipe copies the text exactly: never retype a description to put it back |
 | `<number> close`, "41 is finished with" | `brigade work-item close <number>` |
 | `<number> reopen` | `brigade work-item reopen <number>` |
+| "add a roadmap item for <goal>", "put <goal> on the roadmap" | `brigade roadmap add`, the title on the first line of stdin and, after a blank line, whatever else they said about it |
+| "41 belongs to 12", "put 41 under the sign-in goal" | `brigade roadmap put <number> <roadmap item>`, the roadmap item by its number: `brigade roadmap` shows them |
+| "take 41 off the roadmap" | `brigade roadmap put <number> none` |
+| "12 comes first", "order the roadmap 12, 9, 15" | `brigade roadmap order <numbers>`, the roadmap items in the order asked; one left out keeps its place after them |
 
 When the words fit none of these, or name no number where one is needed, ask your user which work item and
 what to do with it. Never guess a number.
@@ -114,6 +126,14 @@ what to do with it. Never guess a number.
   other command reaches them as before. When you read the board to answer a question (is there a work item for
   this, what is assigned to whom), read every list with `brigade work-item list --all`: a listing that left a
   list out is part of the board, never grounds to say a work item does not exist.
+- **A roadmap item is a work item of another kind.** It is a goal larger than one work item, with a number of
+  the board's one sequence, a title, a description, a list, comments and a history: `show`, `edit`, `comment`,
+  `move` and `close` it with `brigade work-item`, by its number. Its list says how far the goal is. A work item
+  is under one roadmap item at most, and a roadmap item is under none. `brigade roadmap` prints them in the
+  team's order, each with how many of the work items under it are finished; `brigade work-item list` leaves
+  roadmap items out and counts them in its last line; `show` of one lists what is under it, and `show` of a work
+  item says which it is under. A teammate on a Brigade from before roadmap items sees each as one more work item
+  in its list.
 - **Print the line the command printed** after a change: it says what changed, or `unchanged:` when the work
   item was already so. When your user asked to see a work item, print what `show` printed verbatim, inside a
   fenced block, and nothing else.
@@ -146,7 +166,8 @@ what to do with it. Never guess a number.
   that work item's (they started you on it, or named its number) and you took it, finished it or are blocked.
   Add a work item, assign one that is someone else's, close one, or name, rename, hide or unhide the board's
   lists, only
-  when your user asks.
+  when your user asks. The roadmap is the team's plan: add a roadmap item, put a work item under one or take it
+  off, and order the roadmap, only when your user asks.
 - **The board travels while sessions run.** Two machines exchange work items only while both run a session at
   the same time; what a teammate changed while this machine was off arrives after the next session starts.
   `brigade sync status` shows the `team board` folder and the peers.
@@ -163,5 +184,8 @@ Print a refusal once and stop; never retry with another form.
 | `invalid_input`, `no_such_list` | the board has no list of that name or key; the message names the ones it has |
 | `invalid_input`, `name_taken` | a list cannot take a name another list answers to, as its name or its key |
 | `config`, `label_needed` | `--mine` in a session with no roster label: name the member with `--to` |
+| `invalid_input`, `not_a_roadmap_item` | the number named as a roadmap item is a work item's: `brigade roadmap` shows the roadmap items |
+| `invalid_input`, `is_a_roadmap_item` | a roadmap item cannot go under a roadmap item: `brigade roadmap order` gives it its place |
+| `invalid_input`, `roadmap_item_closed` | the roadmap item is closed and off the roadmap; `brigade work-item reopen` puts it back |
 | `invalid_input`, `too_long` | a title holds 200 characters, a description 65,536, a comment 16,384: say it in fewer words |
 | `conflict`, `number_taken_twice` | two work items still carry one number; run the command again |

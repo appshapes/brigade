@@ -515,6 +515,46 @@ type pageFilters struct {
 	List     string `json:"list"`
 	Hidden   bool   `json:"hidden"`
 	Closed   bool   `json:"closed"`
+	By       string `json:"by"`
+}
+
+// pageNode is the node the page's script runs under: needed in CI on
+// Linux; elsewhere a test is skipped without it.
+func pageNode(t *testing.T) string {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" && runtime.GOOS == "linux" {
+			t.Fatalf("node is not on PATH, and CI needs it to run the page's script: %v", err)
+		}
+		t.Skip("node is not on PATH")
+	}
+	return node
+}
+
+// runPageScript runs harness under node with the page's script as its
+// argument and input on stdin, and returns what it wrote.
+func runPageScript(t *testing.T, node, harness string, input []byte) []byte {
+	t.Helper()
+	dir := t.TempDir()
+	scriptFile, harnessFile := filepath.Join(dir, "page.js"), filepath.Join(dir, "harness.js")
+	if err := os.WriteFile(scriptFile, []byte(pageScript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(harnessFile, []byte(harness), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), node, harnessFile, scriptFile) //nolint:gosec // G204: the test's own node and files
+	cmd.Stdin = bytes.NewReader(input)
+	raw, err := cmd.Output()
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			t.Fatalf("node: %v: %s", err, exit.Stderr)
+		}
+		t.Fatalf("node: %v", err)
+	}
+	return raw
 }
 
 // TestWorkItemPageScriptFilters runs the page's own filter functions under
@@ -526,13 +566,7 @@ type pageFilters struct {
 // is skipped without it.
 func TestWorkItemPageScriptFilters(t *testing.T) {
 	t.Parallel()
-	node, err := exec.LookPath("node")
-	if err != nil {
-		if os.Getenv("CI") != "" && runtime.GOOS == "linux" {
-			t.Fatalf("node is not on PATH, and CI needs it to run the page's script: %v", err)
-		}
-		t.Skip("node is not on PATH")
-	}
+	node := pageNode(t)
 	at := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	item := func(n int, list, assignee string, closed bool, tags ...string) *workitem.Item {
 		return &workitem.Item{ID: "i" + strconv.Itoa(n), Number: n, Title: "Item " + strconv.Itoa(n), List: list, Assignee: assignee,
@@ -574,10 +608,10 @@ func TestWorkItemPageScriptFilters(t *testing.T) {
 		{"an assignee and the hidden lists", pageFilters{Assignee: bob, Hidden: true}, pageView{[]pageColumn{col("todo"), col("parked", 3), col("done"), col("old", 5)}, []string{}}},
 		{"an assignee and a tag", pageFilters{Assignee: sam, Tag: web}, pageView{[]pageColumn{col("todo", 2), col("done")}, []string{}}},
 	}
-	whole := "#assignee=" + url.QueryEscape(sam) + "&tag=" + url.QueryEscape(web) + "&list=parked&hidden=1&closed=1"
+	whole := "#assignee=" + url.QueryEscape(sam) + "&tag=" + url.QueryEscape(web) + "&list=parked&hidden=1&closed=1&by=roadmap"
 	whole = strings.ReplaceAll(whole, "+", "%20")
-	hashes := []string{whole, "#tag=%3Dgone&list=nolist&assignee=%3Dnobody%40x&hidden=yes&closed=0", "#tag=%E0%A4%A&assignee=-", "", "#junk&=1&list"}
-	wantParsed := []pageFilters{{Assignee: sam, Tag: web, List: "parked", Hidden: true, Closed: true}, {}, {Assignee: "-"}, {}, {}}
+	hashes := []string{whole, "#tag=%3Dgone&list=nolist&assignee=%3Dnobody%40x&hidden=yes&closed=0&by=lists", "#tag=%E0%A4%A&assignee=-", "", "#junk&=1&list"}
+	wantParsed := []pageFilters{{Assignee: sam, Tag: web, List: "parked", Hidden: true, Closed: true, By: "roadmap"}, {}, {Assignee: "-"}, {}, {}}
 
 	filters := make([]pageFilters, 0, len(cases))
 	for _, c := range cases {
@@ -587,24 +621,7 @@ func TestWorkItemPageScriptFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	scriptFile, harnessFile := filepath.Join(dir, "page.js"), filepath.Join(dir, "harness.js")
-	if err := os.WriteFile(scriptFile, []byte(pageScript), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(harnessFile, []byte(pageHarness), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.CommandContext(t.Context(), node, harnessFile, scriptFile) //nolint:gosec // G204: the test's own node and files
-	cmd.Stdin = bytes.NewReader(input)
-	raw, err := cmd.Output()
-	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			t.Fatalf("node: %v: %s", err, exit.Stderr)
-		}
-		t.Fatalf("node: %v", err)
-	}
+	raw := runPageScript(t, node, pageHarness, input)
 	var got struct {
 		Views  []pageView    `json:"views"`
 		Parsed []pageFilters `json:"parsed"`
@@ -625,5 +642,115 @@ func TestWorkItemPageScriptFilters(t *testing.T) {
 	}
 	if got.Back[0] != whole {
 		t.Errorf("toHash(parseHash(%q)) = %q", whole, got.Back[0])
+	}
+}
+
+// roadmapHarness applies the page's roadmapView to each filter set on
+// stdin and reports each group's roadmap item and its cards' numbers.
+const roadmapHarness = `
+const vm = require("vm");
+const fs = require("fs");
+const script = fs.readFileSync(process.argv[2], "utf8");
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+const sandbox = {};
+vm.runInNewContext(script, sandbox);
+const p = sandbox.brigadeBoardPage;
+process.stdout.write(JSON.stringify(input.filters.map(function (f) {
+  const v = p.roadmapView(input.data, f);
+  return { groups: v.groups.map(function (g) { return { roadmap: g.roadmap ? g.roadmap.number : 0, numbers: g.items.map(function (it) { return it.number; }) }; }), left: v.left };
+})));
+`
+
+// pageGroup and pageRoadmapView are what the harness reports of one view.
+type pageGroup struct {
+	Roadmap int   `json:"roadmap"`
+	Numbers []int `json:"numbers"`
+}
+
+type pageRoadmapView struct {
+	Groups []pageGroup `json:"groups"`
+	Left   int         `json:"left"`
+}
+
+// TestWorkItemPageRoadmapView holds the page's other view (work item
+// 404): the data names the open roadmap items in the roadmap's order with
+// their counts, a card carries the roadmap item it is under, and the
+// script groups the cards the filters show by it, the ones under none
+// last.
+func TestWorkItemPageRoadmapView(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	folder := f.withBoard(t)
+	f.workItem(t, WorkItemOptions{}, "", "lists", "Todo", "Parked", "Done")
+	f.workItem(t, WorkItemOptions{}, "", "hide-list", "parked")
+	for _, title := range []string{"one", "two", "three", "four", "five"} {
+		f.workItem(t, WorkItemOptions{}, title, "add")
+	}
+	f.roadmap(t, RoadmapOptions{}, "Sign-in", "add") // 6
+	f.roadmap(t, RoadmapOptions{}, "Billing", "add") // 7
+	f.roadmap(t, RoadmapOptions{}, "Retired", "add") // 8
+	f.roadmap(t, RoadmapOptions{}, "", "order", "7") // Billing, Sign-in, Retired
+	f.roadmap(t, RoadmapOptions{}, "", "put", "1", "6")
+	f.roadmap(t, RoadmapOptions{}, "", "put", "2", "6")
+	f.roadmap(t, RoadmapOptions{}, "", "put", "3", "7")
+	f.roadmap(t, RoadmapOptions{}, "", "put", "5", "8")
+	f.workItem(t, WorkItemOptions{}, "", "move", "2", "done")
+	f.workItem(t, WorkItemOptions{}, "", "move", "3", "parked")
+	f.workItem(t, WorkItemOptions{Mine: true}, "", "assign", "1")
+	f.workItem(t, WorkItemOptions{}, "", "close", "8")
+
+	data := boardPageFrom(readBoard(t, folder), "ops", fixtureNow)
+	want := []boardPageRoadmap{
+		{Number: 7, Title: "Billing", List: "todo", Total: 1}, {Number: 6, Title: "Sign-in", List: "todo", Total: 2, Finished: 1},
+		{Number: 8, Title: "Retired", List: "todo", Total: 1, Closed: true},
+	}
+	if !reflect.DeepEqual(data.Roadmap, want) {
+		t.Fatalf("the roadmap of the page = %+v\nwant %+v", data.Roadmap, want)
+	}
+	byNumber := map[int]boardPageItem{}
+	for _, it := range data.Items {
+		byNumber[it.Number] = it
+	}
+	if byNumber[1].Roadmap != 6 || byNumber[3].Roadmap != 7 || byNumber[4].Roadmap != 0 || byNumber[5].Roadmap != 8 {
+		t.Errorf("the cards' roadmap items: 1 under %d, 3 under %d, 4 under %d, 5 (under a closed one) under %d",
+			byNumber[1].Roadmap, byNumber[3].Roadmap, byNumber[4].Roadmap, byNumber[5].Roadmap)
+	}
+	if byNumber[6].Kind != "roadmap" || byNumber[1].Kind != "" || !byNumber[2].Finished || byNumber[1].Finished {
+		t.Errorf("kinds and finished: %+v %+v %+v", byNumber[6], byNumber[1], byNumber[2])
+	}
+
+	node := pageNode(t)
+	group := func(roadmap int, numbers ...int) pageGroup {
+		return pageGroup{Roadmap: roadmap, Numbers: append([]int{}, numbers...)}
+	}
+	cases := []struct {
+		name string
+		f    pageFilters
+		want pageRoadmapView
+	}{
+		{"no filter", pageFilters{}, pageRoadmapView{[]pageGroup{group(7), group(6, 1, 2), group(0, 4, 5)}, 1}},
+		{"the hidden lists", pageFilters{Hidden: true}, pageRoadmapView{[]pageGroup{group(7, 3), group(6, 1, 2), group(0, 4, 5)}, 0}},
+		{"a list named", pageFilters{List: "done"}, pageRoadmapView{[]pageGroup{group(7), group(6, 2), group(0)}, 0}},
+		{"an assignee", pageFilters{Assignee: "=" + foldKey("alice@example.com")}, pageRoadmapView{[]pageGroup{group(7), group(6, 1), group(0)}, 0}},
+		// A closed roadmap item is a group with the closed work items, and
+		// what is under it is under none without them.
+		{"the closed ones", pageFilters{Closed: true}, pageRoadmapView{[]pageGroup{group(7), group(6, 1, 2), group(8, 5), group(0, 4)}, 1}},
+	}
+	filters := make([]pageFilters, 0, len(cases))
+	for _, c := range cases {
+		filters = append(filters, c.f)
+	}
+	input, err := json.Marshal(map[string]any{"data": data, "filters": filters})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []pageRoadmapView
+	if raw := runPageScript(t, node, roadmapHarness, input); json.Unmarshal(raw, &got) != nil || len(got) != len(cases) {
+		t.Fatalf("the harness's output: %s", raw)
+	}
+	for i, c := range cases {
+		if !reflect.DeepEqual(got[i], c.want) {
+			t.Errorf("%s: %+v\nwant %+v", c.name, got[i], c.want)
+		}
 	}
 }

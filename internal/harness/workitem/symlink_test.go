@@ -80,3 +80,29 @@ func TestNoTopLevelDirectoryIsFollowedThroughASymlink(t *testing.T) {
 		}
 	}
 }
+
+// The same for `roadmap`: an order behind a symlink is not read, and no
+// order is written through one (work item 404).
+func TestTheRoadmapsDirectoryIsNotFollowedThroughASymlink(t *testing.T) {
+	c := newClock()
+	other := Store{Folder: t.TempDir(), Now: c.now}
+	theirs := addRoadmap(t, other, "Theirs", bob)
+	order(t, other, bob, theirs)
+
+	s := Store{Folder: t.TempDir(), Now: c.now}
+	a := addRoadmap(t, s, "A", alice)
+	b := addRoadmap(t, s, "B", alice)
+	if err := os.Symlink(filepath.Join(other.Folder, RoadmapDir), filepath.Join(s.Folder, RoadmapDir)); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, s.Folder)
+	if titles(got.RoadmapItems()) != "A,B" || len(got.order) != 0 || got.Skipped != 1 {
+		t.Errorf("the roadmap = %q, order %v, skipped %d", titles(got.RoadmapItems()), got.order, got.Skipped)
+	}
+	if err := s.SetOrder(got, []string{b, a}, alice); err == nil {
+		t.Error("an order was written through the symlink")
+	}
+	if entries, err := os.ReadDir(filepath.Join(other.Folder, RoadmapDir)); err != nil || len(entries) != 1 {
+		t.Errorf("the directory it points at holds %d entries (%v), want its own one", len(entries), err)
+	}
+}

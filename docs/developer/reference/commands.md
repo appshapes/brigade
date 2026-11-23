@@ -30,6 +30,8 @@ Commands:
                                               subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now
   work-item list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all] | show <number> [--description | --earlier <n>] | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> [--no-description] | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name> | hide-list <list> | unhide-list <list> | page [--out <file>]
                                               read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one (--description: its title and description alone, the form edit reads; --earlier <n>: a description it had before), add one (title, a blank line and the description on stdin), edit one (the same on stdin; a title alone keeps the description), move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists, or hide one from the listing (a list is named by its key or its name; a listing leaves a hidden list out unless --all or --list asks for it); page writes the whole board as one read-only HTML page to open in a browser, in a session or in a terminal in the team's checkout
+  roadmap [add [--list <list>] | put <work item> <roadmap item> | put <work item> none | order <roadmap item>…]
+                                              read and change the roadmap of the Brigade Board: alone it prints the roadmap items in order, each with how many of the work items under it are finished and the ones that are not; add adds a roadmap item (title, a blank line and the description on stdin), put puts a work item under a roadmap item, or under none, and order names the roadmap items in order, each by its number (one it leaves out follows). A roadmap item is a work item of another kind: show, edit, comment on, move and close it with brigade work-item
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
   team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [--on <url-or-host>] [adapter flags]
@@ -197,6 +199,18 @@ read and change the Brigade Board, the team's board of work items, which file sy
 | `--out <value>` | page: the file to write, in place of the one under Brigade's state directory |
 | `--tag <value>` | add: the new work item's tags, separated by commas; list: only the work items carrying this tag |
 | `--to <value>` | a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them |
+
+## brigade roadmap
+
+```text
+Usage: brigade roadmap [add [--list <list>] | put <work item> <roadmap item> | put <work item> none | order <roadmap item>…] [--json] [--log-level debug|info|warn|error]
+
+read and change the roadmap of the Brigade Board: alone it prints the roadmap items in order, each with how many of the work items under it are finished and the ones that are not; add adds a roadmap item (title, a blank line and the description on stdin), put puts a work item under a roadmap item, or under none, and order names the roadmap items in order, each by its number (one it leaves out follows). A roadmap item is a work item of another kind: show, edit, comment on, move and close it with brigade work-item
+```
+
+| Flag | What it does |
+| --- | --- |
+| `--list <value>` | add: the list the new roadmap item goes into, by its key or its name (the board's first shown list when unset) |
 
 ## brigade inbound
 

@@ -34,6 +34,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0024. Write each skill once and generate the four copies](0024-write-each-skill-once-and-generate-the-four-copies.md)
 - [0025. Hold a skill's description to the length a loader accepts](0025-hold-a-skills-description-to-the-length-a-loader-accepts.md)
 - [0026. Keep Grok Build's subagent check and its refusal of another harness's marker](0026-keep-grok-builds-subagent-check-and-its-refusal-of-another-harnesss-marker.md)
+- [0027. Keep the roadmap as work items of another kind, in one order](0027-keep-the-roadmap-as-work-items-of-another-kind-in-one-order.md)
 
 ## Record a decision
 

@@ -126,13 +126,14 @@ func Copy(from, to string) (*Copied, error) {
 	return out, nil
 }
 
-// folded is a board as its readers see it: the lists and every work item
-// with its comments and its history.
+// folded is a board as its readers see it: the lists, every work item
+// with its comments and its history, and the order of the roadmap.
 func folded(b *workitem.Board) []byte {
 	raw, err := json.Marshal(struct {
 		Lists []workitem.List
 		Items []*workitem.Item
-	}{b.Lists, b.Items})
+		Order []string
+	}{b.Lists, b.Items, b.Order()})
 	if err != nil {
 		return []byte(err.Error())
 	}
@@ -140,8 +141,8 @@ func folded(b *workitem.Board) []byte {
 }
 
 // changes is every change of the board in folder, by its path under the
-// folder: what a reader of the board takes (workitem.Read), in `lists`
-// and in each work item's directory under `items`. Whatever else is
+// folder: what a reader of the board takes (workitem.Read), in `lists`,
+// in `roadmap` and in each work item's directory under `items`. Whatever else is
 // there — a sync engine's marker, a conflict copy, a file with a change's
 // name that is none — is not read. A directory of the board that is
 // something else, a link above all, is an error: nothing is read through
@@ -180,6 +181,9 @@ func changes(folder string) (map[string][]byte, error) {
 		return nil
 	}
 	if err := take("", workitem.ListsDir); err != nil {
+		return nil, err
+	}
+	if err := take("", workitem.RoadmapDir); err != nil {
 		return nil, err
 	}
 	items, err := list(filepath.Join(folder, workitem.ItemsDir))

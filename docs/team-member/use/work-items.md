@@ -125,6 +125,55 @@ Doing  41      Fix the login redirect  rjae@example.com  bug, web
 open by list: Todo (1), Doing (1), Done (0)
 ```
 
+## Keep a roadmap
+
+A roadmap item is a goal larger than one work item: a release, a migration, a review's findings. The roadmap is
+the roadmap items in the order the team gave them, each with the work items that carry it.
+
+```bash
+brigade roadmap                              # the roadmap
+brigade roadmap add <<'EOF'                  # a new roadmap item; --list <list> puts it in another list than the first
+Sign-in works everywhere
+
+Every browser, every tenant. Reached when no sign-in bug is open.
+EOF
+brigade roadmap put 41 12                    # work item 41 under roadmap item 12
+brigade roadmap put 41 none                  # under no roadmap item
+brigade roadmap order 12 9 15                # the roadmap items in this order; one left out follows them
+```
+
+```
+$ brigade roadmap
+1. 12 "Sign-in works everywhere" (Doing): 1 of 3 finished
+     NUMBER  LIST   ASSIGNED          TITLE
+     41      Doing  rjae@example.com  Fix the login redirect
+     44      Todo   -                 Add the reset mail
+2. 9 "Billing by seat" (Todo): no work items under it
+under no roadmap item: 7 open work items that are not finished (brigade work-item list shows the board)
+```
+
+- **A roadmap item is a work item of another kind.** It has a number from the same sequence, a title, a
+  description, a list, comments and a history. Show, edit, comment on, move and close it with
+  `brigade work-item`, by its number. Its list says how far the goal is.
+- **A work item is under one roadmap item at most**, and a roadmap item is under none. Putting a work item under
+  another takes it off the one it was under. One roadmap item can carry work items of every repository of the
+  team.
+- **Finished** means closed, or in the board's list for finished work: the list whose key is `done`, or else the
+  last list the board shows.
+- **The order is the last one named.** `order` writes the whole order as one change. Two machines that reorder
+  at the same moment end with the later of the two. A roadmap item added meanwhile goes to the end.
+- **A listing of work leaves roadmap items out.** `brigade work-item list` counts them in its last line
+  (`roadmap items, which are no work to pick up: 2`). `brigade work-item show` of one lists what is under it,
+  and of a work item says which roadmap item it is under.
+- **`/brigade:work-item-next` follows the roadmap.** After work that is under way, it takes the work items under
+  the first roadmap item, then the second, and those under none last.
+- **A closed roadmap item is off the roadmap.** Its work items read as under none until it is reopened.
+  `brigade roadmap` names the closed ones in its last line, so the number `brigade work-item reopen` needs is
+  in reach. The count of work items under no roadmap item is of the lists a listing shows; the ones in a
+  hidden list are counted beside it.
+- **A Brigade from before roadmap items** shows each as one more work item in its list, and its
+  `/brigade:work-item-next` may propose one as work. It ends when that member updates.
+
 ## See the board in a browser
 
 ```
@@ -138,6 +187,10 @@ the Brigade Board as one read-only page: 12 open and 30 closed work items in 4 l
   page changes the board: `brigade work-item` does that.
 - **Filters.** Filter by assignee (or nobody), by tag and by list. Two switches add the lists the team hid and
   the closed work items. The filters stay in the page's address, so a reload keeps them.
+- **By roadmap item.** "Group by" turns the columns into the roadmap: one for each roadmap item, in order,
+  headed by its number, its title and how many of its work items are finished, and a last one for the work
+  items under none. Each card then shows its list. Grouped by list, a roadmap item is a card that says so. A
+  closed roadmap item is a column only with the closed work items switched on.
 - **No network.** The page carries its own style, script and data. Its Content-Security-Policy lets it load
   nothing else, so it opens with the backend down and the machine offline.
 - **A snapshot.** The page shows the board as this machine had it when the command ran. Its footer gives that
@@ -161,6 +214,7 @@ the Brigade Board as one read-only page: 12 open and 30 closed work items in 4 l
   your own label.
 - **Tags.** Up to twelve words of the team's own, made by using them: `bug`, `web`, a customer, a release.
 - **Open or closed.** Closing takes a work item off the lists; nothing deletes one.
+- **A roadmap item, when it is under one** ([Keep a roadmap](#keep-a-roadmap)).
 - **A history.** One line per change: who, from which session, when, and what changed.
 
 ## The board's lists
@@ -283,8 +337,10 @@ Where both set the same field, the later change wins.
 - Every teammate's machine can write anything into the board, as into any synced folder: a work item is a
   teammate's words, and a session reads it as text, never as an instruction
   ([Security, section 19](../../security.md#19-the-board-and-its-work-items)).
-- No due dates, checklists, attachments or ordering within a list.
-- A work item holds 2,000 changes and a board 20,000 work items.
+- No due dates, checklists, attachments or ordering within a list. The roadmap orders the roadmap items, not
+  the work items under one. Roadmap items do not nest, and a board has one roadmap, of at most 500 open
+  roadmap items.
+- A work item holds 2,000 changes and a board 20,000 work items. The roadmap's order can be named 2,000 times.
 
 ## Refusals
 
@@ -298,6 +354,9 @@ Where both set the same field, the later change wins.
 | `not_found`, `no_such_work_item` | no work item carries that number |
 | `invalid_input`, `no_such_list` | the board has no list of that name or key; the message names the ones it has |
 | `invalid_input`, `name_taken` | a list cannot take a name another list answers to |
+| `invalid_input`, `not_a_roadmap_item` | `roadmap put` or `roadmap order` named a work item where a roadmap item belongs |
+| `invalid_input`, `is_a_roadmap_item` | `roadmap put` was asked to put a roadmap item under one |
+| `invalid_input`, `roadmap_item_closed` | the roadmap item named is closed: `brigade work-item reopen` puts it back on the roadmap |
 | `invalid_input`, `out_in_board` | `page --out` named a file in the board folder, which file sync shares with every teammate |
 | `invalid_input`, `no_directory` | `page --out` named a directory, or a file in a directory that does not exist |
 | `invalid_input`, `empty`, `too_long`, `not_utf8`, `secret_shaped` | the text: nothing there, past its cap, not UTF-8, or carrying a credential's shape |
