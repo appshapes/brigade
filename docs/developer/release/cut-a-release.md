@@ -1,14 +1,14 @@
 # Cut a release
 
 ```sh
-make release version=0.32.0 work_item=110     # on a clean master, with bin/goreleaser (make setup-goreleaser)
+make release version=0.32.0 work_item=110     # on a clean master, with bin/goreleaser and bin/golangci-lint (make setup)
 ```
 
 `work_item` is the number of the release's work item on the team's Brigade Board. `card=<n>`, its earlier name,
 is still accepted with the same meaning; given both, they must agree. `scripts/release-prep.sh` does, in order:
 
 0. **Preconditions**: a version token, a clean tree (untracked files included: step 4 stages everything), the
-   expected branch, the manifests, `bin/goreleaser`, the Muse catalog `marketplace.json` current
+   expected branch, the manifests, `bin/goreleaser`, `bin/golangci-lint` (step 4 lints), the Muse catalog `marketplace.json` current
    (`brigade-muse-digest check`) and no file git does not track under `muse/brigade/` (step 4 rewrites the
    catalog's digest, which counts every file there; no Muse Code is needed since card 114), a
    selectable `go<go.mod line>` toolchain, a `## [<v>]` section in `CHANGELOG.md` (the `## [Unreleased]` section
@@ -29,7 +29,7 @@ is still accepted with the same meaning; given both, they must agree. `scripts/r
 4. **Commit**: `cp dist/checksums.txt plugin/bin/checksums.txt`, the same into `muse/brigade/bin/`,
    `codex/brigade/bin/` and `grok/brigade/bin/`,
    `go run ./cmd/brigade-muse-digest write` (the digest Muse computes over the final `muse/brigade/`, and the
-   version, into `marketplace.json`), then `make push message="<work item>: Release <v>"` (typecheck, pull, build, test with the
+   version, into `marketplace.json`), then `make push message="<work item>: Release <v>"` (typecheck, pull, lint, build, test with the
    documentation gate, commit, push).
 5. **The release commit's CI, then the tag**: it waits for `ci.yml`'s run on the commit step 4 pushed, about as
    long as CI takes, and only over a green one runs `git tag -a v<v> <that commit> && git push origin v<v>`.

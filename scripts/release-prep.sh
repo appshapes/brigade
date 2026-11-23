@@ -11,7 +11,7 @@
 # commit, so the checksums can be computed here, committed, and re-verified by the release job.
 #
 #   preconditions   a version token, the repository root, a clean tree, the expected branch, the plugin
-#                   manifest, bin/goreleaser, and a selectable go<go.mod line> toolchain
+#                   manifest, bin/goreleaser, bin/golangci-lint, and a selectable go<go.mod line> toolchain
 #   0  the commit's CI      ci.yml's run on the commit the release starts from, waited for and read
 #   1  bump the pins        plugin/bin/VERSION and plugin/.claude-plugin/plugin.json "version"
 #   2  reproducible build   make cross version=<v>  ->  dist-cross/{brigade_<v>_<os>_<arch>,checksums.txt}
@@ -152,6 +152,9 @@ fi
 [ -f "$plugin_json" ] || die "$plugin_json does not exist: the plugin manifest must exist and carry a \"version\" before a release (it lands with P3-1)"
 
 [ -x bin/goreleaser ] || die "bin/goreleaser is missing or not executable: run 'make setup-goreleaser'"
+# Step 4's `make push` lints since work item 423. Held here, before anything is changed: without the linter the
+# run would stop at step 4 with the pins already written, and the next run would refuse the tree as not clean.
+[ -x bin/golangci-lint ] || die "bin/golangci-lint is missing or not executable: run 'make setup-lint' (step 4's 'make push' runs 'make lint')"
 
 # The Muse marketplace catalog (card 115): marketplace.json at the root carries the package digest Muse computes
 # over muse/brigade/, which every release changes (step 1 and step 4 rewrite the package's bin/). Step 4 rewrites it
@@ -282,7 +285,7 @@ cp dist/checksums.txt "$committed"
 # written catalog again through `make test`.
 [ ! -f "$muse_json" ] || go run ./cmd/brigade-muse-digest write
 if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
-  make push message="$work_item: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
+  make push message="$work_item: Release $v"     # typecheck -> pull -> lint -> build -> test -> add -> commit -> push
   say "4. committed $committed and marketplace.json"
 else
   # Nothing to commit: HEAD pins $v already and the build reproduces its checksums. That is a run that stopped

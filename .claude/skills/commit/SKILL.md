@@ -6,8 +6,9 @@ argument-hint: "<work item number>"
 
 Commit the current working tree changes using this project's `make push` target.
 
-`make push` = `make commit` + `git push`. `make commit` alone typechecks, pulls, builds, tests,
-ownership-lints, stages and commits, but does NOT push — so this skill uses `make push`.
+`make push` = `make commit` + `git push`. `make commit` alone typechecks, pulls, lints, builds, tests,
+stages and commits, but does NOT push — so this skill uses `make push`. The chain is the Makefile's, and this
+skill never repeats it step by step: it runs the one command.
 
 The work item's number is: $ARGUMENTS
 
@@ -26,7 +27,7 @@ Run these commands in parallel to understand what will be committed:
 
 If the working tree is clean (no staged, unstaged, or untracked changes), there is nothing to commit. If `git status` also says the branch is ahead of origin (a merge you concluded, or commits not yet pushed), `make push` would run its whole chain and stop at "nothing to commit": run `make pull`, then `git push`, and report that. Otherwise inform the user there is nothing to commit and stop.
 
-Remember: `make push` runs `git add --verbose :/ .` before committing, so ALL working tree changes will be included, not just staged files. It also runs `git pull` BETWEEN typecheck and build, so the build/test/ownership gates run against the MERGED tree rather than a stale one.
+Remember: `make push` runs `git add --verbose :/ .` before committing, so ALL working tree changes will be included, not just staged files. It also runs `git pull` BETWEEN typecheck and lint, so lint, build and test run against the MERGED tree rather than a stale one.
 
 ## 3. Check for secrets
 
@@ -50,7 +51,7 @@ Do not ask the user to approve the commit (owner ruling, 2026-11-12). Print the 
 make push "message=<work item>: <generated message>"
 ```
 
-This typechecks, builds, tests, ownership-lints, commits, pulls, and pushes. The only stops are the ones in steps 1 to 3.
+This typechecks, pulls, lints (`make lint`), builds, tests, stages, commits and pushes, in that order. A step that fails stops the chain: none of the work is staged, committed or pushed, and the merge of origin, when there was one, stays. The only stops before it are the ones in steps 1 to 3.
 
 ## 6. Report the result
 
