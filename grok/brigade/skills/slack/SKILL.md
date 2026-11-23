@@ -16,6 +16,10 @@ what it is sent to Slack and carries what people write back. This skill sends on
 is what came after `/brigade:slack`: typed by the user, or passed by you when they
 asked in words and you loaded this skill — their address and their words, never ones you chose.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/slack/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Meaning |

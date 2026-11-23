@@ -11,9 +11,32 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 **Who must act**
 
-- **Team Member:** nothing.
+- **Team Member:** on Codex CLI: once Codex has fetched the changed
+  package it runs none of Brigade's hooks until you review them again.
+  The start that fetches it may only show `Hook failed: plugin contents
+  changed; hook approval required` at your first prompt; the start
+  after it asks "Hooks need review". Choose "Trust all and continue";
+  until you do, nothing of Brigade runs in Codex
+  ([Install in Codex CLI](https://github.com/appshapes/brigade/blob/master/docs/team-member/install/codex.md)).
+  Everyone else: nothing.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
+
+### Fixed
+
+- **A skill you type finds `brigade` in Muse Code, Codex CLI and Grok
+  Build** (work item 425). Ten skills told the model to run a bare
+  `brigade`, which only Claude Code puts on the PATH of the model's
+  shell: `whoami`, `sessions`, `work-item`, `work-items`,
+  `work-item-next`, `work-item-start`, `quiet`, `subscribe`, `email`
+  and `slack`. In Grok Build a typed `/brigade:whoami` then ended at
+  `command not found: brigade` in two of three tries. Each of those
+  skills now says where the command is in the three packages: the
+  package's own `bin/brigade`, found from the skill's own file, which
+  each of those harnesses gives the model with the skill. In Grok
+  Build, `join`, `move` and `update` say the same: they pointed at a
+  line of the session's start that Grok Build shows the user and not
+  the model. Claude Code's copies are unchanged to the byte.
 
 ## [0.58.0] — 2026-11-23
 

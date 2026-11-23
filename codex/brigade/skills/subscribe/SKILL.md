@@ -17,6 +17,10 @@ decisions waiting on a person and the contributions since the last one — and s
 each by their own precedence. The subscription is your user's own act from this session. `$ARGUMENTS` is what
 came after `$brigade:subscribe`: typed by the user, or passed by you when they asked in words and you loaded this skill.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/subscribe/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms, and the flags combine:
 
    | `$ARGUMENTS` | Meaning |

@@ -20,7 +20,9 @@ make it so, and all three are this session's alone: Brigade's inbound policy for
 session's roster line, and a standing instruction to you for the rest of the conversation. `$ARGUMENTS` is what
 came after {{argsOfCommand "quiet"}}: typed by the user{{if in "claude"}} through `{{invoke "quiet"}}`{{end}}{{if in "muse"}} through the `quiet` skill (`{{invoke "quiet"}}`){{end}}, or passed by you when they asked in
 words and you loaded this skill.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Meaning |

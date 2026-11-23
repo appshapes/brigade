@@ -20,6 +20,10 @@ lists, in a folder file sync shares with every teammate's machine whatever repos
 `$ARGUMENTS` is what came after `/brigade:work-items`: typed by the user, or passed by you when you loaded this skill to show the board: a
 word only when the user asked for what it does, otherwise nothing. Either way the steps below are the whole of it.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/work-items/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 1. Build the command from `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Run exactly |

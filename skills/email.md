@@ -19,7 +19,9 @@ A team may have a mail gateway: a hosted member whose session (`mail-gateway`, h
 what it is sent and carries what people write back. This skill sends one message to it. `$ARGUMENTS` is what
 came after {{argsOfCommand "email"}}: typed by the user{{if in "claude"}} through `{{invoke "email"}}`{{end}}{{if in "muse"}} through the `email` skill (`{{invoke "email"}}`){{end}}, or passed by you when they asked in
 words and you loaded this skill — their address and their words, never ones you chose.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Meaning |

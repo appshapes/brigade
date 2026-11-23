@@ -33,11 +33,20 @@ The Claude Code package's text, as a Go `text/template`, with a mark wherever a 
 | `{{argsOf "join"}}` | what the skill's arguments came after: "the command name, `/brigade:join`" in Claude Code, "the skill's name, `brigade:join`" in Muse Code, the invocation alone in the other two |
 | `{{argsOfCommand "join"}}` | the same where Claude Code's text names no invocation: "the command name" in Claude Code and Muse Code |
 | `{{say "claude" "Bash" "*" "shell"}}` | a few words that differ: pairs of the harnesses, by id and separated by spaces or `*` for the rest, and their words. Every harness must have words |
+| `{{commandAt}}` | the sentence that says where `brigade` is, for a harness whose host does not put it on PATH: the package's own `bin/brigade`, found from the skill's own file, which it names. Never rendered for Claude Code: it stands inside a block that leaves `claude` out. `{{commandAt "   "}}` indents its later lines, inside a list item |
 | `{{if in "muse" "codex"}}…{{end}}` | a block those harnesses alone have |
 | `{{if notin "claude"}}…{{end}}` | a block every harness but those has |
 
 The ids are `claude`, `muse`, `codex` and `grok`. A mark that names another, or a `say` with no words for a
 harness, fails the generator.
+
+A copy that has the model run a `brigade` command says where the command is, in the three packages other than
+Claude Code's (work item 425): none of those hosts puts `brigade` on the PATH of the model's shell, and each
+gives the model the skill's file by its path. Most say it with `commandAt`. Five say it in words of their own:
+`setup` and `team-messaging` in all three, and `join` and `move` in Muse Code and Codex CLI, where the line of
+the session's start that names the command reaches the model; in Grok Build that line reaches the user alone,
+so there `join` and `move` carry `commandAt`. `TestASkillThatRunsBrigadeSaysWhereItIs` reads each copy, and
+fails on one that runs a `brigade` command and says it in none of these ways.
 
 The frontmatter is the source's, and a harness's copy carries the keys its loader takes: `name` and
 `description` everywhere, `user-invocable` and `argument-hint` in Claude Code and Muse Code, `allowed-tools` in

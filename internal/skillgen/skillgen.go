@@ -83,7 +83,7 @@ func Sources(root string) ([]string, error) {
 }
 
 // funcs are what a source may ask of the harness it is rendered for.
-func funcs(h Harness) template.FuncMap {
+func funcs(h Harness, skill string) template.FuncMap {
 	is := func(ids ...string) (bool, error) {
 		for _, id := range ids {
 			if _, ok := ByID(id); !ok {
@@ -118,6 +118,28 @@ func funcs(h Harness) template.FuncMap {
 				return "the command name"
 			}
 			return "`" + h.Invoke + name + "`"
+		},
+		// commandAt is the sentence that says where `brigade` is, in a
+		// harness whose host does not put it on PATH (work item 425): the
+		// package's own bin/brigade, found from the skill's own file, which
+		// each of those hosts gives the model with the skill. It names the
+		// skill being rendered, so a source that is copied or renamed never
+		// points at another's file. Claude Code's plugin puts the command
+		// on PATH, so there the mark is an error: a source names it inside
+		// a block Claude Code's copy does not have. Its one argument, when
+		// given, is the indent of its later lines, for a sentence inside a
+		// list item: {{commandAt "   "}}.
+		"commandAt": func(indent ...string) (string, error) {
+			if h.ID == "claude" {
+				return "", errors.New("commandAt has no words for claude, where brigade is on PATH: name it inside a block that leaves claude out")
+			}
+			if len(indent) > 1 {
+				return "", errors.New("commandAt takes one indent at most")
+			}
+			br := "\n" + strings.Join(indent, "")
+			return "Here `brigade` is this package's own command, run by its absolute path. This skill's file is" + br +
+				"`<package>/skills/" + skill + "/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only" + br +
+				"where your PATH has it.", nil
 		},
 		// say is a few words that differ by harness, where a block would
 		// be heavier than the difference: {{say "claude" "the plugin's
@@ -169,7 +191,7 @@ func Render(root, skill string, h Harness) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	t, err := template.New(skill).Option("missingkey=error").Funcs(funcs(h)).Parse(string(src))
+	t, err := template.New(skill).Option("missingkey=error").Funcs(funcs(h, skill)).Parse(string(src))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}

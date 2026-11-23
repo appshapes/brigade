@@ -22,7 +22,9 @@ Every work item you name says what it was read from (its list, its assignee, a c
 the user can check it. Change nothing: no assign, move, comment, tag, doing line or message, and start nothing.
 One `brigade` command per call. The board is the team's **Brigade Board**; its commands are in
 `brigade:work-item`.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 ## 1. The arguments
 
 - `tag <tag>`: only the work items carrying that tag are candidates, a tag as the board's `TAGS` column shows it.

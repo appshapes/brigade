@@ -18,7 +18,9 @@ allowed-tools: Bash(brigade sessions:*)
 `$ARGUMENTS` is what came after {{argsOfCommand "sessions"}}: typed by the user{{if in "claude"}} through `{{invoke "sessions"}}`{{else}} when they invoked this skill{{end}}, or passed by
 you when you loaded this skill to show the roster — a flag only when the user asked for what it does, otherwise
 nothing. Either way the steps below are the whole of it.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 1. Build the command from `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Run exactly |
