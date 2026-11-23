@@ -55,6 +55,8 @@ Details: [Configure in Codex CLI](codex.md).
 1. Write `~/.config/brigade/grok-options.json`: a JSON object whose keys are the option names.
 2. Start a new `grok --no-leader` session; a missing file is the defaults. `brigade whoami` shows the inbound
    policy in force and the monitor's state.
+3. `"grok_strict": "on"` has Brigade refuse a session where a fact is not the one it expects; by default it
+   registers the session and says what it found.
 
 Details: [Configure in Grok Build](grok.md).
 

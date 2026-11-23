@@ -34,6 +34,10 @@ const (
 	OptionStatus               = "CLAUDE_PLUGIN_OPTION_STATUS"
 	OptionFollowTeamMove       = "CLAUDE_PLUGIN_OPTION_FOLLOW_TEAM_MOVE"
 	OptionTeamMoveInSession    = "CLAUDE_PLUGIN_OPTION_TEAM_MOVE_IN_SESSION"
+	// OptionGrokStrict is Grok Build's own option, set in its options file
+	// alone (work item 377, ADR 0021): the plugin's userConfig has none of
+	// this name, so the variable is only ever the file's entry.
+	OptionGrokStrict = "CLAUDE_PLUGIN_OPTION_GROK_STRICT"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -109,6 +113,10 @@ const (
 	// follow: the member who set the option wanted a say, so the session
 	// stays where it is and says so.
 	WarnFollowTeamMoveInvalid = `Brigade: follow_team_move must be "on" or "off"; the value set is neither, so this session does not follow a team that moved.`
+	// WarnGrokStrictInvalid: the grok_strict option is neither on nor off
+	// (work item 377, ADR 0021). The member who set it wanted the strict
+	// path, so an unexpected spelling is read as on, and the hook says so.
+	WarnGrokStrictInvalid = `Brigade: grok_strict must be "on" or "off"; the value set is neither, so this session is held to the strict checks.`
 	// WarnTeamMoveInSessionInvalid: the team_move_in_session option is
 	// neither on nor off (work item 328, ADR 0007). An unexpected spelling
 	// restores the refusal: the member who set the option wanted `team
@@ -169,6 +177,24 @@ func ParseFollowTeamMove(raw string) (bool, string) {
 		return false, ""
 	default:
 		return false, WarnFollowTeamMoveInvalid
+	}
+}
+
+// ParseGrokStrict maps a grok_strict value to whether a Grok Build session
+// is held to the checks no measurement backs (work item 377, ADR 0021): ""
+// (unset: the default is off) or "off" → false; "on" → true; anything else
+// → true with WarnGrokStrictInvalid. Off, the hook registers a session
+// whose process name, start source, aliases, session id or workspace are
+// not what Brigade expects, says so and goes on; on, it refuses each as it
+// did until 0.57.0. The grammar is ParseSync's.
+func ParseGrokStrict(raw string) (bool, string) {
+	switch strings.TrimSpace(raw) {
+	case "", SyncOff:
+		return false, ""
+	case SyncOn:
+		return true, ""
+	default:
+		return true, WarnGrokStrictInvalid
 	}
 }
 
@@ -459,6 +485,12 @@ type Options struct {
 	// option was neither word.
 	FollowTeamMove        bool
 	FollowTeamMoveWarning string
+	// GrokStrict is off unless Grok Build's option grok_strict says on
+	// (work item 377, ADR 0021): the one option that restores every refusal
+	// of the Grok Build path that no measurement backs. GrokStrictWarning
+	// carries WarnGrokStrictInvalid when the option was neither word.
+	GrokStrict        bool
+	GrokStrictWarning string
 	// TeamMoveInSession is on unless the option says off (work item 328,
 	// ADR 0007): `brigade team move` may then move a team, record where one
 	// went and clear that record from inside this member's sessions. The
@@ -567,6 +599,7 @@ func ParseOptions(environ []string) (Options, error) {
 	o.MessageInterval, o.MessageIntervalWarning = ParseMessageInterval(opt(OptionMessageInterval))
 	o.Status, o.StatusWarning = ParseStatus(opt(OptionStatus))
 	o.FollowTeamMove, o.FollowTeamMoveWarning = ParseFollowTeamMove(opt(OptionFollowTeamMove))
+	o.GrokStrict, o.GrokStrictWarning = ParseGrokStrict(opt(OptionGrokStrict))
 	o.TeamMoveInSession, o.TeamMoveInSessionWarning = ParseTeamMoveInSession(opt(OptionTeamMoveInSession))
 	return o, nil
 }

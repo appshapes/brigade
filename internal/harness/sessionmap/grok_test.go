@@ -32,10 +32,18 @@ func TestGrokAlivePackagedKernelNameKeepsExactPIDAndStart(t *testing.T) {
 	if m.GrokAlive(lookup) {
 		t.Fatal("PID reuse accepted")
 	}
+	// The receiver is the process the hook bound, by its PID and its start
+	// token, whatever its name (work item 377, ADR 0021): a TUI the hook
+	// registered under a name Brigade does not know stays alive, and a name
+	// is never what tells one process from another.
 	info.StartToken = "owned-start"
 	info.Command = command + "-other"
+	if !m.GrokAlive(lookup) {
+		t.Fatal("the bound process read as dead for its name")
+	}
+	info.Zombie = true
 	if m.GrokAlive(lookup) {
-		t.Fatal("arbitrary prefix accepted")
+		t.Fatal("a zombie read as alive")
 	}
 }
 

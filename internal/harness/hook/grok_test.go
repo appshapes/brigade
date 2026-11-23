@@ -292,40 +292,264 @@ func TestGrokAcceptsVersionedInstallerKernelName(t *testing.T) {
 	}
 }
 
+// TestGrokRefusesUnboundInputs: what a Grok Build hook refuses whatever the
+// member's options say (work item 377, ADR 0021). Leader mode has a
+// measured reason; another harness's marker and a subagent's hook each have
+// a reason of their own; a document that is no JSON, a working directory
+// that does not resolve, a parent that is no live process of this user and
+// a parent that is a shell, which ends with the hook, leave nothing to
+// bind. A refused start says why in the one notice the user sees; before
+// work item 377 it said nothing.
 func TestGrokRefusesUnboundInputs(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"leader", "collision", "unknown source", "malformed", "alias conflict", "bad native", "subagent", "cwd mismatch", "unknown parent"} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			f := grokFixture(t)
-			extra := []string{}
-			doc := grokDoc(f, "session_start", "new", nil)
+	for _, name := range []string{"leader", "collision", "malformed", "subagent", "subagent in the other spelling", "no cwd", "dead parent", "a shell for a parent"} {
+		for _, strict := range []string{"", "on"} {
+			t.Run(name+" grok_strict="+strict, func(t *testing.T) {
+				t.Parallel()
+				f := grokFixture(t)
+				grokStrictOption(t, f, strict)
+				extra := []string{}
+				doc := grokDoc(f, "session_start", "new", nil)
+				switch name {
+				case "leader":
+					extra = append(extra, "GROK_LEADER_SOCKET=/synthetic/leader.sock")
+				case "collision":
+					extra = append(extra, "CLAUDE_PID=17")
+				case "malformed":
+					doc = "{"
+				case "subagent":
+					doc = grokDoc(f, "session_start", "new", map[string]any{"subagentType": "explore"})
+				case "subagent in the other spelling":
+					doc = grokDoc(f, "session_start", "new", map[string]any{"subagent_type": "explore"})
+				case "no cwd":
+					doc = grokDoc(f, "session_start", "new", map[string]any{"cwd": filepath.Join(t.TempDir(), "gone")})
+				case "dead parent":
+					f.deps.Lookup = func(int) (procutil.Info, error) {
+						return procutil.Info{Exists: true, Command: "grok", Zombie: true, StartToken: "1"}, nil
+					}
+				case "a shell for a parent":
+					f.deps.Lookup = func(int) (procutil.Info, error) {
+						return procutil.Info{Exists: true, Command: "sh", StartToken: "1"}, nil
+					}
+				}
+				_, out, _ := grokRun(f, SubSessionStart, doc, extra...)
+				if f.mapExists() || f.spawner.count() != 0 {
+					t.Fatal("unbound input registered/spawned")
+				}
+				if strings.Contains(out, "registered although") {
+					t.Fatalf("a refused start says it registered: %q", out)
+				}
+				// Every refusal but a document that cannot be read says why.
+				if name != "malformed" {
+					var ui map[string]string
+					if json.Unmarshal([]byte(out), &ui) != nil || !strings.HasPrefix(ui["systemMessage"], "Brigade: ") {
+						t.Fatalf("a refused start told the user nothing: %q", out)
+					}
+				}
+			})
+		}
+	}
+}
+
+// grokStrictOption writes the fixture's options file again with the option
+// grok_strict set to value, or leaves the file alone for "".
+func grokStrictOption(t *testing.T, f *fixture, value string) {
+	t.Helper()
+	if value == "" {
+		return
+	}
+	body, _ := json.Marshal(map[string]string{"adapter_command": f.adapterOption(), "sync": "off", "grok_strict": value})
+	if err := os.WriteFile(filepath.Join(f.configDir, config.GrokOptionsFile), body, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestGrokOpensWhatNoMeasurementBacks (work item 377, ADR 0021; the owner's
+// ruling of 2026-11-22: keep the measured, open the rest, one option
+// restores them all). Each of these was a refusal with no measurement
+// behind it, so a Grok Build update that changed one fact switched Brigade
+// off for that harness with nothing else changed (the binary's new name in
+// 1.0.67 did, work item 131). By default the session now registers, the
+// log and the start's one line for the user say what was found, and the
+// hook goes on. With grok_strict on, and with a value of it that is neither
+// word, each is the refusal it was.
+func TestGrokOpensWhatNoMeasurementBacks(t *testing.T) {
+	t.Parallel()
+	for name, found := range map[string]string{
+		"unknown source":      grokOpenedSource,
+		"alias conflict":      grokOpenedAliases,
+		"another event":       grokOpenedEvent,
+		"id that is no UUID":  grokOpenedID,
+		"another workspace":   grokOpenedWorkspace,
+		"cwd outside":         grokOpenedWorkspace,
+		"unknown parent name": grokOpenedName,
+	} {
+		arrange := func(t *testing.T, f *fixture) string {
+			t.Helper()
 			switch name {
-			case "leader":
-				extra = append(extra, "GROK_LEADER_SOCKET=/synthetic/leader.sock")
-			case "collision":
-				extra = append(extra, "CLAUDE_PID=17")
 			case "unknown source":
-				doc = grokDoc(f, "session_start", "compact", nil)
-			case "malformed":
-				doc = "{"
+				return grokDoc(f, "session_start", "compact", nil)
 			case "alias conflict":
-				doc = grokDoc(f, "session_start", "new", map[string]any{"session_id": "other"})
-			case "bad native":
+				return grokDoc(f, "session_start", "new", map[string]any{"session_id": "other"})
+			case "another event":
+				return grokDoc(f, "stop", "new", nil)
+			case "id that is no UUID":
 				f.nativeID = "not-a-uuid"
-				doc = grokDoc(f, "session_start", "new", nil)
-			case "subagent":
-				doc = grokDoc(f, "session_start", "new", map[string]any{"subagentType": "explore"})
-			case "cwd mismatch":
-				doc = grokDoc(f, "session_start", "new", map[string]any{"cwd": t.TempDir()})
-			case "unknown parent":
-				f.deps.Lookup = func(int) (procutil.Info, error) {
-					return procutil.Info{Exists: true, Command: "sh", StartToken: "1"}, nil
+				return grokDoc(f, "session_start", "new", nil)
+			case "another workspace":
+				return grokDoc(f, "session_start", "new", map[string]any{"workspaceRoot": t.TempDir()})
+			case "cwd outside":
+				inner := filepath.Join(f.cwd, "inner")
+				if err := os.MkdirAll(inner, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				return grokDoc(f, "session_start", "new", map[string]any{"workspaceRoot": inner})
+			case "unknown parent name":
+				base := f.deps.Lookup
+				f.deps.Lookup = func(pid int) (procutil.Info, error) {
+					info, err := base(pid)
+					if pid == f.pid {
+						info.Command = "grok-renamed-tui"
+					}
+					return info, err
 				}
 			}
-			_, _, _ = grokRun(f, SubSessionStart, doc, extra...)
-			if f.mapExists() || f.spawner.count() != 0 {
-				t.Fatal("unbound input registered/spawned")
+			return grokDoc(f, "session_start", "new", nil)
+		}
+		t.Run(name+", by default", func(t *testing.T) {
+			t.Parallel()
+			f := grokFixture(t)
+			doc := arrange(t, f)
+			extra := []string{}
+			if name == "cwd outside" {
+				extra = append(extra, "GROK_WORKSPACE_ROOT="+filepath.Join(f.cwd, "inner"))
+			}
+			code, out, errOut := grokRun(f, SubSessionStart, doc, extra...)
+			if code != 0 || !f.mapExists() {
+				t.Fatalf("the session did not register: exit %d\n%s", code, errOut)
+			}
+			m := f.mustMap()
+			if !m.ValidGrokReceiver() || m.Grok.Strict || m.ClaudeSessionID != f.nativeID {
+				t.Fatalf("map %+v, receiver %+v", m, m.Grok)
+			}
+			var ui map[string]string
+			if json.Unmarshal([]byte(out), &ui) != nil || !strings.Contains(ui["systemMessage"], "this Grok Build session registered although "+found) ||
+				!strings.Contains(ui["systemMessage"], "Set grok_strict to on in grok-options.json") {
+				t.Fatalf("the start's line for the user does not say what was found: %q", out)
+			}
+			if !strings.Contains(errOut, "grok_strict on refuses it") || !strings.Contains(errOut, found) {
+				t.Fatalf("the log does not say what was found:\n%s", errOut)
+			}
+		})
+		for _, value := range []string{"on", "strict, please"} {
+			t.Run(name+", grok_strict="+value, func(t *testing.T) {
+				t.Parallel()
+				f := grokFixture(t)
+				grokStrictOption(t, f, value)
+				doc := arrange(t, f)
+				extra := []string{}
+				if name == "cwd outside" {
+					extra = append(extra, "GROK_WORKSPACE_ROOT="+filepath.Join(f.cwd, "inner"))
+				}
+				_, out, _ := grokRun(f, SubSessionStart, doc, extra...)
+				if f.mapExists() || f.spawner.count() != 0 || strings.Contains(out, "registered although") {
+					t.Fatalf("the strict option did not refuse it: a map %v, stdout %q", f.mapExists(), out)
+				}
+				// The refusal is said, and a value that is neither word,
+				// which is what refused, is said with it.
+				var ui map[string]string
+				if json.Unmarshal([]byte(out), &ui) != nil || !strings.HasPrefix(ui["systemMessage"], "Brigade: this Grok Build session did not register: ") {
+					t.Fatalf("the refused start told the user nothing: %q", out)
+				}
+				if strings.Contains(ui["systemMessage"], config.WarnGrokStrictInvalid) != (value != "on") {
+					t.Fatalf("grok_strict=%q, the notice: %q", value, ui["systemMessage"])
+				}
+			})
+		}
+	}
+}
+
+// TestGrokOpenedLineIsOnlyForARegisteredSession (work item 377): the line
+// says "registered", so a start that found something to go on over and then
+// registered nothing, here for want of a team in the checkout, does not say
+// it.
+func TestGrokOpenedLineIsOnlyForARegisteredSession(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	if err := os.Remove(filepath.Join(f.cwd, ".brigade.json")); err != nil {
+		t.Fatal(err)
+	}
+	_, out, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "compact", nil))
+	if f.mapExists() || strings.Contains(out, "registered although") {
+		t.Fatalf("a start that registered nothing: a map %v, stdout %q\n%s", f.mapExists(), out, errOut)
+	}
+}
+
+// TestGrokDocumentWithNoSessionID (work item 377): a document that names
+// no session id is not one whose id differs. The environment's id is used,
+// and the line says which of the two it was.
+func TestGrokDocumentWithNoSessionID(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	var d map[string]any
+	if err := json.Unmarshal([]byte(grokDoc(f, "session_start", "new", nil)), &d); err != nil {
+		t.Fatal(err)
+	}
+	delete(d, "sessionId")
+	doc, _ := json.Marshal(d)
+	code, out, errOut := grokRun(f, SubSessionStart, string(doc))
+	if code != 0 || !f.mapExists() {
+		t.Fatalf("the session did not register: exit %d, stdout %q\n%s", code, out, errOut)
+	}
+	var ui map[string]string
+	if err := json.Unmarshal([]byte(out), &ui); err != nil {
+		t.Fatalf("stdout %q: %v", out, err)
+	}
+	if !strings.Contains(ui["systemMessage"], grokOpenedIDMissing) || strings.Contains(ui["systemMessage"], grokOpenedIDDiffers) {
+		t.Fatalf("the notice: %q", ui["systemMessage"])
+	}
+}
+
+// TestGrokStrictOnTheMapFollowsTheOption (work item 377): a start in the
+// same TUI keeps its receiver, and the receiver's strict is that start's
+// option, not the one it was first registered under.
+func TestGrokStrictOnTheMapFollowsTheOption(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	if code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil)); code != 0 || !f.mapExists() || f.mustMap().Grok.Strict {
+		t.Fatalf("the first start: exit %d\n%s", code, errOut)
+	}
+	incarnation := f.mustMap().Grok.Incarnation
+	grokStrictOption(t, f, "on")
+	if code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil)); code != 0 {
+		t.Fatalf("the second start: exit %d\n%s", code, errOut)
+	}
+	if m := f.mustMap(); !m.Grok.Strict || m.Grok.Incarnation != incarnation {
+		t.Fatalf("the receiver after the option changed: %+v (first incarnation %s)", m.Grok, incarnation)
+	}
+}
+
+// TestGrokStrictIsOnTheMapAndSaidWhenItsValueIsNeitherWord (work item 377):
+// a session registered under grok_strict carries it on its receiver, for
+// `brigade whoami` and the skills; a value that is neither word is read as
+// on, and the start says so.
+func TestGrokStrictIsOnTheMapAndSaidWhenItsValueIsNeitherWord(t *testing.T) {
+	t.Parallel()
+	for value, warned := range map[string]bool{"on": false, "yes": true} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			f := grokFixture(t)
+			grokStrictOption(t, f, value)
+			code, out, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+			if code != 0 || !f.mapExists() || !f.mustMap().Grok.Strict {
+				t.Fatalf("exit %d, a map %v\n%s", code, f.mapExists(), errOut)
+			}
+			var ui map[string]string
+			if err := json.Unmarshal([]byte(out), &ui); err != nil {
+				t.Fatalf("stdout %q: %v", out, err)
+			}
+			if strings.Contains(ui["systemMessage"], config.WarnGrokStrictInvalid) != warned || strings.Contains(out, "registered although") {
+				t.Fatalf("stdout %q, warned %v", out, warned)
 			}
 		})
 	}

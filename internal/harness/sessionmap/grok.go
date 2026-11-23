@@ -19,6 +19,10 @@ type GrokReceiver struct {
 	Incarnation   string `json:"incarnation"`
 	MonitorState  string `json:"monitor_state"`
 	MonitorTaskID string `json:"monitor_task_id,omitzero"`
+	// Strict records that the member's option grok_strict was on when the
+	// hook registered the receiver (work item 377): `brigade whoami` says
+	// so, and the package's skills hold back where it does.
+	Strict bool `json:"strict,omitzero"`
 }
 
 // ValidGrokReceiver refuses unknown or incomplete receiver bindings.
@@ -60,7 +64,11 @@ func (m *ByPID) GrokLiveness(lookup func(int) (procutil.Info, error)) (GrokLiven
 	if err != nil {
 		return GrokUnknown, err
 	}
-	if !procutil.IsGrokProcess(info) || info.StartToken != m.Grok.ProcessStart {
+	// The receiver is the process the hook bound, by its PID and its start
+	// token: a start token is one process's, so the name adds nothing here,
+	// and a TUI registered under a name Brigade does not know (work item
+	// 377) must not read as dead.
+	if !procutil.LiveOwn(info) || info.StartToken != m.Grok.ProcessStart {
 		return GrokDead, nil
 	}
 	return GrokLive, nil

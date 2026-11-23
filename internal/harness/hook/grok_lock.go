@@ -18,8 +18,14 @@ import (
 // Descriptors release on process death; stable sidecars are never unlinked.
 func (r *run) lockGrokHook() (func(), error) {
 	id, err := config.NativeID(r.spokenHost(), r.environ)
-	if err != nil || !grokUUID(id) {
+	if err != nil {
 		return nil, errors.New("invalid Grok hook identity")
+	}
+	if !grokUUID(id) {
+		// NativeID has held the id to a safe path component already.
+		if err := r.grokOpen("invalid Grok hook identity", grokOpenedID); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := r.grokProcess(); err != nil {
 		return nil, err

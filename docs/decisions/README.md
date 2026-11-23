@@ -28,6 +28,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0018. Say in the webhook gateway's 202 why an accepted message waits](0018-say-in-the-webhook-gateways-202-why-an-accepted-message-waits.md)
 - [0019. Keep what differs between the harnesses in one host table](0019-keep-what-differs-between-the-harnesses-in-one-host-table.md)
 - [0020. Put delivery, local facts and the hook's dialect behind three interfaces](0020-put-delivery-local-facts-and-the-hooks-dialect-behind-three-interfaces.md)
+- [0021. Open Grok Build's unmeasured refusals behind one option](0021-open-grok-builds-unmeasured-refusals-behind-one-option.md)
 
 ## Record a decision
 

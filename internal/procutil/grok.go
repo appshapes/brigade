@@ -5,12 +5,25 @@ import (
 	"strings"
 )
 
-// IsGrokProcess checks the bounded kernel-name witness shared by Grok hooks and
-// receiver liveness. Callers must still bind the actual PID/start token and,
-// for monitor children, ancestry; a process name is not authorization by itself.
-func IsGrokProcess(info Info) bool {
-	return info.Exists && !info.Foreign && !info.Zombie && info.StartToken != "" && grokKernelCommand(runtime.GOOS, info.Command)
+// IsGrokProcess checks the bounded kernel-name witness of a Grok hook's
+// parent: a live process of this user (LiveOwn) under one of the names
+// Brigade knows the TUI by (GrokName). Callers must still bind the actual
+// PID/start token and, for monitor children, ancestry; a process name is
+// not authorization by itself.
+func IsGrokProcess(info Info) bool { return LiveOwn(info) && GrokName(info) }
+
+// LiveOwn reports a process that exists, is this user's, is no zombie and
+// has a start token to bind: what a receiver's binding and its liveness
+// need of the TUI, whatever its name (work item 377, ADR 0021).
+func LiveOwn(info Info) bool {
+	return info.Exists && !info.Foreign && !info.Zombie && info.StartToken != ""
 }
+
+// GrokName reports whether the process carries one of the kernel names
+// Brigade knows Grok Build's TUI by on this platform. The list is what was
+// measured and what the installer's file names give; a release that names
+// its binary otherwise is not on it (Grok 1.0.67 was not, work item 131).
+func GrokName(info Info) bool { return grokKernelCommand(runtime.GOOS, info.Command) }
 
 func grokKernelCommand(goos, command string) bool {
 	// https://x.ai/cli/install.sh links grok to the downloaded binary.
