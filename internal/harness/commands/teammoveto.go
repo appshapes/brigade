@@ -608,7 +608,7 @@ func onThatServerAlready(to, has, typed string) *protocol.Error {
 	}
 	again := "a move to " + host + " that is run again names what the file has: no --certificate"
 	if has != "" {
-		again = "a move to " + host + " that is run again names the pin the file has: `--certificate " + pinLine(has) + "`"
+		again = "a move to " + host + " that is run again names the pin the file has: `--certificate " + shellWord(pinLine(has)) + "`"
 	}
 	return &protocol.Error{
 		Code: protocol.CodeConfig,
@@ -684,8 +684,9 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 		}
 	}
 	// A candidate is named by its host, and by its whole address where the
-	// host names another backend of the team too, the server among them: the
-	// name is what follows --from in the commands printed below.
+	// host names another backend of the team too, the server among them. The
+	// same name follows --from in the commands printed below, as one shell
+	// word there (addressWord).
 	hostOfCandidate := func(i int) string {
 		return addressLine(backendName(bindings, m.file.TeamRef, bindings[i].URL))
 	}
@@ -711,7 +712,7 @@ func (inv Invocation) sourceOfRerun(m *serverMove) (*adapterkit.Profile, string,
 	reruns := func() string {
 		lines := make([]string, 0, len(candidates))
 		for _, i := range candidates {
-			lines = append(lines, "`brigade team move --to "+toServer(m.dest.URL, m.dest.Certificate)+" --secret-file <path> --from "+hostOfCandidate(i)+"`")
+			lines = append(lines, "`brigade team move --to "+toServer(m.dest.URL, m.dest.Certificate)+" --secret-file <path> --from "+addressWord(backendName(bindings, m.file.TeamRef, bindings[i].URL))+"`")
 		}
 		slices.Sort(lines)
 		return strings.Join(lines, ", or ")
@@ -868,9 +869,9 @@ func (inv Invocation) clearOn(t *target) (teammove.ClearOutcome, error) {
 // a membership names, and the command would refuse it or fail to trust it.
 func toServer(url, certificate string) string {
 	if certificate == "" {
-		return addressLine(url)
+		return addressWord(url)
 	}
-	return addressLine(url) + " --certificate " + pinLine(certificate)
+	return addressWord(url) + " --certificate " + shellWord(pinLine(certificate))
 }
 
 // checkMoveSecret is checkJoinSecret for the secret a move presents to the
@@ -1511,7 +1512,7 @@ func (m *serverMove) returnNotCleared(err error, held *protocol.TeamMoveResult, 
 		// not known, and where to read it.
 		where = "the team is taken in on " + m.toHost() + ", which recorded that the team left it for " +
 			moveDestination(held.Adapter, held.URL, held.Certificate) + ": the answer to the clear of that record did not arrive, so the record may be cleared all the same " +
-			"(`brigade team move --show --from " + addressLine(backendNameIn(m.configDir, m.file.TeamRef, m.dest.URL)) + "` says)"
+			"(`brigade team move --show --from " + addressWord(backendNameIn(m.configDir, m.file.TeamRef, m.dest.URL)) + "` says)"
 	}
 	out.Message = where + ". Its move was not opened, and " + m.fromHost() + " was asked to record nothing: it holds what it held, and no session follows this move. " +
 		"The cause: " + perr.Message + ". Run the same command again to finish the move: every step of it is safe to repeat"
@@ -1741,7 +1742,7 @@ func clearCommandFor(configDir, teamRef, destKey, sourceURL string) string {
 		}
 	}
 	if others > 1 {
-		return "brigade team move --clear --from " + addressLine(backendName(bindings, teamRef, sourceURL))
+		return "brigade team move --clear --from " + addressWord(backendName(bindings, teamRef, sourceURL))
 	}
 	return "brigade team move --clear"
 }

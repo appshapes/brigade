@@ -327,7 +327,8 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 	// backends of the team (backendName). A command printed for the owner of
 	// a record there is for a machine of theirs, whose memberships this one
 	// cannot see: it carries the whole address (ownersFrom).
-	destHost, destFrom := attrLine(hostOf(f.URL)), addressLine(backendNameIn(configDir, f.TeamRef, f.URL))
+	destHost := attrLine(hostOf(f.URL))
+	destFrom := addressWord(backendNameIn(configDir, f.TeamRef, f.URL))
 	line := "record that team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ") moved from " + attrLine(hostOf(source.URL)) +
 		" to " + moveDestination(f.Adapter, f.URL, f.Certificate)
 	consequence := "Every member's next session follows it there with no command of theirs."
@@ -408,7 +409,7 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 // backend of that host; the owner's machine may have joined it on two, and
 // there the host is refused as naming more than one (work item 341). The
 // whole address names one backend on every machine.
-func ownersFrom(url string) string { return addressLine(url) }
+func ownersFrom(url string) string { return addressWord(url) }
 
 // reasonBackendsNameEachOther: recording a move would leave the backend
 // the team goes to and the one it leaves each saying that the team is on
@@ -464,7 +465,7 @@ func (inv Invocation) clearDestinationRecord(dest *target, held *protocol.TeamMo
 	}
 	destHost, sourceHost := attrLine(hostOf(f.URL)), attrLine(hostOf(source.URL))
 	// What follows --from in the commands printed below (backendName).
-	destFrom := addressLine(backendNameIn(dest.configDir, f.TeamRef, f.URL))
+	destFrom := addressWord(backendNameIn(dest.configDir, f.TeamRef, f.URL))
 	why := "the step failed on this machine"
 	var perr *protocol.Error
 	if errors.As(cause, &perr) {

@@ -715,11 +715,36 @@ const longPath = "/the-teams-of-a-company-whose-servers-have-long-addresses/alph
 // refused as printed. It is printed whole.
 func TestTheCommandsAMovePrintsCarryALongAddressWhole(t *testing.T) {
 	t.Parallel()
+	commandsOfAMove(t, longPath)
+
+	// The result a script reads: the address of the server the team left,
+	// which was cut there too.
+	r := newMoveToRig(t)
+	r.oldHost = "old-" + strings.Repeat("a-long-label-", 5) + r.oldHost
+	r.fromAServer()
+	iv := r.inv(true, r.args()...)
+	iv.JSON = true
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	ok, result := envelopeOf(t, r.f.out.String())
+	from, _ := result["from"].(map[string]any)
+	if !ok || len(r.oldURL) <= 64 || from["url"] != r.oldURL {
+		t.Errorf("the result's address of the server the team left: %v, want %s", from["url"], r.oldURL)
+	}
+}
+
+// commandsOfAMove runs a move to a server whose host holds a second backend
+// of the team at r.newURL+path, and returns the two refusals whose commands
+// name an address after a flag: the command that is run again, and the stop
+// that says where the server's own record is read.
+func commandsOfAMove(t *testing.T, path string) (rerun, stop string) {
+	t.Helper()
 	// The same command run again: a backend the team may be leaving is at a
 	// long address on the host of the server the team moves to.
 	r := newMoveToRig(t)
 	r.fromAServer()
-	cfg, beside := r.f.dirs.BrigadeConfig, r.newURL+longPath
+	cfg, beside := r.f.dirs.BrigadeConfig, r.newURL+path
 	for key, url := range map[string]string{teamstore.Key("rest", beside, setupTeamRef): beside, r.newKey: r.newURL} {
 		if err := write.EnsureBinding(cfg, key, "rest", url, "", moveNewPin, setupTeamRef, "devs", "p_there"); err != nil {
 			t.Fatal(err)
@@ -734,7 +759,8 @@ func TestTheCommandsAMovePrintsCarryALongAddressWhole(t *testing.T) {
 		t.Fatal(err)
 	}
 	perr := wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeConfig, "team_ambiguous")
-	if need := "--secret-file <path> --from " + beside + "`"; len(beside) <= 64 || !strings.Contains(perr.Message, need) {
+	rerun = perr.Message
+	if need := "--secret-file <path> --from " + shellWord(beside) + "`"; len(beside) <= 64 || !strings.Contains(perr.Message, need) {
 		t.Errorf("the refusal of a command that is run again lacks %q: %s", need, perr.Message)
 	}
 
@@ -743,7 +769,7 @@ func TestTheCommandsAMovePrintsCarryALongAddressWhole(t *testing.T) {
 	r = newMoveToRig(t)
 	r.fromAServer()
 	short := r.newURL
-	r.newURL = short + longPath
+	r.newURL = short + path
 	if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, r.newKey, "rest", short, "", moveNewPin, setupTeamRef, "devs", "p_beside"); err != nil {
 		t.Fatal(err)
 	}
@@ -751,25 +777,10 @@ func TestTheCommandsAMovePrintsCarryALongAddressWhole(t *testing.T) {
 	r.there.on("team moved", okAnswer(left))
 	r.there.on("team move", failAnswer(protocol.CodeUnavailable, "the backend could not be reached"))
 	perr = wantCodeErr(t, Team(r.inv(true, r.args()...)), protocol.CodeUnavailable, reasonReturnNotCleared)
-	if need := "(`brigade team move --show --from " + r.newURL + "` says)"; !strings.Contains(perr.Message, need) {
+	if need := "(`brigade team move --show --from " + shellWord(r.newURL) + "` says)"; !strings.Contains(perr.Message, need) {
 		t.Errorf("the stop of a move to a server at a long address lacks %q: %s", need, perr.Message)
 	}
-
-	// The result a script reads: the address of the server the team left,
-	// which was cut there too.
-	r = newMoveToRig(t)
-	r.oldHost = "old-" + strings.Repeat("a-long-label-", 5) + r.oldHost
-	r.fromAServer()
-	iv := r.inv(true, r.args()...)
-	iv.JSON = true
-	if err := Team(iv); err != nil {
-		t.Fatal(err)
-	}
-	ok, result := envelopeOf(t, r.f.out.String())
-	from, _ := result["from"].(map[string]any)
-	if !ok || len(r.oldURL) <= 64 || from["url"] != r.oldURL {
-		t.Errorf("the result's address of the server the team left: %v, want %s", from["url"], r.oldURL)
-	}
+	return rerun, perr.Message
 }
 
 // TestARerunSaysOfABackendThatRefusesTheReadThatItRefuses (work item 341):
