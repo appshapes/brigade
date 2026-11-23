@@ -18,6 +18,17 @@ The first command adds this repository as a plugin marketplace (its `.agents/plu
 package); the second installs the plugin into Codex's plugin cache. Codex 0.163.0 or later: the `codex queue`
 command Brigade delivers through arrived with it.
 
+## What you get, and when
+
+The package of the last published release, whatever `master` holds since: the marketplace file names the
+package at that release's commit, and only a release moves it (work item 424). A push to this repository
+changes nothing for you. When a release is published, one commit moves the pin to it; Codex looks at the
+marketplace by itself when it starts, and installs the new release's package then, with no command of yours.
+It asks you to review Brigade's hooks once for that release ([Known gaps](#known-gaps)).
+
+An install from before 2026-11-23 followed `master`. It needs nothing: at a start of Codex it moves to the
+last release's package by itself, and asks for the hooks review once if the two differ.
+
 ## Trust the hooks
 
 Installing a plugin does not trust its hooks. The first `codex` you start after the install asks about them:
@@ -64,13 +75,13 @@ It works: a message sent to an idle Codex session starts a turn there and is ans
 arm64, 2026-11-22: the reply was stored 14 seconds after the send; again on 2026-11-23, on the build that
 follows 0.57.0: 10 seconds).
 
-- **Codex asks you to review Brigade's hooks again after every update of the package**, and until you trust them
-  nothing of Brigade runs: no registration, no message. Its trust covers more of the package than the hooks'
-  own definition (measured 2026-11-22), so any release that changes the package asks again. The start in
-  which Codex fetches the changed package may not ask: on 2026-11-23 that start showed `Hook failed: plugin
-  contents changed; hook approval required` at the first prompt and ran no hook of Brigade's, and the start
-  after it asked "Hooks need review". Only the hooks' content hashes change in `config.toml` when you trust
-  them again.
+- **Codex asks you to review Brigade's hooks again once for every release**, and until you trust them nothing
+  of Brigade runs: no registration, no message. Its trust covers every file of the installed package (measured
+  2026-11-22), and every release changes the package. Between two releases nothing changes it
+  ([What you get, and when](#what-you-get-and-when)). The start in which Codex fetches the changed package may
+  not ask: on 2026-11-23 one such start showed `Hook failed: plugin contents changed; hook approval required`
+  at the first prompt and ran no hook of Brigade's, and the start after it asked "Hooks need review"; another
+  asked at once. Only the hooks' content hashes change in `config.toml` when you trust them again.
 - **A launch flag can slow delivery to a poll.** `-c`, `--enable`, `--disable`, `--no-daemon` and
   `--dangerously-bypass-hook-trust` put Codex in embedded mode ([Keep Codex in daemon mode](#keep-codex-in-daemon-mode)).
 - **Under the default profile each `brigade` command that reaches the backend asks for your approval**: the

@@ -53,6 +53,7 @@ func (c *checker) grok() {
 	if !c.isExecutable(dir + "/bin/brigade") {
 		c.die("bootstrap is not executable")
 	}
+	c.pin()
 	c.say("grok-plugin-check: release assets equal canonical pins; live contract gates remain independent")
 }
 
@@ -129,25 +130,11 @@ func GrokSource(root string) error {
 			return fmt.Errorf("unsupported manifest member %s", key)
 		}
 	}
-	data, err = read(".grok-plugin/marketplace.json")
-	if err != nil {
-		return err
-	}
-	var market struct {
-		Name    string `json:"name"`
-		Plugins []struct {
-			Name   string `json:"name"`
-			Source struct {
-				Type string `json:"type"`
-				Path string `json:"path"`
-			} `json:"source"`
-		} `json:"plugins"`
-	}
-	if err := json.Unmarshal(data, &market); err != nil {
-		return err
-	}
-	if market.Name != "brigade" || len(market.Plugins) != 1 || market.Plugins[0].Name != "brigade" || market.Plugins[0].Source.Type != "local" || market.Plugins[0].Source.Path != "./grok/brigade" {
-		return errors.New("catalog does not name the distinct Grok package")
+	// The catalog names the package at the commit of a release (work item
+	// 424, pin.go); that the commit is Codex CLI's too, and a release's, is
+	// the whole check's to hold, which has git to ask.
+	if _, err := pins[1].commitIn(root); err != nil {
+		return fmt.Errorf("catalog does not name the distinct Grok package: %w", err)
 	}
 	data, err = read(pkg + "/hooks/hooks.json")
 	if err != nil {

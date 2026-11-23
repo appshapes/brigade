@@ -26,7 +26,18 @@ The first command adds this repository as a plugin marketplace (its `.grok-plugi
 package). Leave it out where `grok plugin marketplace list` already shows `brigade`: Grok Build also lists the
 marketplaces Claude Code knows on the machine, and the command then stops at `Marketplace source already
 configured`. In Grok Build 1.0.92 `install --trust` enables the plugin too, and the third command changes
-nothing. The package is installed as the repository's default branch has it at that moment.
+nothing.
+
+## What you get, and when
+
+The package of the last published release, whatever `master` holds since: the marketplace file names the
+package at that release's commit, and only a release moves it (work item 424). A push to this repository
+changes nothing for you. When a release is published, one commit moves the pin to it, and your next update
+brings that release's package ([Update in Grok Build](../update/grok.md)). Grok Build keeps the package as a
+clone of this repository at that commit, with the plugin in its `grok/brigade` directory.
+
+An install from before 2026-11-23 followed `master` and cannot follow the pin: its update fails, and it is
+removed and installed again once ([Update in Grok Build](../update/grok.md#an-install-from-before-2026-11-23)).
 
 Join the project's team as [the joining page](../join/grok.md) describes. Type an ordinary prompt in the direct
 TUI. SessionStart registers it and shows a UI-only notice; after the first completed turn, Stop offers one
@@ -65,7 +76,8 @@ on 2026-11-23, on the build that follows 0.57.0: 51 seconds).
 - **A message is read in pages**, one tool call each, so an answer takes longer than in the other harnesses.
 - **One platform.** The measurements are on macOS arm64. Linux is not measured, nor is a session left idle for
   more than half an hour with the whole package, and the package does not run on Windows.
-- **The package comes from the repository's default branch**, so its skills can change between two releases.
+- **An install from before 2026-11-23 does not update.** It keeps working as it is, and is removed and installed
+  again once ([Update in Grok Build](../update/grok.md#an-install-from-before-2026-11-23)).
 - **Removing it needs care**: an uninstall leaves a line in Grok Build's `config.toml`, and `grok plugin
   marketplace remove brigade` can take the marketplace out of Claude Code's list too
   ([Leave and uninstall from Grok Build](../leave/grok.md)).

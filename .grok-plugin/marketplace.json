@@ -9,8 +9,10 @@
       "name": "brigade",
       "description": "Team messaging through a persistent inbox monitor in Grok --no-leader sessions.",
       "source": {
-        "type": "local",
-        "path": "./grok/brigade"
+        "source": "url",
+        "url": "https://github.com/appshapes/brigade.git",
+        "sha": "b9908ccfc0c2614d1b06085a19157f73a7926226",
+        "path": "grok/brigade"
       }
     }
   ]

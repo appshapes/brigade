@@ -137,6 +137,7 @@ func TestThePagesThatListThePushChainListLint(t *testing.T) {
 		{".claude/skills/commit/SKILL.md", "```\n\nThis ", "\n"},
 		{".github/workflows/ci.yml", "has already passed `make push`", "before it reaches"},
 		{"scripts/release-prep.sh", "make push message=\"$work_item: Release $v\"", "\n"},
+		{"scripts/release-pin.sh", "  make push message=\"$work_item: Point the Codex CLI and Grok Build packages at $v\"", "\n"},
 	} {
 		text := readRepoFile(t, c.file)
 		_, after, ok := strings.Cut(text, c.from)

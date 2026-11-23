@@ -26,5 +26,7 @@ broader burst or hint-loss envelopes are not measured.
 `make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook strings, fifteen reachable
 skills, allowlist, no symlinks and the three bin assets equal to the canonical package. VERSION/checksums here
 are identical copies of the release-produced pins of `plugin/bin`: every release rebuilds and pins the four
-packages together. Grok Build installs the package as the repository's default branch has it, so a change to a
-skill here reaches a member at their next `grok plugin update brigade`, before the release that names it.
+packages together. The repository root's `.grok-plugin/marketplace.json` names this package at the commit of the
+last published release, so a member has that release's package: a change here reaches them at their first
+`grok plugin update brigade` after the next release, and not with its push (work item 424,
+[ADR 0030](../../docs/decisions/0030-pin-the-codex-cli-and-grok-build-packages-to-the-last-release-in-their-marketplace-files.md)).

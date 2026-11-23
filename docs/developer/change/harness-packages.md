@@ -69,11 +69,29 @@ with the rule's message: add the column, or, when it is more than a value, add a
 - `scripts/release-prep.sh` bumps the manifest's version and copies the pins into the package's `bin/`;
   `checksums-check.sh` rule (a) and `release.yml`'s guard compare them.
 - A harness that installs from a catalog carries it at the repository root (`.claude-plugin/marketplace.json`,
-  `.agents/plugins/marketplace.json`, `marketplace.json` for Muse). When the harness pins a package digest, as Muse
+  `.agents/plugins/marketplace.json`, `.grok-plugin/marketplace.json`, `marketplace.json` for Muse). A harness
+  that reads the catalog from the default branch and takes the package's files as they are there would give its
+  members every push: Codex CLI's and Grok Build's catalogs therefore name the package at the commit of the last
+  published release, which the release sequence's last step moves and the package checks hold (work item 424,
+  [ADR 0030](../../decisions/0030-pin-the-codex-cli-and-grok-build-packages-to-the-last-release-in-their-marketplace-files.md)).
+  A new harness of that kind is pinned the same way, in `internal/packagecheck/pin.go`. When the harness pins a package digest, as Muse
   does, `internal/musedigest` and `cmd/brigade-muse-digest` are the model: the repository computes the digest the
   harness computes (tests pinned to digests the harness reported), `make release` rewrites it, the package check
   and `make test` verify it on every machine, and where the harness is installed a test has it install from the
   catalog.
+
+## Trying an unreleased package
+
+The two pinned catalogs fetch the package from GitHub at the last release's commit, from a clone too. To run
+what the working tree has:
+
+- **Grok Build**: `grok plugin install ./grok/brigade --trust` installs the directory itself, with no
+  marketplace. Remove it afterwards with `grok plugin uninstall brigade`.
+- **Codex CLI**: in a throwaway clone, put the catalog's entry back to
+  `"source": {"source": "local", "path": "./codex/brigade"}`, then `codex plugin marketplace add <that clone>`
+  and `codex plugin add brigade@brigade`. Never commit that form: `make codex-plugin-check` refuses it.
+
+Do both under a throwaway `HOME`, so that the harness's own configuration keeps the released package.
 
 ## The documentation
 

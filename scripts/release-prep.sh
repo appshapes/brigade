@@ -21,6 +21,16 @@
 #                           marketplace.json's digest; make push message="<work item>: Release <v>"
 #   4b the release's CI     ci.yml's run on the release commit, waited for and read: the tag follows a green one
 #   5  tag                  git tag -a v<v> && git push origin v<v>  ->  release.yml builds, verifies, publishes
+#   6  the two packages     scripts/release-pin.sh <v>: once the release is published, one more commit on the
+#                           branch points the Codex CLI and the Grok Build package at the tag's commit
+#
+# Step 6 (work item 424, ADR 0030). Codex CLI and Grok Build read their marketplace file from the default
+# branch, and each names its package at the commit of the last published release. So nothing a push or steps 1
+# to 5 change reaches their members; step 6's commit does. It comes after the tag and is no part of the release
+# commit: the tag's commit, its message and what the release workflows read are as they were. When it stops, or
+# never runs, the release is out and those members stay on the release before; this script's start then says so
+# at the next release, the package checks say so on every run, and `make release-pin version=<v>
+# work_item=<n>` runs the step by itself. A pre-release moves nothing.
 #
 # The two CI steps (work item 399, ADR 0015; scripts/release-ci-check.sh does the looking). Until 2026-11-22 the
 # sequence never looked: step 5 followed step 4's push by about thirty seconds, CI takes about four minutes, and
@@ -72,6 +82,10 @@ committed=plugin/bin/checksums.txt
 # The Muse Code package (card 88) and the Codex CLI package (card 107) carry the same pin: their manifests are bumped
 # with the Claude one and their three bin/ assets are copies of plugin/bin's, which `make muse-plugin-check`,
 # `make codex-plugin-check` and checksums-check.sh rule (a) hold.
+# Where the Codex CLI and the Grok Build package are pinned to a release, and the script that moves the pin
+# (step 6), beside this one like the CI check.
+codex_market=.agents/plugins/marketplace.json
+pin_script=$(dirname "$0")/release-pin.sh
 muse_json=muse/brigade/.muse-plugin/plugin.json
 muse_bin=muse/brigade/bin
 codex_json=codex/brigade/.codex-plugin/plugin.json
@@ -206,6 +220,11 @@ else
   [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$branch")" ] || die "HEAD is not origin/$branch's head: push it first, so that ci.yml has a run of the commit this release starts from"
 fi
 
+# Where the Codex CLI and Grok Build packages stand (work item 424), after the pull and the fetch of the tags
+# the reading needs: a release whose step 6 never ran left them on the release before, and this line is where
+# the next release says so. A pin that breaks its rules is fixed on its own commit first.
+[ ! -f "$codex_market" ] || go run ./cmd/brigade-packages pin || die "the pin of the Codex CLI and Grok Build packages breaks its rules: fix it on its own commit before releasing; nothing was changed"
+
 # ---- 0. the CI of the commit the release starts from -------------------------------------------------------------
 # After the pull, so that it is the commit the release commit will sit on. A run in progress is waited for. A
 # dry run asks once and reports, and goes on whatever the answer: a rehearsal branch has no run at all, and a
@@ -276,6 +295,7 @@ if [ "$dry_run" = 1 ]; then
   say "  4. make push message=\"$work_item: Release $v\""
   say "  4b. wait for ci.yml's run on the release commit, and stop over a red or a missing one"
   say "  5. git tag -a v$v -m v$v && git push origin v$v   (the message also carries release_over_ci when it was given)"
+  [ ! -f "$codex_market" ] || say "  6. work_item=$work_item scripts/release-pin.sh $v   (waits for v$v to be published, then: make push message=\"$work_item: Point the Codex CLI and Grok Build packages at $v\")"
   exit 0
 fi
 
@@ -320,3 +340,17 @@ release_over_ci=$release_over_ci"
 git tag -a "v$v" -m "$tag_message" "$release_commit"
 git push origin "v$v"
 say "5. pushed v$v; release.yml now builds, verifies against $committed and publishes the draft"
+
+# ---- 6. point the Codex CLI and Grok Build packages at the release ---------------------------------------------------
+# After the tag, and after the release is published: the script waits for that. A stop here leaves the release
+# out and the members of those two harnesses on the release before.
+case $v in
+  *-*) pre_release=1 ;;
+  *)   pre_release=0 ;;
+esac
+if [ -f "$codex_market" ] && [ "$pre_release" = 1 ]; then
+  say "6. v$v is a pre-release: the Codex CLI and Grok Build packages stay at the last release"
+elif [ -f "$codex_market" ]; then
+  work_item=$work_item sh "$pin_script" "$v" || die "v$v is tagged, and the Codex CLI and Grok Build packages are NOT moved to it: their members stay on the release before. Run 'make release-pin version=$v work_item=$work_item' once v$v is published"
+  say "6. pointed the Codex CLI and Grok Build packages at v$v"
+fi

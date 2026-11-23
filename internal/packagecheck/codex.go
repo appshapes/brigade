@@ -16,7 +16,6 @@ var (
 	codexFormRE     = regexp.MustCompile(`^"\$\{PLUGIN_ROOT\}/bin/brigade" hook ([a-z-]+) --host codex --plugin-root "\$\{PLUGIN_ROOT\}"$`)
 	codexBlockEndRE = regexp.MustCompile(`^` + sp + `*\]` + sp + `*,?` + sp + `*$`)
 	codexMarketName = re(`^_"name":_"brigade"`)
-	codexMarketPath = re(`"path":_"\./codex/brigade"`)
 	nonDigitsRE     = regexp.MustCompile(`[^0-9]`)
 	// The name is put in after the blanks are: an underscore in a skill's
 	// name is its own and no blank.
@@ -32,7 +31,7 @@ func (c *checker) codex() {
 		dir         = "codex/brigade"
 		manifest    = "codex/brigade/.codex-plugin/plugin.json"
 		hooksFile   = "codex/brigade/hooks/hooks.json"
-		marketplace = ".agents/plugins/marketplace.json"
+		marketplace = CodexMarketplace
 	)
 	if !c.isDir(dir) {
 		c.die("run me from the repository root: no %s directory here", dir)
@@ -146,7 +145,8 @@ func (c *checker) codex() {
 	}
 	c.ok("%s runs the bootstrap for exactly SessionStart, UserPromptSubmit and SessionEnd with the exact command form, and SessionEnd stays within Codex's 3 s", hooksFile)
 
-	// 7. The marketplace file names the package.
+	// 7. The marketplace file names the package at the commit of a release,
+	// the one Grok Build's file names (work item 424, pin.go).
 	market, hasMarket := c.read(marketplace)
 	if !hasMarket {
 		c.die("missing %s: `codex plugin marketplace add appshapes/brigade` reads it", marketplace)
@@ -154,10 +154,7 @@ func (c *checker) codex() {
 	if !codexMarketName.MatchString(market) {
 		c.die("%s names no plugin brigade", marketplace)
 	}
-	if !codexMarketPath.MatchString(market) {
-		c.die("%s does not point at ./codex/brigade", marketplace)
-	}
-	c.ok("%s names the brigade plugin at ./codex/brigade", marketplace)
+	c.pin()
 
 	// 8. Every skill is named after its directory, and none takes the
 	// model's reach away.

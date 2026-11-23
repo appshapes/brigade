@@ -43,6 +43,10 @@ Details: [Update in Codex CLI](codex.md).
 2. Reload through Grok's Plugins tab or start a new `grok --no-leader` session; its first turn asks once to arm
    the inbox monitor again.
 
+An install from before 2026-11-23 fails at the second command with `plugin 'grok/brigade' not found in install
+registry` and keeps working as it is: once, `grok plugin uninstall brigade`, then `grok plugin install brigade
+--trust`.
+
 Details: [Update in Grok Build](grok.md).
 
 ## Know what an update changes

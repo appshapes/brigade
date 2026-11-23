@@ -1,7 +1,9 @@
 # Update in Codex CLI
 
-Codex installs the package from the `brigade` marketplace, so an update is a refresh of the marketplace's snapshot
-and an install again:
+Codex installs the package from the `brigade` marketplace, which names the package of the last published
+release ([What you get, and when](../install/codex.md#what-you-get-and-when)). So there is something to update
+to only after a release, and Codex takes it by itself at a start. To take it at once, refresh the marketplace's
+snapshot and install again:
 
 ```sh
 codex plugin marketplace upgrade brigade
@@ -9,9 +11,10 @@ codex plugin add brigade@brigade
 ```
 
 then start a new session and type one prompt. A running session keeps the version it started with, and nothing a
-session's model can run replaces it.
+session's model can run replaces it. Between two releases the two commands change nothing in the installed
+package, whatever was pushed to this repository meanwhile.
 
-Codex asks you to review Brigade's hooks again once the package has changed: choose **Trust all and continue**
+Codex asks you to review Brigade's hooks again once for the release: choose **Trust all and continue**
 ([Trust the hooks](../install/codex.md#trust-the-hooks)). Until you do, nothing of Brigade runs. A start that
 fetched the changed package itself may not ask and show `Hook failed: plugin contents changed; hook approval
 required` at your prompt instead (measured 2026-11-23): quit and start Codex again, and it asks.
