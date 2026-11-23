@@ -219,6 +219,89 @@ func attrLine(s string) string { return oneLine(protocol.SanitizeAttribute(s)) }
 // attrLine and its cut.
 func addressLine(s string) string { return oneLine(sanitizeID(s)) }
 
+// addressWord is addressLine for an address that follows a flag in a
+// command a line prints for its reader to run: `--to`, `--from`, `--on`.
+// Pasted into a shell, it is one word and nothing in it is carried out
+// (work item 357). An address in a line that is only read keeps
+// addressLine.
+func addressWord(s string) string { return shellWord(addressLine(s)) }
+
+// shellWord writes a value so that a shell takes it as one word, the value
+// itself, and carries out nothing in it: what a command Brigade prints for
+// pasting holds after a flag. A team file and `--to` accept an address with
+// a space, a backtick, `$(…)` or a single quote in it, and printed as it
+// stands such an address did in a shell what it did not do as an argument
+// (work item 357).
+//
+// A value of letters, digits and `-._/:%+` alone is printed as it is, which
+// is nearly every address, so what a reader saw before does not change
+// there. Any other is quoted, an IPv6 address in its brackets among them:
+// each run of its characters between single quotes, where sh, bash, zsh,
+// dash, fish and PowerShell all take a character as itself; and between
+// double quotes the few that a single-quoted string cannot hold in every
+// one of them: the single quote, the four typographic single quotes that
+// PowerShell reads as one (U+2018 to U+201B), and the backslash, doubled.
+// Nothing else is ever inside double quotes, so no shell finds a `$` or a
+// backtick there. The typographic double quotes, which end a double-quoted
+// string in PowerShell, stay between single quotes.
+//
+// What the form does not do. In PowerShell a value with a single quote or
+// a backslash in it becomes other arguments than the value (a quoted string
+// that begins a word ends it there, and a backslash is not an escape), so
+// the command is refused; nothing in it is carried out. cmd.exe has no
+// quoting that keeps `&` and `|` from it and is not served: the Windows
+// pages name PowerShell and Git Bash. And the value is the sanitised one
+// (addressLine): an address with a character the sanitiser drops or folds,
+// two spaces together or a double quote, is printed as another address,
+// and the command names no backend.
+func shellWord(s string) string {
+	if s != "" && strings.IndexFunc(s, func(r rune) bool { return !shellPlain(r) }) < 0 {
+		return s
+	}
+	if s == "" {
+		return "''"
+	}
+	var b strings.Builder
+	quote := byte(0) // the quote that is open: ' or " or none
+	open := func(q byte) {
+		if quote == q {
+			return
+		}
+		if quote != 0 {
+			b.WriteByte(quote)
+		}
+		b.WriteByte(q)
+		quote = q
+	}
+	for _, r := range s {
+		switch r {
+		case '\\':
+			open('"')
+			b.WriteString(`\\`)
+		case '\'', '\u2018', '\u2019', '\u201a', '\u201b':
+			open('"')
+			b.WriteRune(r)
+		default:
+			open('\'')
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte(quote)
+	return b.String()
+}
+
+// shellPlain reports whether a character needs no quoting in any of those
+// shells, wherever in a word it stands. A comma is not one (PowerShell makes
+// an array of `a,b`), nor `@` (it splats a word that begins with it), nor
+// `~`, `=`, `[` and `]` (zsh).
+func shellPlain(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return true
+	}
+	return strings.ContainsRune("-._/:%+", r)
+}
+
 // enumLine keeps a wire enumeration value printable: the adapters
 // validated it against a closed set, so this is belt and braces.
 func enumLine(s string) string { return oneLine(protocol.SanitizeAttribute(s)) }

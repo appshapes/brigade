@@ -833,6 +833,16 @@ func TestTheRecordsFormDoesNotTellAMemberWhoCannotRecordToRunItAgain(t *testing.
 // points, and the command was refused as printed.
 func TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole(t *testing.T) {
 	t.Parallel()
+	commandsOfTheRecordsForm(t, longPath)
+}
+
+// commandsOfTheRecordsForm runs the record's form for a team that goes to
+// a server at r.newURL+path, on a host this machine has joined the team on
+// under another path too, and returns the two texts whose commands name
+// that server after --from: the refusal of a clear that was not answered,
+// and the lines of a record that may stand.
+func commandsOfTheRecordsForm(t *testing.T, path string) (refusal, lines string) {
+	t.Helper()
 	left := func(adapter, url string) string {
 		return `{"team_ref":"` + setupTeamRef + `","moved":true,"adapter":"` + adapter + `","url":"` + url + `","recorded_at":"2026-11-10T12:00:00Z"}`
 	}
@@ -841,7 +851,7 @@ func TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole(t *testing.T) {
 	rig := func() (*moveRig, string) {
 		t.Helper()
 		r := newMoveRig(t, true)
-		long := r.newURL + "/the-teams-of-a-company-whose-servers-have-long-addresses/alpha"
+		long := r.newURL + path
 		key := teamstore.Key("rest", long, setupTeamRef)
 		if err := write.EnsureBinding(r.f.dirs.BrigadeConfig, key, "rest", long, "", moveNewPin, setupTeamRef, "devs", "p_long"); err != nil {
 			t.Fatal(err)
@@ -861,7 +871,7 @@ func TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole(t *testing.T) {
 	r, long := rig()
 	r.there.on("team moved", okAnswer(left("supabase", r.oldURL))).on("team move", lost)
 	perr := wantCodeErr(t, Team(r.inv(true, "--ticket-file", r.ticket, "--from", r.oldURL)), protocol.CodeUnavailable, reasonBackendsNameEachOther)
-	if need := "`brigade team move --show --from " + long + "` says"; len(long) <= 64 || !strings.Contains(perr.Message, need) {
+	if need := "`brigade team move --show --from " + shellWord(long) + "` says"; len(long) <= 64 || !strings.Contains(perr.Message, need) {
 		t.Errorf("the refusal of a clear that was not answered lacks %q: %s", need, perr.Message)
 	}
 
@@ -873,9 +883,10 @@ func TestTheCommandsTheRecordsFormPrintsCarryALongAddressWhole(t *testing.T) {
 	if err := Team(r.inv(true, "--ticket-file", r.ticket, "--from", r.oldURL)); err != nil {
 		t.Fatal(err)
 	}
-	if need := "(`brigade team move --show --from " + long + "` says; `brigade team move --clear --from " + long + "` clears it)"; !strings.Contains(r.f.out.String(), need) {
+	if need := "(`brigade team move --show --from " + shellWord(long) + "` says; `brigade team move --clear --from " + shellWord(long) + "` clears it)"; !strings.Contains(r.f.out.String(), need) {
 		t.Errorf("the line of a record that may stand lacks %q:\n%s", need, r.f.out.String())
 	}
+	return perr.Message, r.f.out.String()
 }
 
 // TestACommandPrintedForTheOwnersMachineCarriesTheWholeAddress (work item

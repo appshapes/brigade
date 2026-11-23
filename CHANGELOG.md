@@ -201,6 +201,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Fixed
 
+- **A command Brigade prints for pasting carries an address as one
+  word** (work item 357). A stop or a refusal of `brigade team move`
+  prints the command to run next, with a backend's address after
+  `--to` or `--from`. An address with a space, a backtick, `$(…)` or a
+  single quote in it, which a team file may hold, was printed as it
+  stands: run as arguments the command was refused, and pasted into a
+  shell the backtick or `$(…)` was carried out. Such an address is now
+  printed quoted, so that sh, bash, zsh, dash, fish and PowerShell take
+  it as one word and carry out nothing in it. An address of letters,
+  digits and `-._/:%+` is printed as before; any other is quoted, an
+  IPv6 address in its brackets among them. A team file may hold what
+  it held.
 - **The `work-items` skill loads in an older Codex CLI again** (work
   item 306, ADR 0025). The page of the board, added since 0.57.0, took
   the skill's description to 1,085 characters, and Codex CLI through
