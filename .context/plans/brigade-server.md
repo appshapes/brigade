@@ -96,7 +96,8 @@ These are his words from this session; the design in §4 is mine and built on th
     work item 156 is split and closed, into 273 (a team moves keeping its join secret, then with no action by
     its members) and 274 (the admin verbs on the server); and work items 89, 273, 274 and 272 "should be
     considered one atomic roadmap by the 89 session", sequenced here so that the cut-over happens once. And:
-    "Once we get to the point of being able to start 272, I must be notified." Section 11 is that roadmap.
+    "Once we get to the point of being able to start 272, I must be notified." Section 11 was that roadmap
+    until 2026-11-23, and names the board's since.
 
 Items 6 and 7 were said in `brigade-fix-1e`'s conversation. They reached the session that built phase 2 as that
 session's relay, with his words quoted, and are on work item 89 (its comments of 2026-11-12, 10:16 and 10:21 UTC).
@@ -689,99 +690,16 @@ any stack can stand behind it.
    Cavalry before 0.1.0. The first half is answered: they are Cavalry's cards 271 and 272 (§3). The invitation:
    ruled 2026-11-12 (§2 item 16), yes; the server on `sled` is that tester.
 
-## 11. The roadmap to the cut-over: work items 89, 273, 274 and 272 as one
+## 11. The roadmap
 
-The owner made these four one roadmap on 2026-11-12 (§2 item 21) and gave its order to this plan. The cut-over is
-the one moment at which the `appshapes` team's repositories, members, Slack and mail leave the Supabase project
-for the server. Everything before it changes nothing for anyone; nothing in it is done twice.
+What comes next for the server is read from the Brigade Board, not from this plan (work item 404, ADR 0027,
+2026-11-23). `brigade roadmap` prints the team's roadmap items in order, each with the work items under it:
+roadmap item 427, "The server holds before more teams move to it", carries the server's findings of the
+repository review of 2026-11-21. The server's other open work items carry the tag `server`
+(`brigade work-item list --tag server`), and `/brigade:work-item-next` says which to take.
 
-| Step | Work item | What | Who | State |
-| --- | --- | --- | --- | --- |
-| 1 | 273, part 1 | The server takes in a team that exists, with its join secret (§4.7): `--import-team`, server 0.3.0. | the 89 session | built and released as 0.3.0, 2026-11-12 (execution log P86-7) |
-| 2 | 274 | The admin verbs on a team on the server: rotate the join secret, revoke a member, transfer the team; and who owns a team that was taken in, which has no creator (§4.8). A server release and a plugin release. | the 89 session | built and released as server 0.4.0 and plugin 0.53.0, 2026-11-12 (execution log P86-8, P86-9) |
-| 3 | 89 | Ready for the cut-over: the owner's host on the release that has steps 1 and 2; the `appshapes` team taken in there with its existing secret; the gateways' configuration written with that secret's file and the mail team's inbox; the Slack app's bot token and signing secret in their files on the host (the owner). | the 89 session, and the owner for the two Slack files | done 2026-11-13: the host on 0.4.0 with the team taken in and the gateways configured and off (execution log P86-9); the two Slack files placed that day by the 89 session at the owner's word, the bot token accepted by Slack |
-| | | **Here work item 272 can start, and the owner is told** (below). | | |
-| 4 | 272 | First the check that file sync and the board work on a team on the server, and the board's carry-over tried on a scratch folder. Then the cut-over, once, in the order 272 gives: the team file in the four repositories; the gateways go live (the Slack app's two addresses moved by the owner, the mail provider's webhook added by the 89 session); the board carried over; each member joins once with the secret file they have; the check. | the roadmap's session leads all of it since 2026-11-13 (the owner's decisions on work item 272, its comment of that day), with one follower session per other repository | the preparation is under way, the cut-over waits for the owner's go. Done 2026-11-13: file sync and the board shown working on a team on the server (§7, execution log P86-10); work item 275 found, fixed and released as plugin 0.53.1 (P87-1, P87-2); the board's carry-over built and tried on a scratch folder (P88-1). The nightly copy of the server's data to the owner's host `bar` runs since 2026-11-13 (P88-2), and the account-level credentials are out of Cavalry's synced file since the same day (P88-3). Every precondition was met and the session `89-server-3` leads from the hand-off of that day. The owner gave the go on 2026-11-13 and **the cut-over was done that day, all ten steps** (execution log P89-1 and P89-2): five repositories, a fifth, `appshapes-www`, having been found on the old `appshapes` team, are on the one team on the server; the board holds brigade's work items and Cavalry's cards; Slack and mail carry; the three old teams on Supabase are ended and their gateways removed from the project. Each repository's skills and rules followed the same day, by a follower session per repository and by this one for brigade (execution log P90-1, P90-2 and P91-1), and work item 272 is in Done |
-| 5 | 273, part 2 | A member's next session attaches with no command run: a voucher the server trusts. A security design and the owner's ruling first. Before the thinktech team moves. | the session `89-server-6`, to which `89-server-5` handed the roadmap on 2026-11-14, having built this step since `89-server-4`'s hand-off of 2026-11-14 UTC | designed and ruled 2026-11-13 (§4.9, execution log P98-1 and P98-7; work item 315): the old backend's word and a ticket. Built the same day (execution log P99-1, ADR 0003) and proven on this machine from the local Supabase stack to the built server; released as server 0.5.0 and plugin 0.55.0 (P99-2). The owner's word for its proof on a hosted team came on 2026-11-14: the test team left on the appshapes project, moved to the server on `sled` (P99-3; the owner's words are on work item 273). **Proven there the same day** (P100-1): the migration `20261114120000_team_move` is on the appshapes project and on no other, `sled` runs server 0.5.0 with 0.4.1 kept beside it, and a fresh test team, `proof273`, moved: its member's next real session, on plugin 0.55.0, followed with no command run. Done; the thinktech team's move is work item 320 and waits on the owner's word for where its server runs |
-
-**Why 274 comes before the cut-over.** A team on the server cannot rotate its join secret or remove a member
-until 274 ships. The move keeps an old secret on purpose, and every member, one of them from another
-organisation, holds it in a file. Moving first would take away, at that moment, the two controls the team has on
-Supabase today. The other order is possible, the cut-over first and that gap accepted for as long as 274 takes;
-it is the owner's to choose, and this plan takes the safer one until he says otherwise.
-
-**What is switched only in the cut-over, never before.** The Slack app's two request addresses: a Slack app
-points at one backend, so the moment they move, Slack stops for every member who has not joined the server yet.
-The mail provider's second webhook: once it exists, a mail to the team's address is carried by both backends, and
-the server would bounce it while nobody has joined. So step 3 prepares both and switches neither.
-
-**When 272 can start, and how the owner is told.** When step 3 is done: the release with the import and the
-admin verbs is on the host, the team is taken in, the gateways are configured and ready, and the two Slack files
-are there. The 89 session then tells the owner twice, as he asked: in its conversation, first in its message; and
-with `brigade decision --to 'rjae@appshapes.com' --options "start 272 now | wait"`, which reaches his digest's
-recipient if he has not answered in the conversation within his wait. It tells `brigade-89` too, if that session
-is still there. Work item 272 carries the same rule for a session that gets there first.
-
-**A repository that changes teams loses its synced folders: work item 275** (found 2026-11-13). A synced folder's
-id is made from the team's reference, the repository's name and the folder's name. `cavalry` and `muster` keep
-the `appshapes` reference, so their folders keep their ids. The `brigade` repository takes that reference in
-place of its own, so its `.brigade` folder, which holds the state folder, gets a new id at the same path, and the
-bundled sync adapter never moves a path another id holds: `conflict_path` on every round, for good, measured on
-the adapter's own fixture. Machines that held the folder would go on exchanging it under the earlier id, with
-each other only and with Brigade reporting it as not held. `telder` lists no folder. The board is not touched:
-its path is made from the team's reference. The fix is in the adapter and needs a plugin release, so it comes
-before the cut-over. Fixed 2026-11-13 (execution log P87-1): the first session to start in the checkout moves
-each folder to the team its team file names, without the earlier team's devices; the team file decides, so a
-session left over from the earlier team does not move it back while the file names the new team (work item 276
-is what would make such a session stop asking). In the cut-over, members update to the release that carries
-it before the changed team file reaches the `brigade` repository; a member who updates afterwards is put right
-at their next session.
-
-**What was the owner's to decide** (on work item 272), and how he decided it on 2026-11-13, in that work item's
-comments: the member from another organisation joins the one team as a full member; the old teams are ended and
-their two mail addresses routed to the new inbox; brigade's work items keep their numbers and Cavalry's cards
-keep theirs where the board had them free; and step 2 came before step 4. What is left of this roadmap is step
-5, and of the server phase 4.
-
-**Where the rest is tracked, since 2026-11-13** (execution log P97-1). The board, under the tag `server`: work
-item 89 (its week of real use ends 2026-11-20, and the hosted project's fate is asked after it), 273 (step 5),
-289 and 290 (two frictions of the join, found in the cut-over), 312 (phase 4) and 313 (the one node's known
-gaps: what it logs, who hears of a failed nightly copy, the bounds, recovery, the members not yet proven on a
-team on a server). The thinktech team's move is work item 320 since 2026-11-14: by the owner's ruling it has a
-server of its own, on which it was taken in and cut over that day (execution log P100-5), and the work item
-stays open until its members have followed and the team is ended on the old backend. Work items 323 (the
-certificate of the appshapes team's server is not watched) and 326 (a label a team holds cannot be changed)
-came of it. Since 2026-11-14 the owner's host runs server 0.6.0 and the session `89-server-7`, renamed
-`89-server-7-roadmap-and-week-check`, held this roadmap, handed on by `89-server-6` (execution log P100-3). On
-2026-11-14 it handed the roadmap on to the standby the owner named, the session `51866` (execution log P101-2),
-with work items 327 (a running session follows its team) and 328 (a team moved with one command) being built on
-branches, 329 (the second team of the thinktech project) and 330 (whether the two Supabase projects can go)
-waiting on them. That session, renamed `89-server-8-one-command-move-and-roadmap`, brought both to `master` on
-2026-11-15 (execution log P103-1): the decisions are ADRs 0006 (a team is taken in and its move opened by request,
-and whoever takes it in owns it), 0007 (a session may move a team, behind an option that is on by default) and 0008
-(a running session follows at its next prompts), each superseding a part of ADR 0003, which section 4.9 stands
-behind, and ADR 0009 (a Status names every ADR that supersedes a part). They were released that day as server 0.7.0
-and plugin 0.56.0, and the owner's host and the thinktech team's server run 0.7.0 since then (execution log P103-2
-and P103-3). Work item 329 is the one command's proof on a real team and waits on the owner naming the server; what
-the verifications left open is on work items 336, 337 and 339. The pages say on every path that the move is one
-command (execution log P103-4), and on 2026-11-15 the roadmap went on to the standby the owner had set up, the
-session `6611b` (execution log P103-5), with work item 329 waiting on the owner and 341 new: a team on a server
-cannot yet be moved to another server by the one command. That session, `89-server-9-second-team-and-roadmap`,
-brought work item 323 to `master` (execution log P104-1: the certificate of the appshapes team's server is
-watched), led work item 341 on a branch and, at its account's usage limit, handed the roadmap on the same day to
-the standby the owner had set up, the session `a88e4` (execution log P104-3). That one named itself
-`89-server-10-timing-tests-and-server-move` and brought work item 336 to `master` (execution log P104-2: the
-timing tests wait on what they are about), and then 341, after five more rounds of review, each run against
-built servers by a verifier who wrote none of the code (execution log P104-4): a server keeps the record of where a team went, two
-requests behind the capability `team.move` in the contract's new section 3c, so the one command moves a team from
-one server to another and its members follow. The decision is ADR 0010, which supersedes ADR 0003's sentence that
-the `rest` adapter carries no record; the old server keeps the team as it is, and nothing ends a team on a server
-yet. It ships as server 0.8.0 and in the next plugin release, 0.57.0, neither released by that work item. Both were
-released that day, and the owner's host and the thinktech team's server run 0.8.0 since then (execution log
-P104-5). Work
-items 354, 357 and 359 are new from its verification: a join whose answer is lost leaves a second membership on a
-server, an address with shell characters is printed in a command as it stands, and 359 holds the low findings
-that were left so that the feature could land. Work item 332 followed on 2026-11-16 (execution log P104-6): a server's
-operator removes a team with `--remove-team`, so that a reference a stranger took in is freed (ADR 0011); it was
-released that day as server 0.9.0, which the owner's host and the thinktech team's server run since then
-(execution log P104-7).
+Until that day this section was the roadmap to the cut-over, work items 89, 273, 274 and 272 as one (§2 item
+21), and then the account of the sessions that held it. The cut-over was made on 2026-11-13; of that roadmap,
+step 5 (work item 273, part 2) and phase 4 (work item 312) were left. Its table, its reasons and that account
+are in this file's history, at the commit 4f1230bd and before, and in the execution log's rows P86-7 to
+P104-7.

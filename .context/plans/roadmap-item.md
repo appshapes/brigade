@@ -3,8 +3,8 @@
 Started 2026-11-23 by the session `404-give-the-brigade-board-a-roadmap` (f605b), finished by the session of
 the same name that followed it (d6a53). The design and the owner's six answers
 (1a to 6a) are the comments of 2026-11-23 on the work item; they are the authority, and this file says how they
-are built and, after each part, where the work stands. Nothing of it is pushed before the manager session says
-the plugin release that follows 0.57.0 is out.
+are built and, after each part, where the work stands. It is on `master` since 4f1230bd, after plugin 0.58.0;
+the release that follows carries it.
 
 ## What is ruled
 
@@ -152,5 +152,9 @@ A roadmap view beside the lists: the cards grouped by roadmap item, in order, ea
    two sentences of `docs/security.md` as worded, and the first use "now, from the built binary", once the
    commit is on master with CI green (comments of 2026-11-23 on the work item).
 
-6. **First use**, after the push, on the owner's word (it was first planned for after the release): the review's work items grouped under roadmap items
-   on the team's board, then choice 6's two texts. Commands and words, no code.
+6. **First use**, after the push, on the owner's word (it was first planned for after the release). Done
+   2026-11-23 with the checkout's build, once `ci.yml` was green on 4f1230bd: roadmap items 426 to 431 on the
+   team's board, the six groups of the work item's description in its order, the review's 27 work items under
+   them; 427, the server's, is in Doing for work item 387 and the others are in Done. Then choice 6's two
+   texts: section 11 of `.context/plans/brigade-server.md` and the execution log's "Start here" each name the
+   roadmap in a few lines. Grok Build and Codex CLI showed the roadmap from master's package the same day.
