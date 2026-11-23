@@ -543,12 +543,19 @@ func followFlag(name string) bool {
 // A run is one hook invocation.
 type run struct {
 	grokDeadline time.Time
-	deps         Deps
-	streams      cli.Streams
-	environ      []string
-	logLevel     string
-	redactor     *log.Redactor
-	log          *slog.Logger
+	// grokOpened is what this run found of a Grok Build session that
+	// Brigade did not expect and went on over, each once, in the order
+	// found (work item 377, ADR 0021; grokOpen).
+	grokOpened []string
+	// grokRefusal is why this run's Grok Build hook refused its document,
+	// in the refusal's own fixed words, for the line a start shows the user.
+	grokRefusal string
+	deps        Deps
+	streams     cli.Streams
+	environ     []string
+	logLevel    string
+	redactor    *log.Redactor
+	log         *slog.Logger
 	// written counts the code points written to stdout so far, against
 	// OutputCap; writtenBytes the bytes, against byteCap (0: no byte cap).
 	written      int

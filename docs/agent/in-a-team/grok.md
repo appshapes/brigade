@@ -9,9 +9,10 @@ A genuine Stop offers one setup continuation; its marker and recursion guard pre
 
 The package (`grok/brigade/`) ships the same fifteen skills as the other three, worded for Grok Build; a user
 invokes one as `/brigade:<name>`. `team-messaging`, `setup` and `update` are the other packages' text since
-work item 383, with Grok Build's own monitor sections kept. Three things they still hold back, until the ruling
-of work item 377 is applied: a doing line is published only when Brigade asks for one, a gateway send is one
-the user authorized, and an update runs when the user requests it.
+work item 383, with Grok Build's own monitor sections kept. Where `brigade whoami` prints `strict: on`, the
+member set the option `grok_strict`, and the three skills hold back as they did before work item 377: a doing
+line is published only when Brigade asks for one, a gateway send is one the user authorized, and an update runs
+when the user requests it ([ADR 0021](../../decisions/0021-open-grok-builds-unmeasured-refusals-behind-one-option.md)).
 
 | Skill | Purpose |
 | --- | --- |
@@ -20,7 +21,7 @@ the user authorized, and an update runs when the user requests it.
 | [`grok/brigade/skills/whoami/SKILL.md`](../../../grok/brigade/skills/whoami/SKILL.md) | whoami: print `brigade whoami`, this session's identity, verbatim |
 | [`grok/brigade/skills/join/SKILL.md`](../../../grok/brigade/skills/join/SKILL.md) | join: run `brigade team join --secret-file <path>` on the file the user named |
 | [`grok/brigade/skills/move/SKILL.md`](../../../grok/brigade/skills/move/SKILL.md) | move: ask the team's administrator for the server's URL and the paths it needs, never a secret's content, then run the one command of a move, `brigade team move --to <url> --secret-file <path>`, and print what it printed; the members run nothing |
-| [`grok/brigade/skills/update/SKILL.md`](../../../grok/brigade/skills/update/SKILL.md) | update: refresh the marketplace and update the plugin when the user requests it, then have them reload or start a new session |
+| [`grok/brigade/skills/update/SKILL.md`](../../../grok/brigade/skills/update/SKILL.md) | update: refresh the marketplace and update the plugin, then have the user reload or start a new session |
 | [`grok/brigade/skills/setup/SKILL.md`](../../../grok/brigade/skills/setup/SKILL.md) | setup: how a person creates a team, installs the package, joins, leaves and uninstalls, with every command and never a secret in the chat |
 | [`grok/brigade/skills/email/SKILL.md`](../../../grok/brigade/skills/email/SKILL.md) | email: send a text to an email address through the team's mail gateway |
 | [`grok/brigade/skills/slack/SKILL.md`](../../../grok/brigade/skills/slack/SKILL.md) | slack: send a text to a person or a channel through the team's Slack gateway |

@@ -520,6 +520,9 @@ func (r *run) continueMap(f facts, in input, res resolved, existing *sessionmap.
 	}
 	if f.host.BindsReceiver() && existing.ValidGrokReceiver() {
 		g := *existing.Grok
+		// The option is this start's, not the one the receiver was first
+		// registered under: `brigade whoami` and the skills go by it.
+		g.Strict = res.opts.GrokStrict
 		if g.LaunchCwd == "" {
 			g.LaunchCwd = in.launchCwd
 		}
@@ -1618,7 +1621,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 	if f.host.BindsReceiver() {
 		info, _ := r.grokProcess()
 		m.Model, m.TranscriptPath = "", ""
-		m.Grok = &sessionmap.GrokReceiver{Cwd: in.Cwd, LaunchCwd: in.launchCwd, ProcessStart: info.StartToken, Incarnation: in.grokIncarnation, MonitorState: "unarmed"}
+		m.Grok = &sessionmap.GrokReceiver{Cwd: in.Cwd, LaunchCwd: in.launchCwd, ProcessStart: info.StartToken, Incarnation: in.grokIncarnation, MonitorState: "unarmed", Strict: res.opts.GrokStrict}
 	}
 	return m
 }
@@ -1686,6 +1689,9 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 	// the day it matters (work item 273).
 	if res.opts.FollowTeamMoveWarning != "" {
 		warnings = append(warnings, res.opts.FollowTeamMoveWarning)
+	}
+	if res.opts.GrokStrictWarning != "" && f.host.BindsReceiver() {
+		warnings = append(warnings, res.opts.GrokStrictWarning)
 	}
 	// The same for the option that keeps `team move` out of a session
 	// (work item 328, ADR 0007).

@@ -7,8 +7,10 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,7 +41,13 @@ func (nativeJSON) native() bool { return true }
 
 func (nativeJSON) run(r *run) int { return r.runGrok() }
 
-func (nativeJSON) decode(r *run, data []byte, in *input) error { return r.decodeGrok(data, in) }
+func (nativeJSON) decode(r *run, data []byte, in *input) error {
+	err := r.decodeGrok(data, in)
+	if err != nil {
+		r.grokRefusal = err.Error()
+	}
+	return err
+}
 
 // identity: the title is local metadata, not the hook document.
 // SessionStart blanks session_title. With no title yet the roster keeps
@@ -96,6 +104,10 @@ func (r *run) runGrok() int {
 	release, err := r.lockGrokHook()
 	if err != nil {
 		r.log.Warn("Grok hook deferred", adlog.Err(err))
+		if r.args.sub == SubSessionStart && original != nil {
+			r.streams.Out = original
+			r.sayGrokRefusal(err.Error())
+		}
 		return 0
 	}
 	defer release()
@@ -113,6 +125,15 @@ func (r *run) runGrok() int {
 	case SubSessionEnd:
 		r.sessionEnd()
 	}
+	if r.args.sub == SubSessionStart && r.grokRefusal != "" && original != nil {
+		// A refused start has printed nothing: the line is all there is.
+		r.streams.Out = original
+		r.sayGrokRefusal(r.grokRefusal)
+		return 0
+	}
+	if r.args.sub == SubSessionStart && len(r.grokOpened) > 0 && r.grokRegistered() {
+		r.say(grokOpenedLine(r.grokOpened))
+	}
 	if r.args.sub == SubSessionStart && ui.Len() > 0 && original != nil {
 		b, _ := json.Marshal(struct {
 			SystemMessage string `json:"systemMessage"`
@@ -127,10 +148,109 @@ func (r *run) grokProcess() (procutil.Info, error) {
 		return procutil.Info{}, errors.New("grok leader mode is unsupported; start Grok with --no-leader")
 	}
 	info, err := r.deps.Lookup(r.deps.Getppid())
-	if err != nil || !procutil.IsGrokProcess(info) {
+	if err != nil || !procutil.LiveOwn(info) {
 		return procutil.Info{}, errors.New("grok hook parent is not a verified direct TUI process; use --no-leader")
 	}
+	// A shell is not the TUI: a hook that ran under one has a parent that
+	// ends with the hook, and a receiver bound to it would be retired at
+	// once. The package's hooks `exec` for that reason. This is refused
+	// whatever grok_strict says, because there is nothing to bind.
+	if slices.Contains(grokShells, info.Command) {
+		return procutil.Info{}, errors.New("grok hook ran under a shell and not under Grok Build's own process, so there is no session process to bind")
+	}
+	// The parent is a live process of this user with a start token to bind.
+	// That it is the TUI was measured in a --no-leader session; the list of
+	// its names was not, beyond macOS arm64, and a release that renamed its
+	// binary stopped every registration (work item 131).
+	if !procutil.GrokName(info) {
+		if err := r.grokOpen("grok hook parent is not a verified direct TUI process; use --no-leader", grokOpenedName); err != nil {
+			return procutil.Info{}, err
+		}
+	}
 	return info, nil
+}
+
+// grokShells are the kernel names of the shells a hook could be run
+// under in place of an `exec` from the TUI.
+var grokShells = []string{"sh", "bash", "zsh", "dash", "ksh", "fish"}
+
+// What a Grok Build hook says it went on over, one clause each (work item
+// 377, ADR 0021). Constants: no session text and nothing to sanitise.
+const (
+	grokOpenedName      = "the process that ran its hooks has a name Brigade does not know Grok Build by"
+	grokOpenedSource    = "its start names a source other than new or load, which is treated as new"
+	grokOpenedAliases   = "two spellings of one field of a hook's document disagree, and Grok Build's own is used"
+	grokOpenedEvent     = "a hook's document names another event than the hook it ran as, and the hook's own is used"
+	grokOpenedID        = "its session id is not a UUID, so its name and model are not read from Grok Build's own files"
+	grokOpenedIDMissing = "a hook's document names no session id, and the environment's is used"
+	grokOpenedIDDiffers = "a hook's document and its environment name different session ids, and the environment's is used"
+	grokOpenedWorkspace = "its working directory and its workspace do not agree, and the working directory is used"
+)
+
+// grokStrict reports whether the member's option grok_strict is on. An
+// options file that cannot be parsed is read as on: the session then
+// registers nowhere else either.
+func (r *run) grokStrict() bool {
+	opts, err := r.options()
+	return err != nil || opts.GrokStrict
+}
+
+// grokOpen is a check of the Grok Build path that no measurement backs
+// (work item 377, ADR 0021; the owner's ruling of 2026-11-22: keep the
+// measured, open the rest, one option restores them all). With the option
+// grok_strict on it is the refusal it was, as the error; off, the default,
+// what was found is kept for the log and for the one line the session's
+// start shows the user, and the hook goes on.
+func (r *run) grokOpen(refusal, found string) error {
+	if r.grokStrict() {
+		return errors.New(refusal)
+	}
+	if !slices.Contains(r.grokOpened, found) {
+		r.grokOpened = append(r.grokOpened, found)
+		r.log.Warn("Grok hook went on over an unexpected fact; grok_strict on refuses it", slog.String("found", found))
+	}
+	return nil
+}
+
+// sayGrokRefusal writes the notice of a start that Brigade refused: one
+// systemMessage, which Grok Build shows the user and never the model. The
+// reason is the refusal's own fixed words, no session text. Until work
+// item 377 a refused start said nothing, and a member whose sessions had
+// stopped registering (Grok Build 1.0.67, work item 131) saw no reason.
+// A grok_strict that is neither word is said with it, because it is then
+// what refused.
+func (r *run) sayGrokRefusal(reason string) {
+	text := "Brigade: this Grok Build session did not register: " + reason + "."
+	if opts, err := r.options(); err == nil && opts.GrokStrictWarning != "" {
+		text += "\n" + opts.GrokStrictWarning
+	}
+	b, _ := json.Marshal(struct {
+		SystemMessage string `json:"systemMessage"`
+	}{text})
+	_, _ = r.streams.Out.Write(append(b, '\n'))
+}
+
+// grokRegistered reports whether this start left a receiver for the
+// session on the map: the line about what the hooks went on over says
+// "registered", so it is said of a session that is.
+func (r *run) grokRegistered() bool {
+	f, err := r.facts()
+	if err != nil {
+		return false
+	}
+	m, err := sessionmap.Store{StateDir: f.stateDir}.ReadByPID(f.pid)
+	if err != nil || !m.ValidGrokReceiver() {
+		return false
+	}
+	id, err := config.NativeID(r.spokenHost(), r.environ)
+	return err == nil && m.ClaudeSessionID == id
+}
+
+// grokOpenedLine is the one line a Grok Build session's start shows the
+// user for what its hooks went on over.
+func grokOpenedLine(found []string) string {
+	return "Brigade: this Grok Build session registered although " + strings.Join(found, "; and ") +
+		". Set grok_strict to on in grok-options.json to have Brigade refuse such a session instead."
 }
 
 func grokUUID(id string) bool {
@@ -165,44 +285,92 @@ func (r *run) decodeGrok(data []byte, in *input) error {
 	if err := json.Unmarshal(data, &aliases); err != nil {
 		return errors.New("invalid Grok hook document")
 	}
-	merge := func(dst *string, v string) bool {
-		if v != "" && *dst != "" && v != *dst {
-			return false
+	// The document's own keys are Grok Build's camelCase for some fields
+	// and Claude Code's snake_case for others, and `aliases` holds the other
+	// spelling of each. Grok Build sends both with one value (its hooks
+	// guide); two that disagree were never seen. Where they do, Grok
+	// Build's own spelling is the one kept: grok says which side that is.
+	conflict := false
+	merge := func(dst *string, v string, grok bool) {
+		if v == "" {
+			return
 		}
-		if v != "" {
-			*dst = v
+		if *dst != "" && v != *dst {
+			conflict = true
+			if !grok {
+				return
+			}
 		}
-		return true
+		*dst = v
 	}
-	if !merge(&in.SessionID, aliases.SessionID) || !merge(&in.PermissionMode, aliases.PermissionMode) || !merge(&in.WorkspaceRoot, aliases.WorkspaceRoot) || !merge(&in.SubagentType, aliases.SubagentType) || !merge(&in.StopReason, aliases.StopReason) {
-		return errors.New("conflicting Grok hook aliases")
+	merge(&in.SessionID, aliases.SessionID, true)
+	merge(&in.PermissionMode, aliases.PermissionMode, true)
+	merge(&in.WorkspaceRoot, aliases.WorkspaceRoot, false)
+	merge(&in.SubagentType, aliases.SubagentType, false)
+	merge(&in.StopReason, aliases.StopReason, false)
+	if conflict {
+		if err := r.grokOpen("conflicting Grok hook aliases", grokOpenedAliases); err != nil {
+			return err
+		}
 	}
+	// The event is the one this hook was installed for, on its argv. A
+	// document that names another, or names it twice and differently, is
+	// refused under grok_strict and otherwise read as the hook's own.
 	events := map[string]string{"session_start": "SessionStart", "user_prompt_submit": "UserPromptSubmit", "session_end": "SessionEnd", "stop": "Stop"}
 	expected := map[string]string{SubSessionStart: "SessionStart", SubPrompt: "UserPromptSubmit", SubSessionEnd: "SessionEnd", SubStop: "Stop"}[r.args.sub]
 	if aliases.HookEventName != "" {
 		event := events[aliases.HookEventName]
 		if event == "" || in.HookEventName != "" && in.HookEventName != event {
-			return errors.New("conflicting Grok event aliases")
+			if err := r.grokOpen("conflicting Grok event aliases", grokOpenedEvent); err != nil {
+				return err
+			}
+			event = expected
 		}
 		in.HookEventName = event
 	}
 	if in.HookEventName != expected {
-		return errors.New("unknown or mismatched Grok hook event")
+		if err := r.grokOpen("unknown or mismatched Grok hook event", grokOpenedEvent); err != nil {
+			return err
+		}
+		in.HookEventName = expected
 	}
+	// Another harness's marker beside Grok Build's stays a refusal
+	// (ambiguous_host), and so does an id that is unset or no safe path
+	// component: without one there is nothing to bind.
 	id, err := config.NativeID(r.spokenHost(), r.environ)
 	if err != nil {
 		return err
 	}
-	if !grokUUID(id) || id != in.SessionID {
-		return errors.New("grok native hook and environment identities disagree")
+	if !grokUUID(id) {
+		if err := r.grokOpen("grok native hook and environment identities disagree", grokOpenedID); err != nil {
+			return err
+		}
 	}
+	if id != in.SessionID {
+		// The environment's id is the one the model's shell and its
+		// monitor carry, so it is the one a session is found by.
+		found := grokOpenedIDDiffers
+		if in.SessionID == "" {
+			found = grokOpenedIDMissing
+		}
+		if err := r.grokOpen("grok native hook and environment identities disagree", found); err != nil {
+			return err
+		}
+		in.SessionID = id
+	}
+	// A subagent's hook is not a session's (Grok Build's hooks guide: a
+	// Stop and a SessionEnd fire inside a subagent, carrying its type, "so
+	// a host can tell a child's teardown from its own"). This one refuses
+	// no session and stays as it is.
 	if in.SubagentType != "" {
 		return errors.New("brigade Grok hooks serve the main session only")
 	}
 	if _, err := r.grokProcess(); err != nil {
 		return err
 	}
-	if !filepath.IsAbs(in.Cwd) || !filepath.IsAbs(in.WorkspaceRoot) {
+	// The working directory is what a receiver is bound to and where the
+	// team file is found: it has to be an absolute path that resolves.
+	if !filepath.IsAbs(in.Cwd) {
 		return errors.New("grok hook has no absolute workspace binding")
 	}
 	in.launchCwd = in.Cwd
@@ -210,22 +378,24 @@ func (r *run) decodeGrok(data []byte, in *input) error {
 	if err != nil {
 		return errors.New("grok cwd cannot be canonicalized")
 	}
-	workspace, err := filepath.EvalSymlinks(in.WorkspaceRoot)
-	if err != nil {
-		return errors.New("grok workspace cannot be canonicalized")
-	}
-	envRoot, err := filepath.EvalSymlinks(adapterkit.Getenv(r.environ, "GROK_WORKSPACE_ROOT"))
-	if err != nil || workspace != envRoot {
-		return errors.New("grok workspace and hook environment disagree")
-	}
-	rel, err := filepath.Rel(workspace, cwd)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return errors.New("grok cwd lies outside its workspace")
+	// The workspace is only ever compared: with the environment's, and
+	// with the working directory, which must lie inside it. None of the
+	// three was seen to differ.
+	if refusal := grokWorkspaceRefusal(cwd, in.WorkspaceRoot, adapterkit.Getenv(r.environ, "GROK_WORKSPACE_ROOT")); refusal != "" {
+		if err := r.grokOpen(refusal, grokOpenedWorkspace); err != nil {
+			return err
+		}
 	}
 	in.Cwd = cwd
 	if r.args.sub == SubSessionStart || r.args.sub == SubPrompt {
+		// A source that is neither word was never seen, and Grok Build's
+		// guide names no such field. Only `load` is told apart downstream,
+		// so any other value starts a receiver as `new` does.
 		if r.args.sub == SubSessionStart && in.Source != "new" && in.Source != "load" {
-			return errors.New("unsupported Grok start source; expected new or load")
+			if err := r.grokOpen("unsupported Grok start source; expected new or load", grokOpenedSource); err != nil {
+				return err
+			}
+			in.Source = "new"
 		}
 		var token [16]byte
 		if _, err := rand.Read(token[:]); err != nil {
@@ -244,6 +414,28 @@ func (r *run) decodeGrok(data []byte, in *input) error {
 		in.BackgroundTasks = aliases.BackgroundTasks
 	}
 	return nil
+}
+
+// grokWorkspaceRefusal is why a hook's workspace does not hold together
+// with its canonical working directory and its environment, in the words
+// each refusal always had, or "" when it does.
+func grokWorkspaceRefusal(cwd, workspaceRoot, envWorkspace string) string {
+	if !filepath.IsAbs(workspaceRoot) {
+		return "grok hook has no absolute workspace binding"
+	}
+	workspace, err := filepath.EvalSymlinks(workspaceRoot)
+	if err != nil {
+		return "grok workspace cannot be canonicalized"
+	}
+	envRoot, err := filepath.EvalSymlinks(envWorkspace)
+	if err != nil || workspace != envRoot {
+		return "grok workspace and hook environment disagree"
+	}
+	rel, err := filepath.Rel(workspace, cwd)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "grok cwd lies outside its workspace"
+	}
+	return ""
 }
 
 func (r *run) grokMatches(m *sessionmap.ByPID, in input) bool {

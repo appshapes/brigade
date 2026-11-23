@@ -65,6 +65,9 @@ var optionsFileKeys = map[string]string{
 	"claude_inbound_setting": OptionClaudeInboundSetting,
 	"follow_team_move":       OptionFollowTeamMove,
 	"team_move_in_session":   OptionTeamMoveInSession,
+	// Grok Build's own (work item 377, ADR 0021): no userConfig option of
+	// the Claude Code plugin has this name, and no other host reads it.
+	"grok_strict": OptionGrokStrict,
 }
 
 // OptionsPath is the options file's path for environ: the host's file

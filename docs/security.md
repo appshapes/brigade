@@ -1196,9 +1196,14 @@ The Grok route serves normally installed/trusted main-session direct TUIs launch
 A nonempty GROK_LEADER_SOCKET is refused before registration: a resident shared-leader actor can survive its
 terminal, so leader/session-info success is not a TUI liveness witness. No native prompt/resume ingress ships.
 
-Hooks bind the full UUID/environment agreement, canonical workspace/cwd, actual TUI PID/kernel start token
-and a fresh new/load incarnation. Foreign host markers, mismatched aliases, subagents, unknown parent topology
-and malformed inputs fail closed. Grok 1.0.67's installer binary truncates to the kernel name
+Hooks bind the environment's native id, the canonical working directory, the actual TUI PID/kernel start token
+and a fresh incarnation. Foreign host markers, subagents, a parent that is a shell or no live process of this user
+and inputs that are no document fail closed, and the start's notice says why. Five things were refused with no measurement behind the refusal
+and are no longer (work item 377, ADR 0021): a parent under a name that is not on the list below, a start
+source other than new or load, two spellings of one field that disagree, a session id that is no UUID or
+differs from the environment's, and a workspace that does not agree with the working directory or the
+environment. Such a session registers, the log and the notice at its start say what was found, and the member's
+option `grok_strict`, set to `on`, refuses each of them again. Grok 1.0.67's installer binary truncates to the kernel name
 `grok-1.0.67-maco` on macOS (measured 2026-10-23); that name, and the same versioned truncation on Linux,
 is a direct TUI, as `grok-macos-aarch` was on 1.0.62. `GROK_SESSION_ID` is LAST in the host precedence, after `CLAUDE_PID`,
 `MUSE_SESSION_ID` and `CODEX_THREAD_ID`: a Grok terminal tool exports it, so a session of an older host started
@@ -1229,8 +1234,11 @@ the exact map/incarnation, live TUI start token and process ancestry. Only this 
 sink files are read, never held bodies or arbitrary histories. One hint drains all retained rotations; a lost
 final hint can delay reads until another hint or explicit retry. Reader limits (4,096 generations, 64 MiB
 scanned per call, 1 MiB per record) fail explicitly without discarding records. Reads do not ACK. Restart may
-replay IDs; native truncation/drop/noise behavior, maximum payload, burst survival, 35-minute lifetime and
-resume/crash native acceptance remain distinct coordinator gates. Incomplete events must not be acted on.
+replay IDs. The installed package was accepted natively on macOS arm64 with maximum-size payloads, a
+three-message burst, a resume and the cleanup after a kill
+([measured](experiments/grok-participation.md#installed-package-acceptance-checkpoint)); a deliberate loss of
+hints, a larger burst, a 35-minute idle hold of the whole package and Linux are not measured. Incomplete events
+must not be acted on.
 
 A load, or a replacement that is no longer the same live binding, mints a fresh incarnation so the monitor
 can re-arm. When that registration resumes the same Brigade session, the previous incarnation's private sink

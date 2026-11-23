@@ -34,8 +34,11 @@ one command. A denial/failure settles without automatic retries; explicitly requ
 Four native hooks run: SessionStart, UserPromptSubmit, Stop and SessionEnd. They use `exec` so the verified
 parent is the TUI itself. Resume through Grok's normal session picker in a `grok --no-leader` TUI; a native
 `load` starts a fresh receiver incarnation and gets one setup opportunity. Compaction alone does not rearm.
-Native leader socket presence, an unknown parent, conflicting host markers or mismatched UUID/workspace
-refuse registration. Do not change host trust files or permissions to work around a refusal.
+A leader socket in the environment, another harness's session marker beside Grok Build's, and a hook whose
+parent is no live process of yours refuse registration. A fact Brigade merely did not expect, such as a binary
+under a new name, no longer does: the session registers and its start says what was found, unless you set the
+option `grok_strict` ([Configure in Grok Build](../configure/grok.md#the-strict-checks-grok_strict)). Do not
+change host trust files or permissions to work around a refusal.
 
 `grok plugin details brigade` locates the installed package. The command is its absolute `bin/brigade`, or
 bare `brigade` when your PATH already names it. `brigade whoami --json` supplies the exact quoted

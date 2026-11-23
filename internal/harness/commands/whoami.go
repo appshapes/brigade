@@ -25,21 +25,25 @@ import (
 // from the same sanitised string, so it is always a tail of that member;
 // "" when the id sanitises to nothing (card 157).
 type whoamiResult struct {
-	MonitorCommand     string   `json:"monitor_command,omitzero"`
-	MonitorDescription string   `json:"monitor_description,omitzero"`
-	SessionID          string   `json:"session_id"`
-	ShortSessionID     string   `json:"short_session_id"`
-	SessionName        string   `json:"session_name"`
-	WorkspaceLabel     string   `json:"workspace_label,omitzero"`
-	TeamRef            string   `json:"team_ref"`
-	TeamName           string   `json:"team_name"`
-	Inbound            string   `json:"inbound"`
-	AdapterName        string   `json:"adapter_name"`
-	AdapterVersion     string   `json:"adapter_version"`
-	AdapterCommand     []string `json:"adapter_command"`
-	AdapterSource      string   `json:"adapter_source"`
-	PermissionMode     string   `json:"permission_mode,omitzero"`
-	NonInteractive     bool     `json:"non_interactive"`
+	MonitorCommand     string `json:"monitor_command,omitzero"`
+	MonitorDescription string `json:"monitor_description,omitzero"`
+	// Strict is true for a Grok Build session registered with the member's
+	// option grok_strict on (work item 377, ADR 0021): the package's skills
+	// hold back where it is. Absent everywhere else.
+	Strict         bool     `json:"strict,omitzero"`
+	SessionID      string   `json:"session_id"`
+	ShortSessionID string   `json:"short_session_id"`
+	SessionName    string   `json:"session_name"`
+	WorkspaceLabel string   `json:"workspace_label,omitzero"`
+	TeamRef        string   `json:"team_ref"`
+	TeamName       string   `json:"team_name"`
+	Inbound        string   `json:"inbound"`
+	AdapterName    string   `json:"adapter_name"`
+	AdapterVersion string   `json:"adapter_version"`
+	AdapterCommand []string `json:"adapter_command"`
+	AdapterSource  string   `json:"adapter_source"`
+	PermissionMode string   `json:"permission_mode,omitzero"`
+	NonInteractive bool     `json:"non_interactive"`
 	// Label is this machine's membership label, where it came from and
 	// this session's own Claude account (card 191).
 	Label whoamiLabel `json:"label"`
@@ -134,6 +138,7 @@ func Whoami(inv Invocation) error {
 		return writeJSON(inv.Out, whoamiResult{
 			MonitorCommand:     m.MonitorCommand(),
 			MonitorDescription: m.MonitorDescription(),
+			Strict:             m.Grok != nil && m.Grok.Strict,
 			SessionID:          id,
 			ShortSessionID:     shortTail(id),
 			SessionName:        protocol.SanitizeName(m.SessionName),
@@ -168,6 +173,11 @@ func Whoami(inv Invocation) error {
 		// Card 88: a session of another host says so; a Claude Code
 		// session's line stays as it was.
 		out = append(out, "host: "+attrLine(m.Harness))
+	}
+	if m.Grok != nil && m.Grok.Strict {
+		// Work item 377: the member's option grok_strict is on for this
+		// Grok Build session.
+		out = append(out, "strict: on (the option grok_strict)")
 	}
 	if p := pathLine(m.PluginBin); p != "" {
 		out = append(out, "terminal: "+p)

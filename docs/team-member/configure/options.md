@@ -1,8 +1,9 @@
 # Know the options
 
 Eighteen options, all optional, all with working defaults. The names and meanings are the same in every harness;
-how to set them is [Configure in Claude Code](claude-code.md), [Configure in Muse Code](muse-code.md) and
-[Configure in Codex CLI](codex.md). Option
+how to set them is [Configure in Claude Code](claude-code.md), [Configure in Muse Code](muse-code.md),
+[Configure in Codex CLI](codex.md) and [Configure in Grok Build](grok.md). Grok Build has one more of its own,
+`grok_strict`, described on its page. Option
 values are read from your own settings only, never from a project.
 
 | Option | Default | Meaning |

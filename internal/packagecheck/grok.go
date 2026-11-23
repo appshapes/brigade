@@ -31,7 +31,7 @@ func (c *checker) grok() {
 		c.die("%s", err)
 	}
 	if sourceOnly {
-		c.say("grok-plugin-check: source checked; native acceptance is a separate coordinator gate")
+		c.say("grok-plugin-check: source checked; what a live Grok Build session shows is measured apart from this check")
 		return
 	}
 	for _, asset := range []string{"brigade", "VERSION", "checksums.txt"} {

@@ -18,6 +18,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   harness's options file before you update ("The Claude account's email
   is the default label on every harness", below;
   [Choose your label](https://github.com/appshapes/brigade/blob/master/docs/team-member/join/your-label.md)).
+  On Grok Build: a session that Brigade used to refuse over a fact it
+  did not expect now registers and says what it found. To keep the
+  refusals, set `grok_strict` to `on` in
+  `~/.config/brigade/grok-options.json` before you update ("Grok
+  Build: a session registers where Brigade used to refuse it", below;
+  [Configure in Grok Build](https://github.com/appshapes/brigade/blob/master/docs/team-member/configure/grok.md)).
   Everyone else: nothing.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
@@ -55,6 +61,30 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **Grok Build: a session registers where Brigade used to refuse it**
+  (work item 377, ADR 0021). Brigade refused a Grok Build session
+  wherever a fact was not the one it expected. Most of those refusals
+  rested on no measurement, and one of them stopped every session when
+  Grok Build 1.0.67 renamed its binary. Brigade now registers the
+  session, shows one line at its start that says what it found, writes
+  the same to its log, and goes on. It does so for a binary under a
+  name it does not know, a start source other than `new` or `load`,
+  two spellings of one field that disagree, a session id that is not a
+  UUID or differs from the environment's, and a workspace that does
+  not agree with the working directory.
+- **`grok_strict` restores the refusals.** Set `"grok_strict": "on"`
+  in `~/.config/brigade/grok-options.json` and each of them is a
+  refusal again. It is one option for all of them, off by default.
+  `brigade whoami` prints `strict: on` for such a session
+  ([Configure in Grok Build](docs/team-member/configure/grok.md)).
+- **Still refused, whatever the option says:** leader mode, another
+  harness's session marker in the environment, and a subagent's hook.
+- **Grok Build's skills no longer hold back** where the other
+  packages' do not: a doing line when the work changes, a message to a
+  gateway, an update when the plugin is behind. With `grok_strict` on
+  they hold back as before. Grok Build reads its skills from the
+  default branch, so they reach a session before this release does;
+  the binary of 0.57.0 keeps its refusals until it is updated.
 - **`brigade work-item edit` with a title alone keeps the description**
   (work item 390). It used to erase it for every teammate: `edit`
   replaced the title and the description with what it was sent, and one

@@ -71,7 +71,7 @@ func TestEveryHarnessOfTheRegistryHasAPackageCheck(t *testing.T) {
 func TestGrokPackageCheckTakesSourceAlone(t *testing.T) {
 	t.Parallel()
 	root := testutil.RepoRoot(t)
-	if r := runPackageCheck(t, "grok", root, baseEnv(t, t.TempDir()), "--source"); r.code != 0 || r.stdout != "grok-plugin-check: source checked; native acceptance is a separate coordinator gate\n" {
+	if r := runPackageCheck(t, "grok", root, baseEnv(t, t.TempDir()), "--source"); r.code != 0 || r.stdout != "grok-plugin-check: source checked; what a live Grok Build session shows is measured apart from this check\n" {
 		t.Errorf("--source on the real repository: exit %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
 	}
 	for _, args := range [][]string{{"--strict"}, {"--source", "--source"}} {

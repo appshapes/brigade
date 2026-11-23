@@ -125,6 +125,27 @@ func TestParseStatus(t *testing.T) {
 	}
 }
 
+// TestParseGrokStrict (work item 377, ADR 0021): off unless the option
+// says on, and a value that is neither word is read as on, with the
+// warning, because the member who set it wanted the strict path.
+func TestParseGrokStrict(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		raw    string
+		strict bool
+		warn   string
+	}{
+		{"", false, ""}, {"off", false, ""}, {" off ", false, ""}, {"on", true, ""}, {"  on\t", true, ""},
+		{"ON", true, config.WarnGrokStrictInvalid}, {"true", true, config.WarnGrokStrictInvalid},
+		{"EVIL-value", true, config.WarnGrokStrictInvalid},
+	} {
+		strict, warn := config.ParseGrokStrict(tc.raw)
+		if strict != tc.strict || warn != tc.warn {
+			t.Errorf("ParseGrokStrict(%q) = %v, %q; want %v, %q", tc.raw, strict, warn, tc.strict, tc.warn)
+		}
+	}
+}
+
 // TestParseFollowTeamMove: the option that lets a session follow a team
 // that moved is on unless it says off, and a value that is neither word
 // never follows and is said, without the value (work item 273, ADR 0003).

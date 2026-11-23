@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +94,35 @@ func TestGrokFollowerBindsIncarnationAndLiveness(t *testing.T) {
 	inv.Out = closedConsumer{}
 	if err := inboxFollow(inv, []string{"--incarnation", m.Grok.Incarnation}); err != nil {
 		t.Fatalf("closed consumer returned diagnostic: %v", err)
+	}
+}
+
+// TestWhoamiSaysGrokStrict (work item 377, ADR 0021): a Grok Build session
+// registered with the member's option grok_strict on says so in `brigade
+// whoami`, on a line of its own and as `strict` in --json, which is where
+// the package's skills read whether to hold back. Without the option
+// neither form carries it. The fixture's session is given a receiver for
+// this: the two forms read nothing else of it.
+func TestWhoamiSaysGrokStrict(t *testing.T) {
+	t.Parallel()
+	for _, strict := range []bool{false, true} {
+		f := newFixture(t)
+		m := f.readMap(t)
+		m.Grok = &sessionmap.GrokReceiver{Cwd: "/owned", ProcessStart: "start", Incarnation: strings.Repeat("a", 32), MonitorState: "unarmed", Strict: strict}
+		if err := (sessionmap.Store{StateDir: f.stateDir}).WriteByPID(m); err != nil {
+			t.Fatal(err)
+		}
+		if got := slices.Contains(whoamiLines(t, f), "strict: on (the option grok_strict)"); got != strict {
+			t.Fatalf("grok_strict %v, the human form:\n%s", strict, f.out.String())
+		}
+		f.out.Reset()
+		inv := f.inv(f.sessionEnv(), "")
+		inv.JSON = true
+		if err := Whoami(inv); err != nil {
+			t.Fatalf("whoami --json: %v", err)
+		}
+		if got := strings.Contains(f.out.String(), `"strict":true`); got != strict {
+			t.Fatalf("grok_strict %v, --json:\n%s", strict, f.out.String())
+		}
 	}
 }
