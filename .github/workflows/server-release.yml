@@ -26,6 +26,7 @@ concurrency:
 permissions:
   contents: write     # the GitHub release
   packages: write     # the image
+  actions: read       # the guard reads ci.yml's run on the tag's commit (work item 416)
 
 env:
   IMAGE: ghcr.io/appshapes/brigade-server
@@ -33,7 +34,12 @@ env:
 jobs:
   guard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Above the guard's own waits (work item 416): one minute for ci.yml's run to appear and three for one in
+    # progress, with the checkout before them, so that while GitHub answers the guard ends by its own word,
+    # which says what to do next, and not by the job's limit, which says nothing. A GitHub that fails to answer
+    # stretches the waits (the check asks again, up to five times in a row), and the limit can then be what ends
+    # the job: run it again.
+    timeout-minutes: 8
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -47,6 +53,15 @@ jobs:
           grep -q "^## \[$version\]" server/CHANGELOG.md || { echo "server/CHANGELOG.md has no section for $version"; exit 1; }
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then echo "this release exists already"; exit 1; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # The tag's commit is on master and ci.yml is green on it (work item 416): what `make server-tag` checked
+      # before it tagged, asked again here, where a tag pushed by hand meets it too. `ci.yml`'s `server`
+      # job is the only test a server release has, since this workflow runs none. Every other job waits on this
+      # one. An override the owner allowed is read from the tag's message, where the script wrote it (ADR 0028).
+      # scripts/ci/release-guard.sh has the reasons.
+      - name: The tag's commit is on master and ci.yml is green on it
+        run: scripts/ci/release-guard.sh "$(git rev-parse HEAD)" "$GITHUB_REF_NAME"
         env:
           GH_TOKEN: ${{ github.token }}
 

@@ -59,6 +59,12 @@ if [ "$dry_run" = 1 ]; then
 fi
 
 # The tag names the commit whose run was read, not HEAD, which may have moved while the check waited.
-git tag --annotate "$tag" --message "Brigade server $version" "$head"
+# The override, when one was given, goes into the tag's message as a line of its own (work item 416, ADR 0028):
+# server-release.yml asks the same check again before it publishes, and reads the owner's word there.
+tag_message="Brigade server $version"
+[ -z "${release_over_ci:-}" ] || tag_message="Brigade server $version
+
+release_over_ci=$release_over_ci"
+git tag --annotate "$tag" --message "$tag_message" "$head"
 git push origin "$tag"
 echo "server-tag: pushed $tag; the server-release workflow publishes it"

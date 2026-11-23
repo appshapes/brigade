@@ -43,6 +43,14 @@
   session passes it only on his word, given for that run or that commit. Never tag a release by hand past the check: run
   `scripts/release-ci-check.sh "$(git rev-parse HEAD)"` first. After a stop with the release commit already
   pushed, the same `make release` again goes on from the check, once the run is green or with the override.
+  The two release workflows ask again before they build or publish (work item 416, ADR 0028):
+  `scripts/ci/release-guard.sh` holds that the tag's commit is on `master` and that `ci.yml` is green on it. The
+  override reaches them in the tag's message, where the two scripts write the `release_over_ci` they were
+  given as a line of its own, and nowhere else: never write that line by hand. A tag pushed by hand over a red or
+  a missing run, or on a commit `master` does not hold, publishes nothing, and its tag stays, because the
+  ruleset `protect-release-tags` lets a release tag be neither changed nor deleted: the release then takes the
+  next version. Change the guard only just after a release, never just before one: a fault in it stops the next
+  tag's workflow, with the tag public.
 - **Release pins.** Never commit a `plugin/bin/checksums.txt` or `plugin/bin/VERSION` you did not produce with
   `make release`; `muse/brigade/bin/` carries copies the release sequence writes. `make checksums-check` requires
   the committed file to be reproduced by a fresh cross-compile or backed by the published release (in the

@@ -50,9 +50,18 @@ case $sha in
 esac
 # gh matches a run by the whole sha alone: a short one finds nothing, which would read here as "no run".
 [ "${#sha}" -eq 40 ] || die "pass the full 40-character commit sha, not '$sha': gh finds no run by a short one"
+# The form is held whole, whether or not the override turns out to be needed: the release scripts write the
+# value into the tag's message, where the release workflows read it as one word (work item 416).
 case $override in
-  ''|missing:*) ;;
-  *[!0-9]*)     die "release_over_ci='$override' is neither a run's id nor 'missing:<the commit's sha>'" ;;
+  '') ;;
+  missing:*)
+    named=${override#missing:}
+    case $named in
+      ''|*[!0-9a-f]*) die "release_over_ci='$override' is neither a run's id nor 'missing:<the commit's sha>'" ;;
+    esac
+    [ "${#named}" -eq 40 ] || die "release_over_ci='$override' is neither a run's id nor 'missing:<the commit's sha>': the sha is the full 40 characters"
+    ;;
+  *[!0-9]*) die "release_over_ci='$override' is neither a run's id nor 'missing:<the commit's sha>'" ;;
 esac
 for n in "$appear" "$limit" "$poll"; do
   case $n in

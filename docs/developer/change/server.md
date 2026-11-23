@@ -398,6 +398,9 @@ The server is released apart from the plugin, by a tag of its own that `release.
    that `ci.yml`'s run on that head is green, waiting for one in progress; then it pushes the tag
    `server-v<version>`. Over a red or missing run it stops, and `release_over_ci=<run id|missing:sha>` is the owner's
    override ([The two CI checks](../release/cut-a-release.md#the-two-ci-checks)). `DRY_RUN=1` stops before the tag.
+   The `server-release` workflow asks the same of the tag's commit before any of its jobs builds, and reads an
+   override from the tag's message, where this command wrote it
+   ([The workflow asks again](../release/cut-a-release.md#the-workflow-asks-again)).
 5. Once the release is out, write the directory its binary leaves and land it, so that every later build is
    held to what this release wrote: the command is in
    [`server/testdata/stored/README.md`](../../../server/testdata/stored/README.md). The release does not wait

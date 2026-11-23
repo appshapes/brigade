@@ -66,6 +66,18 @@ func originTags(t *testing.T, origin string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// originTagMessage is the message of an annotated tag of the bare repository at origin, as the release
+// workflows' guard reads it from GitHub (work item 416): the override is a line of it.
+func originTagMessage(t *testing.T, origin, tag string) string {
+	t.Helper()
+	//nolint:gosec // G204: git with a fixed argument list on this test's own bare repository.
+	out, err := exec.CommandContext(t.Context(), "git", "--git-dir", origin, "tag", "--list", "--format=%(contents)", tag).CombinedOutput()
+	if err != nil {
+		t.Fatalf("reading the message of origin's tag %s: %v\n%s", tag, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // ciEnv keeps a real run from waiting: a run that is not there is missing at once, and a poll is one second.
 var ciEnv = []string{"work_item=20", "RELEASE_CI_APPEAR_SECONDS=0", "RELEASE_CI_POLL_SECONDS=1"}
 
@@ -147,6 +159,10 @@ func TestReleasePrepTagsOnlyAfterTheReleaseCommitsRunIsGreen(t *testing.T) {
 	if got := r.gitOut("rev-parse", "v0.1.0^{commit}"); got != release {
 		t.Fatalf("v0.1.0 points at %s, want the release commit %s", got, release)
 	}
+	// No override was given, so the tag's message carries none for the workflow's guard to read.
+	if got := originTagMessage(t, origin, "v0.1.0"); got != "v0.1.0" {
+		t.Fatalf("the tag's message = %q, want v0.1.0 and nothing else", got)
+	}
 }
 
 // The stop of the ruling, and both ways on from it: the same command again, once the run is green, and the
@@ -195,6 +211,11 @@ func TestReleasePrepStopsOverARedReleaseCommitAndGoesOnFromThere(t *testing.T) {
 			}
 			if got := originTags(t, origin); got != "v0.1.0" {
 				t.Fatalf("origin's tags = %q, want v0.1.0", got)
+			}
+			// The override reaches release.yml in the tag's message, a line of its own (work item 416).
+			want := strings.Join(append([]string{"v0.1.0"}, way.env...), "\n\n")
+			if got := originTagMessage(t, origin, "v0.1.0"); got != want {
+				t.Fatalf("the tag's message = %q, want %q", got, want)
 			}
 		})
 	}
@@ -365,6 +386,19 @@ func TestServerTagTagsOnlyOverAGreenRun(t *testing.T) {
 			}
 			if c.tagged && s.gitOut("rev-parse", "server-v1.2.3^{commit}") != head {
 				t.Errorf("the tag does not point at the head whose run was read, %s", head)
+			}
+			if c.tagged {
+				// The override reaches server-release.yml in the tag's message, a line of its own (work item 416).
+				paragraphs := []string{"Brigade server 1.2.3"}
+				for _, kv := range env {
+					if strings.HasPrefix(kv, "release_over_ci=") {
+						paragraphs = append(paragraphs, kv)
+					}
+				}
+				want := strings.Join(paragraphs, "\n\n")
+				if got := originTagMessage(t, s.origin, "server-v1.2.3"); got != want {
+					t.Errorf("the tag's message = %q, want %q", got, want)
+				}
 			}
 			if !c.tagged && got != "" {
 				t.Errorf("a tag reached origin: %q\n%s", got, res.all())

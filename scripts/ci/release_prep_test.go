@@ -383,6 +383,18 @@ func TestReleasePrepRefusals(t *testing.T) {
 		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0", "rehearsal/other"), "release from rehearsal/other, not 'master'")
 	})
 
+	// release.yml publishes only a tag whose commit is on master (work item 416), and a release tag cannot be
+	// removed: on another branch the script goes no further than a dry run.
+	t.Run("a real release from another branch is refused before anything is changed", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.git("switch", "-q", "-c", "rehearsal/real")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0", "rehearsal/real"), "a release is tagged from master", "DRY_RUN=1")
+		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
+			t.Fatalf("VERSION was bumped despite the refusal: %q", got)
+		}
+	})
+
 	t.Run("an absent plugin manifest is refused before anything is written", func(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)

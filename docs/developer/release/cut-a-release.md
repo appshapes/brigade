@@ -34,7 +34,8 @@ is still accepted with the same meaning; given both, they must agree. `scripts/r
 5. **The release commit's CI, then the tag**: it waits for `ci.yml`'s run on the commit step 4 pushed, about as
    long as CI takes, and only over a green one runs `git tag -a v<v> <that commit> && git push origin v<v>`.
 
-`release.yml` then checks the tag is not already published, guards that the plugin pins this tag, the four
+`release.yml` then checks the tag is not already published, asks the CI check again
+([The workflow asks again](#the-workflow-asks-again)), guards that the plugin pins this tag, the four
 manifests and the Muse catalog agree, the four `checksums.txt` are equal (`make grok-plugin-check` is what holds the
 Grok package's manifest and assets), the catalog's digest is the package digest of `muse/brigade/` at the tag
 (`brigade-muse-digest check`), `make docs-check` passes and `make cross` reproduces the committed
@@ -78,17 +79,43 @@ when its run is green (`gh run rerun <id> --failed` for a flake), or with the ov
 again. Step 1 is then a no-op, steps 2 and 3 build again, step 4 says there is nothing to commit, and the
 sequence goes on from the check.
 
+### The workflow asks again
+
+`release.yml` and `server-release.yml` each run `scripts/ci/release-guard.sh <the tag's commit> <the tag>` before
+they build or publish anything (work item 416,
+[ADR 0028](../../decisions/0028-ask-the-ci-check-again-in-the-release-workflows-with-the-override-in-the-tags-message.md)):
+
+1. The tag's commit is on `master`: `ci.yml` runs for a pull request too, so a commit that was never merged can
+   have a green run of its own.
+2. `ci.yml` is green on it, by `scripts/release-ci-check.sh`, waiting one minute for a run to appear and three
+   for one in progress.
+3. An override is read from the tag's message. `make release` and `make server-tag` write the
+   `release_over_ci` they were given into the message of the tag they make, as a line of its own; the guard
+   reads it from the tag on GitHub and the check takes it only where it names this commit's run or this commit.
+
+For a release the scripts made, the run is green and has ended, and the guard costs four lookups. A tag pushed
+by hand over a red or a missing run, or on a commit `master` does not hold, publishes nothing. When the guard
+stops because a run had not ended in its three minutes, run the workflow's run again once it has
+(`gh run rerun <id>`).
+
 ## Recovery
 
-- If the release job fails, fix the drift, delete the never-published tag (`git tag -d v<v> && git push --delete
-  origin v<v>`) and rerun. A **published** tag is never rewritten: bump the patch version instead.
-- If the failure was in the workflow alone, a rerun of `make release` has nothing to commit at step 4 and goes on
-  to the CI check and the tag (until work item 399 it died there, and step 5 was done by hand). Until the retag
-  keep every fix to non-Go files: a Go change makes `checksums-check`'s fresh build differ from the committed file.
+- If the release job fails and nothing in the tagged tree is at fault (a runner, GitHub, a run of `ci.yml` that
+  had not ended), run the workflow's run again: `gh run rerun <id>`. If the tagged tree is at fault, fix it on
+  `master` and release the next patch version: a release tag can be neither deleted nor moved, published or not
+  (the ruleset `protect-release-tags`, read on 2026-11-23; this page said until then to delete a tag that was
+  never published, which origin refuses).
+- After a stop between the release commit and its tag, a rerun of `make release` has nothing to commit at step 4
+  and goes on to the CI check and the tag (until work item 399 it died there, and step 5 was done by hand). Until
+  the release is published keep every fix to non-Go files: a Go change makes `checksums-check`'s fresh build
+  differ from the committed file.
 - By hand the tag still follows the check: `scripts/release-ci-check.sh "$(git rev-parse HEAD)" && git tag -a v<v>
-  -m v<v> && git push origin v<v>`.
+  -m v<v> && git push origin v<v>`. The workflow asks again, and over a red or a missing run a tag made this way
+  publishes nothing: an override is the scripts' to write into the tag's message, on the owner's word.
 - `DRY_RUN=1 work_item=<n> scripts/release-prep.sh <v>` does steps 1 to 3 for real and prints 4 and 5. It asks
-  the first CI check once, without waiting for a run in progress, and goes on whatever it says.
+  the first CI check once, without waiting for a run in progress, and goes on whatever it says. On a branch
+  other than `master` (`branch=<name>`) a dry run is all the script does: the workflow publishes nothing for a
+  tag whose commit `master` does not hold, and the tag could not be removed.
 - `make release-dry-run` is goreleaser's check and a local release without publishing.
 
 ## After

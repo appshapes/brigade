@@ -38,21 +38,21 @@
 # `CDPATH= cd` -- that empty prefix assignment is SC1007; this script does not cd at all.
 #
 # Failure and recovery (7.7): if the release job's verification fails the draft is deleted and nothing is
-# published; fix the drift, then delete the never-published tag with
-#   git tag -d v<v> && git push --delete origin v<v>
-# before rerunning (git tag -a refuses an existing local tag). A PUBLISHED tag is never rewritten: bump the
-# patch version instead.
+# published. A release tag can be neither deleted nor moved, published or not (the ruleset
+# `protect-release-tags`, read on 2026-11-23, work item 416; until then this said to delete a never-published
+# tag, which origin refuses): where nothing in the tagged tree is at fault, run the workflow's run again; where
+# the tree is, fix it on master and release the next patch version.
 #
-# The workflow-only fix, which the deletion above does not finish. If the failure was in release.yml (or in
+# The workflow-only fix. If the failure was in release.yml (or in
 # anything else this script does not build), a re-run of `make release version=<v>` has nothing to commit: the
 # pins are already <v>, so step 1 is a no-op, and no built byte changed, so the cp is a no-op too. Since work
 # item 399 step 4 says so and goes on to 4b and 5 (until then it died there, at `make push`'s "nothing to
 # commit", and step 5 was done by hand, past every check). By hand it is still
 #   scripts/release-ci-check.sh "$(git rev-parse HEAD)" && git tag -a v<v> -m v<v> && git push origin v<v>
 # release.yml triggers on `v*` and on nothing else -- there is no workflow_dispatch -- so a release cannot be
-# re-driven without a tag. And note that deleting the tag leaves the release commit on the branch: it pins <v>
-# against checksums no published release backs, so until the retag keep every fix to non-Go files -- a Go source
-# change makes checksums-check's fresh build differ from the committed file and turns the `fast` job red.
+# driven without a tag. And note that a release commit whose release is not published pins <v> against
+# checksums no published release backs, so until it is keep every fix to non-Go files -- a Go source change
+# makes checksums-check's fresh build differ from the committed file and turns the `fast` job red.
 set -eu
 
 die() { printf 'release-prep: %s\n' "$1" >&2; exit 1; }
@@ -137,6 +137,10 @@ fi
 
 branch=$(git branch --show-current)
 [ "$branch" = "$want_branch" ] || die "release from $want_branch, not '$branch' (pass branch=<name> only for a rehearsal)"
+# A rehearsal on another branch is a dry run, and nothing more (work item 416): release.yml publishes only a tag
+# whose commit is on master, and a release tag can be neither deleted nor moved, so a tag from '$branch' would
+# publish nothing and spend its version for good.
+[ "$branch" = master ] || [ "$dry_run" = 1 ] || die "a release is tagged from master: on '$branch' only a rehearsal is possible, with DRY_RUN=1, which stops before the commit and the tag (release.yml publishes nothing for a tag whose commit master does not hold, and a release tag cannot be removed)"
 
 # A version that is tagged is released, or was tried: nothing below may run on it. Checked here, before anything
 # is mutated, and it matters more since work item 399, because a re-run with nothing to commit now goes on to
@@ -271,7 +275,7 @@ if [ "$dry_run" = 1 ]; then
   [ ! -f "$muse_json" ] || say "  4. go run ./cmd/brigade-muse-digest write   (marketplace.json's digest and version)"
   say "  4. make push message=\"$work_item: Release $v\""
   say "  4b. wait for ci.yml's run on the release commit, and stop over a red or a missing one"
-  say "  5. git tag -a v$v -m v$v && git push origin v$v"
+  say "  5. git tag -a v$v -m v$v && git push origin v$v   (the message also carries release_over_ci when it was given)"
   exit 0
 fi
 
@@ -306,6 +310,13 @@ say "4b. read ci.yml's run on the release commit $release_commit"
 # ---- 5. tag the commit that now carries VERSION + checksums --------------------------------------------------------
 # The tag names the commit whose run was read, not HEAD: step 4b waited for minutes, and in a checkout that
 # another session shares HEAD may have moved meanwhile.
-git tag -a "v$v" -m "v$v" "$release_commit"
+# The override, when one was given, goes into the tag's message as a line of its own (work item 416, ADR 0028):
+# release.yml asks the same check again before it publishes, and a tag push carries no input, so the message is
+# where the workflow reads the owner's word. The check takes it only where it names the tag's commit or its run.
+tag_message="v$v"
+[ -z "${release_over_ci:-}" ] || tag_message="v$v
+
+release_over_ci=$release_over_ci"
+git tag -a "v$v" -m "$tag_message" "$release_commit"
 git push origin "v$v"
 say "5. pushed v$v; release.yml now builds, verifies against $committed and publishes the draft"

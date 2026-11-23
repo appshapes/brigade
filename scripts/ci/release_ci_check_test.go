@@ -258,6 +258,10 @@ func TestReleaseCICheckAsksForTheWholeShaOfCiYml(t *testing.T) {
 		{"a branch name", nil, "master", "usage: scripts/release-ci-check.sh <full commit sha>"},
 		{"an override that names nothing", []string{"release_over_ci=yes"}, releaseCISha, "is neither a run's id nor 'missing:<the commit's sha>'"},
 		{"a bare missing, which names no commit", []string{"release_over_ci=missing"}, releaseCISha, "is neither a run's id nor 'missing:<the commit's sha>'"},
+		{"a missing that names no sha", []string{"release_over_ci=missing:"}, releaseCISha, "is neither a run's id nor 'missing:<the commit's sha>'"},
+		{"a missing with a short sha", []string{"release_over_ci=missing:" + releaseCISha[:12]}, releaseCISha, "the sha is the full 40 characters"},
+		{"a missing with two words", []string{"release_over_ci=missing:abc def"}, releaseCISha, "is neither a run's id nor 'missing:<the commit's sha>'"},
+		{"a run's id with a space", []string{"release_over_ci=7 8"}, releaseCISha, "is neither a run's id nor 'missing:<the commit's sha>'"},
 		{"a poll of no seconds", []string{"RELEASE_CI_POLL_SECONDS=0"}, releaseCISha, "RELEASE_CI_POLL_SECONDS is at least 1"},
 		{"a wait that is not a number", []string{"RELEASE_CI_WAIT_SECONDS=soon"}, releaseCISha, "are whole numbers of seconds (got 'soon')"},
 	} {

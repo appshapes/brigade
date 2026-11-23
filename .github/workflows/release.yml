@@ -62,8 +62,10 @@ jobs:
     # One observed run: the D1 rehearsal, 33698279695, took 1m35s end to end (of which the `make cross` guard was
     # 1m02s and goreleaser itself 9s). A single sample is not a p90, so this bound is deliberately looser than
     # twice it: the workflow runs once per release, a slow module fetch on a cold runner is the plausible
-    # variance, and re-running a timed-out release job is more expensive than waiting.
-    timeout-minutes: 10
+    # variance, and re-running a timed-out release job is more expensive than waiting. Five minutes more since
+    # work item 416: the guard step may wait one minute for ci.yml's run to appear and three for one in progress
+    # before anything is built (for a tag `make release` made, the run has ended and it waits for nothing).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}                      # goreleaser needs the tag history for the changelog
@@ -86,6 +88,14 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+        env: {GH_TOKEN: "${{ github.token }}"}
+      # The tag's commit is on master and ci.yml is green on it (work item 416): what `make release` checked
+      # before it tagged, asked again here, where a tag pushed by hand meets it too. Before anything is
+      # built. An override the owner allowed is read from the tag's message, where the script wrote it (ADR 0028).
+      # scripts/ci/release-guard.sh has the reasons; `actions: write` above lets the token read the runs.
+      - name: Guard that the tag's commit is on master and that ci.yml is green on it
+        if: steps.published.outputs.exists != 'true'
+        run: scripts/ci/release-guard.sh "$(git rev-parse HEAD)" "$GITHUB_REF_NAME"
         env: {GH_TOKEN: "${{ github.token }}"}
       - uses: actions/setup-go@v7
         if: steps.published.outputs.exists != 'true'
