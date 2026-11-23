@@ -13,14 +13,23 @@ import (
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
-// wordsKept are the skills whose four copies the source reproduces word
-// for word: nothing in them differed but what the table and the source's
-// marks say (work item 393). While the copies are still the hand-written
-// ones, this is what shows that a source says what its copies said. A
-// skill that is not listed has a source that says the same thing in one
-// wording where the copies had several; the plan lists each
-// (.context/plans/skills-one-source.md).
-var wordsKept = []string{"work-item", "work-item-next", "work-item-start", "work-items"}
+// wordsKept are the copies a source reproduces word for word: nothing in
+// them differed from the source but what the table and the source's marks
+// say (work item 393). While the copies are still the hand-written ones,
+// this is what shows that a source says what its copies said. A copy that
+// is not listed is one where the source says the same thing in one wording
+// where the copies had several, or where a fault of the copy was chosen
+// away; the plan lists each (.context/plans/skills-one-source.md).
+var wordsKept = map[string][]string{
+	"work-item":       {"claude", "muse", "codex", "grok"},
+	"work-item-next":  {"claude", "muse", "codex", "grok"},
+	"work-item-start": {"claude", "muse", "codex", "grok"},
+	"work-items":      {"claude", "muse", "codex", "grok"},
+	"update":          {"claude", "muse", "codex", "grok"},
+	"move":            {"claude", "codex", "grok"},
+	"setup":           {"claude", "codex", "grok"},
+	"team-messaging":  {"claude", "grok"},
+}
 
 var wordRe = regexp.MustCompile(`\S+`)
 
@@ -82,14 +91,17 @@ func TestSourcesKeepTheClaudeCodeCopy(t *testing.T) {
 	}
 }
 
-// TestSourcesKeepTheWordsOfTheirCopies: for the skills of wordsKept, the
-// source rendered for each harness has the words of that package's copy,
-// in order; only the line breaks may differ.
+// TestSourcesKeepTheWordsOfTheirCopies: for the copies of wordsKept, the
+// source rendered for the harness has the words of that package's copy, in
+// order; only the line breaks may differ.
 func TestSourcesKeepTheWordsOfTheirCopies(t *testing.T) {
 	t.Parallel()
 	root := testutil.RepoRoot(t)
-	for _, skill := range wordsKept {
+	for skill, kept := range wordsKept {
 		for _, h := range skillgen.Harnesses {
+			if !slices.Contains(kept, h.ID) {
+				continue
+			}
 			copyText, err := os.ReadFile(filepath.Join(root, skillgen.Copy(h, skill)))
 			if err != nil {
 				t.Fatal(err)
