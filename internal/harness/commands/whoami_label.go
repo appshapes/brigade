@@ -37,13 +37,19 @@ type whoamiLabel struct {
 	// dates the credential, not the membership; it is what a label joined
 	// before the record existed still has.
 	CredentialSince *time.Time `json:"credential_since,omitzero"`
-	// SessionAccount is the email of the Claude account this session is
-	// signed in to, read from this profile's own config alone, and only
-	// where it can explain the label: a session whose `label` option is
+	// SessionAccount is the email of the Claude account a start of this
+	// session reads for its default label, from the files the registration
+	// reads (account.Paths: this profile's own, then the home directory's;
+	// work item 414), and only where it can explain the label: a session whose `label` option is
 	// `account`, with no label or one read from an account (or of unknown
 	// source). A session of any harness: the default label is the same on
 	// all four (ADR 0014). Absent otherwise or when it cannot be read.
 	SessionAccount string `json:"session_account,omitzero"`
+	// SessionAccountFromHome is true when SessionAccount was read from the
+	// home directory's file although CLAUDE_CONFIG_DIR names a profile,
+	// whose own file names none: the account is the default profile's and
+	// not one this profile signed in to. Absent otherwise.
+	SessionAccountFromHome bool `json:"session_account_from_home,omitzero"`
 
 	// The human form's own facts; --json never carries a path.
 	accountFile, sessionFile, home string
@@ -92,12 +98,33 @@ func (inv Invocation) label(t *target) whoamiLabel {
 		// read.
 		return l
 	}
-	email, file, err := account.OwnEmailFile(inv.Environ)
+	// The account is read where a session's registration reads it
+	// (account.EmailFile over account.Paths; work item 414): the profile's
+	// own file, then the home directory's. Read from the profile's file
+	// alone, as it was, the line could name no account, or another one,
+	// than the label a start of this very session then sent.
+	email, file, err := account.EmailFile(inv.Environ)
 	if err != nil {
 		inv.logger().Debug("whoami: claude account email unavailable", log.Err(err))
 	}
 	l.SessionAccount, l.sessionFile = email, file
+	if email != "" && adapterkit.Getenv(inv.Environ, config.ClaudeConfigDirVar) != "" {
+		// A CLAUDE_CONFIG_DIR that names no directory Brigade can read (a
+		// relative one) has no file of its own either.
+		dir, derr := config.ClaudeConfigDir(inv.Environ)
+		l.SessionAccountFromHome = derr != nil || filepath.Clean(file) != filepath.Join(filepath.Clean(dir), account.FileName)
+	}
 	return l
+}
+
+// accountIs is how the human form names the account: the session's own,
+// or, where the profile's own file names none, the one a start of this
+// session reads from the home directory's file.
+func (l whoamiLabel) accountIs() string {
+	if l.SessionAccountFromHome {
+		return "account: this profile names no Claude account, and a start of this session reads the home directory's, which is "
+	}
+	return "account: this session's Claude account is "
 }
 
 // lines renders the facts for the human form: `label:` always, and
@@ -116,7 +143,7 @@ func (l whoamiLabel) lines() []string {
 		}
 		out := []string{line}
 		if account != "" {
-			out = append(out, "account: this session's Claude account is "+account)
+			out = append(out, l.accountIs()+account)
 		}
 		return out
 	}
@@ -137,14 +164,17 @@ func (l whoamiLabel) lines() []string {
 	case account == "":
 		return out
 	case strings.EqualFold(account, oneLine(l.HumanLabel)):
-		return append(out, "account: this session's Claude account is the label")
+		return append(out, l.accountIs()+"the label")
 	case l.accountFile != "" && l.sessionFile != "" && filepath.Clean(l.accountFile) == filepath.Clean(l.sessionFile):
 		// The label was read from this very profile: it has signed in to
 		// another account since, and no other profile is involved.
-		return append(out, "account: this session's Claude account is "+account+", not the label: "+
-			"this profile has signed in to another account since the join, and the label stays the one sent then")
+		since := "this profile has signed in to another account since the join"
+		if l.SessionAccountFromHome {
+			since = "the home directory's profile has signed in to another account since the join"
+		}
+		return append(out, l.accountIs()+account+", not the label: "+since+", and the label stays the one sent then")
 	default:
-		return append(out, "account: this session's Claude account is "+account+", not the label: "+
+		return append(out, l.accountIs()+account+", not the label: "+
 			"every Claude profile that uses this machine's credential store is this one member, under the label sent when it joined; "+
 			"to be a member of its own, a profile sets the config_dir option and joins from a session of its own")
 	}

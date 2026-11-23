@@ -341,3 +341,54 @@ func TestDecisionClose(t *testing.T) {
 		t.Fatalf("result %v", result)
 	}
 }
+
+// TestDecisionCloseAcrossTheMembersTwoLabels (work item 414): a decision
+// is its member's to close. A session whose state entry is from before the
+// two labels were one carries the former label, and the label the team
+// holds for it besides: a decision another session of the member asked
+// under either is its own, the closer is named by the label the team
+// holds, and another member's decision stays refused.
+func TestDecisionCloseAcrossTheMembersTwoLabels(t *testing.T) {
+	t.Parallel()
+	const held = "alice-of-ops"
+	f := newFixture(t)
+	folder := f.withStateFolder(t)
+	f.seedEntry(t, folder) // its member is alice@example.com, the former label
+	writeBinding(t, f, held, time.Time{})
+	theirs := state.Store{StateDir: t.TempDir(), Folder: folder}
+	for id, member := range map[string]string{"d-20260901-aaaaaa": "alice@example.com", "d-20260901-dddddd": held, "d-20260901-bbbbbb": "bob@example.com"} {
+		d := &state.Decision{Version: state.Version, ID: id, Question: "Which?", Member: member, SessionName: "other", SessionID: "other-sess-" + id, CreatedAt: fixtureNow.Add(-time.Hour)}
+		if err := theirs.SaveDecision(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"d-20260901-aaaaaa", "d-20260901-dddddd"} {
+		if err := Decision(f.inv(f.sessionEnv(), "settled"), DecisionOptions{Close: id}); err != nil {
+			t.Fatalf("close %s: %v", id, err)
+		}
+		d, err := f.stateStore(folder).LoadDecision(id)
+		if err != nil || d.Open() || d.ClosedBy == nil || d.ClosedBy.Member != held {
+			t.Fatalf("closed %s: %+v, %v", id, d, err)
+		}
+	}
+	wantCode(t, Decision(f.inv(f.sessionEnv(), "mine now"), DecisionOptions{Close: "d-20260901-bbbbbb"}), protocol.CodeUnauthorized, ReasonNotTheAsker)
+	// A session whose entry already carries the label the team holds has no
+	// former label: a decision under the account's address is not its own.
+	g := newFixture(t)
+	gfolder := g.withStateFolder(t)
+	g.seedEntry(t, gfolder)
+	e, err := g.stateStore(gfolder).Load(selfSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Member = held
+	if err := g.stateStore(gfolder).Save(e); err != nil {
+		t.Fatal(err)
+	}
+	writeBinding(t, g, held, time.Time{})
+	stray := &state.Decision{Version: state.Version, ID: "d-20260901-eeeeee", Question: "Which?", Member: "alice@example.com", SessionName: "other", SessionID: "other-sess", CreatedAt: fixtureNow.Add(-time.Hour)}
+	if err := (state.Store{StateDir: t.TempDir(), Folder: gfolder}).SaveDecision(stray); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, Decision(g.inv(g.sessionEnv(), "not mine"), DecisionOptions{Close: stray.ID}), protocol.CodeUnauthorized, ReasonNotTheAsker)
+}

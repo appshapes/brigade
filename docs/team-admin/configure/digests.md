@@ -49,8 +49,9 @@ reports nothing.
 ```
 
 `reports.json` in the state folder is the list of subscribers, each entry written by its own member's session
-with `brigade report subscribe` and removed with `brigade report unsubscribe`: their roster label (the key),
-their recipients in order of precedence, their period, their filter, and their wait. A recipient is a Slack handle or
+with `brigade report subscribe` and removed with `brigade report unsubscribe`: their roster label (the key: the
+label the team holds for the member, which they joined with, and not the address their session's Claude account
+has, where the two differ), their recipients in order of precedence, their period, their filter, and their wait. A recipient is a Slack handle or
 channel, or an email address; left out, the member's label is the recipient when it is an address, as a roster
 label is by default. Their digest and every decision addressed to them go to the first recipient a gateway on
 the roster can carry: a handle or channel through the team's Slack gateway; an address through the Slack gateway

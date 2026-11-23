@@ -24,6 +24,8 @@ import (
 	"github.com/appshapes/brigade/internal/harness/gitfacts"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/state"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // The budgets of one git call in each hook: SessionStart has 55 s, the
@@ -64,6 +66,13 @@ func (r *run) stateStart(ctx context.Context, f facts, opts config.Options, m *s
 	} else {
 		e.SessionName = m.SessionName
 		e.EndedAt, e.EndReason = time.Time{}, ""
+		// An entry written before work item 414 carries the label the
+		// registration sent; a start brings it to the one the team's store
+		// holds. With none there, or a store that cannot be read, the entry
+		// keeps the member it has: a start never blanks one.
+		if held := r.heldLabel(m); held != "" {
+			e.Member = held
+		}
 	}
 	e.Inbound = m.Inbound
 	e.Harness = string(f.host)
@@ -75,13 +84,45 @@ func (r *run) stateStart(ctx context.Context, f facts, opts config.Options, m *s
 	}
 }
 
+// memberLabel is the member's label as the team holds it, read from this
+// machine alone (work item 414): the label the membership was joined
+// with, the team store's, which is what the roster shows; else, for a
+// membership joined with none, what the `label` option resolves to, which
+// the registration sends for the team to adopt. It is the rule a change of
+// the board is signed by (commands.workItemAuthor).
+//
+// Until work item 414 an entry took the registration's label alone. A
+// member who had joined with `--label` and kept the `label` option at
+// `account` was then in the state folder under their account's address
+// and on the roster under their label: a digest subscription sat under a
+// label nobody could address, and `brigade decision --to <their roster
+// label>` found no subscriber.
+func (r *run) memberLabel(opts config.Options, m *sessionmap.ByPID) string {
+	if held := r.heldLabel(m); held != "" {
+		return held
+	}
+	return r.humanLabel(opts)
+}
+
+// heldLabel is the label the membership was joined with, from the team's
+// store on this machine; "" when it was joined with none or the store
+// cannot be read.
+func (r *run) heldLabel(m *sessionmap.ByPID) string {
+	b, err := teamstore.LoadBinding(m.ConfigDir, m.TeamKey)
+	if err != nil {
+		r.log.Debug("state: team binding unreadable; the member is the label option's", log.Err(err))
+		return ""
+	}
+	return protocol.SanitizeLabel(b.HumanLabel)
+}
+
 // newStateEntry is a fresh entry for the session the map describes: the
-// member's label as the registration sends it (the `label` option's
-// resolution, read best effort), the repository's name the folder ids
-// carry, else the workspace label, and HEAD as the start head.
+// member's label as the team holds it (memberLabel), the repository's name
+// the folder ids carry, else the workspace label, and HEAD as the start
+// head.
 func (r *run) newStateEntry(opts config.Options, m *sessionmap.ByPID, now time.Time) *state.Entry {
 	e := state.New(m.BrigadeSessionID, m.SessionName, now)
-	e.Member = r.humanLabel(opts)
+	e.Member = r.memberLabel(opts, m)
 	e.Repository = m.SyncScope
 	if e.Repository == "" {
 		e.Repository = m.WorkspaceLabel

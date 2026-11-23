@@ -84,8 +84,9 @@ func TestEveryHostHonoursAnInheritedClaudeConfigDir(t *testing.T) {
 			if label, from, err := Label("", env); label != "profile@example.com" || from != filepath.Join(profile, FileName) || err != nil {
 				t.Fatalf("Label = %q from %q, %v; want the inherited profile's account", label, from, err)
 			}
-			if email, from, err := OwnEmailFile(env); email != "profile@example.com" || from != filepath.Join(profile, FileName) || err != nil {
-				t.Fatalf("OwnEmailFile = %q from %q, %v", email, from, err)
+			// `brigade whoami` reads the same files (work item 414).
+			if email, from, err := EmailFile(env); email != "profile@example.com" || from != filepath.Join(profile, FileName) || err != nil {
+				t.Fatalf("EmailFile = %q from %q, %v", email, from, err)
 			}
 		})
 	}

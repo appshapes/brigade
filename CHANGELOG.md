@@ -24,6 +24,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `~/.config/brigade/grok-options.json` before you update ("Grok
   Build: a session registers where Brigade used to refuse it", below;
   [Configure in Grok Build](https://github.com/appshapes/brigade/blob/master/docs/team-member/configure/grok.md)).
+  If you joined a team with `--label` and are subscribed to its
+  digest: run `brigade report unsubscribe` before you update, and
+  `brigade report subscribe` after it, with the recipients you want.
+  Your subscription is under your Claude account's address, where a
+  decision sent to your roster label does not find it ("A digest
+  subscription is under the label the team holds", below).
   Everyone else: nothing.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
@@ -214,6 +220,24 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   marketplace remove brigade` takes the marketplace out of Claude
   Code's list too, so it is left alone on a machine that runs both
   ([Leave and uninstall from Grok Build](docs/team-member/leave/grok.md)).
+- **A digest subscription is under the label the team holds** (work
+  item 414). A session's entry in a state folder named its member by
+  the label its registration sends, which is the Claude account's
+  address by default. A member who had joined with `--label` was then
+  on the roster under one label and in the state folder under another.
+  Their subscription sat under the address, and `brigade decision --to
+  <their roster label>` found no subscriber. The entry now carries the
+  label the team holds, the one `brigade sessions` shows, and `brigade
+  report subscribe` writes the subscription under it. A session's
+  entry changes at its next start. A subscription made before, under
+  the address, is not moved: a session that made it and is still
+  running replaces it at its next `subscribe`; otherwise remove it
+  with `unsubscribe` before the update.
+- **`brigade whoami` names the account a session start reads.** In a
+  Claude profile whose own file names no account, a start reads the
+  home directory's file for the default label, and `whoami` named
+  none. It now reads the same files and says when the account is the
+  home directory's.
 - **A Muse Code session arms its monitor at the first try** (work item
   249). The line that tells a Muse Code session how to arm its monitor
   ended its command with a space and a full stop. A model armed the

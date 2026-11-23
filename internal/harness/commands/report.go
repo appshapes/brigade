@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/gitfacts"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/state"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -173,8 +175,8 @@ func reportDigests(inv Invocation, verb string, opts ReportOptions) error {
 		}
 		targets = []*state.Subscriber{sub}
 	} else if verb == "show" {
-		if e, lerr := s.Load(m.BrigadeSessionID); lerr == nil && e.Member != "" {
-			if sub := reports.Subscriber(e.Member); sub != nil {
+		if label, _, lerr := inv.ownLabels(s, m); lerr == nil {
+			if sub := reports.Subscriber(label); sub != nil {
 				targets = []*state.Subscriber{sub}
 			}
 		}
@@ -337,7 +339,7 @@ func reportSubscribe(inv Invocation, opts ReportOptions) error {
 	if err != nil {
 		return err
 	}
-	label, err := ownLabel(s, m)
+	label, former, err := inv.ownLabels(s, m)
 	if err != nil {
 		return err
 	}
@@ -365,12 +367,26 @@ func reportSubscribe(inv Invocation, opts ReportOptions) error {
 	}
 	sub := state.Subscriber{Label: label, Recipients: recipients, Every: every, At: at, TZ: tz, Only: only, Wait: wait}
 	sub.Sanitize()
+	// The member's entry from before work item 414 goes with this one: it
+	// sits under a label nobody addresses them by.
+	for _, old := range former {
+		if reports.Unsubscribe(old) {
+			inv.logger().Info("report: the member's subscription under their former label is replaced")
+		}
+	}
 	reports.Subscribe(sub)
 	if err := state.WriteReports(s.Folder, reports); err != nil {
 		return &protocol.Error{Code: protocol.CodeInternal, Message: "reports.json could not be written to the state folder"}
 	}
 	if legacy != "" {
-		if err := digest.AdoptLegacyMarker(s.Folder, legacy); err != nil {
+		// The 0.43 file's one subscriber keeps their period. Where that
+		// was this member under their former label, the marker goes to
+		// the entry that replaced it.
+		keeps := legacy
+		if slices.ContainsFunc(former, func(f string) bool { return strings.EqualFold(f, legacy) }) {
+			keeps = label
+		}
+		if err := digest.AdoptLegacyMarker(s.Folder, keeps); err != nil {
 			inv.logger().Warn("report: the 0.43 marker was not carried over", log.Err(err))
 		}
 	}
@@ -391,7 +407,7 @@ func reportUnsubscribe(inv Invocation) error {
 	if err != nil {
 		return err
 	}
-	label, err := ownLabel(s, m)
+	label, former, err := inv.ownLabels(s, m)
 	if err != nil {
 		return err
 	}
@@ -403,13 +419,19 @@ func reportUnsubscribe(inv Invocation) error {
 	if reports.Legacy && len(reports.Subscribers) == 1 {
 		legacy = reports.Subscribers[0].Label
 	}
-	if !reports.Unsubscribe(label) {
+	removed := reports.Unsubscribe(label)
+	for _, old := range former {
+		// An entry made before work item 414, under the label the
+		// registration sent, is the member's too.
+		removed = reports.Unsubscribe(old) || removed
+	}
+	if !removed {
 		return &protocol.Error{Code: protocol.CodeNotFound, Message: "this session's member is not subscribed", Details: map[string]string{"reason": ReasonNotSubscribed}}
 	}
 	if err := state.WriteReports(s.Folder, reports); err != nil {
 		return &protocol.Error{Code: protocol.CodeInternal, Message: "reports.json could not be written to the state folder"}
 	}
-	if legacy != "" && !strings.EqualFold(legacy, label) {
+	if legacy != "" && !strings.EqualFold(legacy, label) && !slices.ContainsFunc(former, func(f string) bool { return strings.EqualFold(f, legacy) }) {
 		if err := digest.AdoptLegacyMarker(s.Folder, legacy); err != nil {
 			inv.logger().Warn("report: the 0.43 marker was not carried over", log.Err(err))
 		}
@@ -421,17 +443,37 @@ func reportUnsubscribe(inv Invocation) error {
 	return writeLines(inv.Out, "unsubscribed: "+label)
 }
 
-// ownLabel is the caller's roster label, read from their state entry —
-// the one the hook registered — for the entry the subscribe writes.
-func ownLabel(s state.Store, m *sessionmap.ByPID) (string, error) {
+// ownLabels are the caller's labels for a subscription (work item 414).
+// label is the one the team holds for the member, which the roster shows
+// and a decision is addressed to: the label the membership was joined
+// with, the team store's, else the member of the session's state entry,
+// which the hook wrote by the same rule. former is the label this very
+// session's entry still carries where it is older than that rule and has
+// not been through a start since: a subscription under it was written by
+// this session's member, so it is theirs to replace or remove. Nothing
+// else counts as a former label. What the `label` option resolves to is
+// the Claude account's address, and on a machine with two personas that
+// address can be another member's roster label.
+func (inv Invocation) ownLabels(s state.Store, m *sessionmap.ByPID) (label string, former []string, err error) {
 	e, err := s.Load(m.BrigadeSessionID)
 	if err != nil {
-		return "", &protocol.Error{Code: protocol.CodeConfig, Message: NoteNoEntry, Details: map[string]string{"reason": ReasonNoStateEntry}}
+		return "", nil, &protocol.Error{Code: protocol.CodeConfig, Message: NoteNoEntry, Details: map[string]string{"reason": ReasonNoStateEntry}}
 	}
-	if e.Member == "" {
-		return "", &protocol.Error{Code: protocol.CodeConfig, Message: ReportNoLabel, Details: map[string]string{"reason": ReasonLabelNeeded}}
+	label = e.Member
+	if b, berr := teamstore.LoadBinding(m.ConfigDir, m.TeamKey); berr == nil {
+		if held := protocol.SanitizeLabel(b.HumanLabel); held != "" {
+			label = held
+		}
+	} else {
+		inv.logger().Debug("report: team binding unreadable; the label is the state entry's", log.Err(berr))
 	}
-	return e.Member, nil
+	if label == "" {
+		return "", nil, &protocol.Error{Code: protocol.CodeConfig, Message: ReportNoLabel, Details: map[string]string{"reason": ReasonLabelNeeded}}
+	}
+	if e.Member != "" && !strings.EqualFold(e.Member, label) {
+		former = append(former, e.Member)
+	}
+	return label, former, nil
 }
 
 // reportsForWrite reads the file for a write: a missing one is empty, a

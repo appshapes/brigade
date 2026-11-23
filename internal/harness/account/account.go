@@ -170,31 +170,6 @@ func EmailFile(environ []string) (string, string, error) {
 	return "", "", first
 }
 
-// OwnEmailFile is EmailFile confined to this session's own Claude profile
-// (card 191). When CLAUDE_CONFIG_DIR names a profile, only that profile's
-// file is read: the home file belongs to the default profile, whose account
-// is not this session's, and reading it would report the very confusion
-// `brigade whoami` exists to expose. Without the variable the session IS
-// the default profile, and EmailFile's two files are both its own. The
-// join default keeps EmailFile's fallback.
-func OwnEmailFile(environ []string) (string, string, error) {
-	if adapterkit.Getenv(environ, config.ClaudeConfigDirVar) == "" {
-		return EmailFile(environ)
-	}
-	dir, err := config.ClaudeConfigDir(environ)
-	if err != nil {
-		// A relative CLAUDE_CONFIG_DIR names no profile Brigade can read,
-		// and never falls through to the home file.
-		return "", "", ErrNoConfigDir
-	}
-	path := filepath.Join(dir, FileName)
-	email, err := emailFrom(path)
-	if email == "" {
-		return "", "", err
-	}
-	return email, path, nil
-}
-
 // emailFrom reads one file. The decode is two steps so that a member of
 // an unexpected SHAPE costs only itself: the document yields the raw
 // `oauthAccount` value, and only that subtree is parsed further — the

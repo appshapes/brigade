@@ -52,7 +52,10 @@ member.
 sent and where it was read from (`read from the Claude account in <file>`, `from the label option`, `from --label`,
 or `typed at team create's prompt`). When the label came from an account, an `account:` line under it says whether
 this session's Claude account is that label, and when it is not, why: another profile joined, or this profile has
-signed in to another account since. It reads only this profile's own Claude Code config. A membership joined before
+signed in to another account since. It reads the account where a session start reads it: this profile's own
+Claude Code config, then the home directory's. When the profile names no account and the home directory's is
+read, the line says so (`this profile names no Claude account, and a start of this session reads the home
+directory's`), and `--json` carries `session_account_from_home`. A membership joined before
 Brigade recorded the source says `no record says where it came from` and the date this machine's credential for the
 team dates from. `brigade whoami --json` carries the same facts in its `label` member, without the file path.
 

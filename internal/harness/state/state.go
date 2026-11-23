@@ -83,7 +83,9 @@ const (
 // An Entry is one session's state.
 type Entry struct {
 	Version int `json:"version"`
-	// Member is the member's label as the session registered it (the
+	// Member is the member's label as the team holds it since work item
+	// 414 (the label the membership was joined with, else the one the
+	// registration sends); before it, the member's label as the session registered it (the
 	// account email by default); "" when the session sent none.
 	Member string `json:"member,omitzero"`
 	// SessionName is the session's name as the roster shows it; SessionID

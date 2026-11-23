@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -169,8 +170,10 @@ func Decision(inv Invocation, opts DecisionOptions) error {
 	if d.Repository == "" {
 		d.Repository = m.WorkspaceLabel
 	}
-	if e, lerr := s.Load(m.BrigadeSessionID); lerr == nil {
-		d.Member = e.Member
+	// The asker's label is the one the team holds (work item 414), as the
+	// roster shows it.
+	if label, _, lerr := inv.ownLabels(s, m); lerr == nil {
+		d.Member = label
 	}
 	// The roster is read once, for the hold and for the send.
 	var sessions []protocol.SessionRecord
@@ -351,11 +354,15 @@ func closeDecision(inv Invocation, id string) error {
 	if !d.Open() {
 		return &protocol.Error{Code: protocol.CodeConflict, Message: "decision " + d.ID + " is already closed", Details: map[string]string{"reason": ReasonAlreadyClosed}}
 	}
-	member := ""
-	if e, lerr := s.Load(m.BrigadeSessionID); lerr == nil {
-		member = e.Member
+	// The asker's member is this session's when it carries the label the
+	// team holds for it, or one its sessions were under before work item
+	// 414: a decision asked before then is still its member's to close.
+	sameMember, member := false, ""
+	if label, former, lerr := inv.ownLabels(s, m); lerr == nil {
+		member = label
+		sameMember = d.Member != "" && slices.ContainsFunc(append([]string{label}, former...), func(l string) bool { return strings.EqualFold(d.Member, l) })
 	}
-	if d.SessionID != m.BrigadeSessionID && (d.Member == "" || member == "" || !strings.EqualFold(d.Member, member)) {
+	if d.SessionID != m.BrigadeSessionID && !sameMember {
 		return &protocol.Error{Code: protocol.CodeUnauthorized, Message: "decision " + d.ID + " was asked by another member; only the asking session, or another session of that member, closes it", Details: map[string]string{"reason": ReasonNotTheAsker}}
 	}
 	now := inv.Deps.now()

@@ -478,19 +478,31 @@ func TestWhoamiLabelSameProfileSignedInAgain(t *testing.T) {
 }
 
 // A profile named by CLAUDE_CONFIG_DIR whose own config carries no account
-// (an API-key sign-in, a fresh directory) reports none: never the default
-// profile's account from the home file.
-func TestWhoamiLabelNeverReadsAnotherProfilesAccount(t *testing.T) {
+// (an API-key sign-in, a fresh directory): `whoami` names the account the
+// registration reads, which is then the home directory's (work item 414;
+// account.Paths, ADR 0014), and says that it is not this profile's own.
+// Until then it read the profile's file alone and named none, while a
+// start of the same session sent the home file's address as its label.
+func TestWhoamiLabelReadsTheAccountWhereTheRegistrationReadsIt(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	writeBinding(t, f, joinedLabel, time.Time{})
 	writeAccountFile(t, f.dirs.Home)
-	lines := whoamiLines(t, f)
-	if got := linesWith(lines, "account: "); len(got) != 0 {
-		t.Fatalf("account lines %q from the home file", got)
+	registered, _, err := account.Label(config.LabelAccount, f.sessionEnv())
+	if err != nil || registered != accountEmail {
+		t.Fatalf("the registration's label for this session: %q, %v", registered, err)
 	}
-	if label, out := whoamiLabelJSON(t, f); label["session_account"] != nil || strings.Contains(out, accountEmail) {
-		t.Fatalf("--json carries the default profile's account: %s", out)
+	got := linesWith(whoamiLines(t, f), "account: ")
+	if len(got) != 1 || !strings.HasPrefix(got[0], "account: this profile names no Claude account, and a start of this session reads the home directory's, which is "+accountEmail+", not the label: ") {
+		t.Fatalf("account lines %q", got)
+	}
+	if label, _ := whoamiLabelJSON(t, f); label["session_account"] != registered || label["session_account_from_home"] != true {
+		t.Fatalf("--json names %v (from home: %v), the registration reads %q from the home file", label["session_account"], label["session_account_from_home"], registered)
+	}
+	// With the profile's own account, nothing is from the home file.
+	writeAccountFile(t, f.dirs.ClaudeConfig)
+	if label, _ := whoamiLabelJSON(t, f); label["session_account_from_home"] != nil {
+		t.Fatalf("--json says from home for the profile's own account: %v", label)
 	}
 }
 

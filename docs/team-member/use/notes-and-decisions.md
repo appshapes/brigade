@@ -127,13 +127,20 @@ brigade report unsubscribe
 ```
 
 `/brigade:subscribe` is the one-line form, and `/brigade:subscribe off` unsubscribes. `brigade report
-subscribe`, inside a session, writes your own entry into `reports.json` in the state folder, under the label your
-session's entry carries: your recipients in order of precedence (a Slack handle, a channel, an email address;
+subscribe`, inside a session, writes your own entry into `reports.json` in the state folder, under the label the
+team holds for you. That is the label in the MEMBER column of `brigade sessions`, and the one a teammate names in
+`brigade decision --to`: the label you joined with, or, if you joined with none, your Claude account's address.
+The entry carries your recipients in order of precedence (a Slack handle, a channel, an email address;
 none means your label when it is an address, which the Slack gateway finds you by, and else your own best
 session), your period (`--every`, `24h` when unset, or `--at` with `--tz` for a daily digest), `--only mine`
 to list only the decisions addressed to you, the contributions staying the team's, and `--wait` for how long a
 decision one of your own sessions asks you is held before it is sent (`10m` when unset, `24h` at most, `0` for at
-once). A second `subscribe` replaces the first, every flag of it; `unsubscribe` removes it. Nobody writes anyone else's entry: there is no `--label`. **The address
+once). A second `subscribe` replaces the first, every flag of it; `unsubscribe` removes it. Nobody writes anyone else's entry: there is no `--label`.
+If you joined with `--label` and subscribed on a plugin of 0.57.0 or earlier, your entry is under your Claude
+account's address, where no decision looks for it. Run `brigade report unsubscribe` before you update and
+`brigade report subscribe` after. If you have updated already, subscribe again and take the entry under your
+account's address out of `reports.json` in the state folder by hand: Brigade does not remove an entry it cannot
+show is yours. **The address
 rule:** an email address, one you give or your label as the default, is written only when git ignores the
 folder; add it to `.gitignore` or name a Slack handle or channel. A session with no state entry yet
 (`no_state_entry`) or no roster label (`label_needed`) cannot subscribe.

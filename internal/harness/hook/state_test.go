@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -348,5 +349,67 @@ func TestStateCommitsSinceStart(t *testing.T) {
 	}
 	if e.Head != third || len(e.Commits) != 3 || e.Commits[0].Hash != third || !e.EndedAt.Equal(f.now) {
 		t.Fatalf("entry after the end: %+v", *e)
+	}
+}
+
+// TestStateEntryMemberIsTheLabelTheTeamHolds (work item 414): a session's
+// entry in the state folder names its member by the label the team holds,
+// the one the membership was joined with, which the roster shows and a
+// decision is addressed to. A membership joined with none takes the label
+// the registration sends, the account's by default, which the team then
+// adopts. Until then the entry took the registration's label alone, so a
+// member who had joined with `--label` was in the state folder under
+// their account's address and on the roster under their label, and a
+// subscription sat where no decision looked for it. An entry written
+// that way is brought level at the session's next start.
+func TestStateEntryMemberIsTheLabelTheTeamHolds(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.spawner.watcherPID = testutil.NewSleeper(t)
+	f.writeTeamFile(stateMember)
+	doc := `{"oauthAccount":{"emailAddress":"` + accountEmail + `"},"numStartups":3}`
+	if err := os.WriteFile(filepath.Join(f.dirs.ClaudeConfig, ".claude.json"), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registered(t, f, nil)
+	m := f.mustMap()
+	if got := f.mustEntry(t).Member; got != accountEmail {
+		t.Fatalf("a membership joined with no label: the entry's member is %q, want the registration's %q", got, accountEmail)
+	}
+	// The membership as `team join --label` leaves it: the team's store
+	// holds the label, and the session's `label` option is still `account`.
+	const joined = "carol-of-ops"
+	b, err := adapterkit.LoadProfile(m.ConfigDir, m.TeamKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.HumanLabel = joined
+	if err := adapterkit.SaveProfile(m.ConfigDir, m.TeamKey, b); err != nil {
+		t.Fatal(err)
+	}
+	// The entry on disk is still the old one, as on a machine that updates.
+	if got := f.mustEntry(t).Member; got != accountEmail {
+		t.Fatalf("before the next start the entry's member is %q", got)
+	}
+	if exit, _, errOut := f.run(SubSessionStart, f.startDoc("resume")); exit != 0 {
+		t.Fatalf("the next start: exit %d: %s", exit, errOut)
+	}
+	if got := f.mustEntry(t).Member; got != joined {
+		t.Fatalf("after a start the entry's member is %q, want the label the team holds, %q", got, joined)
+	}
+	// A fresh entry takes it too: the canonical one is removed and a prompt
+	// writes it anew.
+	canonical, err := f.stateStore(t).CanonicalPath("brigade-sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(canonical); err != nil {
+		t.Fatal(err)
+	}
+	if exit, _, errOut := f.run(SubPrompt, f.promptDoc("default")); exit != 0 {
+		t.Fatalf("prompt: exit %d: %s", exit, errOut)
+	}
+	if got := f.mustEntry(t).Member; got != joined {
+		t.Fatalf("a fresh entry's member is %q, want %q", got, joined)
 	}
 }

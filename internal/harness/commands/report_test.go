@@ -477,3 +477,58 @@ func TestReportSendFansOut(t *testing.T) {
 		t.Fatal("a marker was written with nothing sent")
 	}
 }
+
+// TestReportSubscribeIsUnderTheLabelTheTeamHolds (work item 414): a member
+// who joined with `--label` is on the roster under that label, and a
+// decision is addressed to it. Their subscription is written under it,
+// whatever label their session's state entry still carries from before
+// (the account's address, which the registration sends). A subscription
+// they made under that former label goes with the new one, and
+// `unsubscribe` removes one made under either.
+func TestReportSubscribeIsUnderTheLabelTheTeamHolds(t *testing.T) {
+	t.Parallel()
+	const held = "alice-of-ops"
+	t.Run("subscribe replaces the former entry", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		folder := f.withStateFolder(t)
+		f.seedEntry(t, folder) // its member is alice@example.com, as an entry from before the fix
+		writeBinding(t, f, held, time.Time{})
+		former := `{"version":2,"subscribers":[{"label":"bob@example.com","recipients":["@bob"]},{"label":"alice@example.com","recipients":["@alice-old"]}]}`
+		if err := os.WriteFile(state.ReportsPath(folder), []byte(former), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := Report(f.inv(f.sessionEnv(), "", "subscribe"), ReportOptions{Recipients: "@alice"}); err != nil {
+			t.Fatalf("subscribe: %v", err)
+		}
+		if !strings.HasPrefix(f.out.String(), "subscribed: "+held+", recipients @alice") {
+			t.Fatalf("stdout %q", f.out.String())
+		}
+		r := mustReports(t, folder)
+		if len(r.Subscribers) != 2 || r.Subscriber("bob@example.com") == nil || r.Subscriber("alice@example.com") != nil {
+			t.Fatalf("subscribers %+v: want bob's kept and the member's former entry gone", r.Subscribers)
+		}
+		// What `brigade decision --to <the roster label>` looks up.
+		if sub := r.Subscriber(held); sub == nil || strings.Join(sub.Recipients, "|") != "@alice" {
+			t.Fatalf("no subscriber under the label the team holds: %+v", r.Subscribers)
+		}
+	})
+	t.Run("unsubscribe removes an entry under the former label", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		folder := f.withStateFolder(t)
+		f.seedEntry(t, folder)
+		writeBinding(t, f, held, time.Time{})
+		former := `{"version":2,"subscribers":[{"label":"bob@example.com","recipients":["@bob"]},{"label":"alice@example.com","recipients":["@alice-old"]}]}`
+		if err := os.WriteFile(state.ReportsPath(folder), []byte(former), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := Report(f.inv(f.sessionEnv(), "", "unsubscribe"), ReportOptions{}); err != nil {
+			t.Fatalf("unsubscribe: %v", err)
+		}
+		r := mustReports(t, folder)
+		if len(r.Subscribers) != 1 || r.Subscriber("bob@example.com") == nil {
+			t.Fatalf("subscribers %+v: want bob's alone", r.Subscribers)
+		}
+	})
+}
