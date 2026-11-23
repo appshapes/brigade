@@ -14,7 +14,7 @@ job rebuilds from the tag with that toolchain and diffs against the committed ch
 | --- | --- |
 | `make test`, the gate, `make push` | nothing more |
 | the live Supabase suites, `make e2e` | Docker, Node (`npx` runs the pinned Supabase CLI), `jq` |
-| `make plugin-dev`, `make harness-smoke`, `make proof` | a logged-in `claude`, `jq` |
+| `make plugin-dev`, `make harness-smoke`, `make proof` | a logged-in `claude`, `jq`; `make proof` also `tmux` and the local stack |
 | `make release`, `make release-dry-run`, `make checksums-check` | `gh`, logged in |
 | `make plugin-check` | shellcheck; Docker for CI's 0.9.0 ([scripts/ci/README.md](../../../scripts/ci/README.md)) |
 | `make muse-plugin-check`, `make muse-digest` | the same shellcheck, and no Muse Code: the check verifies `marketplace.json`'s digest and `muse-digest` rewrites it with the repository's own computation; with Muse installed, `make test` also has Muse install the package from the catalog, and `muse plugins validate ./muse/brigade` covers the schema half |

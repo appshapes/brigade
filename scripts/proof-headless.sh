@@ -1,4 +1,13 @@
 #!/bin/sh
+# RETIRED from `make proof` (work item 415, 2026-11-22). This script was written for the store layout of
+# before 2026-09-08, when a session named its team by a `profile` option. Since the project's `.brigade.json`
+# names the team, its provisioning registers no session, and it stops there before any session starts. It
+# is kept as the driver of docs/experiments/E4-headless.md, which records what it measured:
+# what a headless `claude -p` session does with each of the 26 test messages, and a round trip.
+# Its analyser (the second usage line below) still runs on saved evidence, and scripts/ci tests it. The
+# live run refuses to start unless BRIGADE_PROOF_RETIRED=run; `make proof` runs scripts/proof-live.sh instead
+# (docs/developer/build-and-test/proofs.md).
+#
 # usage: scripts/proof-headless.sh [--only <nn>[,<nn>...]] [--runs <n>] [--rt-runs <n>] [--resume <stamp>] [--skip-roundtrip]
 #                                  [--frame <open|guarded|strict> | --frame-clause <one line of text> [--rt-delete-frame-file]]
 #        scripts/proof-headless.sh judge <evidence-dir>        (re-score saved artefacts; no model calls)
@@ -955,6 +964,11 @@ fi
 # 8. Phase 0 -- provisioning (brief 2.3), the corpus sender (2.4), the baseline hashes, the decoys
 # ---------------------------------------------------------------------------------------------------------------
 say ""
+# Retired (work item 415; the header says why). BRIGADE_PROOF_RETIRED=run lets someone who is bringing it back
+# to the present store layout get past this line.
+if [ "${BRIGADE_PROOF_RETIRED:-}" != run ]; then
+  die "retired from make proof (work item 415): this script predates the team file and cannot provision a session; run scripts/proof-live.sh, and see docs/developer/build-and-test/proofs.md"
+fi
 say "--- phase 0: provisioning ---"
 
 ad alice describe describe </dev/null

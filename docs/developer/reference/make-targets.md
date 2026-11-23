@@ -38,7 +38,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `server-tag` | Tag master's head as the server release server/VERSION names and push the tag, once ci.yml's run on that head is green (a run in progress is waited for; release_over_ci=<run id\|missing:sha> is the owner's override of a red or missing one; DRY_RUN=1 stops before the tag); the server-release workflow then publishes the binaries and the image |
 | `server-deps-check` | Fail unless the server links only the crates, licences and sources server/deny.toml allows, with no known advisory (needs cargo-deny) (CI) |
 | `e2e` | Phase 4 no-LLM proof in watcher sink mode against the local stack (CI) |
-| `proof` | Phase 4 proof including the headless LLM run, the idle-wake run and the crash-and-resume run (needs a logged-in claude) |
+| `proof` | The no-LLM proof, then the live proof: a message wakes an idle Claude Code session, which replies (needs a logged-in claude and tmux) |
 | `harness-smoke` | Headless claude -p smoke test with the fs adapter (needs a logged-in claude; mode=bypassPermissions is card 50's arm, which writes crossSessionInbound accept into your user settings.json) |
 | `advisor-lints` | Security Advisor lint mirrors, run with the psql inside the local database container (no host psql needed) (CI) |
 | `plugin-check` | Static checks of plugin/: exec-form hooks, no .mcp.json, VERSION == plugin.json, shellcheck, no secrets (CI) |

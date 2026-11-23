@@ -447,8 +447,8 @@ e2e: build ## Phase 4 no-LLM proof in watcher sink mode against the local stack 
 	$(unclaude) scripts/proof.sh
 
 .PHONY: proof
-proof: e2e ## Phase 4 proof including the headless LLM run, the idle-wake run and the crash-and-resume run (needs a logged-in claude)
-	$(unclaude) scripts/proof-headless.sh && $(unclaude) scripts/proof-idle-wake.sh && $(unclaude) scripts/proof-crash-resume.sh
+proof: e2e ## The no-LLM proof, then the live proof: a message wakes an idle Claude Code session, which replies (needs a logged-in claude and tmux)
+	$(unclaude) scripts/proof-live.sh
 
 .PHONY: harness-smoke
 harness-smoke: build ## Headless claude -p smoke test with the fs adapter (needs a logged-in claude; mode=bypassPermissions is card 50's arm, which writes crossSessionInbound accept into your user settings.json)

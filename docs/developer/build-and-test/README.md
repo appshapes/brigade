@@ -30,7 +30,8 @@ Details: [Run the tests](tests.md).
 ## Run the proofs
 
 1. `make e2e`: the no-LLM proof in watcher sink mode against the local stack (CI runs it).
-2. `make proof`: adds the headless LLM, idle-wake and crash-and-resume runs (needs a logged-in `claude`).
+2. `make proof`: adds the live proof, a message that wakes an idle Claude Code session (needs a logged-in
+   `claude` and `tmux`). Run it before a release; no CI job can.
 
 Details: [Run the proofs](proofs.md).
 
