@@ -26,6 +26,12 @@ name. It is the first step of `brigade team move --to`, which then opens the tea
   creation token takes a team in for anyone who can reach it and holds a join secret.
 - The same request again, with the same secret, changes nothing: the team is here, and the caller joins it. With
   another secret for the same team it is refused.
+- **One at a time.** A command that writes a machine's credential for a server holds a lock on that profile
+  for its whole length: the take-in of a move, a join, `team create`, `team leave`, `team reset` and
+  `team revoke-credentials`. Run twice at once on one machine, the second waits two seconds for the first and
+  then refuses with `another brigade command is changing this profile`, having sent nothing: run it again
+  when the first has ended. Two at once could otherwise leave the machine with a credential the server no
+  longer knows and no retry key. The lock ends with its command however that ends, a Ctrl-C included.
 - **An answer that is lost costs nothing.** The server's answer carries the credential of the owner it made. So
   that a timeout does not leave the team with an owner nobody can be, the Team Admin's machine keeps a retry
   key for the take-in, in a file of its own beside its credential, until it has the answer. Run again, the same

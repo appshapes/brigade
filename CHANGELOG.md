@@ -201,6 +201,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Fixed
 
+- **Two commands at once on one profile no longer cross on a Brigade
+  server** (work item 337). `team take-in`, `team join`, `team create`
+  and `team leave`, and `team reset` and `team revoke-credentials`,
+  each read a profile's credential, ask the server and write what it
+  answered. Two of them at once on one machine could leave it with a
+  credential the server had since made unknown and, after two
+  take-ins, with no retry key, so that only the server's operator
+  could name the team's owner again. Such a command now holds a lock
+  on its profile for its whole length. A second one waits two
+  seconds and then refuses with `another brigade command is changing
+  this profile`, having sent nothing. The lock ends with its command
+  however that ends, a signal included
+  ([Take a team in](docs/project-owner/server/take-in-a-team.md)).
+
 - **A command Brigade prints for pasting carries an address as one
   word** (work item 357). A stop or a refusal of `brigade team move`
   prints the command to run next, with a backend's address after

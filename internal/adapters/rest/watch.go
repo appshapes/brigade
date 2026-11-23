@@ -56,6 +56,10 @@ type timing struct {
 	// is what keeps a server that answers at once, with nothing or with
 	// what was already emitted, from being asked in a tight loop.
 	pace time.Duration
+	// profileLock is how long a command that writes a profile waits for
+	// another one of the same profile to end (lockProfile): two seconds,
+	// which is taken off the budget its caller gives the whole command.
+	profileLock time.Duration
 	// backoff is the wait before the next request after a retryable
 	// failure, by the count of consecutive failures.
 	backoff []time.Duration
@@ -79,6 +83,7 @@ func defaultTiming() timing {
 		outage:       30 * time.Minute,
 		closeTimeout: 4 * time.Second,
 		shutdown:     2 * time.Second,
+		profileLock:  2 * time.Second,
 	}
 }
 

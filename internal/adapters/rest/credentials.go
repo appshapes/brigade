@@ -234,3 +234,73 @@ func (c *command) revoke() error {
 	}
 	return err
 }
+
+// lockProfile locks a profile for the length of a command that writes it
+// (work item 337): `team create`, `team join`, `team leave` and `team
+// take-in`, which write its credential and its binding, `profile reset` and
+// `profile revoke-credentials`, which remove the credential, and `profile
+// init`, which writes its backend. Each reads the profile's files (a take-in
+// its retry key too), asks the server where it has to, and writes what came
+// of it. Two of them at once on one profile could cross: one writes the
+// credential the server gave it, the other the one it was given a moment
+// later, and the profile ends with a credential the server has since made
+// unknown and, after two take-ins, with the retry key gone, so that only
+// the server's operator can name the team's owner again.
+//
+// The second command waits for the first, for the timing's profileLock, and
+// then refuses with a line that says why, having sent nothing. The wait is
+// short on purpose: a caller gives the whole command a budget (the harness,
+// twenty seconds), and what is waited here is taken off the request that
+// follows. A command that reads the profile and writes nothing takes no
+// lock: each file is replaced whole (adapterkit.WriteAtomic), so a reader
+// sees the one before or the one after.
+//
+// The lock's file is `teams/<profile>.lock`, BESIDE the profile's directory
+// and not in it. So it is there for a profile that has no directory yet,
+// whose first join or create writes one; `profile reset`, which removes the
+// directory, does not remove the lock under a command that waits on it; and
+// on Windows no open file stands in the way of that removal.
+//
+// It is taken after the command's flags are read, because `--profile` may
+// come after the verb, and before anything of the profile is read.
+//
+// How it is given back: it is a flock on one descriptor of this process,
+// inherited by no child. The function this returns is deferred by the verb,
+// so it runs on every return, an error's among them; and when the process
+// ends without returning, by a signal, a kill or a panic, the kernel drops
+// the lock with the descriptor. The file stays and holds nothing, so nothing
+// is left on the disk for a later command to break.
+func (c *command) lockProfile() (func(), error) {
+	dir, err := c.profileDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := adapterkit.MkdirPrivate(filepath.Dir(dir)); err != nil {
+		c.log.Debug("the directory of the profiles could not be made", adapterlog.Err(err))
+		return nil, errInternal("Brigade's configuration directory takes no file, so it could not keep a credential: nothing was sent")
+	}
+	wait := c.timing.profileLock
+	lock, err := adapterkit.LockFile(dir+profileLockSuffix, wait)
+	if err != nil {
+		var perr *protocol.Error
+		if errors.As(err, &perr) && perr.Code == protocol.CodeUnavailable {
+			return nil, &protocol.Error{
+				Code: protocol.CodeUnavailable,
+				Message: "another brigade command is changing this profile (its credential, its team or its backend), " +
+					"and it had not ended after " + wait.Round(time.Second).String() + ": nothing was sent. Run this again when that command has ended",
+				Details: map[string]string{"reason": reasonProfileBusy},
+			}
+		}
+		c.log.Debug("the profile's lock could not be taken", adapterlog.Err(err))
+		return nil, errInternal("Brigade's configuration directory takes no lock file, so it could not keep a credential either: nothing was sent")
+	}
+	return func() { _ = lock.Unlock() }, nil
+}
+
+// profileLockSuffix follows a profile's directory name in the name of its
+// lock's file.
+const profileLockSuffix = ".lock"
+
+// reasonProfileBusy is details.reason of a command that waited for another
+// one of its profile and gave up.
+const reasonProfileBusy = "profile_busy"

@@ -89,6 +89,13 @@ func (c *command) teamCreate() (any, error) {
 	if err := c.parse(fs); err != nil {
 		return nil, err
 	}
+	// One at a time on a profile (lockProfile): after the flags, which may
+	// name the profile, and before anything of it is read.
+	unlock, err := c.lockProfile()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	if err := checkSecretFile(*secretFile); err != nil {
 		return nil, err
 	}
@@ -216,6 +223,13 @@ func (c *command) teamJoin() (any, error) {
 	if err := c.parse(fs); err != nil {
 		return nil, err
 	}
+	// One at a time on a profile (lockProfile): after the flags, which may
+	// name the profile, and before anything of it is read.
+	unlock, err := c.lockProfile()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	p, present, err := c.loadProfile()
 	if err != nil {
 		return nil, err
@@ -356,6 +370,13 @@ func (c *command) teamLeave() (any, error) {
 	if err := c.parse(newFlags()); err != nil {
 		return nil, err
 	}
+	// One at a time on a profile (lockProfile): after the flags, which may
+	// name the profile, and before anything of it is read.
+	unlock, err := c.lockProfile()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	if err := c.authenticate(false); err != nil {
 		return nil, err
 	}
@@ -811,6 +832,13 @@ func (c *command) teamTakeIn() (any, error) {
 	if err := c.parse(fs); err != nil {
 		return nil, err
 	}
+	// One at a time on a profile (lockProfile): after the flags, which may
+	// name the profile, and before anything of it is read.
+	unlock, err := c.lockProfile()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	p, present, err := c.loadProfile()
 	if err != nil {
 		return nil, err

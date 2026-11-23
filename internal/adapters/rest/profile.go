@@ -358,6 +358,13 @@ func (c *command) profileInit() (any, error) {
 	if err := c.parse(fs); err != nil {
 		return nil, err
 	}
+	// One at a time on a profile (lockProfile): after the flags, which may
+	// name the profile, and before anything of it is read.
+	unlock, err := c.lockProfile()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	if *backendURL == "" {
 		return nil, errUsage("--url <https-url> is required")
 	}
@@ -426,6 +433,13 @@ func (c *command) profileReset() (any, error) {
 	if err := c.parse(newFlags()); err != nil {
 		return nil, err
 	}
+	// One at a time on a profile (lockProfile): after the flags, which may
+	// name the profile, and before anything of it is read.
+	unlock, err := c.lockProfile()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	_, p, cred, err := c.identity()
 	if err != nil {
 		return nil, err
@@ -457,6 +471,13 @@ func (c *command) profileRevokeCredentials() (any, error) {
 	if err := c.parse(newFlags()); err != nil {
 		return nil, err
 	}
+	// One at a time on a profile (lockProfile): after the flags, which may
+	// name the profile, and before anything of it is read.
+	unlock, err := c.lockProfile()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	state, p, cred, err := c.identity()
 	if err != nil {
 		return nil, err
