@@ -79,7 +79,11 @@ same in every case and names no cause, because the file is not to be trusted unt
   the team moved, so the session learned nothing, and it says of a backend that is only out of reach what it
   says of a file nobody vouched for. The next session asks again, and this one at its next prompts. If that
   backend is gone for good, ask your administrator and join the team where it is with the secret file.
-- **The backend you joined no longer counts you a member**: you left the team on it, or were revoked there.
+- **The backend you joined no longer counts you a member**: you left the team on it, or were revoked there,
+  or the team is gone from it. A Supabase project deletes a team that has one membership and no session seen
+  for 7 days, and the record of its move goes with the team
+  ([retention](../../project-owner/configure/retention.md)): a checkout of that one member that had not
+  followed by then finds a project that no longer knows it.
   That is its answer, and waiting mends nothing: no session of yours follows from that backend again. Ask
   your administrator, and join the team where it is with the secret file,
   `/brigade:join ~/brigade-<team>.secret`.
