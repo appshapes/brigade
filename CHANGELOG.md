@@ -11,6 +11,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 **Who must act**
 
+- **Team Member:** nothing.
+- **Team Admin:** nothing.
+- **Project Owner:** nothing.
+
+## [0.58.0] — 2026-11-23
+
+**Who must act**
+
 - **Team Member:** on Muse Code, Codex CLI or Grok Build, where a Claude
   account is signed in on the machine and the team holds no label for
   you: your sessions will send that account's email address as your
