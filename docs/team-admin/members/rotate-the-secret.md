@@ -23,5 +23,12 @@ brigade team revoke-member --max-version <secret_version minus one>
 - **On a Brigade server that carries the gateways**, a gateway is a member that joined with the old secret, so
   the eviction removes it too. Give the new secret file to whoever runs the server before you evict
   ([Open the gateways](../../project-owner/server/gateways.md#after-the-join-secret-is-rotated)).
+- **On a Supabase project that carries the gateways**, the mail gateway and the Slack gateway are members that
+  joined with the old secret too, and the eviction removes them. Ask whoever installed them to run each
+  installer again after the eviction, with the command they used before: it makes the gateway a member of the
+  team again and gives it a session, and it needs no secret file
+  ([the mail gateway](../../project-owner/configure/mail-gateway.md#running-it-again),
+  [the Slack gateway](../../project-owner/configure/slack-gateway.md#running-it-again)). Until then the
+  gateway carries nothing for the team.
 
 Then [Hand out the secret](../create/hand-out-the-secret.md) again, to the members you kept.

@@ -72,7 +72,7 @@ Treat it like the provider's key ([docs/security.md](security.md) §14).
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `brigade_mail` | yes | the contract version, `1` |
-| `id` | yes | the provider's id for the mail; the core's idempotency key, so a retried webhook does not deliver twice |
+| `id` | yes | the provider's id for the mail, at most 128 characters; the core's idempotency key, so a retried webhook does not deliver twice |
 | `from` | yes | the sender's address |
 | `from_name` | no | the sender's display name |
 | `to` | yes | every address the mail was delivered to, **with its `+tag` kept**: the core keeps only mail addressed to its inbox, and a reply names the message it answers in the tag |
@@ -81,9 +81,12 @@ Treat it like the provider's key ([docs/security.md](security.md) §14).
 | `text` | no | the plain-text body; when the mail has none, the HTML reduced to text. The core strips what the client quoted |
 | `received_at` | no | when the provider received it, RFC 3339 |
 
-The core answers `200` once the request is authentic and well-formed, whatever it did with the mail (delivered,
-duplicate, ignored because not addressed to the inbox, bounced to the sender); `401` when the secret is missing
-or wrong; `400` when the body is not this shape, with the reason.
+The core answers `200` once it is done with the mail, whatever it did with it (delivered, duplicate, ignored
+because not addressed to the inbox, bounced to the sender); `401` when the secret is missing or wrong; `400`
+when the body is not this shape, with the reason; and `500` when it failed before it was done with the mail,
+or while an earlier delivery of the same mail is still being carried. A mail is written down as received only
+once the core is done with it, so the delivery a provider makes again after a `500` is carried, and one made
+after a `200` is answered as a duplicate.
 
 What the connector answers its provider: `200` when the core answered `200` or `400`, so the provider does not
 retry a mail that will not go through; a `5xx` when the core answered `401`, a `5xx`, or nothing, so the provider

@@ -61,6 +61,12 @@ Deno.test("the inbound shape round-trips and is validated", () => {
   assertStringIncludes(bad([]), "not a JSON object");
   assertStringIncludes(bad({ ...toInboundWire(inbound), brigade_mail: 2 }), "brigade_mail must be 1");
   assertStringIncludes(bad({ ...toInboundWire(inbound), id: "" }), "id is required");
+  // The core writes a mail down under its id, in a column of 128 characters (work item 388).
+  assertStringIncludes(
+    bad({ ...toInboundWire(inbound), id: "x".repeat(129) }),
+    "id must be at most 128 characters",
+  );
+  assertEquals(fromInboundWire(JSON.stringify({ ...toInboundWire(inbound), id: "x".repeat(128) })).ok, true);
   assertStringIncludes(bad({ ...toInboundWire(inbound), from: "alice" }), "from must be an email address");
   assertStringIncludes(bad({ ...toInboundWire(inbound), to: "x@example.com" }), "to must be a list");
   assertStringIncludes(bad({ ...toInboundWire(inbound), text: 5 }), "text must be a string");

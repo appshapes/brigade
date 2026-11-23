@@ -15,7 +15,9 @@ make supabase-clean                  # stop and delete the data
 - `supabase-env` writes `.env.test` from the running stack, in both name sets; never commit it.
 - The live tests are opt-in behind `BRIGADE_TEST_LIVE=1`, which `make test-integration-adapter` (the adapter's
   own) and `make test-integration-gateway` (the webhook gateway for a team on the stack) set. `make
-  test-integration` runs both and then `make test-integration-conformance` (`conformance(supabase)`).
+  test-integration` runs both, then `make test-integration-functions` (the gateways' inbound Edge Functions on
+  the stack's database, which needs Deno as `make functions-check` does) and `make test-integration-conformance`
+  (`conformance(supabase)`).
 - CI's `supabase` and `e2e` jobs run the same recipes, each on a stack of its own, with the setup-cli binary
   (`supabase=supabase`), so the version is pinned in one place per context.
 - To run the conformance suite against the bundled adapter and the local stack:

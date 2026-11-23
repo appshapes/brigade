@@ -1,7 +1,8 @@
 {
   "tasks": {
-    "check": "deno check mail-in/index.ts mail-out/index.ts slack-in/index.ts slack-out/index.ts mail-connector-resend/index.ts mail-connector-postmark/index.ts _shared/*.ts _shared/providers/*.ts",
-    "test": "deno test _shared/"
+    "check": "deno check mail-in/index.ts mail-out/index.ts slack-in/index.ts slack-out/index.ts mail-connector-resend/index.ts mail-connector-postmark/index.ts _shared/*.ts _shared/providers/*.ts _live/*.ts",
+    "test": "deno test _shared/",
+    "test-live": "deno test --allow-env --allow-net _live/"
   },
   "fmt": {
     "lineWidth": 110,

@@ -28,6 +28,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `test-integration` | Adapter integration, the webhook gateway + conformance(supabase) against the local stack (reads $(env_test)) |
 | `test-integration-adapter` | The Supabase adapter's live tests, the fault tests included, against the local stack (reads $(env_test)) (CI) |
 | `test-integration-gateway` | The webhook gateway for a team on the local stack, through the built binaries (reads $(env_test)) (CI) |
+| `test-integration-functions` | The mail and Slack gateways' inbound functions against the local stack's database (reads $(env_test)) (CI) |
 | `test-integration-conformance` | conformance(supabase) with --slow against the local stack (reads $(env_test)) (CI) |
 | `test-all` | Everything (requires `make supabase-start supabase-env`) |
 | `conformance` | Run the conformance suite against an adapter (usage: make conformance adapter=<executable> [args="-- fixed args"]) |

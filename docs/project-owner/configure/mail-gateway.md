@@ -50,6 +50,12 @@ It keeps the gateway member, its receiving address, the public address and the a
 functions, resets the provider's webhook and rotates the tick token and the connector secret. To rotate the
 provider's key, run it again with the new key in the environment.
 
+Run it again as well after the Team Admin evicted everyone who joined with an old join secret
+([Rotate a leaked secret](../../team-admin/members/rotate-the-secret.md)): the gateway is one of them, and
+the installer makes it a member again. Until then the gateway carries nothing for that team. A mail to it is
+answered with an error and the provider delivers it again, so it arrives once the installer has run, for as
+long as the provider goes on delivering it.
+
 ## An address of the team's own
 
 By default people write to the provider's receiving address. For `brigade-team@your-domain.com`:
