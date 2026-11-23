@@ -132,8 +132,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   refusal again. It is one option for all of them, off by default.
   `brigade whoami` prints `strict: on` for such a session
   ([Configure in Grok Build](docs/team-member/configure/grok.md)).
-- **Still refused, whatever the option says:** leader mode, another
-  harness's session marker in the environment, and a subagent's hook.
+- **Kept, whatever the option says:** leader mode and another
+  harness's session marker in the environment are refused, and a
+  subagent's hook ends early, which refuses no session. Leader mode
+  has a measured reason. The other two are kept on a reason each and
+  on the owner's word, with no measurement (ADR 0026): started from
+  another harness's shell, a Grok Build session's own commands would
+  speak as the outer session, and a subagent's end would retire the
+  session's receiver. A start that is refused shows the reason in one
+  line
+  ([Configure in Grok Build](docs/team-member/configure/grok.md)).
+- **Grok Build 1.0.92 starts a direct TUI by default.** A plain
+  `grok`, with no `--no-leader`, registered its session (measured
+  2026-11-23). The pages still show `grok --no-leader`, which makes
+  sure of it.
 - **Grok Build's skills no longer hold back** where the other
   packages' do not: a doing line when the work changes, a message to a
   gateway, an update when the plugin is behind. With `grok_strict` on

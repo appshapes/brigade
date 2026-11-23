@@ -52,12 +52,26 @@ None of these was ever measured to happen, which is why they no longer stop a se
 to a gateway only when you authorized it, an update only when you request it. `brigade whoami` prints
 `strict: on` for such a session. A value that is neither word is read as `on`, and the session's start says so.
 
-Some things are refused whatever the option says, each for a reason, and the session's start shows the reason
-in one line. Leader mode: the shared leader process outlives its terminal, so nothing there identifies a live
-session (measured). Another harness's session marker in the environment, which is a Grok Build started from
-that harness's shell: `brigade` there cannot tell the two sessions apart. A subagent's hook: it is not the
-session's. A hook that ran under a shell, or whose parent is no live process of yours: there is no session
-process to bind.
+Some checks stay whatever the option says, each for a reason. Where one of them refuses a session, the
+session's start shows the reason in one line.
+
+- **Leader mode**: the shared leader process outlives its terminal, so nothing there identifies a live session
+  (measured). In Grok Build 1.0.92 leader mode is off unless you ask for it: a plain `grok`, with no
+  `--no-leader`, ran as one process of its own and its session registered (measured 2026-11-23). Grok Build's
+  guide names `--leader`, and `use_leader = true` in its configuration, as what turns leader mode on.
+- **Another harness's session marker in the environment**, which is a Grok Build started from that harness's
+  shell, Claude Code's for one. `brigade` in such a shell takes its host from the environment, and the other
+  harness's marker comes before Grok Build's there, so the commands the Grok Build session runs would speak as
+  the outer session. No run backs this refusal; its reason holds by the way the command is built, and it is
+  kept on the owner's word (2026-11-23,
+  [ADR 0026](../../decisions/0026-keep-grok-builds-subagent-check-and-its-refusal-of-another-harnesss-marker.md)).
+  Start Grok Build from a plain terminal.
+- **A subagent's hook.** Grok Build runs a session's Stop and SessionEnd hooks for a subagent too, and Brigade's
+  hook ends early there, as Grok Build's own guide tells a hook to. It refuses no session, so it shows no
+  line. Without it a subagent's end would retire the session's receiver. Kept on the owner's word as well, on
+  that documented reason and on no measurement of Brigade's (ADR 0026).
+- **A hook that ran under a shell, or whose parent is no live process of yours**: there is no session process
+  to bind.
 
 ## Status
 

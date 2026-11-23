@@ -7,9 +7,10 @@ messages through a persistent native monitor.
 Status: Supported, with known gaps. It works, and [Known gaps](#known-gaps) below names what does not.
 
 The measured hosts are Grok Build 1.0.62 (`1474f9cbdd91`, kernel name `grok-macos-aarch`), 1.0.67
-(kernel name `grok-1.0.67-maco`) and 1.0.92, where on 2026-11-22 a session installed the package by the
-commands below, armed its monitor and answered a team message; all three on macOS arm64. Linux is not
-measured. Later versions must preserve the native hook and monitor contracts.
+(kernel name `grok-1.0.67-maco`) and 1.0.92 (kernel name `grok-macos-aarch`), where on 2026-11-22 and again on
+2026-11-23 a session installed the package by the commands below, armed its monitor and answered a team
+message; all three on macOS arm64. Linux is not measured. Later versions must preserve the native hook and
+monitor contracts.
 Leader mode is unsupported: its shared process does not identify a live terminal receiver.
 
 Use Grok's normal marketplace and trust flow in your own terminal:
@@ -53,9 +54,17 @@ cache path. [Configuration](../configure/grok.md), [monitor status and skills](.
 ## Known gaps
 
 It works: a Grok Build session registers, arms its monitor after its first turn, reads a team message and
-answers it (Grok Build 1.0.92 on macOS arm64, 2026-11-22: the reply was stored 48 seconds after the send).
+answers it (Grok Build 1.0.92 on macOS arm64, 2026-11-22: the reply was stored 48 seconds after the send; again
+on 2026-11-23, on the build that follows 0.57.0: 51 seconds).
 
-- **Only a direct TUI.** Leader mode is refused, for a measured reason: start `grok --no-leader`.
+- **Only a direct TUI.** Leader mode is refused, for a measured reason. In Grok Build 1.0.92 a plain `grok` is
+  a direct TUI already (measured 2026-11-23; its guide names `--leader` and `use_leader = true` as what turns
+  leader mode on), and `grok --no-leader` makes sure of it.
+- **A skill you type can fail with `command not found: brigade`.** The skills that run one command
+  (`/brigade:whoami`, `/brigade:sessions` and the like) name a bare `brigade`, which Grok Build does not put on
+  the PATH of the model's shell. In the live sessions of 2026-11-23 `/brigade:whoami` ran the package's
+  `bin/brigade` by its path once and the bare word twice, which failed. Ask in words instead ("run whoami
+  through the Brigade package's `bin/brigade`").
 - **Nothing is received before the monitor is armed.** The session asks to arm it after its first completed
   turn, and you approve that one command. Refused or failed, messages wait until you ask for it again.
 - **A message is read in pages**, one tool call each, so an answer takes longer than in the other harnesses.
