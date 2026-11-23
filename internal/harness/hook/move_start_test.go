@@ -711,7 +711,13 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 				// A team file that does not match what the member joined is theirs
 				// to hear of, in the words of a session that is connected.
 				if strings.Contains(where, "no record") {
-					want = append(want, keptFileLine(driftLine))
+					// With the command named as this host's model can run it
+					// (work item 359).
+					line := driftLine
+					if host == config.HostMuse {
+						line = namedIn(f, driftLine)
+					}
+					want = append(want, keptFileLine(line))
 				}
 				if got := lines(out); !slices.Equal(got, want) || m.SessionName == "" {
 					t.Fatalf("the start's lines:\n%q\nwant\n%q", got, want)
@@ -1097,7 +1103,7 @@ func TestAStartKeepsTheShellsRoadToAMuseSessionThatStays(t *testing.T) {
 	f.spawner.onFollow = func(spec SpawnSpec) { f.runFollow(spec) }
 	seam := attachedMember(t, f, movedDoc(movedURL, movedPin), nil)
 	f.moveTeamFile("team-1")
-	if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+	if got := f.prompted(); !slices.Equal(got, []string{saidIn(f, movedLine)}) {
 		t.Fatalf("lines = %q", got)
 	}
 	entries := heldEntries(1, "payments-api")
@@ -1111,7 +1117,7 @@ func TestAStartKeepsTheShellsRoadToAMuseSessionThatStays(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q: %s", exit, out, errOut)
 	}
 	got := lines(out)
-	if len(got) != 4 || !strings.Contains(got[0], "followed team") || got[1] != moveWaitsLine(1) || !strings.Contains(got[2], "(brigade-sess-1)") || got[3] != armLine(f.pluginBin) {
+	if len(got) != 4 || !strings.Contains(got[0], "followed team") || got[1] != saidIn(f, moveWaitsLine(1)) || !strings.Contains(got[2], "(brigade-sess-1)") || got[3] != armLine(f.pluginBin) {
 		t.Fatalf("the start's lines: %q", got)
 	}
 	m := f.mustMap()

@@ -97,7 +97,7 @@ func TestAMoveWhoseHookWasStoppedIsSaidByTheNextPrompt(t *testing.T) {
 			before, newKey := f.checkoutPin(), teamstore.Key("rest", movedURL, "team-1")
 			f.moveTeamFile("team-1")
 			tf := f.movedFile()
-			if got := f.prompted(); !slices.Equal(got, []string{movedLine}) {
+			if got := f.prompted(); !slices.Equal(got, []string{saidIn(f, movedLine)}) {
 				t.Fatalf("lines = %q", got)
 			}
 			if f.noticeOf() {

@@ -1066,7 +1066,18 @@ func notJoinedLine(teamName, command string) string {
 // team, and not one byte of the drifted file is echoed. A cross-team
 // change needs the secret file (owner ruling 3): the join backstop, not
 // the refusal, is what a re-pointed file runs into.
-const driftLine = "Brigade: not connected: .brigade.json does not match the team you joined here — run `brigade team join` to review the change (a cross-team change needs --secret-file)."
+//
+// The command it names is one a session can run (work item 359). It used
+// to name `brigade team join` alone, with the flag in a bracket after it:
+// a file that names another backend or another team, which is every file
+// of a team that moved, is the cross-team kind, and inside a session that
+// command is refused until the secret's file is given. So the line names
+// the form that goes through there, with the placeholder the other lines
+// use (the human supplies the path, and the model never invents one), and
+// says after it when the shorter form may do: it does where the credential
+// the machine holds still works. Where it is said the command is named as
+// this host's model can run it (commandIn).
+const driftLine = "Brigade: not connected: .brigade.json does not match the team you joined here. To review the change and join what the file names, run `brigade team join --secret-file <path>` with the file of the team's join secret, which its administrator has; where only the key or the certificate changed, `brigade team join` alone may do."
 
 // eachOtherLine is said in place of the drift line when the backend the
 // member joined records that the team moved to the backend the file names,

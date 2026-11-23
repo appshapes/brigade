@@ -39,6 +39,24 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   harness's join page and the page for a team's move now say so
   ([Join from a terminal](docs/team-member/join/your-label.md#join-from-a-terminal)).
 
+### Fixed
+
+- **The lines about a team file that does not match name a command the
+  session can run** (work item 359). When `.brigade.json` no longer
+  matches the team a checkout joined, the session said to run `brigade
+  team join` "to review the change", and a running session whose
+  file came to name another backend said that `brigade team join`
+  reviews the change. A file that names another backend or another
+  team, which is every file of a team that moved, needs the join
+  secret's file, and inside a session that command was refused until
+  it was given. These lines now name the form that goes through,
+  `brigade team join --secret-file <path>`. In Muse Code, Codex CLI
+  and Grok Build they name the command by the package's own path, as
+  the lines that ask for a command do since 0.58.0: a bare `brigade`
+  is not on the PATH of those sessions' shells. That holds there for
+  every line a session says once about its team's move, the one of a
+  backend that refuses the membership a machine holds among them.
+
 ## [0.59.0] — 2026-11-23
 
 **Who must act**

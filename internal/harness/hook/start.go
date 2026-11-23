@@ -1195,8 +1195,12 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 		// says the team went where the file says (followMove).
 		// Two answers of the follow have a line of their own: the two
 		// backends each record that the team moved to the other, and the one
-		// the team moved to did not answer.
-		line := notFollowedLine(r.notFollowed)
+		// the team moved to did not answer. Where a line names a command it
+		// names it as this host's model can run it: the bare word is on no
+		// PATH of a Muse Code, Codex CLI or Grok Build session's shell (work
+		// item 359; the lines that ask for a command got this in work item 249
+		// and these, which answer a refusal, were left).
+		line := r.commandIn(f, notFollowedLine(r.notFollowed))
 		r.fileRefused = line
 		r.say(line)
 		return nil, "", "", false

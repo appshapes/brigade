@@ -869,7 +869,7 @@ func TestAServerThatDoesNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThroughTheR
 		t.Fatal(err)
 	}
 	silentWords := func(said string) bool {
-		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "refuses the membership")
 	}
 
 	down.on.Store(true)
@@ -951,7 +951,7 @@ func TestAFirstJoinTheServerDidNotAnswerIsNotToldAsATeamFileThatDoesNotMatchThro
 		t.Fatalf("the member holds a membership on the server the team moved to before any session of his started: the test holds nothing")
 	}
 	silentWords := func(said string) bool {
-		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "refuses the membership")
 	}
 	unchanged := func(when string) {
 		t.Helper()
@@ -1043,11 +1043,11 @@ func TestAStartThatCouldNotAskSaysThatTheFileDoesNotMatchThroughTheRealBinary(t 
 	}
 	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
 	silentWords := func(said string) bool {
-		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "refuses the membership")
 	}
 	// joinWords is the line of a start where no follow left anything.
 	joinWords := func(said string) bool {
-		return strings.Contains(said, "does not match") && strings.Contains(said, "run `brigade team join`") && !strings.Contains(said, "did not answer")
+		return strings.Contains(said, "does not match") && strings.Contains(said, "run `brigade team join --secret-file <path>`") && !strings.Contains(said, "did not answer")
 	}
 	// start starts a session of the member's in the second checkout and ends
 	// it, and holds it to having attached to nothing with the pin where it was.
@@ -1166,7 +1166,7 @@ func TestAMemberRevokedOnTheServerHeJoinedIsNotToldToWaitThroughTheRealBinary(t 
 	onA := r.principalOf(r.configDirB, a)
 	r.movedTo(b, r.secretFile)
 	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
-	const join = "run `brigade team join`"
+	const join = "run `brigade team join --secret-file <path>`"
 
 	// --- 1. the server the team moved to is down --------------------------------------------------------------
 	down.on.Store(true)
@@ -1923,7 +1923,7 @@ func TestARunningSessionLeavesWhatAFollowLeftThatIsStillTrueThroughTheRealBinary
 	}
 	down.on.Store(true)
 	silentWords := func(said string) bool {
-		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "refuses the membership")
 	}
 
 	// --- 1. a new session's start: X did not answer -------------------------------------------------------------
@@ -2292,7 +2292,7 @@ func TestAPromptSaysWhatTheLastFollowLeftHoweverLongAgoThroughTheRealBinary(t *t
 	}
 	mark := config.MoveNotFollowedMark(r.stateDir, r.configDirB, canon)
 	silentWords := func(said string) bool {
-		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "--secret-file")
+		return strings.Contains(said, "did not answer") && !strings.Contains(said, "does not match") && !strings.Contains(said, "refuses the membership")
 	}
 
 	// --- 1. the start ---------------------------------------------------------------------------------------------
@@ -2323,7 +2323,7 @@ func TestAPromptSaysWhatTheLastFollowLeftHoweverLongAgoThroughTheRealBinary(t *t
 	downA.on.Store(true)
 	left := markedAt(t, mark, time.Hour)
 	res, key := r.startsIn("bob", bobName, second)
-	if key != "" || !strings.Contains(res.stdout, "does not match") || !strings.Contains(res.stdout, "run `brigade team join`") || strings.Contains(res.stdout, "did not answer") ||
+	if key != "" || !strings.Contains(res.stdout, "does not match") || !strings.Contains(res.stdout, "run `brigade team join --secret-file <path>`") || strings.Contains(res.stdout, "did not answer") ||
 		!strings.Contains(res.stderr, `"reason":"old_backend_failed"`) {
 		t.Fatalf("a start once the server the member joined is gone: attached to %q\nstdout %q\nstderr %s", key, res.stdout, res.stderr)
 	}

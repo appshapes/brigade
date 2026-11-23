@@ -587,6 +587,16 @@ func namedIn(f *fixture, line string) string {
 	return strings.ReplaceAll(line, "`brigade ", "`"+f.pluginBin+" ")
 }
 
+// saidIn is a line of the hook as the fixture's host says it: with the
+// command's path on a host whose shell has no brigade on PATH, and as it
+// is on Claude Code (work item 359).
+func saidIn(f *fixture, line string) string {
+	if f.host.Pointed() {
+		return namedIn(f, line)
+	}
+	return line
+}
+
 // TestRemindersNameTheCommandOnAPointedHost (work item 249): the line that
 // asks for a doing line is a constant that names the bare `brigade`, which
 // is on the PATH of a Claude Code session's shell and of no other host's.
@@ -631,7 +641,9 @@ func TestRemindersNameTheCommandOnAPointedHost(t *testing.T) {
 func TestCommandInLeavesClaudeCodeAlone(t *testing.T) {
 	t.Parallel()
 	r := &run{}
-	for _, line := range []string{doingLineBlank, doingLineFull, doingLineShort, stopAskOpen + stopAskNote + " " + stopAskDoing + " " + stopAskDecision + stopAskClose} {
+	// The lines of a team file that is refused name a command too (work
+	// item 359).
+	for _, line := range []string{doingLineBlank, doingLineFull, doingLineShort, stopAskOpen + stopAskNote + " " + stopAskDoing + " " + stopAskDecision + stopAskClose, driftLine, membershipRefusedLine} {
 		if got := r.commandIn(facts{}, line); got != line {
 			t.Fatalf("a host with brigade on PATH got another line:\n%q\nwant\n%q", got, line)
 		}

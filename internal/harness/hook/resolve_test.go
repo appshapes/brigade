@@ -216,6 +216,52 @@ func TestHookSwapDriftAttachesToNeither(t *testing.T) {
 	}
 }
 
+// TestTheDriftLineNamesACommandTheSessionCanRun (work item 359): the line
+// of a team file that does not match what the member joined named
+// `brigade team join` alone, which a session refuses for a file that names
+// another backend or another team until the secret's file is given, and
+// named it by the bare word, which is on the PATH of a Claude Code
+// session's shell and of no other host's. It names the form that goes
+// through, and on a host whose command is the package's bootstrap it names
+// that path; on Claude Code it is the constant, byte for byte.
+func TestTheDriftLineNamesACommandTheSessionCanRun(t *testing.T) {
+	t.Parallel()
+	for name, build := range map[string]func(*testing.T) *fixture{"Claude Code": newFixture, "Muse Code": newMuseFixture, "Codex CLI": newCodexFixture} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := build(t)
+			f.useSeam(nil)
+			// The committed file names another team on another backend; the
+			// pin still says the one the member joined.
+			doc := `{"version":1,"adapter":"supabase","url":"https://elsewhere.example.com","publishable_key":"sb_publishable_b","team_ref":"t_elsewhere","team_name":"elsewhere"}`
+			if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), []byte(doc), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			command, want := "brigade", driftLine
+			if name != "Claude Code" {
+				command, want = f.pluginBin, namedIn(f, driftLine)
+			}
+			got := lines(out)
+			if len(got) != 1 || got[0] != want {
+				t.Fatalf("lines = %q, want exactly the drift line with this host's command:\n%q", got, want)
+			}
+			if !strings.Contains(got[0], "run `"+command+" team join --secret-file <path>`") || !strings.Contains(got[0], "`"+command+" team join` alone may do") {
+				t.Fatalf("the line does not name the join with the secret's file, or the shorter form, by %q: %q", command, got[0])
+			}
+			if name != "Claude Code" && strings.Contains(got[0], "`brigade ") {
+				t.Fatalf("a host with no brigade on PATH is told the bare word: %q", got[0])
+			}
+			if f.mapExists() {
+				t.Fatal("the session attached")
+			}
+		})
+	}
+}
+
 // TestHookSilentOffBothArms: no team file in the repo, and no repo at
 // all with a clean plant in an ancestor — both say NOTHING on stdout and
 // spawn nothing (a repo without Brigade must not nag; an ancestor file

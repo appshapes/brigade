@@ -91,17 +91,23 @@ const (
 // The lines a running session hears about its team's move, each once in a
 // conversation (tell). The first two echo nothing from the team file, which
 // nobody has consented to when they are said.
+//
+// Each names a command the session can run (work item 359). A file that
+// names another backend is the cross-team kind, for which a session's
+// `team join` is refused until the secret's file is given, so the join is
+// named with `--secret-file <path>`; and where a line is said the command
+// is named as this host's model can run it (commandIn, in tell).
 const (
 	// movedLine is said when the file comes to name another backend for the
 	// session's team and a follow was started.
-	movedLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. Brigade is asking the backend this session is on whether the team's administrator recorded that move there: if so, this session follows at one of its next prompts and says so; if not, it stays where it is, and `brigade team join` reviews the change."
+	movedLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. Brigade is asking the backend this session is on whether the team's administrator recorded that move there: if so, this session follows at one of its next prompts and says so; if not, it stays where it is, and you review the change and join there with `brigade team join --secret-file <path>` and the file of the team's join secret."
 	// movedRetryLine is movedLine for a session that is attached to nothing:
 	// its registration retry started the follow (followMove), which may join
 	// the new backend before the session's next prompt.
-	movedRetryLine = "Brigade: this project's .brigade.json names another backend for the team you joined here. Brigade is asking the backend you joined it on whether the team's administrator recorded that move there: if so, this session connects there at one of its next prompts and says so; if not, it stays unconnected, and `brigade team join` reviews the change."
+	movedRetryLine = "Brigade: this project's .brigade.json names another backend for the team you joined here. Brigade is asking the backend you joined it on whether the team's administrator recorded that move there: if so, this session connects there at one of its next prompts and says so; if not, it stays unconnected, and you review the change and join there with `brigade team join --secret-file <path>` and the file of the team's join secret."
 	// movedStaysLine is said instead when the member's options keep a
 	// session from following.
-	movedStaysLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. This session does not follow a move by itself (the option follow_team_move is off, or the session names its adapter itself): it stays where it is until you join the team there with `brigade team join`, and moves at its next prompt after that."
+	movedStaysLine = "Brigade: the .brigade.json of the checkout this session was started in now names another backend for this session's team. This session does not follow a move by itself (the option follow_team_move is off, or the session names its adapter itself): it stays where it is until you join the team there with `brigade team join --secret-file <path>` and the file of the team's join secret, and moves at its next prompt after that."
 	// movedEachOtherLine is said when the follow found that the backend the
 	// file names itself records that the team moved back to the backend the
 	// session is on (work item 341): the session follows neither.
@@ -264,6 +270,7 @@ func (r *run) told(f facts, in input) []string {
 // directory that cannot be written costs the session a line and never
 // earns it one at every prompt.
 func (r *run) tell(f facts, in input, word, line string) bool {
+	line = r.commandIn(f, line)
 	if slices.Contains(r.told(f, in), word) || !r.fits(line) || !r.note(f, in, word) {
 		return false
 	}
@@ -715,11 +722,11 @@ func (r *run) moveSession(ctx context.Context, f facts, in input, m *sessionmap.
 		// each other: the session stays, and says why once.
 		r.tell(f, in, toldEachOther, movedEachOtherLine)
 	}
-	if r.fits(movedRefusedLine) && r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
+	if refused := r.commandIn(f, movedRefusedLine); r.fits(refused) && r.refusalUntold(f, opts, teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)) {
 		// A follow found that the backend the file names refuses this
 		// machine's membership and the join made under it: the session
 		// stays, and its member is told what helps, once.
-		r.say(movedRefusedLine)
+		r.say(refused)
 	}
 	if r.startFollow(ctx, f, opts, checkout) {
 		r.tell(f, in, toldAsked, movedLine)
