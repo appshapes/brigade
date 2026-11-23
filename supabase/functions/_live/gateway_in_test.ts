@@ -189,14 +189,14 @@ function connector() {
   };
 }
 
-function mail(w: World, id: string, text: string, subject = "deploy?"): Request {
+function mail(w: World, id: string, text: string, subject = "deploy?", from = "pat@example.com"): Request {
   return new Request("http://localhost/mail-in", {
     method: "POST",
     headers: { Authorization: `Bearer ${CONNECTOR_SECRET}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       brigade_mail: 1,
       id,
-      from: "pat@example.com",
+      from,
       from_name: "Pat Example",
       to: [w.inbox],
       subject,
@@ -348,6 +348,39 @@ Deno.test("mail-in: a mail that is not the gateway's to carry is not written dow
     assert(typeof stranger.said.ignored === "string", JSON.stringify(stranger.said));
     assertEquals(await w.rows(`mail-${w.tag}-5`), []);
     assertEquals((await w.messages()).length, 0);
+  } finally {
+    await w.close();
+  }
+});
+
+Deno.test("mail-in: the gateway answers none of its own addresses, by a bounce or by a command's reply", async () => {
+  // Work item 271. The usual setup: people write to an address of the team's own, which forwards to the inbox,
+  // and the gateway's mail is from that address. A bounce to it would come back and be bounced again, without end.
+  const w = await world("email");
+  const c = connector();
+  const handle = mailInHandler({ fetchFn: c.fetchFn });
+  const team = `team-${w.tag}@example.com`;
+  const bot = `bot-${w.tag}@example.com`;
+  try {
+    await w.sql`update brigade_gateway.gateways set public_address = ${team}, from_address = ${
+      "Brigade <" + bot + ">"
+    }
+                 where team_id = ${w.team}::uuid`;
+    const own = [team, bot, w.inbox, w.inbox.replace("@", "+r.0123@")];
+    for (const [n, from] of own.entries()) {
+      const bounced = await answered(
+        handle,
+        mail(w, `mail-${w.tag}-8-${n}`, "nobody is named here", "x", from),
+      );
+      assertEquals(bounced, { status: 200, said: { bounced: "unaddressed" } }, from);
+      const asked = await answered(handle, mail(w, `mail-${w.tag}-9-${n}`, "sessions", "x", from));
+      assertEquals(asked, { status: 200, said: { command: "sessions" } }, from);
+    }
+    assertEquals(c.sent, [], "nothing was mailed to an address of the gateway's own");
+    // A person is answered as before, by both.
+    await answered(handle, mail(w, `mail-${w.tag}-8-p`, "nobody is named here"));
+    await answered(handle, mail(w, `mail-${w.tag}-9-p`, "sessions"));
+    assertEquals(c.sent.map((m) => m.to), ["pat@example.com", "pat@example.com"]);
   } finally {
     await w.close();
   }

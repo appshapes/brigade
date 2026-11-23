@@ -74,6 +74,11 @@ By default people write to the provider's receiving address. For `brigade-team@y
   server's inbound domain to the subdomain and add `inbound.postmarkapp.com`, priority 10. Then
   `inbox=brigade-team@mail.your-domain.com`.
 
+The gateway answers none of its own addresses: the receiving address or a reply tag of it, the public address,
+and the address its mail is from. A mail that comes from one of them and cannot be delivered gets no bounce, and
+a `sessions` or `help` from one of them gets no reply. Where the public address forwards to the receiving
+address, an answer to it would come back as a mail from the gateway and be answered again, without end.
+
 ## Several teams
 
 Run the command once per team, each with its own `team_file=` and `from=`. Each team gets its own inbox and

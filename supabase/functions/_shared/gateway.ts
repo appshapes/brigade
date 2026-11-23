@@ -13,7 +13,15 @@ import {
   parseLeading,
   renderBlock,
 } from "./block.ts";
-import { domainOf, type InboundMail, isAddress, localOf, type OutboundMail, stripQuoted } from "./mail.ts";
+import {
+  domainOf,
+  type InboundMail,
+  isAddress,
+  localOf,
+  type OutboundMail,
+  parseAddress,
+  stripQuoted,
+} from "./mail.ts";
 
 export const GATEWAY_VERSION = "0.1.0";
 export const SESSION_NAME = "mail-gateway";
@@ -102,6 +110,25 @@ export function addressedToInbox(addresses: string[], inbox: string): boolean {
     const l = localOf(a).toLowerCase();
     return l === local || l.startsWith(local + "+");
   });
+}
+
+/** ownAddress says whether an address is one of a gateway's own: its inbox or a tag of it, the address people are
+ * told to write to, or the address its mail is from. Each is compared by its address alone, whatever name is
+ * written beside it, and without regard to case.
+ *
+ * The gateway mails nothing to such an address (work item 271), as the server's gateway does since work item 89.
+ * Where the public address forwards to the inbox, as it does wherever the two differ, a bounce or a command's
+ * reply to it comes back as a mail from the gateway, is bounced or answered in turn, and goes round for as long
+ * as the provider carries it: the hop cap is for Brigade messages, and such a mail never becomes one. */
+export function ownAddress(
+  gw: { inbox: string; publicAddress: string; from: string },
+  address: string,
+): boolean {
+  const a = parseAddress(address).address;
+  if (!a) return false;
+  return addressedToInbox([a], parseAddress(gw.inbox).address) ||
+    a === parseAddress(gw.publicAddress).address ||
+    a === parseAddress(gw.from).address;
 }
 
 /** gatewayForMail picks, among a project's mail gateways, the one whose inbox the mail was delivered to (or a reply
