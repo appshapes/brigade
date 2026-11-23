@@ -167,6 +167,15 @@ func init() {
 			Run: runWorkItem,
 		},
 		{
+			Name:    "roadmap",
+			Args:    "[add [--list <list>] | put <work item> <roadmap item> | put <work item> none | order <roadmap item>…]",
+			Summary: "read and change the roadmap of the Brigade Board: alone it prints the roadmap items in order, each with how many of the work items under it are finished and the ones that are not; add adds a roadmap item (title, a blank line and the description on stdin), put puts a work item under a roadmap item, or under none, and order names the roadmap items in order, each by its number (one it leaves out follows). A roadmap item is a work item of another kind: show, edit, comment on, move and close it with brigade work-item",
+			Flags: func(fs *flag.FlagSet) {
+				fs.String("list", "", "add: the list the new roadmap item goes into, by its key or its name (the board's first shown list when unset)")
+			},
+			Run: runRoadmap,
+		},
+		{
 			Name:    "inbound",
 			Args:    "[accept|hold|refuse]",
 			Summary: "show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)",
@@ -432,6 +441,12 @@ func runWorkItem(cx *Context, args []string) error {
 		Description:   cx.Bool("description"),
 		Earlier:       intFlagGiven(cx, "earlier"),
 	})
+}
+
+// runRoadmap is the table's Run for `roadmap` (work item 404; the verb
+// and its words are positional arguments).
+func runRoadmap(cx *Context, args []string) error {
+	return harnesscmd.Roadmap(invocation(cx, args), harnesscmd.RoadmapOptions{List: stringFlag(cx, "list")})
 }
 
 // runInbound is the table's Run for `inbound` (card 126; the one optional

@@ -70,7 +70,9 @@ A board holds 20,000 work items and a work item 2,000 changes; past either, `bri
 
 Changes, never a work item as a file. Each act — adding a work item, moving it, a comment — is one small JSON
 file, written once and never rewritten: `items/<id>/<sequence>-<time>-<random>.json`, and
-`lists/<sequence>-<time>-<random>.json` for the board's lists: the lists named, one renamed, one hidden or shown. A work item is what its changes add up to, the
+`lists/<sequence>-<time>-<random>.json` for the board's lists: the lists named, one renamed, one hidden or shown;
+and `roadmap/<sequence>-<time>-<random>.json` for the order of the roadmap items, which are work items of
+another kind under `items/`. A work item is what its changes add up to, the
 last change of a field winning. Two machines therefore never write the same file, and the sync engine makes no
 conflict copy. Nothing is ever removed: a closed work item stays in the folder, and so does every change.
 

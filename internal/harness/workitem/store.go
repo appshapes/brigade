@@ -134,6 +134,18 @@ func (s Store) HideList(b *Board, key string, hidden bool, who Author) error {
 	return s.write(c, ListsDir)
 }
 
+// SetOrder writes the order of the roadmap items: every id of ids, in
+// that order, which replaces the order before (Board.RoadmapItems says
+// what a reader makes of it). The caller checked that each is an open
+// roadmap item of b and that none is there twice.
+func (s Store) SetOrder(b *Board, ids []string, who Author) error {
+	if b.orderSeq >= MaxSeq || b.orderChanges >= MaxChanges {
+		return ErrFull
+	}
+	c := &Change{Seq: b.orderSeq + 1, By: who.Member, Session: who.Session, Order: ids}
+	return s.write(c, RoadmapDir)
+}
+
 // A Renumbered is one work item Repair gave another number: the item as
 // it was, the number it has now, and the title of the item that kept the
 // number both had taken.

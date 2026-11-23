@@ -273,6 +273,22 @@ type boardPageData struct {
 	// fold key, sorted by it.
 	Assignees []boardPageChoice `json:"assignees"`
 	Tags      []boardPageChoice `json:"tags"`
+	// Roadmap is the open roadmap items in order, then the closed ones by
+	// number (work item 404): the groups of the page's other view.
+	Roadmap []boardPageRoadmap `json:"roadmap"`
+}
+
+// boardPageRoadmap is one roadmap item as a group of the page: Total is
+// the work items under it and Finished how many of them are finished.
+// Closed is true for a closed one, which is off the roadmap: the page
+// shows it, after the open ones, only with the closed work items.
+type boardPageRoadmap struct {
+	Number   int    `json:"number"`
+	Title    string `json:"title"`
+	List     string `json:"list"`
+	Total    int    `json:"total"`
+	Finished int    `json:"finished"`
+	Closed   bool   `json:"closed"`
 }
 
 // boardPageChoice is one choice of a filter: the name as first seen on
@@ -303,6 +319,13 @@ type boardPageItem struct {
 	Description string             `json:"description"`
 	Comments    []boardPageComment `json:"comments"`
 	Updated     string             `json:"updated"`
+	// Kind is "roadmap" for a roadmap item, "" for a work item; Roadmap
+	// the number of the roadmap item a work item is under, open or
+	// closed, 0 for none; Finished whether it is closed or in the list for
+	// finished work.
+	Kind     string `json:"kind"`
+	Roadmap  int    `json:"roadmap"`
+	Finished bool   `json:"finished"`
 }
 
 // boardPageComment is one comment on a card.
@@ -326,6 +349,17 @@ func boardPageFrom(board *workitem.Board, team string, now time.Time) boardPageD
 		Items:     make([]boardPageItem, 0, len(board.Items)),
 		Assignees: []boardPageChoice{},
 		Tags:      []boardPageChoice{},
+		Roadmap:   []boardPageRoadmap{},
+	}
+	for _, r := range append(board.RoadmapItems(), board.ClosedRoadmapItems()...) {
+		group := boardPageRoadmap{Number: r.Number, Title: workItemText(r.Title), List: r.List, Closed: r.Closed}
+		for _, it := range board.Under(r.ID) {
+			group.Total++
+			if board.Finished(it) {
+				group.Finished++
+			}
+		}
+		data.Roadmap = append(data.Roadmap, group)
 	}
 	for _, l := range board.Lists {
 		data.Lists = append(data.Lists, boardPageList{Key: l.Key, Name: workItemText(l.Name), Hidden: l.Hidden})
@@ -366,6 +400,11 @@ func boardPageFrom(board *workitem.Board, team string, now time.Time) boardPageD
 			Description: protocol.Sanitize(it.Description),
 			Comments:    make([]boardPageComment, 0, len(it.Comments)),
 			Updated:     it.UpdatedAt.UTC().Format(pageStamp),
+			Kind:        it.Kind,
+			Finished:    board.Finished(it),
+		}
+		if r := board.RoadmapOf(it); r != nil {
+			card.Roadmap = r.Number
 		}
 		card.AssigneeKey = foldKey(card.Assignee)
 		for _, t := range it.Tags {
@@ -496,6 +535,7 @@ const pageBody = `</style>
 <label>Assigned <select id="f-assignee"><option value="">anyone</option><option value="-">nobody</option></select></label>
 <label>Tag <select id="f-tag"><option value="">any</option></select></label>
 <label>List <select id="f-list"><option value="">every shown list</option></select></label>
+<label>Group by <select id="f-by"><option value="">list</option><option value="roadmap">roadmap item</option></select></label>
 <label class="check"><input type="checkbox" id="f-hidden"> hidden lists</label>
 <label class="check"><input type="checkbox" id="f-closed"> closed work items</label>
 </div>
@@ -531,7 +571,7 @@ h1 { margin: 0 0 8px; font-size: 20px; }
 .meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; color: var(--muted); font-size: 12px; }
 .chip { background: var(--chip); border-radius: 10px; padding: 0 8px; }
 .who { margin-right: 4px; }
-.closed-flag { color: var(--accent); }
+.closed-flag, .kind-flag { color: var(--accent); }
 .detail { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
 .text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; }
 .comment { margin-top: 8px; }
@@ -576,7 +616,36 @@ const pageScript = `
     });
     return { columns: columns, left: left };
   }
-  function none() { return { assignee: "", tag: "", list: "", hidden: false, closed: false }; }
+  // listed: whether a work item's list is one the filters show, for the
+  // view that groups by roadmap item: the list named in the filter, or any
+  // list that is not hidden, or a hidden one when they are asked for.
+  function listed(data, it, f) {
+    if (f.list !== "") { return it.list === f.list; }
+    var hidden = data.lists.some(function (l) { return l.key === it.list && l.hidden; });
+    return !hidden || f.hidden;
+  }
+  // roadmapView: the work items the filters show, grouped by the roadmap
+  // item each is under, in the roadmap's order and by number inside a
+  // group; a last group, whose roadmap is null, holds the ones under none.
+  // A roadmap item is a group's heading and never a card here. A closed
+  // roadmap item is off the roadmap: it is a group only with the closed
+  // work items, and without them what is under it is under none. left
+  // counts the work items in hidden lists that the filters leave out.
+  function roadmapView(data, f) {
+    var groups = data.roadmap.filter(function (r) { return !r.closed || f.closed; }).map(function (r) { return { roadmap: r, items: [] }; });
+    var rest = { roadmap: null, items: [] }, left = 0;
+    data.items.forEach(function (it) {
+      if (it.kind === "roadmap" || !match(it, f)) { return; }
+      if (!listed(data, it, f)) { if (f.list === "") { left += 1; } return; }
+      var at = -1;
+      groups.forEach(function (g, i) { if (g.roadmap.number === it.roadmap) { at = i; } });
+      (at < 0 ? rest : groups[at]).items.push(it);
+    });
+    groups.push(rest);
+    groups.forEach(function (g) { g.items.sort(function (x, y) { return x.number - y.number; }); });
+    return { groups: groups, left: left };
+  }
+  function none() { return { assignee: "", tag: "", list: "", hidden: false, closed: false, by: "" }; }
   // parseHash: the filters a page address names. A value the page has no
   // choice for, such as a tag that left the board, is dropped.
   function parseHash(hash, data) {
@@ -591,6 +660,7 @@ const pageScript = `
       if (k === "list" && data.lists.some(function (l) { return l.key === v; })) { f.list = v; }
       if (k === "hidden") { f.hidden = v === "1"; }
       if (k === "closed") { f.closed = v === "1"; }
+      if (k === "by" && v === "roadmap") { f.by = v; }
     });
     return f;
   }
@@ -602,9 +672,10 @@ const pageScript = `
     if (f.list) { h.push("list=" + encodeURIComponent(f.list)); }
     if (f.hidden) { h.push("hidden=1"); }
     if (f.closed) { h.push("closed=1"); }
+    if (f.by) { h.push("by=" + encodeURIComponent(f.by)); }
     return h.length ? "#" + h.join("&") : "";
   }
-  root.brigadeBoardPage = { match: match, shown: shown, view: view, parseHash: parseHash, toHash: toHash };
+  root.brigadeBoardPage = { match: match, shown: shown, view: view, roadmapView: roadmapView, parseHash: parseHash, toHash: toHash };
   if (typeof document === "undefined") { return; }
 
   var data = JSON.parse(document.getElementById("board-data").textContent);
@@ -620,7 +691,7 @@ const pageScript = `
     o.value = value;
     select.appendChild(o);
   }
-  var fAssignee = byId("f-assignee"), fTag = byId("f-tag"), fList = byId("f-list"), fHidden = byId("f-hidden"), fClosed = byId("f-closed");
+  var fAssignee = byId("f-assignee"), fTag = byId("f-tag"), fList = byId("f-list"), fHidden = byId("f-hidden"), fClosed = byId("f-closed"), fBy = byId("f-by");
   data.assignees.forEach(function (a) { addOption(fAssignee, "=" + a.key, a.name); });
   data.tags.forEach(function (t) { addOption(fTag, "=" + t.key, t.name); });
   data.lists.forEach(function (l) { addOption(fList, l.key, l.name + (l.hidden ? " (hidden)" : "") + (l.gone ? " (no longer a list)" : "")); });
@@ -632,9 +703,16 @@ const pageScript = `
     (data.latest ? " Its newest change is from " + data.latest + "." : "");
 
   function filters() {
-    return { assignee: fAssignee.value, tag: fTag.value, list: fList.value, hidden: fHidden.checked, closed: fClosed.checked };
+    return { assignee: fAssignee.value, tag: fTag.value, list: fList.value, hidden: fHidden.checked, closed: fClosed.checked, by: fBy.value };
   }
-  function card(it) {
+  function listName(key) {
+    var name = key;
+    data.lists.forEach(function (l) { if (l.key === key) { name = l.name; } });
+    return name;
+  }
+  // card: one work item. inList is the name of its list, shown as a chip
+  // where the cards are not grouped by list.
+  function card(it, inList) {
     var c = el("article", "card" + (it.closed ? " closed" : ""));
     var head = el("div");
     var line = el("div");
@@ -643,7 +721,9 @@ const pageScript = `
     head.appendChild(line);
     var meta = el("div", "meta");
     meta.appendChild(el("span", "who", it.assignee !== "" ? it.assignee : "nobody"));
+    if (inList) { meta.appendChild(el("span", "chip", inList)); }
     it.tags.forEach(function (t) { meta.appendChild(el("span", "chip", t)); });
+    if (it.kind === "roadmap") { meta.appendChild(el("span", "kind-flag", "roadmap item")); }
     if (it.closed) { meta.appendChild(el("span", "closed-flag", "closed")); }
     head.appendChild(meta);
     if (it.description === "" && it.comments.length === 0) {
@@ -667,8 +747,48 @@ const pageScript = `
     c.appendChild(d);
     return c;
   }
+  // renderRoadmap: one column for each roadmap item, in order, headed by
+  // its number, its title and how far it is, then one for the work items
+  // under none.
+  function renderRoadmap(f) {
+    var v = roadmapView(data, f);
+    var board = byId("board");
+    board.textContent = "";
+    var total = 0;
+    v.groups.forEach(function (g) {
+      total += g.items.length;
+      var r = g.roadmap;
+      var col = el("section", "column");
+      var h = el("h2");
+      if (r) {
+        h.appendChild(el("span", "num", "#" + r.number));
+        h.appendChild(document.createTextNode(r.title + " "));
+        h.appendChild(el("span", "count", r.total === 0 ? "(no work items)" : "(" + r.finished + " of " + r.total + " finished)"));
+        h.appendChild(el("span", "flag", " " + listName(r.list) + (r.closed ? ", closed" : "")));
+      } else {
+        h.appendChild(document.createTextNode("Under no roadmap item "));
+        h.appendChild(el("span", "count", "(" + g.items.length + ")"));
+      }
+      col.appendChild(h);
+      var cards = el("div", "cards");
+      if (g.items.length === 0) { cards.appendChild(el("p", "empty", "no work items shown")); }
+      g.items.forEach(function (it) { cards.appendChild(card(it, listName(it.list))); });
+      col.appendChild(cards);
+      board.appendChild(col);
+    });
+    var shownGroups = v.groups.length - 1;
+    var under = total - v.groups[shownGroups].items.length;
+    var text = total + (total === 1 ? " work item shown: " : " work items shown: ") + under + " under " +
+      shownGroups + (shownGroups === 1 ? " roadmap item" : " roadmap items") + ", " + (total - under) + " under none";
+    if (data.roadmap.length === 0) { text += ": brigade roadmap add adds one"; }
+    if (v.left > 0) { text += "; in hidden lists not shown: " + v.left; }
+    byId("summary").textContent = text;
+  }
   function render() {
     var f = filters();
+    var hash = toHash(f);
+    try { history.replaceState(null, "", hash || location.pathname); } catch (e) { /* a browser that refuses it for a file: page keeps the filters until a reload */ }
+    if (f.by === "roadmap") { renderRoadmap(f); return; }
     var v = view(data, f);
     var board = byId("board");
     board.textContent = "";
@@ -692,12 +812,10 @@ const pageScript = `
     var text = total + (total === 1 ? " work item shown" : " work items shown");
     if (v.left.length > 0) { text += "; in hidden lists not shown: " + v.left.join(", "); }
     byId("summary").textContent = text;
-    var hash = toHash(f);
-    try { history.replaceState(null, "", hash || location.pathname); } catch (e) { /* a browser that refuses it for a file: page keeps the filters until a reload */ }
   }
   function restore() {
     var f = parseHash(location.hash, data);
-    fAssignee.value = f.assignee; fTag.value = f.tag; fList.value = f.list; fHidden.checked = f.hidden; fClosed.checked = f.closed;
+    fAssignee.value = f.assignee; fTag.value = f.tag; fList.value = f.list; fHidden.checked = f.hidden; fClosed.checked = f.closed; fBy.value = f.by;
   }
   byId("filters").addEventListener("change", render);
   window.addEventListener("hashchange", function () { restore(); render(); });

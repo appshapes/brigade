@@ -18,9 +18,53 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   after it asks "Hooks need review". Choose "Trust all and continue";
   until you do, nothing of Brigade runs in Codex
   ([Install in Codex CLI](https://github.com/appshapes/brigade/blob/master/docs/team-member/install/codex.md)).
-  Everyone else: nothing.
+  Everyone, on a team that starts a roadmap: update Brigade when a
+  teammate adds the first roadmap item. A Brigade from before this
+  release shows each roadmap item as one more work item in its list,
+  and its `/brigade:work-item-next` may propose one as work ("A roadmap
+  on the Brigade Board"). On a team that keeps none: nothing more.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
+
+### Added
+
+- **A roadmap on the Brigade Board** (work item 404, ADR 0027). A
+  roadmap item is a goal larger than one work item: a release, a
+  migration, a review's findings. The roadmap is the roadmap items in
+  the order the team gave them, each with the work items that carry it.
+  - `brigade roadmap` prints it: each roadmap item with its place, its
+    number, its list, how many of the work items under it are finished,
+    and the ones that are not; then how many open work items are under
+    none. `brigade roadmap add` adds a roadmap item (its title, a blank
+    line and its description on stdin), `brigade roadmap put <work item>
+    <roadmap item>` puts a work item under one (`none` takes it off),
+    and `brigade roadmap order <numbers>` names the order; a roadmap
+    item it leaves out follows.
+  - A roadmap item is a work item of another kind: it has a number of
+    the board's one sequence, a title, a description, a list, comments
+    and a history, and `brigade work-item show`, `edit`, `comment`,
+    `move` and `close` work on it by its number. Its list says how far
+    the goal is. A work item is under one roadmap item at most, and one
+    roadmap item carries work items of every repository of the team.
+    Finished means closed, or in the board's list for finished work.
+  - `brigade work-item list` leaves roadmap items out and counts them
+    in its last line; `show` of one lists what is under it, and of a
+    work item says which roadmap item it is under. A closed roadmap
+    item is off the roadmap until it is reopened.
+  - The board's page (`brigade work-item page`) has a "Group by"
+    choice: one column for each roadmap item, in order, with how many
+    of its work items are finished, and a last one for the work items
+    under none.
+  - `/brigade:work-items roadmap` shows the roadmap, `/brigade:work-item`
+    takes the three changes in words, and `/brigade:work-item-next`
+    follows the order: after work that is under way, the work items
+    under the first roadmap item, then the second, and those under none
+    last. A project's own instruction still overrides it.
+  - The order is one small file that names every roadmap item; the
+    last one written is the order. Two machines that reorder at the
+    same moment end with the later of the two, and a roadmap item added
+    meanwhile goes to the end
+    ([Keep a roadmap](docs/team-member/use/work-items.md#keep-a-roadmap)).
 
 ### Fixed
 

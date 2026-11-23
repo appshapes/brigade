@@ -1314,9 +1314,10 @@ rides on file sync, section 12).
   work item may name a path, a host, a person or a customer, and the judgement is the writer's.
 - **A work item is a teammate's text.** Any member's machine can write any file into the folder, and overwrite or
   delete one, as it can in any synced folder. A change that says it is by someone is that machine's word for it;
-  nothing signs it. A forged change can retitle, move, assign, close or renumber any work item, or add a comment
+  nothing signs it. A forged change can retitle, move, assign, close or renumber any work item, put it under another roadmap
+  item, reorder the roadmap, or add a comment
   under any name. The readers take only files with a change's name, size and shape, follow no symlink (a
-  change, a work item's directory, or `items` and `lists` themselves, through which nothing is written either),
+  change, a work item's directory, or `items`, `lists` and `roadmap` themselves, through which nothing is written either),
   and cap and sanitise every string; the human form of `brigade work-item show` indents a description and a comment under
   their headings, so no line of them stands where a field would.
 - **A work item is not an instruction.** The skills tell the model that reading a work item is reading, and that

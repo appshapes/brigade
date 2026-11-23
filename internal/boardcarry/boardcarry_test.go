@@ -485,3 +485,61 @@ func TestPiecesAreWithinTheCapAsTheBoardKeepsThem(t *testing.T) {
 		t.Errorf("a text that is not UTF-8 was taken")
 	}
 }
+
+// TestCopyCarriesTheRoadmap: the roadmap items arrive as roadmap items,
+// the work items under them stay under them, and the order is the one the
+// team named, not the order by number (work item 404).
+func TestCopyCarriesTheRoadmap(t *testing.T) {
+	t.Parallel()
+	from := filepath.Join(t.TempDir(), "boards", "earlier")
+	s := workitem.Store{Folder: from}
+	read := func(folder string) *workitem.Board {
+		t.Helper()
+		b, err := workitem.Read(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	var ids []string
+	for _, title := range []string{"Sign-in", "Billing", "Reports"} {
+		id, err := s.Add(read(from), workitem.Fields{Title: ptr(title), List: ptr("todo"), Kind: ptr(workitem.KindRoadmap)}, alice)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	work, err := s.Add(read(from), workitem.Fields{Title: ptr("Fix the login redirect"), List: ptr("todo"), Roadmap: &ids[0]}, alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOrder(read(from), []string{ids[2], ids[0], ids[1]}, alice); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(t.TempDir(), "boards", "now")
+	done, err := Copy(from, to)
+	if err != nil {
+		t.Fatalf("copy: %v", err)
+	}
+	if done.Changes != 5 || done.Written != 5 {
+		t.Errorf("copied = %+v, want the four work items' changes and the order's", done)
+	}
+	got := read(to)
+	var order []string
+	for _, it := range got.RoadmapItems() {
+		order = append(order, it.Title)
+	}
+	if strings.Join(order, ",") != "Reports,Sign-in,Billing" {
+		t.Errorf("the roadmap as carried = %v", order)
+	}
+	if under := got.RoadmapOf(got.ByID(work)); under == nil || under.ID != ids[0] {
+		t.Errorf("the work item as carried is under %+v", under)
+	}
+	// A second board that names another order is not the first one.
+	if err := (workitem.Store{Folder: to}).SetOrder(got, []string{ids[1]}, alice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Copy(from, to); err == nil {
+		t.Error("a board whose roadmap names another order took the copy")
+	}
+}

@@ -80,7 +80,10 @@ Details: [Record notes and ask for decisions](notes-and-decisions.md).
 3. `/brigade:work-item-start <number>` has the session take a work item, do the work, comment and move it on;
    `/brigade:work-item-start <number> <session>…` has it lead your other sessions named there, each with a part.
    `/brigade:work-item-next` says which one to take next, and why; it changes nothing.
-4. A team has a board when its `.brigade.json` turns it on; it travels while both machines run a session.
+4. `/brigade:work-items roadmap` prints the roadmap: the team's goals in order, each with the work items under
+   it. `brigade roadmap add` adds a roadmap item, `brigade roadmap put <work item> <roadmap item>` puts a work
+   item under one, and `brigade roadmap order <numbers>` orders them.
+5. A team has a board when its `.brigade.json` turns it on; it travels while both machines run a session.
 
 Details: [Keep the team's work on the Brigade Board](work-items.md).
 
