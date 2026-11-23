@@ -18,7 +18,9 @@ A team may have a Slack gateway: a hosted member whose session (`slack-gateway`,
 what it is sent to Slack and carries what people write back. This skill sends one message to it. `$ARGUMENTS`
 is what came after {{argsOfCommand "slack"}}: typed by the user{{if in "claude"}} through `{{invoke "slack"}}`{{end}}{{if in "muse"}} through the `slack` skill (`{{invoke "slack"}}`){{end}}, or passed by you when they
 asked in words and you loaded this skill — their address and their words, never ones you chose.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Meaning |

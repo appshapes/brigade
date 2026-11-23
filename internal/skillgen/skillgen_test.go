@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -229,6 +230,8 @@ func TestASourceMustSpeakForEveryHarness(t *testing.T) {
 		"an unknown harness in say":     "{{say \"cursor\" \"x\" \"*\" \"y\"}}",
 		"say with no words for one":     "{{say \"claude\" \"x\" \"muse\" \"y\"}}",
 		"say with an odd count":         "{{say \"claude\"}}",
+		"commandAt outside its block":   "{{commandAt}}",
+		"commandAt with two indents":    "{{if notin \"claude\"}}{{commandAt \" \" \" \"}}{{end}}",
 		"no frontmatter":                "",
 	} {
 		root := t.TempDir()
@@ -245,5 +248,69 @@ func TestASourceMustSpeakForEveryHarness(t *testing.T) {
 		if _, err := skillgen.Check(root); err == nil {
 			t.Errorf("%s: the check passed", name)
 		}
+	}
+}
+
+// TestASkillThatRunsBrigadeSaysWhereItIs (work item 425): in a package
+// whose host does not put `brigade` on PATH, every skill that has the
+// model run a `brigade` command says where the command is, in one of the
+// ways below, and Claude Code's copies, where the plugin puts the command
+// on PATH, never carry the sentence. Whether a copy runs a command is
+// read from the copy: a `brigade <verb>` in backticks or at the start of
+// a line of a code block.
+func TestASkillThatRunsBrigadeSaysWhereItIs(t *testing.T) {
+	t.Parallel()
+	root := testutil.RepoRoot(t)
+	const sentence = "Here `brigade` is this package's own command, run by its absolute path."
+	runs := regexp.MustCompile("(?m)(`|^\\s*)brigade [a-z]")
+	// The other ways a copy says it, each a whole clause of its own text.
+	ways := []string{
+		"the bootstrap's path that line gave",                      // join and move, Muse Code and Codex CLI
+		"`brigade` is the bootstrap the session-start line named",  // team-messaging, Muse Code and Codex CLI
+		"and the command is its absolute `bin/brigade`",            // team-messaging, Grok Build
+		"plugin cache for `brigade` (the session-start line names", // setup, Muse Code and Codex CLI
+		"installed package's absolute `bin/brigade` for `brigade`", // setup, Grok Build
+	}
+	skills, err := skillgen.Sources(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := 0
+	for _, h := range skillgen.Harnesses {
+		for _, skill := range skills {
+			text, err := skillgen.Render(root, skill, h)
+			if err != nil {
+				t.Fatalf("%s for %s: %v", skill, h.ID, err)
+			}
+			_, body, _ := strings.Cut(strings.TrimPrefix(string(text), "---\n"), "\n---\n")
+			n := strings.Count(body, sentence)
+			if h.ID == "claude" {
+				if n != 0 {
+					t.Errorf("Claude Code's %s says where brigade is, and its plugin puts it on PATH", skill)
+				}
+				continue
+			}
+			if n > 1 {
+				t.Errorf("%s for %s says it %d times", skill, h.ID, n)
+			}
+			if n == 1 {
+				said++
+				if !strings.Contains(body, "`<package>/skills/"+skill+"/SKILL.md`") {
+					t.Errorf("%s for %s names another skill's file", skill, h.ID)
+				}
+				continue
+			}
+			if !runs.MatchString(body) {
+				continue
+			}
+			if !slices.ContainsFunc(ways, func(w string) bool { return strings.Contains(body, w) }) {
+				t.Errorf("%s for %s has the model run a brigade command and does not say where the command is", skill, h.ID)
+			}
+		}
+	}
+	// The ten skills of the work item in three packages, and join, move
+	// and update in Grok Build.
+	if said != 33 {
+		t.Errorf("%d copies carry the sentence, want 33", said)
 	}
 }

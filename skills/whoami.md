@@ -15,7 +15,9 @@ allowed-tools: Bash(brigade whoami:*)
 `$ARGUMENTS` is what came after {{argsOfCommand "whoami"}}: typed by the user{{if in "claude"}} through `{{invoke "whoami"}}`{{else}} when they invoked this skill{{end}}, or passed by you
 when you loaded this skill to show who this session is, which is nothing. Either way the steps below are
 the whole of it.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 1. If `$ARGUMENTS`, ignoring surrounding whitespace, is empty, run exactly `brigade whoami`. For anything else,
    say that this skill takes no arguments, and stop: never a flag the user did not ask for, never `--json`, never
    a second command.

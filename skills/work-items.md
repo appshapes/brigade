@@ -22,7 +22,9 @@ team's board" or "the board". A team that turned its board on keeps its work in 
 lists, in a folder file sync shares with every teammate's machine whatever repository their session is in.
 `$ARGUMENTS` is what came after {{argsOf "work-items"}}: typed by the user, or passed by you when you loaded this skill to show the board: a
 word only when the user asked for what it does, otherwise nothing. Either way the steps below are the whole of it.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 1. Build the command from `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Run exactly |

@@ -22,6 +22,10 @@ the user can check it. Change nothing: no assign, move, comment, tag, doing line
 One `brigade` command per call. The board is the team's **Brigade Board**; its commands are in
 `brigade:work-item`.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/work-item-next/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 ## 1. The arguments
 
 - `tag <tag>`: only the work items carrying that tag are candidates, a tag as the board's `TAGS` column shows it.

@@ -21,6 +21,7 @@ each harness loads its own; none is edited by hand any more, and a gate fails on
   | `{{argsOf "join"}}` | what a skill's arguments came after: "the command name, `/brigade:join`" in Claude Code, "the skill's name, `brigade:join`" in Muse Code, the invocation alone in the other two |
   | `{{argsOfCommand "join"}}` | the same where Claude Code's text names no invocation: "the command name" in Claude Code and Muse Code |
   | `{{say "claude" "…" "*" "…"}}` | a few words that differ by harness; every harness must have words |
+  | `{{commandAt "join"}}` | the sentence that says where `brigade` is, in the three packages whose host does not put it on PATH (work item 425) |
   | `{{if in "muse" "codex"}}…{{end}}`, `{{if notin "claude"}}…{{end}}` | a block one or more harnesses alone have |
 
 - **The frontmatter** is the source's, with the keys a harness does not take left out: Claude Code takes
@@ -77,6 +78,10 @@ A change of what a skill tells a model is not this work item's.
      harness's own commands. The hand-written copies had the same words. One sentence in a
      block of each source would carry it to the three packages; what it must say in Grok Build, where the
      `Brigade:` line reaches the user and not the model, needs a session to settle. Its own work item.
+     **It is work item 425**, built 2026-11-23: the mark `commandAt` in those ten sources and, for Grok Build
+     alone, in `join` and `move`. A live Grok Build session showed what settles the wording: a typed skill
+     gives the model the skill's file by its absolute path, and nothing names the binary before the first turn
+     ends, so the sentence says where the command is from the skill's own file.
    - **Codex CLI and a changed package.** The start in which Codex fetched the changed copies asked nothing
      and ran no hook of Brigade's ("Hook failed: plugin contents changed; hook approval required"); the start
      after it asked to review the three hooks. So the inference of work item 381 holds, that Codex's trust

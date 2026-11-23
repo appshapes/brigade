@@ -17,10 +17,11 @@ passed by you when they asked in words and you loaded this skill — the path ex
 if they named none. The path is always **theirs**: never one you chose, guessed or wrote.
 
 1. If `$ARGUMENTS` is non-empty, run exactly `brigade team join --secret-file "<that path>"` — the path quoted, one
-   {{say "claude" "Bash" "*" "shell"}} call. If it is empty, run exactly `brigade team join`.{{if notin "claude"}} `brigade` here is the command the `Brigade:` line
+   {{say "claude" "Bash" "*" "shell"}} call. If it is empty, run exactly `brigade team join`.{{if in "muse" "codex"}} `brigade` here is the command the `Brigade:` line
    of this session named: the bare word when it is on your PATH, else the bootstrap's path that line gave (the
    `not joined` line names it in its `run …` clause).{{end}} Nothing else: never read the file, never print or ask
-   for its contents, never choose or guess a path, never retry with a different one.
+   for its contents, never choose or guess a path, never retry with a different one.{{if in "grok"}}
+   {{commandAt "   "}}{{end}}
 2. Relay the command's output as it is. On success it names the team and says when this session attaches — at the
    next prompt, or, for a session already attached to another team, in a new session{{if in "claude"}} or in this one once it is
    exited and resumed (`/reload-plugins` does not move it){{end}}; repeat that to the

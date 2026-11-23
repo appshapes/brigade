@@ -22,7 +22,9 @@ team's board" or "the board". A team that turned its board on keeps its work in 
 description, a list, an assignee, tags and comments. The board is a folder on this machine that file sync
 shares with every teammate's machine, whatever repository their session is in. `brigade work-item` reads and
 writes that folder: nothing goes to the backend, and the board works while the backend does not.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 ## The commands
 
 Run each through your terminal tool, **one `brigade` command per call**; the pipe that puts a description back

@@ -18,6 +18,10 @@ session's roster line, and a standing instruction to you for the rest of the con
 came after `$brigade:quiet`: typed by the user, or passed by you when they asked in
 words and you loaded this skill.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/quiet/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Meaning |

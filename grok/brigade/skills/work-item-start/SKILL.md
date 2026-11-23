@@ -22,6 +22,10 @@ Board** of work items; its commands and rules are in `brigade:work-item`. One `b
 reviewed, landed or called finished, they govern the steps below. Once the approach is agreed, carry the work
 through to the list for finished work, and go back to your user only where their input is needed.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/work-item-start/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 1. **Read it.** Run `brigade work-item show <number>`. A refusal is final: print it and stop. A closed work
    item, or one assigned to another member, is not yours to take without a word: say what you found and ask
    your user whether to go on. A `was <number>:` line before it means another work item had that number too

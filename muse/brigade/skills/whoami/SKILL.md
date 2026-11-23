@@ -15,6 +15,10 @@ user-invocable: true
 when you loaded this skill to show who this session is, which is nothing. Either way the steps below are
 the whole of it.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/whoami/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 1. If `$ARGUMENTS`, ignoring surrounding whitespace, is empty, run exactly `brigade whoami`. For anything else,
    say that this skill takes no arguments, and stop: never a flag the user did not ask for, never `--json`, never
    a second command.

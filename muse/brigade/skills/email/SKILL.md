@@ -19,6 +19,10 @@ what it is sent and carries what people write back. This skill sends one message
 came after the command name: typed by the user through the `email` skill (`brigade:email`), or passed by you when they asked in
 words and you loaded this skill — their address and their words, never ones you chose.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/email/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Meaning |

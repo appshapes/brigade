@@ -14,6 +14,10 @@ description: >-
 you when you loaded this skill to show the roster — a flag only when the user asked for what it does, otherwise
 nothing. Either way the steps below are the whole of it.
 
+Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+`<package>/skills/sessions/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+where your PATH has it.
+
 1. Build the command from `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 
    | `$ARGUMENTS` | Run exactly |

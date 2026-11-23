@@ -60,11 +60,6 @@ on 2026-11-23, on the build that follows 0.57.0: 51 seconds).
 - **Only a direct TUI.** Leader mode is refused, for a measured reason. In Grok Build 1.0.92 a plain `grok` is
   a direct TUI already (measured 2026-11-23; its guide names `--leader` and `use_leader = true` as what turns
   leader mode on), and `grok --no-leader` makes sure of it.
-- **A skill you type can fail with `command not found: brigade`.** The skills that run one command
-  (`/brigade:whoami`, `/brigade:sessions` and the like) name a bare `brigade`, which Grok Build does not put on
-  the PATH of the model's shell. In the live sessions of 2026-11-23 `/brigade:whoami` ran the package's
-  `bin/brigade` by its path once and the bare word twice, which failed. Ask in words instead ("run whoami
-  through the Brigade package's `bin/brigade`").
 - **Nothing is received before the monitor is armed.** The session asks to arm it after its first completed
   turn, and you approve that one command. Refused or failed, messages wait until you ask for it again.
 - **A message is read in pages**, one tool call each, so an answer takes longer than in the other harnesses.

@@ -13,7 +13,11 @@ description: >-
 1. The package is installed from the `brigade` marketplace (`grok plugin marketplace add appshapes/brigade`,
    then `grok plugin install brigade --trust`), so updating is refreshing the marketplace's snapshot and
    updating the plugin from it. Where `brigade whoami` prints `strict: on` (the member's option `grok_strict`),
-   do this only when the user requests the update. Run
+   do this only when the user requests the update.
+   Here `brigade` is this package's own command, run by its absolute path. This skill's file is
+   `<package>/skills/update/SKILL.md`, and the command is `<package>/bin/brigade`. The bare word works only
+   where your PATH has it.
+   Run
    `grok plugin marketplace update brigade`, then `grok plugin update brigade`, one command per terminal call,
    and relay each output: the second prints the version it left and the one it reached (`updated (0.57.0 →
    0.58.0)`). Stop on a refusal. Do not edit host configuration or trust stores.

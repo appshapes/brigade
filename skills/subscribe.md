@@ -19,7 +19,9 @@ In a project whose `.brigade.json` names a state folder, the team's own sessions
 decisions waiting on a person and the contributions since the last one — and send it to everyone who opted in,
 each by their own precedence. The subscription is your user's own act from this session. `$ARGUMENTS` is what
 came after {{argsOf "subscribe"}}: typed by the user, or passed by you when they asked in words and you loaded this skill.
-
+{{if notin "claude"}}
+{{commandAt}}
+{{end}}
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms, and the flags combine:
 
    | `$ARGUMENTS` | Meaning |
