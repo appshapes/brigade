@@ -50,9 +50,12 @@ A change of what a skill tells a model is not this work item's.
    the check in CI's `fast` job and, as `TestCopiesAreCurrent`, in `make test`; `make muse-digest`; ADR 0024;
    `docs/developer/change/skills.md`. The interim tests are gone: the check holds the copies now. This is the one
    change of the four packages.
-4. **The rule files' sentence** on how a skill is changed: waits for work item 395, which is rewriting those
-   files, to land; then one sentence in `docs/agent/repository/conventions.md` or where 395 puts skills.
-5. **Each harness loads its skills once in a live session**: waits on the owner's word on live sessions.
+   Done: 55a64a1f (merge 41ba249a).
+4. **The rule files' sentence** on how a skill is changed: one sentence in the "Skills of this repository"
+   bullet of `docs/agent/repository/conventions.md`. Work item 395 changed nothing in those files, so it did not
+   have to be waited for. Done in this part.
+5. **Each harness loads its skills once in a live session**: waits on the owner's word on live sessions. It is
+   the one thing 393 is still in Doing for.
 
 ### The fifteen sources
 
