@@ -18,7 +18,7 @@
 #       workflow up to that day `macos` failed four times -- three beside `fast` on the same change, and once
 #       alone (run 33684780907: a timing race in a platform-neutral test of the Supabase adapter, fixed in the
 #       test) -- and `reproducibility` never failed. A person's commit has already passed `make push`
-#       (typecheck, pull, build, test with -race) on the developer's machine, a Mac today, before it reaches
+#       (typecheck, pull, lint, build, test with -race) on the developer's machine, a Mac today, before it reaches
 #       origin, and `make release` goes through the same chain; `fast` still cross-compiles both darwin targets
 #       (`make checksums-check`) and `lint` still loads the tree with GOOS=darwin. What is given up: a pull
 #       request written off a Mac (the agentic loop's, a dependency bump) meets macOS at the next `make push`

@@ -3,6 +3,12 @@ version: "2"
 run:
   timeout: 5m
   tests: true
+  # Wait for another golangci-lint on this machine and never refuse over it (work item 423). The default takes a
+  # machine-wide lock and gives up after five seconds with "parallel golangci-lint is running": measured with one
+  # `make lint` in each of two checkouts, the second exited 2 on a tree with no fault. `make push` lints since
+  # that work item, and several sessions push and run the gate from several checkouts of one machine, so a
+  # refusal would stop a push for nothing. Still one run at a time: this waits, it does not run them side by side.
+  allow-serial-runners: true
   # NO build-tags here, deliberately. Plan 7.3 listed the three mutant tags so "the mutant files are still vetted
   # and linted", but setting all three AT ONCE excludes every `//go:build !mutant_*` twin from the build
   # golangci-lint sees -- the REAL ack, list and send implementations were never linted at all (measured in P1-5:

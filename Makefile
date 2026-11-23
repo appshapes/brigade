@@ -813,8 +813,12 @@ functions-check: ## Format-check, type-check and unit-test supabase/functions/ w
 pull: ## Merge origin into the current branch (plain merge — never rebase; no editor)
 	git pull --no-edit
 
+# lint is in the chain since work item 423 (the owner's ruling of 2026-11-23): twice a push that had passed the
+# chain turned master red in CI's `lint` job (77579966, e3e07811). It runs after the pull, so that what is linted
+# is the merged tree, the one that is pushed, and before build and test, so that a fault stops the push in seconds
+# and not after the suite. Nothing is staged before every prerequisite has passed.
 .PHONY: commit
-commit: typecheck pull build test ## Typecheck, pull, build, test, stage, commit (usage: make commit message="...")
+commit: typecheck pull lint build test ## Typecheck, pull, lint, build, test, stage, commit (usage: make commit message="...")
 	git add --verbose :/ .
 	git commit -m "$(message)"
 

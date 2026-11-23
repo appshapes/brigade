@@ -73,6 +73,8 @@ func newRepo(t *testing.T) *repo {
 	r.stubGo("go" + goLine)
 	r.stubMake()
 	r.stubGoreleaser(false)
+	// The linter step 4's `make push` runs (work item 423): the script only holds that it is there.
+	r.write("bin/golangci-lint", "#!/bin/sh\nexit 0\n", 0o700)
 	// The CI check of work item 399 asks `gh`: a stand-in that says the run is green, so that no test here
 	// asks GitHub (release_prep_ci_test.go has the cases that give it other answers).
 	r.stubGh(ciGreen)
@@ -398,6 +400,21 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r := newRepo(t)
 		r.remove("bin/goreleaser")
 		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0"), "make setup-goreleaser")
+	})
+
+	// Step 4's `make push` lints (work item 423): without the linter the run must stop here, with nothing
+	// changed, and not at step 4 with the pins written.
+	t.Run("an absent linter is refused before anything is changed", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.remove("bin/golangci-lint")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0"), "make setup-lint")
+		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
+			t.Fatalf("VERSION was bumped despite the refusal: %q", got)
+		}
+		if _, err := os.Stat(filepath.Join(r.root, "make.log")); err == nil {
+			t.Fatalf("make ran despite the refusal:\n%s", r.read("make.log"))
+		}
 	})
 
 	t.Run("a version with no changelog section is refused", func(t *testing.T) {

@@ -14,7 +14,7 @@
 ## Run the gate
 
 1. `make typecheck lint build test vuln deps-check schema-check tidy-check docs-check`.
-2. `make push` runs typecheck, pull, build and test before it commits; CI's `fast` and `lint` jobs run the rest.
+2. `make push` runs typecheck, pull, lint, build and test before it commits; CI's `fast` job runs the rest.
 
 Details: [Run the gate](gates.md).
 

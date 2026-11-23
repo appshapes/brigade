@@ -43,8 +43,8 @@
   pull. The agentic loop's agents are not sessions and have nobody to ask: on a runner a conflict is still handed
   back in a pull request comment (`.claude/agents/developer.md`).
 - **Commit messages** are `<work item>: <Imperative summary>`, the number being the work item's on the team's
-  Brigade Board. Commit and push through `make push message="<work item>: …"` (typecheck, pull, build, test,
-  stage every working-tree change, commit, push) or the `/commit <work item>` skill, which is a port of it.
+  Brigade Board. Commit and push through `make push message="<work item>: …"` (typecheck, pull, lint, build,
+  test, stage every working-tree change, commit, push) or the `/commit <work item>` skill, which is a port of it.
   `make push` stages everything in the checkout, including another session's edits: check `git status` first in
   a shared checkout. The agentic loop's runner has no board (2026-11-13, work item 265): a pull request's number
   is the work item's that its issue's title names (`<number>: <title>`), never read from the board there and
