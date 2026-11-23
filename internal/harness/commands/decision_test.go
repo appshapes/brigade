@@ -350,11 +350,11 @@ func TestDecisionClose(t *testing.T) {
 // holds, and another member's decision stays refused.
 func TestDecisionCloseAcrossTheMembersTwoLabels(t *testing.T) {
 	t.Parallel()
-	const held = "alice-of-ops"
+	const held = heldLabel
 	f := newFixture(t)
 	folder := f.withStateFolder(t)
 	f.seedEntry(t, folder) // its member is alice@example.com, the former label
-	writeBinding(t, f, held, time.Time{})
+	writeHeldLabel(t, f)
 	theirs := state.Store{StateDir: t.TempDir(), Folder: folder}
 	for id, member := range map[string]string{"d-20260901-aaaaaa": "alice@example.com", "d-20260901-dddddd": held, "d-20260901-bbbbbb": "bob@example.com"} {
 		d := &state.Decision{Version: state.Version, ID: id, Question: "Which?", Member: member, SessionName: "other", SessionID: "other-sess-" + id, CreatedAt: fixtureNow.Add(-time.Hour)}
@@ -385,7 +385,7 @@ func TestDecisionCloseAcrossTheMembersTwoLabels(t *testing.T) {
 	if err := g.stateStore(gfolder).Save(e); err != nil {
 		t.Fatal(err)
 	}
-	writeBinding(t, g, held, time.Time{})
+	writeHeldLabel(t, g)
 	stray := &state.Decision{Version: state.Version, ID: "d-20260901-eeeeee", Question: "Which?", Member: "alice@example.com", SessionName: "other", SessionID: "other-sess", CreatedAt: fixtureNow.Add(-time.Hour)}
 	if err := (state.Store{StateDir: t.TempDir(), Folder: gfolder}).SaveDecision(stray); err != nil {
 		t.Fatal(err)

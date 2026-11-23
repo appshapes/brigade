@@ -487,13 +487,13 @@ func TestReportSendFansOut(t *testing.T) {
 // `unsubscribe` removes one made under either.
 func TestReportSubscribeIsUnderTheLabelTheTeamHolds(t *testing.T) {
 	t.Parallel()
-	const held = "alice-of-ops"
+	const held = heldLabel
 	t.Run("subscribe replaces the former entry", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)
 		folder := f.withStateFolder(t)
 		f.seedEntry(t, folder) // its member is alice@example.com, as an entry from before the fix
-		writeBinding(t, f, held, time.Time{})
+		writeHeldLabel(t, f)
 		former := `{"version":2,"subscribers":[{"label":"bob@example.com","recipients":["@bob"]},{"label":"alice@example.com","recipients":["@alice-old"]}]}`
 		if err := os.WriteFile(state.ReportsPath(folder), []byte(former), 0o600); err != nil {
 			t.Fatal(err)
@@ -518,7 +518,7 @@ func TestReportSubscribeIsUnderTheLabelTheTeamHolds(t *testing.T) {
 		f := newFixture(t)
 		folder := f.withStateFolder(t)
 		f.seedEntry(t, folder)
-		writeBinding(t, f, held, time.Time{})
+		writeHeldLabel(t, f)
 		former := `{"version":2,"subscribers":[{"label":"bob@example.com","recipients":["@bob"]},{"label":"alice@example.com","recipients":["@alice-old"]}]}`
 		if err := os.WriteFile(state.ReportsPath(folder), []byte(former), 0o600); err != nil {
 			t.Fatal(err)

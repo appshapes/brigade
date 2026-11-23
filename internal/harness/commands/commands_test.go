@@ -588,3 +588,19 @@ func TestReadOnlyHomeStillListsAndSends(t *testing.T) {
 		t.Error("a logs directory was created under a read-only state dir")
 	}
 }
+
+// heldLabel is the label a member joined with through `--label`, which is
+// not the address their session's Claude account has (work item 414).
+const heldLabel = "alice-of-ops"
+
+// writeHeldLabel writes the fixture team's team.json as a join with
+// `--label` leaves it: the membership carries heldLabel.
+func writeHeldLabel(t *testing.T, f *fixture) {
+	t.Helper()
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, fixtureProfile, &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "supabase", TeamRef: "t_1", TeamName: fixtureTeamName,
+		PrincipalRef: "p_1", HumanLabel: heldLabel,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
