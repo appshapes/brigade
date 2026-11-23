@@ -58,17 +58,19 @@ nothing.
 ## In trial
 
 What is proven: a Muse Code session registers, and once its monitor is armed a team message wakes it and it
-answers (Muse Code 1.4.25 on macOS arm64, 2026-11-22: the reply was stored 5 seconds after the send).
+answers (Muse Code 1.4.25 on macOS arm64, 2026-11-22: the reply was stored 5 seconds after the send; again on
+2026-11-23, on the build that follows 0.57.0: 13 seconds).
 
 What may not work for you yet:
 
 - **Receiving depends on the model.** A Muse session takes messages only after its model has armed a monitor,
-  which a line in the session's context asks it to do. In the live session of 2026-11-22 the model did not do it
-  after a plain first prompt, and the session was a mailbox until it was asked. If a message you expect does not
-  arrive, tell the session to do what its session-start context asks.
-- **Two faults of that session are fixed and not yet seen fixed.** The arming line led the model to a command
-  that failed once, and a reminder named a command the session's shell does not have. Both are corrected since
-  0.57.0; no live Muse Code session has run the correction yet.
+  which a line in the session's context asks it to do. In the live sessions of 2026-11-22 and 2026-11-23 the
+  model did not do it after a plain first prompt, and the session was a mailbox until it was asked. If a message
+  you expect does not arrive, tell the session to do what its session-start context asks.
+- **Two faults of the first of those sessions are fixed after 0.57.0, and were seen fixed on 2026-11-23.** The
+  arming line had led the model to a command that failed once, and a reminder had named a command the session's
+  shell does not have. In the second session, once the model was asked, its arming command succeeded at the
+  first attempt, and the session set its doing line by the path the reminder names.
 - **One platform.** The measurements are on macOS arm64. Linux was measured once, on an earlier Muse Code and
   with no model.
 - **An update is a removal and an install**, and the hooks are approved again each time
