@@ -11,6 +11,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 **Who must act**
 
+- **Team Member:** nothing.
+- **Team Admin:** nothing.
+- **Project Owner:** nothing.
+
+## [0.59.0] — 2026-11-23
+
+**Who must act**
+
 - **Team Member:** on Codex CLI: once Codex has fetched the changed
   package it runs none of Brigade's hooks until you review them again.
   The start that fetches it may only show `Hook failed: plugin contents
