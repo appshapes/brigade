@@ -381,6 +381,141 @@ func TestTeamAdminVerbsPassThroughOutsideSession(t *testing.T) {
 	}
 }
 
+// A backend answers one `unauthorized`, "not an active member of this team",
+// to every caller that may not administer a team, an active member who is
+// not its administrator included (work item 321). The envelope and the exit
+// status stay the adapter's; the harness adds one line on stderr, the same
+// whoever the caller is, after each of the three verbs that are passed
+// through. Any other answer gets no such line.
+func TestAnAdministrationVerbAnsweredUnauthorizedSaysWhyTheAnswerReadsSo(t *testing.T) {
+	t.Parallel()
+	refusal := fakeadapter.Response{Error: &protocol.ErrorObject{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}}
+	for _, tc := range []struct {
+		verb string
+		args []string
+	}{
+		{"transfer", []string{"--team", "t_bob", "--principal", "p-x"}},
+		{"revoke-member", []string{"--team", "t_bob", "--principal", "p-x"}},
+		{"rotate-secret", []string{"--team", "t_bob", "--secret-file", "/tmp/r.secret"}},
+	} {
+		for name, answer := range map[string]struct {
+			response fakeadapter.Response
+			exit     int
+			said     bool
+		}{
+			"unauthorized": {refusal, protocol.CodeUnauthorized.Exit(), true},
+			"unauthorized in an adapter's own words": {
+				fakeadapter.Response{Error: &protocol.ErrorObject{Code: protocol.CodeUnauthorized, Message: "only the team's creator may"}},
+				protocol.CodeUnauthorized.Exit(), false,
+			},
+			"another refusal": {fakeadapter.Response{Error: &protocol.ErrorObject{Code: protocol.CodeNotFound, Message: "no such principal"}}, protocol.CodeNotFound.Exit(), false},
+			"done":            {fakeadapter.Response{Result: []byte(`{"team_ref":"t_bob"}`)}, 0, false},
+		} {
+			t.Run(tc.verb+"/"+name, func(t *testing.T) {
+				t.Parallel()
+				f, _ := passThroughFixture(t, fakeadapter.Script{Responses: map[string][]fakeadapter.Response{"team " + tc.verb: {answer.response}}})
+				iv := f.inv(f.terminalEnv(), "", append([]string{tc.verb}, tc.args...)...)
+				iv.Deps.Getwd = func() (string, error) { return f.dirs.Root, nil }
+				err := Team(iv)
+				var es ExitStatus
+				switch {
+				case answer.exit == 0 && err != nil:
+					t.Fatalf("team %s: %v", tc.verb, err)
+				case answer.exit != 0 && (!errorsAs(err, &es) || int(es) != answer.exit):
+					t.Fatalf("team %s err = %v, want ExitStatus %d", tc.verb, err, answer.exit)
+				}
+				if said := strings.Contains(f.errb.String(), adminRefusalLine(tc.verb)); said != answer.said {
+					t.Errorf("the line was said: %v, want %v\nstderr: %s", said, answer.said, f.errb.String())
+				}
+				// What the adapter wrote is what the caller reads, and no word of the line is in it.
+				if strings.Contains(f.out.String(), "administrator") || (answer.said && !strings.Contains(f.out.String(), `"message":"`+notAMemberWords+`"`)) {
+					t.Errorf("stdout is not the adapter's envelope alone: %q", f.out.String())
+				}
+			})
+		}
+	}
+}
+
+func TestRefusedUnauthorizedReadsOneFailingEnvelope(t *testing.T) {
+	t.Parallel()
+	const refused = `"error":{"code":"unauthorized","message":"not an active member of this team"}`
+	for envelope, want := range map[string]bool{
+		`{"ok":false,"protocol_version":"1",` + refused + `}`: true,
+		"  {\"ok\":false," + refused + "}\n":                  true,
+		// An adapter's own words say who may act, and are left alone.
+		`{"ok":false,"error":{"code":"unauthorized","message":"only the team's creator may"}}`:       false,
+		`{"ok":false,"error":{"code":"unauthorized"}}`:                                               false,
+		`{"ok":false,"error":{"code":"not_found","message":"not an active member of this team"}}`:    false,
+		`{"ok":true,"result":{"code":"unauthorized","message":"not an active member of this team"}}`: false,
+		`{"ok":true,` + refused + `}`: false,
+		`{` + refused + `}`:           false,
+		`unauthorized`:                false,
+		``:                            false,
+	} {
+		if got := refusedUnauthorized([]byte(envelope)); got != want {
+			t.Errorf("refusedUnauthorized(%q) = %v, want %v", envelope, got, want)
+		}
+	}
+}
+
+// A profile that names no backend takes the verbs' other path, and the line is said there too.
+func TestAnAdministrationVerbOnAProfileWithNoBackendSaysTheLineToo(t *testing.T) {
+	t.Parallel()
+	f, _ := passThroughFixture(t, fakeadapter.Script{Responses: map[string][]fakeadapter.Response{
+		"team revoke-member": {{Error: &protocol.ErrorObject{Code: protocol.CodeUnauthorized, Message: notAMemberWords}}},
+	}})
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "bare", &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "fake", TeamRef: "t_bare", TeamName: "bareteam",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	iv := f.inv(f.terminalEnv(), "", "revoke-member", "--team", "bareteam", "--principal", "p-x")
+	iv.Deps.Getwd = func() (string, error) { return f.dirs.Root, nil }
+	var es ExitStatus
+	if err := Team(iv); !errorsAs(err, &es) || int(es) != protocol.CodeUnauthorized.Exit() {
+		t.Fatalf("team revoke-member err = %v, want ExitStatus 5", err)
+	}
+	if strings.Contains(f.errb.String(), "acts on team") {
+		t.Fatalf("the profile names a backend after all, and this is the other path: %s", f.errb.String())
+	}
+	if !strings.Contains(f.errb.String(), adminRefusalLine("revoke-member")) || !strings.Contains(f.out.String(), `"unauthorized"`) {
+		t.Errorf("stdout %q\nstderr %q", f.out.String(), f.errb.String())
+	}
+}
+
+// The sentence is added to a refusal the harness reports itself, once, and
+// to nothing else: not to another code, and not to a refusal that already
+// carries the harness's own reason.
+func TestAdminRefusedAddsTheSentenceToABackendsUnauthorizedAlone(t *testing.T) {
+	t.Parallel()
+	bare := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+	got := protoErr(t, adminRefused(bare))
+	if got.Message != "not an active member of this team. "+adminRefusalSentence || got.Code != protocol.CodeUnauthorized {
+		t.Errorf("the refusal reads %q", got.Message)
+	}
+	if bare.Message != "not an active member of this team" {
+		t.Errorf("the backend's own error was changed: %q", bare.Message)
+	}
+	reasoned := onlyTheOwner("s.example.test", "move it", "")
+	other := &protocol.Error{Code: protocol.CodeNotFound, Message: notAMemberWords}
+	ownWords := &protocol.Error{Code: protocol.CodeUnauthorized, Message: "only the team's creator may"}
+	for _, same := range []error{reasoned, other, ownWords, errors.New("not an envelope"), nil} {
+		if after := adminRefused(same); after != same {
+			t.Errorf("adminRefused changed %v into %v", same, after)
+		}
+	}
+	// The sentence says nothing of the caller: it is one text, and it names the answer's other cause, a
+	// principal the backend does not know, which is the administrator's own slip.
+	if !strings.Contains(adminRefusalSentence, "a principal it does not know") {
+		t.Errorf("the sentence does not name the administrator's own cause: %s", adminRefusalSentence)
+	}
+	for _, never := range []string{"you are", "you're", "your", "Only the administrator"} {
+		if strings.Contains(adminRefusalSentence, never) {
+			t.Errorf("the sentence speaks of the caller (%q): %s", never, adminRefusalSentence)
+		}
+	}
+}
+
 // errorsAs is errors.As with the call-site noise folded away (moved here
 // from the deleted profile_test.go).
 func errorsAs[T error](err error, target *T) bool { return errors.As(err, target) }

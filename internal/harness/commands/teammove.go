@@ -362,7 +362,9 @@ func (inv Invocation) recordMove(t *target, source *adapterkit.Profile, f *teamf
 				// refused again for as long as this member is not that owner:
 				// the stop ends with what the refusal tells them to do (work
 				// item 341).
-				if perr.Details["reason"] != reasonNotTheCreator {
+				// The same holds of any `unauthorized`: the same command gets the
+				// same answer (work item 321).
+				if perr.Details["reason"] != reasonNotTheCreator && perr.Code != protocol.CodeUnauthorized {
 					out.Message += ". Run the same command again"
 				}
 				return &out
@@ -574,15 +576,18 @@ func checkTicketFileOutside(ticketFile, top string) error {
 // is an active member, and the refusal is that only the team's owner there
 // may, in the words the one command has for it (cannotRecord). Where the
 // read is refused too, or is not answered, the server's own words stand,
-// and so do another backend's. does is what was refused, and undone the
+// and so do another backend's, each followed by why the uniform words read
+// as they do (adminRefused, work item 321). does is what was refused, and undone the
 // sentence that says what came of it, "" for none.
 func (inv Invocation) ownerOnly(t *target, source *adapterkit.Profile, err error, does, undone string) error {
 	var perr *protocol.Error
 	if source.Adapter != config.BundledRestName || !errors.As(err, &perr) || perr.Code != protocol.CodeUnauthorized {
-		return err
+		// Another backend's refusal, of which no more can be read: its own
+		// words, and after them why they read so (work item 321).
+		return adminRefused(err)
 	}
 	if _, keeps, rerr := inv.recordOn(t); rerr != nil || !keeps {
-		return err
+		return adminRefused(err)
 	}
 	return onlyTheOwner(attrLine(hostOf(source.URL)), does, undone)
 }

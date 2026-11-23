@@ -182,6 +182,23 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `docs/webhook-gateway.md` has the table. Build the gateway again
   (`make build-webhook-gateway`) to get it.
 
+- **A refused administration command says why its answer reads as it
+  does** (work item 321). `brigade team rotate-secret`, `brigade team
+  revoke-member`, `brigade team transfer` and the record of a move are
+  the administrator's alone, and a backend answers everyone else
+  `unauthorized`, "not an active member of this team": a member of the
+  team too, of whom the words are untrue. The answer is one for all on
+  purpose, so that a refusal tells nobody whether a team exists or who
+  administers it, and nothing on the wire changes. Brigade now adds a
+  line of its own after it, the same whoever asked: that this is the
+  one answer a backend gives everyone but the administrator, and the
+  administrator for a principal it does not know; who the
+  administrator is; and that `brigade team members` still answers a
+  member
+  ([Know where the authority lives](docs/team-admin/members/where-the-authority-lives.md#when-a-member-who-is-not-the-administrator-runs-one-of-its-commands)).
+  The envelope on stdout and the exit status are the adapter's, as
+  before.
+
 ### Fixed
 
 - **Two identical short replies inside a minute are both sent** (work

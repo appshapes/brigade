@@ -702,6 +702,8 @@ func TestTheCommandsTheRecordsFormPrintsNameOneBackendWhereAHostNamesTwo(t *test
 // it says that only the team's owner there clears or records, in the words
 // the one command has. Where the read is refused too, or is not answered,
 // the server's own words stand; and another backend's refusal is its own.
+// After a backend's own words comes the harness's sentence on why they read
+// so (work item 321), which says nothing of the caller.
 func TestTheRecordsFormsSayThatOnlyTheOwnerWritesOrClearsARecord(t *testing.T) {
 	t.Parallel()
 	notAMember := failAnswer(protocol.CodeUnauthorized, "not an active member of this team")
@@ -727,8 +729,8 @@ func TestTheRecordsFormsSayThatOnlyTheOwnerWritesOrClearsARecord(t *testing.T) {
 		r = newMoveRig(t, true)
 		r.there.on("team move", notAMember).on("team moved", read)
 		perr = wantCodeErr(t, Team(r.inv(true, "--clear", "--from", r.newHost)), protocol.CodeUnauthorized, "")
-		if perr.Message != "not an active member of this team" {
-			t.Errorf("a clear whose read was %s: %s, want the server's own words", name, perr.Message)
+		if perr.Message != "not an active member of this team. "+adminRefusalSentence {
+			t.Errorf("a clear whose read was %s: %s, want the server's own words and why they read so", name, perr.Message)
 		}
 	}
 
@@ -738,6 +740,14 @@ func TestTheRecordsFormsSayThatOnlyTheOwnerWritesOrClearsARecord(t *testing.T) {
 	perr = wantCodeErr(t, Team(r.inv(true, "--clear")), protocol.CodeUnauthorized, "")
 	if perr.Message != "only the member who created this team records where it went" || reads(r.f.rec) != 0 {
 		t.Errorf("a clear on a backend that is no server: %s; its record was read %d times", perr.Message, reads(r.f.rec))
+	}
+	// The uniform words of such a backend are followed by why they read so, and nothing tells the caller to
+	// run the command again, which would be answered the same.
+	r = newMoveRig(t, true)
+	r.f.rec.on("team move", notAMember)
+	perr = wantCodeErr(t, Team(r.inv(true, "--clear")), protocol.CodeUnauthorized, "")
+	if perr.Message != "not an active member of this team. "+adminRefusalSentence || reads(r.f.rec) != 0 || strings.Contains(perr.Message, "Run the same command again") {
+		t.Errorf("a clear refused in the uniform words on a backend that is no server: %s; its record was read %d times", perr.Message, reads(r.f.rec))
 	}
 
 	// The record itself, on a server the team is leaving.

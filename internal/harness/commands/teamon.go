@@ -230,7 +230,7 @@ func (inv Invocation) teamAdminOn(verb string, raw rawArgs) error {
 		// A profile that names no backend (an empty store, the scripted
 		// path): there is nothing to name, and the adapter's own answer
 		// does the talking.
-		return inv.spawnThrough(t, "team", verb, raw.Rest, nil)
+		return inv.teamAdmin(verb, func(out io.Writer) error { return inv.spawnThroughTo(out, t, "team", verb, raw.Rest, nil) })
 	}
 	said := "brigade: team " + verb + " acts on team \"" + nameLine(binding.TeamName) + "\" (" + sanitizeID(binding.TeamRef) + ") at " + addressLine(backendNameIn(t.configDir, binding.TeamRef, binding.URL))
 	if _, err := io.WriteString(inv.Err, said+"\n"); err != nil {
@@ -244,6 +244,7 @@ func (inv Invocation) teamAdminOn(verb string, raw rawArgs) error {
 	if _, err := inv.Out.Write(withBackend(answered.Bytes(), binding.URL)); err != nil {
 		return err
 	}
+	inv.noteAdminRefusal(verb, answered.Bytes())
 	if exit != 0 {
 		return ExitStatus(exit)
 	}

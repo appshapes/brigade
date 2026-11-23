@@ -32,5 +32,8 @@ brigade team revoke-member --principal <ref> --ban      # also blocks that princ
   you revoke is back within a minute, because it joins again with the secret the server holds for it. One you
   ban stays out until you lift the ban.
 - The response to a hostile teammate who floods the team within the rate limits is this command.
+- Run by a member who is not the administrator, it is answered `unauthorized`, in the words `not an active member
+  of this team`, which the backend gives everyone but the administrator; Brigade adds a line that says so
+  ([Know where the authority lives](where-the-authority-lives.md#when-a-member-who-is-not-the-administrator-runs-one-of-its-commands)).
 
 The security discussion: [docs/security.md, section 9](../../security.md#9-running-a-team-and-losing-the-ability-to).

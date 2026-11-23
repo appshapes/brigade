@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"slices"
 	"strings"
 
@@ -112,6 +114,12 @@ func (inv Invocation) withRaw(raw rawArgs) Invocation {
 // non-nil, runs after the adapter is resolved and before it is spawned
 // (`profile status` prints its harness line there).
 func (inv Invocation) passThrough(group, verb string, raw rawArgs, before func(*target) error) error {
+	return inv.passThroughTo(inv.Out, group, verb, raw, before)
+}
+
+// passThroughTo is passThrough with the adapter's stdout written to out: a
+// caller that reads the answer before it hands it on (teamAdmin).
+func (inv Invocation) passThroughTo(out io.Writer, group, verb string, raw rawArgs, before func(*target) error) error {
 	key := ""
 	if raw.Team != "" {
 		var err error
@@ -133,17 +141,22 @@ func (inv Invocation) passThrough(group, verb string, raw rawArgs, before func(*
 		t.adapter = ad
 		t.client = inv.client(t)
 	}
-	return inv.spawnThrough(t, group, verb, raw.Rest, before)
+	return inv.spawnThroughTo(out, t, group, verb, raw.Rest, before)
 }
 
 // spawnThrough runs the pass-through against an already-resolved target.
 func (inv Invocation) spawnThrough(t *target, group, verb string, rest []string, before func(*target) error) error {
+	return inv.spawnThroughTo(inv.Out, t, group, verb, rest, before)
+}
+
+// spawnThroughTo is spawnThrough with the adapter's stdout written to out.
+func (inv Invocation) spawnThroughTo(out io.Writer, t *target, group, verb string, rest []string, before func(*target) error) error {
 	if before != nil {
 		if err := before(t); err != nil {
 			return err
 		}
 	}
-	exit, err := t.client.PassThrough(context.Background(), group, verb, rest, inv.In, inv.Out, inv.Err)
+	exit, err := t.client.PassThrough(context.Background(), group, verb, rest, inv.In, out, inv.Err)
 	if err != nil {
 		return err
 	}
@@ -151,6 +164,23 @@ func (inv Invocation) spawnThrough(t *target, group, verb string, rest []string,
 		return ExitStatus(exit)
 	}
 	return nil
+}
+
+// teamAdmin passes an administration verb through and reads its answer on
+// the way: the envelope reaches stdout as the adapter wrote it, with its
+// exit status, and an `unauthorized` one is followed on stderr by the
+// harness's own sentence (noteAdminRefusal, work item 321). run is the
+// pass-through, writing the adapter's stdout where it is told.
+func (inv Invocation) teamAdmin(verb string, run func(out io.Writer) error) error {
+	var answered bytes.Buffer
+	err := run(&answered)
+	_, werr := inv.Out.Write(answered.Bytes())
+	inv.noteAdminRefusal(verb, answered.Bytes())
+	if err != nil {
+		// The adapter's own exit status, whatever became of the write.
+		return err
+	}
+	return werr
 }
 
 // verbOf splits the verb off a raw argument vector: the first argument,

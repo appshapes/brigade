@@ -20,6 +20,9 @@ brigade team revoke-member --max-version <secret_version minus one>
   and must be an absolute path, or one that starts with `~/`, outside the repository, and if the file cannot be
   written after the rotation the secret is gone and the only fix is to rotate again.
 - `rotate-secret` runs inside a session or in a terminal; the eviction runs in a terminal.
+- Either one, run by a member who is not the administrator, is answered `unauthorized`, in the words `not an active member
+  of this team`, which the backend gives everyone but the administrator; Brigade adds a line that says so
+  ([Know where the authority lives](where-the-authority-lives.md#when-a-member-who-is-not-the-administrator-runs-one-of-its-commands)).
 - **On a Brigade server that carries the gateways**, a gateway is a member that joined with the old secret, so
   the eviction removes it too. Give the new secret file to whoever runs the server before you evict
   ([Open the gateways](../../project-owner/server/gateways.md#after-the-join-secret-is-rotated)).

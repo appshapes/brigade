@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"io"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -106,6 +107,9 @@ func Team(inv Invocation) error {
 		// The two verbs that change a team say which backend they act on,
 		// and take --on to name one (work item 341; teamon.go).
 		return inv.teamAdminOn(verb, raw)
+	}
+	if verb == "transfer" {
+		return inv.teamAdmin(verb, func(out io.Writer) error { return inv.passThroughTo(out, "team", verb, raw, nil) })
 	}
 	return inv.passThrough("team", verb, raw, nil)
 }
