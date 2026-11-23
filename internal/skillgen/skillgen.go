@@ -23,6 +23,8 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+
+	"github.com/appshapes/brigade/internal/packagecheck"
 )
 
 // SourceDir is where the sources live, relative to the repository's root.
@@ -175,7 +177,19 @@ func Render(root, skill string, h Harness) ([]byte, error) {
 	if err := t.Execute(&out, nil); err != nil {
 		return nil, fmt.Errorf("%s for %s: %w", path, h.ID, err)
 	}
-	return frontmatter(out.String(), h, path)
+	text, err := frontmatter(out.String(), h, path)
+	if err != nil {
+		return nil, err
+	}
+	// A copy whose description a host may refuse is never written: the
+	// package checks hold the same limit on what ships (work item 306), and
+	// here it is said of the source, where it is put right. The marks make
+	// a description as long as the harness's own forms, so each rendering
+	// is counted.
+	if err := packagecheck.DescriptionFits(string(text)); err != nil {
+		return nil, fmt.Errorf("%s for %s: %w", path, h.ID, err)
+	}
+	return text, nil
 }
 
 // frontmatter leaves out of text's frontmatter the keys the harness does
@@ -287,26 +301,37 @@ func Write(root, out string) ([]string, error) {
 	if out == "" {
 		out = root
 	}
+	// Every copy is rendered before one is written: a source that fails for
+	// one harness leaves the packages as they were, not half rewritten.
+	type copyOf struct {
+		rel  string
+		want []byte
+	}
+	var copies []copyOf
+	if err := each(root, func(h Harness, skill string, want []byte) error {
+		copies = append(copies, copyOf{rel: Copy(h, skill), want: want})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 	var changed []string
-	err := each(root, func(h Harness, skill string, want []byte) error {
-		rel := Copy(h, skill)
-		path := filepath.Join(out, rel)
+	for _, c := range copies {
+		path := filepath.Join(out, c.rel)
 		//nolint:gosec // G304: as in Check
-		if got, err := os.ReadFile(path); err == nil && bytes.Equal(got, want) {
-			return nil
+		if got, err := os.ReadFile(path); err == nil && bytes.Equal(got, c.want) {
+			continue
 		}
 		//nolint:gosec // G301: a package's skill directory is an ordinary one
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
+			return changed, err
 		}
 		//nolint:gosec // G306: a skill is a public file of the package
-		if err := os.WriteFile(path, want, 0o644); err != nil {
-			return err
+		if err := os.WriteFile(path, c.want, 0o644); err != nil {
+			return changed, err
 		}
-		changed = append(changed, rel)
-		return nil
-	})
-	return changed, err
+		changed = append(changed, c.rel)
+	}
+	return changed, nil
 }
 
 // each renders every source for every harness.

@@ -3,9 +3,9 @@ name: work-items
 description: >-
   Show the Brigade Board, the team's board of work items: `/brigade:work-items` runs `brigade work-item list` and prints its output
   unchanged: the open work items by list, with who each is assigned to. `/brigade:work-items mine` shows the user's
-  own, `/brigade:work-items nobody` the unassigned, `/brigade:work-items closed` the closed ones, `/brigade:work-items all` every list's (a listing leaves out a list the team hid, and says so), `/brigade:work-items for <member>`
+  own, `/brigade:work-items nobody` the unassigned, `/brigade:work-items closed` the closed ones, `/brigade:work-items all` every list's, `/brigade:work-items for <member>`
   one member's, `/brigade:work-items tag <tag>` one tag's, `/brigade:work-items lists` the board's lists, `/brigade:work-items page` writes the
-  board as one read-only page to open in a browser, and any other words name one list. Use it whenever the board is being SHOWN to the user (they may call it "the Brigade
+  board as one page to open in a browser, and any other words name one list. Use it whenever the board is being SHOWN to the user (they may call it "the Brigade
   Board", "the brigade board" or "the board"), so they see what the command
   printed rather than a retelling of it; reading, adding or changing one work item is `brigade:work-item`, and
   taking one to work on it is `brigade:work-item-start`. A team whose `.brigade.json` does not turn the board

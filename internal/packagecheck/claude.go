@@ -32,8 +32,9 @@ var (
 // bootstrap's mode in git, 3 the version, 4 no MCP server and no channel,
 // 5 exec-form hooks whose commands exist, 6 hook subcommands the binary
 // has, 8 the shells the bootstrap parses under, 9 shellcheck, 10 no skill
-// that declares disable-model-invocation. There is no 7: it was retired on
-// 2026-09-08 (a README's wording is not CI's business).
+// that declares disable-model-invocation, 11 no skill whose description is
+// longer than a loader accepts (work item 306). There is no 7: it was
+// retired on 2026-09-08 (a README's wording is not CI's business).
 func (c *checker) claude() {
 	const (
 		dir        = "plugin"
@@ -224,6 +225,15 @@ func (c *checker) claude() {
 		c.ok("no skill declares disable-model-invocation")
 	} else {
 		c.skip("no skill declares disable-model-invocation")
+	}
+
+	// 11. No skill's description is longer than a loader accepts (work
+	// item 306): DescriptionLimit has the limit and where it is from.
+	if c.isDir("plugin/skills") {
+		c.descriptionsFit(c.glob("plugin/skills/*/SKILL.md"))
+		c.ok("no skill's description is over %d characters", DescriptionLimit)
+	} else {
+		c.skip("no skill's description is over %d characters", DescriptionLimit)
 	}
 	c.say("plugin-check: all checks passed")
 }

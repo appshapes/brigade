@@ -108,6 +108,9 @@ func GrokSource(root string) error {
 		if !strings.Contains(string(data), "\nname: "+name+"\n") || strings.Contains(string(data), "disable-model-invocation:") {
 			return fmt.Errorf("unreachable or misnamed skill %s", name)
 		}
+		if err := DescriptionFits(string(data)); err != nil {
+			return fmt.Errorf("%s/skills/%s/SKILL.md: %w", pkg, name, err)
+		}
 	}
 	data, err := read(pkg + "/.grok-plugin/plugin.json")
 	if err != nil {

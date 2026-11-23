@@ -32,6 +32,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0022. Give each harness a status in the registry](0022-give-each-harness-a-status-in-the-registry.md)
 - [0023. Start a new team on a Brigade server](0023-start-a-new-team-on-a-brigade-server.md)
 - [0024. Write each skill once and generate the four copies](0024-write-each-skill-once-and-generate-the-four-copies.md)
+- [0025. Hold a skill's description to the length a loader accepts](0025-hold-a-skills-description-to-the-length-a-loader-accepts.md)
 
 ## Record a decision
 

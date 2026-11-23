@@ -44,6 +44,7 @@
   job until the next release (`make checksums-check` rule (c)).
 - **Every Brigade skill is reachable by the model.** Never add `disable-model-invocation` to a skill under a
   package's `skills/` (card 28, owner ruling 2026-09-20: the security model is open and team-based, and a skill
-  the model cannot reach cannot help unasked). `make plugin-check` check 10 enforces it and is the one deliberate
-  carve-out from the 2026-09-08 ruling that CI does not police what a skill declares; never remove it on the
-  strength of that ruling.
+  the model cannot reach cannot help unasked). `make plugin-check` check 10 enforces it and is one of two deliberate
+  carve-outs from the 2026-09-08 ruling that CI does not police what a skill declares; never remove either on the
+  strength of that ruling. The second (owner ruling 2026-11-13, work item 306, ADR 0025): a skill's `description`
+  is at most 1,024 characters as a loader reads it, or the four package checks fail.

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/packagecheck"
 	"github.com/appshapes/brigade/internal/skillgen"
 	"github.com/appshapes/brigade/internal/testutil"
 )
@@ -131,6 +132,58 @@ func TestCheckFindsAStaleAndAMissingCopy(t *testing.T) {
 	stale, err = skillgen.Check(root)
 	if err != nil || len(stale) != 1 || stale[0].Path != skillgen.Copy(codex, "byhand") || stale[0].Why != "has no source" {
 		t.Fatalf("a skill with no source: %+v, %v", stale, err)
+	}
+}
+
+// TestADescriptionOverTheLimitIsNotWritten (work item 306): a source whose
+// description is at the limit for the harness with the longest invocation
+// rendering renders for all four; one character more and the generator
+// refuses it, naming the source, the harness and the length, and writes no
+// copy, not even those of the harnesses it fits.
+func TestADescriptionOverTheLimitIsNotWritten(t *testing.T) {
+	t.Parallel()
+	source := func(t *testing.T, filler int) string {
+		t.Helper()
+		root := t.TempDir()
+		// The description is longest in Codex CLI's rendering alone, which
+		// carries two characters the others do not.
+		src := "---\nname: hello\ndescription: >-\n  `{{invoke \"hello\"}}`{{if in \"codex\"}} x{{end}}\n  " + strings.Repeat("a", filler) + "\n---\nbody\n"
+		if err := os.MkdirAll(filepath.Join(root, skillgen.SourceDir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, skillgen.SourceDir, "hello.md"), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return root
+	}
+	// Codex CLI's value is the invocation in backticks, " x", one space and
+	// the filler.
+	atLimit := packagecheck.DescriptionLimit - len("`$brigade:hello` x ")
+	root := source(t, atLimit)
+	if changed, err := skillgen.Write(root, ""); err != nil || len(changed) != len(skillgen.Harnesses) {
+		t.Fatalf("at the limit: %v, %v", changed, err)
+	}
+	root = source(t, atLimit+1)
+	changed, err := skillgen.Write(root, "")
+	if err == nil || !strings.Contains(err.Error(), "hello.md for codex") || !strings.Contains(err.Error(), "1025 characters") {
+		t.Fatalf("one character over: %v, %v", changed, err)
+	}
+	// Claude Code's and Muse Code's renderings fit and come first in the
+	// table: nothing of them was written either.
+	for _, h := range skillgen.Harnesses {
+		if _, err := os.Stat(filepath.Join(root, skillgen.Copy(h, "hello"))); err == nil {
+			t.Errorf("%s's copy was written though the source fails for Codex CLI", h.ID)
+		}
+	}
+	if len(changed) != 0 {
+		t.Errorf("the failed write reports %v", changed)
+	}
+	if _, err := skillgen.Check(root); err == nil {
+		t.Error("the check passed a source whose description is over the limit")
+	}
+	claude, _ := skillgen.ByID("claude")
+	if _, err := skillgen.Render(root, "hello", claude); err != nil {
+		t.Errorf("Claude Code's rendering is under the limit, and each rendering is counted on its own: %v", err)
 	}
 }
 

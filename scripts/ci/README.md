@@ -231,7 +231,9 @@ make checksums-check          # must be green again, with VERSION back at 0.0.0
 
 One check of the four harness packages (work item 382), in Go: what the packages share is written once (the
 allow-list of files, the three assets equal to `plugin/bin`'s, the bootstrap's mode in git, the version the
-manifest declares, the shells the scripts parse under, and that no skill declares `disable-model-invocation`), and
+manifest declares, the shells the scripts parse under, that no skill declares `disable-model-invocation`, and that no skill's
+`description` is over 1,024 characters as a loader reads it, which is the length a host may refuse: work item 306,
+with the limit and each host's source beside `DescriptionLimit` in `description.go`), and
 what a package has of its own is in a file of its own (`claude.go`, `muse.go`, `codex.go`, `grok.go`). It was four
 shell scripts in this directory, and each refusal kept its words and its test: the cases of `checks_test.go`,
 `muse_plugin_check_test.go`, `codex_plugin_check_test.go` and `grok_plugin_check_test.go` run it in process on
@@ -240,7 +242,8 @@ fixture trees. `go run ./cmd/brigade-packages check <harness id>` checks one pac
 lists a harness the check has no rules for.
 
 The plugin's checks keep the numbers the script gave them, which the rule files, `docs/security.md` and the tests
-name them by ("check 9", "check 10"); the comment at the head of `internal/packagecheck/claude.go` lists them.
+name them by ("check 9", "check 10"; the description's length is 11); the comment at the head of
+`internal/packagecheck/claude.go` lists them.
 The check prints no number.
 
 For `plugin/`, the static checks of the shipped plugin tree: the `plugin/` file allowlist, mode `100755` in git for
@@ -590,6 +593,7 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | `fixtures_test.go` | The ignore rules around the fixture trees, and that no compiled Python is tracked. |
 | `muse_plugin_check_test.go` | The Muse Code package check (card 88; `internal/packagecheck`): the Muse Code package's allowlist, native manifest, one wrapper per hook and assets equal to `plugin/bin`'s, a package file git does not track (card 114), and (card 115) the marketplace catalog's shape and version, each proved able to fail. |
 | `muse_digest_test.go` | The Muse catalog's digest (cards 115, 114): the committed `marketplace.json` is what `make muse-digest` writes, the package digest of `muse/brigade/` and its version (`internal/musedigest`, whose own tests pin the digests Muse reported); the Makefile, `release-prep.sh` and `release.yml` still write and verify it and never ask for Muse; and where `muse` is on PATH, Muse installs the package from the catalog in a throwaway root. |
+| `skill_description_test.go` | The description limit of work item 306 (ADR 0025): each of the four package checks passes a skill whose description is 1,024 characters as a loader reads it, written as a folded scalar, and fails one of 1,025, naming the file and the length |
 | `codex_plugin_check_test.go` | The Codex CLI package check (card 107; `internal/packagecheck`): the Codex CLI package's allowlist, native manifest, the three exact hook commands, the marketplace file and assets equal to `plugin/bin`'s, each proved able to fail; the manifest, `hooks/hooks.json` and `.agents/plugins/marketplace.json` parsed as JSON. |
 | `setup_docs_test.go` | The setup copies join: the invocation forms of create, join, leave and reset must read the same in both setup skills and the member's and admin's pages (`docs/team-admin/create/create-the-team.md`, `docs/team-member/join/muse-code.md`, `docs/team-member/join/codex.md`, `docs/team-member/leave/leave-the-team.md`). |
 | `docs_check_test.go` | The documentation gate of card 110 (`internal/docscheck`, `make docs-check`): green on the repository, and every rule proved able to fail against a copy of the tree with one violation planted — the README shape, a three-sentence persona section, a missing `Details:` line, an orphan leaf, a broken link and anchor, an unreachable page, an unindexed experiment, a harness without its pages, an unregistered package, an unlisted skill, an unimported rule file, an undocumented option, a stale make-target page, a stale command page, a command named on no page (card 112), a pinned version with no changelog section, and for the ADRs (work item 309): a bad name, a reused number, a title line of another number, a Proposed or missing Status, a superseding ADR that does not exist, no Decision section, one missing from the index, one the index links outside its list, an index with no list section, a misspelt Corrected entry, one outside the header, no index. The copy is never a repository: a worktree's `.git` file is left out. |

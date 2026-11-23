@@ -178,12 +178,13 @@ func (c *checker) codex() {
 		if c.disablesTheModel(f) {
 			c.die("disable-model-invocation is declared in %s -- Brigade's skills are reachable by the model (card 28)", d+"//SKILL.md")
 		}
+		c.descriptionsFit([]string{f})
 		count++
 	}
 	if count == 0 {
 		c.die("%s/skills/ holds no skill", dir)
 	}
-	c.ok("%d skills, each named after its directory, none declaring disable-model-invocation", count)
+	c.ok("%d skills, each named after its directory, none declaring disable-model-invocation, none with a description over %d characters", count, DescriptionLimit)
 	c.say("codex-plugin-check: all checks passed")
 }
 

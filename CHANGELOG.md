@@ -201,6 +201,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Fixed
 
+- **The `work-items` skill loads in an older Codex CLI again** (work
+  item 306, ADR 0025). The page of the board, added since 0.57.0, took
+  the skill's description to 1,085 characters, and Codex CLI through
+  0.141.0 refuses a skill whose description is over 1,024. No release
+  carried it, but Codex CLI and Grok Build read their package from the
+  default branch: a member on such a Codex CLI was without
+  `$brigade:work-items` from 2026-11-16. The description is 1,019
+  characters now, with nothing a session needs gone: what it said of
+  hidden lists is in the skill's body. The package checks now fail on
+  any skill whose description is over 1,024 characters.
 - **Two identical short replies inside a minute are both sent** (work
   item 392, ADR 0013). A session that answered two messages of one
   sender with the same words, a "Done." to each, inside one minute lost

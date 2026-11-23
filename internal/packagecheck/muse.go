@@ -230,7 +230,8 @@ func (c *checker) muse() {
 	if len(disabled) > 0 {
 		c.die("disable-model-invocation is declared in:%s -- Brigade's skills are reachable by the model (card 28)", strings.Join(disabled, ""))
 	}
-	c.ok("every skill the manifest names exists, once, under its own id; the manifest names every skill; none declares disable-model-invocation")
+	c.descriptionsFit(c.glob(dir + "/skills/*/SKILL.md"))
+	c.ok("every skill the manifest names exists, once, under its own id; the manifest names every skill; none declares disable-model-invocation or has a description over %d characters", DescriptionLimit)
 
 	// 9. The catalog Muse reads first names the package, its version and a
 	// digest of it.

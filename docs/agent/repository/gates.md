@@ -70,7 +70,9 @@
   allowlist, native manifest, one wrapper per hook, assets equal to `plugin/bin`'s; `make codex-plugin-check` for
   `codex/brigade/`: allowlist, native manifest, the three exact hook commands, `.agents/plugins/marketplace.json`,
   assets equal; `make grok-plugin-check` for `grok/brigade/`: allowlist, native manifest, the four exact hook
-  commands, `.grok-plugin/marketplace.json`, assets equal. The four targets are names over one check
+  commands, `.grok-plugin/marketplace.json`, assets equal. Each of the four also fails on a skill whose
+  `description` is over 1,024 characters, the length a host may refuse (work item 306; the limit and its sources
+  are beside `DescriptionLimit` in `internal/packagecheck/description.go`). The four targets are names over one check
   (work item 382): `internal/packagecheck`, run by `go run ./cmd/brigade-packages check <harness id>`, with what the
   packages share written once and each package's own rules in a file of its own. A new harness package gets an entry
   in `docs/harnesses.json`, its rules there (a test fails while the registry lists a harness the check has no rules

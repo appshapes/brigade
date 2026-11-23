@@ -19,6 +19,10 @@ before it touches a package. `make test` runs the same check as `make skills-che
 skill that a package carries and no source renders; the generator never deletes one, so a skill is removed by
 removing its source and its four directories.
 
+A `description` is at most 1,024 characters as a loader reads it, in every harness's rendering: the generator
+refuses a longer one and so do the four package checks
+([ADR 0025](../../decisions/0025-hold-a-skills-description-to-the-length-a-loader-accepts.md)).
+
 ## What a source is
 
 The Claude Code package's text, as a Go `text/template`, with a mark wherever a harness differs:
