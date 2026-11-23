@@ -31,7 +31,9 @@ Details: [Update in Muse Code](muse-code.md).
 ## Update in Codex CLI
 
 1. `codex plugin marketplace upgrade brigade`, then `codex plugin add brigade@brigade`.
-2. Start a new session and type one prompt.
+2. Start a new session. Codex asks to review Brigade's hooks again: choose **Trust all and continue**. If a
+   session shows `Hook failed: plugin contents changed; hook approval required` instead, quit and start again.
+3. Type one prompt.
 
 Details: [Update in Codex CLI](codex.md).
 

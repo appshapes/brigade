@@ -61,11 +61,16 @@ once.)
 ## Known gaps
 
 It works: a message sent to an idle Codex session starts a turn there and is answered (Codex CLI 0.166.0 on macOS
-arm64, 2026-11-22: the reply was stored 14 seconds after the send).
+arm64, 2026-11-22: the reply was stored 14 seconds after the send; again on 2026-11-23, on the build that
+follows 0.57.0: 10 seconds).
 
 - **Codex asks you to review Brigade's hooks again after every update of the package**, and until you trust them
   nothing of Brigade runs: no registration, no message. Its trust covers more of the package than the hooks'
-  own definition (measured 2026-11-22), so any release that changes the package asks again.
+  own definition (measured 2026-11-22), so any release that changes the package asks again. The start in
+  which Codex fetches the changed package may not ask: on 2026-11-23 that start showed `Hook failed: plugin
+  contents changed; hook approval required` at the first prompt and ran no hook of Brigade's, and the start
+  after it asked "Hooks need review". Only the hooks' content hashes change in `config.toml` when you trust
+  them again.
 - **A launch flag can slow delivery to a poll.** `-c`, `--enable`, `--disable`, `--no-daemon` and
   `--dangerously-bypass-hook-trust` put Codex in embedded mode ([Keep Codex in daemon mode](#keep-codex-in-daemon-mode)).
 - **Under the default profile each `brigade` command that reaches the backend asks for your approval**: the

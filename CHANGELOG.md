@@ -24,8 +24,11 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `~/.config/brigade/grok-options.json` before you update ("Grok
   Build: a session registers where Brigade used to refuse it", below;
   [Configure in Grok Build](https://github.com/appshapes/brigade/blob/master/docs/team-member/configure/grok.md)).
-  On Codex CLI: at its next start after the update Codex asks you to
-  review Brigade's hooks again. Choose "Trust all and continue"; until
+  On Codex CLI: once Codex has fetched the changed package it runs
+  none of Brigade's hooks until you review them again. The start that
+  fetches it may only show `Hook failed: plugin contents changed;
+  hook approval required` at your first prompt; the start after it
+  asks "Hooks need review". Choose "Trust all and continue"; until
   you do, nothing of Brigade runs in Codex
   ([Install in Codex CLI](https://github.com/appshapes/brigade/blob/master/docs/team-member/install/codex.md)).
   If you joined a team with `--label` and are subscribed to its

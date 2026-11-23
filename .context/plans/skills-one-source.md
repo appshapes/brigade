@@ -54,8 +54,34 @@ A change of what a skill tells a model is not this work item's.
 4. **The rule files' sentence** on how a skill is changed: one sentence in the "Skills of this repository"
    bullet of `docs/agent/repository/conventions.md`. Work item 395 changed nothing in those files, so it did not
    have to be waited for. Done in this part.
-5. **Each harness loads its skills once in a live session**: waits on the owner's word on live sessions. It is
-   the one thing 393 is still in Doing for.
+5. **Each harness loads its skills once in a live session.** Done on 2026-11-23, on the owner's standing word on
+   live sessions (a comment of that day on work item 249), each in a throwaway home or folder, on the copies
+   `d5cc0324` has:
+   - **Claude Code**, headless, the checkout's `plugin/`: the session's start listed the fifteen skills, and
+     `/brigade:whoami` ran `brigade whoami` and printed what it printed.
+   - **Muse Code 1.4.25**: the catalog at the session's start held the fifteen (`plugin:brigade:<name>`); the
+     model loaded `team-messaging` on a message's arrival and `whoami` when asked for it in words, and ran each
+     command by the bootstrap's path.
+   - **Codex CLI 0.166.0**: `$brigade:whoami` loaded the skill; the model read `team-messaging` on a message's
+     arrival and answered it.
+   - **Grok Build 1.0.92**: the package was the default branch's, file for file the checkout's;
+     `/brigade:whoami` loaded the skill; the model read `team-messaging` to arm its monitor and to read a message.
+
+   Two things these sessions showed that are not the generator's and were not changed:
+   - **A skill that says "run exactly `brigade <verb>`" fails where `brigade` is not on PATH.** Grok Build ran
+     the bare word twice of three times (`command not found: brigade`), Codex CLI once in a session whose hooks
+     had not run, and each used the package's path at other times. The ten skills that run a `brigade` command
+     and say nothing about where it is, in each of the three pointed packages: `whoami`, `sessions`,
+     `work-items`, `work-item`, `work-item-next`, `work-item-start`, `quiet`, `subscribe`, `email` and `slack`.
+     `join` and `move` say it in one sentence, `team-messaging` and `setup` at length; `update` runs the
+     harness's own commands. The hand-written copies had the same words. One sentence in a
+     block of each source would carry it to the three packages; what it must say in Grok Build, where the
+     `Brigade:` line reaches the user and not the model, needs a session to settle. Its own work item.
+   - **Codex CLI and a changed package.** The start in which Codex fetched the changed copies asked nothing
+     and ran no hook of Brigade's ("Hook failed: plugin contents changed; hook approval required"); the start
+     after it asked to review the three hooks. So the inference of work item 381 holds, that Codex's trust
+     covers the package's tree, and the changelog's opening lines and Codex CLI's install page now say how it
+     looks.
 
 ### The fifteen sources
 
