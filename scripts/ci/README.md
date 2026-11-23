@@ -41,9 +41,10 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | Script | Invoked by |
 | --- | --- |
 | `scripts/proof.sh` | `make e2e` → `ci.yml`'s `e2e` job |
-| `scripts/proof-headless.sh` | `make proof` (link 2 of 4) |
-| `scripts/proof-idle-wake.sh` | `make proof` (link 3 of 4) |
-| `scripts/proof-crash-resume.sh` | `make proof` (link 4 of 4) |
+| `scripts/proof-live.sh` | `make proof`, after `make e2e` |
+| `scripts/proof-headless.sh` | nothing since work item 415 (retired); its `judge` subcommand by `make test` |
+| `scripts/proof-idle-wake.sh` | nothing since work item 415 (retired); its `wake` subcommand by `make test` |
+| `scripts/proof-crash-resume.sh` | nothing since work item 415 (retired); its `catchup` subcommand by `make test` |
 | `scripts/harness-smoke.sh` | `make harness-smoke` |
 | `scripts/release-prep.sh` | `make release` |
 | `scripts/release-ci-check.sh` | `scripts/release-prep.sh` (twice: the commit it starts from, and the release commit before the tag) and `scripts/server-tag.sh` (the head, before the tag); by hand before a tag pushed by hand |
@@ -128,17 +129,32 @@ coverage across the process boundary.
 Needs: a running local stack (`make supabase-start supabase-env`), plus `jq`, `perl`, `pgrep` and either
 `sha256sum` or `shasum`. Its constants block is joined to the Go and SQL sources by `proof_test.go`.
 
+## `scripts/proof-live.sh`
+
+The live proof (work item 415): one interactive Claude Code session, started in tmux with this checkout's plugin
+and the built binary, sits idle in a throwaway project whose team is on the fs adapter. A second member's
+session, driven through the real hook, sends it one message, and the idle session answers through `brigade
+send` with no key pressed. The script asserts the registration with an inbox socket, the watcher, the accepted
+message, the reply in the team's store and that the reply names the message. **It spends a few model calls.**
+
+Invoked by `make proof`, after `make e2e`. Never by CI. Needs `make build`, a logged-in `claude`, `tmux`, `jq`
+and `git`; no local stack and no Docker. The evidence goes under `.ignored/proof-live/<UTC stamp>/`.
+
 ## `scripts/proof-headless.sh`
+
+**Retired from `make proof`** (work item 415, 2026-11-22): its live run was written for the store layout of before 2026-09-08 and stops in its provisioning, so it refuses to start. Kept as the driver of its experiment report; the subcommand below still runs.
 
 The headless half of the Phase 4 proof (P4-2): two real `claude -p` sessions against the local stack through the
 bundled adapter, then the P0-1 injection corpus posted into fresh receiving sessions. **It spends real model
 tokens.** `scripts/proof-headless.sh judge <evidence-dir>` re-scores saved artefacts without any model call, and
 that subcommand is what `proof_headless_test.go` exercises in `make test`.
 
-Invoked by `make proof` (link 2 of 4). Never by CI. Needs a logged-in `claude`, a running local stack, `jq`,
-`perl`, `pgrep` and `sha256sum` or `shasum`.
+Was invoked by `make proof` (link 2 of 4) until work item 415. Never by CI. Needed a logged-in `claude`, a
+running local stack, `jq`, `perl`, `pgrep` and `sha256sum` or `shasum`.
 
 ## `scripts/proof-idle-wake.sh`
+
+**Retired from `make proof`** (work item 415, 2026-11-22): its live run was written for the store layout of before 2026-09-08 and stops in its provisioning, so it refuses to start. Kept as the driver of its experiment report; the subcommand below still runs.
 
 The idle half of the Phase 4 proof (P4-3): real `claude -p` sessions that sit idle with stdin held open and are
 woken through the shipped path — `brigade send` → the bundled Supabase adapter → the local stack → the
@@ -146,16 +162,20 @@ receiver's own detached `brigade watch` → socketpost → Claude Code's inbox s
 tokens.** `scripts/proof-idle-wake.sh wake <evidence-dir>` re-scores saved artefacts with no model call, and is
 what `proof_idle_wake_test.go` exercises.
 
-Invoked by `make proof` (link 3 of 4). Never by CI. Same dependencies as `proof-headless.sh`, plus `mkfifo`.
+Was invoked by `make proof` (link 3 of 4) until work item 415. Never by CI. Same dependencies as
+`proof-headless.sh`, plus `mkfifo`.
 
 ## `scripts/proof-crash-resume.sh`
+
+**Retired from `make proof`** (work item 415, 2026-11-22): its live run was written for the store layout of before 2026-09-08 and stops in its provisioning, so it refuses to start. Kept as the driver of its experiment report; the subcommand below still runs.
 
 The crash half of the Phase 4 proof (P4-4): a real `claude -p` receiver is SIGKILLed, five messages are sent
 while it is down, and `claude -p --resume <native id>` re-attaches to the same Brigade session and catches up on
 all five exactly once. **It spends real model tokens.** `scripts/proof-crash-resume.sh catchup <evidence-dir>`
 re-scores saved artefacts with no model call, and is what `proof_crash_resume_test.go` exercises.
 
-Invoked by `make proof` (link 4 of 4). Never by CI. Same dependencies as `proof-idle-wake.sh`.
+Was invoked by `make proof` (link 4 of 4) until work item 415. Never by CI. Same dependencies as
+`proof-idle-wake.sh`.
 
 ## `scripts/harness-smoke.sh`
 
