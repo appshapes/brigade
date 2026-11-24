@@ -13,7 +13,7 @@ Every number in the documentation has a dated write-up, and every open finding a
 
 ## Read the experiments
 
-1. `docs/experiments/<name>.md`, one per run, indexed in its README; drivers in `scripts/experiments/<name>/`.
+1. `docs/experiments/<name>.md`, one per run, indexed in its README; drivers in `scripts/experiments/<name>/` or `<name>.sh`.
 
 Details: [Experiments](../../experiments/README.md).
 

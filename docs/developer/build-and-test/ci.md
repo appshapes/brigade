@@ -13,7 +13,7 @@
 `scripts/ci/` and `scripts/`, what calls it, how to run it locally, the required GitHub configuration (secrets,
 variables, rulesets) and the fixtures. The runner is Blacksmith's `blacksmith-4vcpu-ubuntu-2404` image, whose
 tool versions the `fast` job prints in its "Runner image inventory" step; shellcheck is 0.9.0 there. Every CI job
-sets `timeout-minutes` except one whose body is a reusable workflow, where GitHub rejects it.
+sets `timeout-minutes`.
 
 A Go test that hangs is ended by `go test`, not by the job. `make test` gives each package `go_test_timeout`,
 15m on your machine; the `fast` job passes `go_test_timeout=5m`, under its own limit of 15 minutes. The job then

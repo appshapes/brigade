@@ -23,7 +23,7 @@
 | `supabase/` | migrations, pgTAP tests, Edge Functions (the mail core, two connectors, the Slack pair), local stack config |
 | `scripts/` | the proof scripts, the headless smoke test, the release sequence, the gateway installers |
 | `scripts/ci/` | the CI checks, their fixtures and the Go drift tests ([scripts/ci/README.md](../../../scripts/ci/README.md)) |
-| `scripts/experiments/` | the experiment drivers, one directory per report |
+| `scripts/experiments/` | the experiment drivers, each a directory or a script |
 | `docs/` | the five persona trees, the reference documents, `experiments/`, `research/`, `email/` |
 | `.claude/` | the repository's skills and the agents of its workflows |
 | `.github/workflows/` | CI, release, release notes, keep-alive, the scheduled jobs, the agents on a pull request |
