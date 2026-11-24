@@ -3,13 +3,15 @@
 - **Status:** Accepted
 - **Date:** 2026-11-24
 - **Supersedes:** none
+- **Corrected:** 2026-11-24: the Context said that the session's `gh` and git both hold the Claude App's token, and the Consequences that the fixer's push is that token's. That was read from the action's source and not run, and it is wrong for git. The checkout keeps its own credential, the job's token, and git presents it before it would ask for the App's: on pull request #130 the fixer's push was refused as `github-actions[bot]` while its job had `contents: read` (run 45502056649), and went through with `contents: write` back (run 45507085498). The ADR now says that the App's token is the agent's `gh`'s, that an agent's `git push` goes with its job's own token, that the fixer's job grants `contents: write` for that, and that the reviewer's git is bounded by its job's `contents: read`, which is GitHub's. The Decision's reason for the fixer, its push, is therefore not what its exception rests on: what the App's token gives the fixer is that its comments on a pull request are `claude[bot]`'s, and whether it needs that token at write is left to the owner.
 
 ## Context
 
 `anthropics/claude-code-action` takes a `github_token`. Handed none, it exchanges the job's identity
-(`id-token: write`) with Anthropic's exchange for a token of the Claude GitHub App, and the session's `gh` and
-git hold that token in place of the job's own. What it can do is decided by the exchange and not by the job's
-`permissions:` block. ADR 0032 read this in the action's source and built the three scheduled jobs so that
+(`id-token: write`) with Anthropic's exchange for a token of the Claude GitHub App, and the session's `gh`
+holds that token in place of the job's own. The session's git does not: it presents the credential the
+checkout step keeps, which is the job's own token. What the App's token can do is decided by the exchange and
+not by the job's `permissions:` block. ADR 0032 read this in the action's source and built the three scheduled jobs so that
 every agent step is handed the job's read-only token; its Consequences say the same reading applies to three
 workflows it did not change.
 
@@ -69,8 +71,10 @@ The action's pin moves from c0949c50 to eb56b6666facdbd501035f4a0269d8caee2e7a8b
 - **Keep `release-notes.yml` as one job and hand its agents the job's token.** The work item allowed it: the
   job's `permissions:` would then be the boundary. But that token has `contents: write` and `issues: write`
   for the two writes, so the agents would hold a write token, where the scheduled jobs' agents hold none.
-- **Narrow the fixer's token too.** It needs contents at write to push, and pull requests to comment; what is
-  left to take away is issues. Not worth a second wish nobody measured.
+- **Narrow the fixer's token too.** It was thought to need contents at write to push, which it does not (the
+  correction above): its push goes with its job's own token. What its `gh` needs of the App's token is pull
+  requests, to comment. Narrowing it is then a wish nobody measured and a change to the loop, left to the
+  owner.
 - **Narrow the App's installation to chosen repositories.** It covers every repository of the organisation.
   The measurement shows a token minted here reaches this one alone, so nothing in this work depends on it;
   the setting is the owner's.
@@ -113,17 +117,28 @@ The action's pin moves from c0949c50 to eb56b6666facdbd501035f4a0269d8caee2e7a8b
   `GITHUB_PATH` and git's configuration after a session; pull requests from forks are skipped by default.
 - `scripts/ci/agent_token_test.go` holds the decision on every workflow and is shown failing on twenty-five
   mutated copies.
+- Which token an agent's git presents, shown on 2026-11-24 on pull request #130, on the new pin. With the
+  fixer job's `contents` at `read` for one commit (426d7158) the agent's push was refused as
+  `github-actions[bot]` (run 45502056649): the checkout logs `persist-credentials: true`, and the action logs
+  "No existing authentication headers to remove" before it sets up its helper. With `write` back (cecf7ce5)
+  a request for changes started the fixer, which pushed ba21eb9a, and `approve-fixer-runs` approved the two
+  runs GitHub held on it (run 45507085498). The reviewer's runs log the same two lines; no push was tried
+  from its job.
 
 ## Consequences
 
 - **In five workflows GitHub's `permissions:` is the boundary of what an agent can do**, and a reader can
   check it in the file: the three scheduled jobs, the email and the release's notes.
-- **The reviewer's boundary is the exchange's.** It is a service of the action's vendor, asked by an input
+- **The boundary of the reviewer's `gh` is the exchange's.** It is a service of the action's vendor, asked by an input
   whose lowering of a default is not on the action's page. It was measured once and could change without a
   commit here; this repository would not notice. A cheap way to notice, not built: a scheduled run of the
   measurement's third mint, red when the impossible ref is refused for anything but the permission.
-- **The fixer still holds a token that can push and merge**, on this repository alone. What keeps it to its
-  branch is its settings' denies and the `master` ruleset, as before.
+- **The fixer still holds a token that can push and merge**, on this repository alone: its `gh` holds the
+  App's, and its `git push` goes with its job's own token, for which the job grants `contents: write`. The
+  runs that push raises are held until `approve-fixer-runs` approves them. What keeps the agent to its branch
+  is its settings' denies and the `master` ruleset, as before.
+- **The boundary of the reviewer's git is GitHub's.** It presents its job's own token, `contents: read`, and
+  the test holds that block whole. So the reviewer has two boundaries, one for each of its two tools.
 - **A release's notes cross a job.** `publish` takes the artifact `notes` uploaded. A fault in that hand-over
   shows at the next release; a dry run takes the same path up to the two writes themselves.
 - **A new job that runs the action** is handed the job's token, or is added to the test's table with its

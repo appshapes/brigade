@@ -245,8 +245,9 @@ jobs:
         uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1
         with:
           # brake 2, second half. EXACTLY ONE login, explicit, never '*':
-          #   claude — the Claude GitHub App, the actor of the fixer's own push (synchronize) and of the
-          #            CHANGES_REQUESTED review that arms this job.
+          #   claude — the Claude GitHub App, the actor of the CHANGES_REQUESTED review that arms this job.
+          #            (The fixer's own push is `github-actions[bot]`'s, the job's token's, and starts no run
+          #            of this workflow: its `synchronize` is review-pull-request.yml's to take.)
           # Nothing else belongs here. A pull request the automation opens is created with Rjae's classic
           # PAT (GH_ACTIONS_TOKEN), so its actor is RJAE — a human with write access — and it clears the
           # action's default write-access check without touching the bot filter at all. Earlier drafts carried a

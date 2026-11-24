@@ -53,7 +53,8 @@ env:
 #          exchanges the job's identity for a token of the Claude GitHub App, whose permissions the job's
 #          `permissions:` block does not bound (src/github/token.ts at the pin, read 2026-11-24): contents,
 #          pull requests and issues at write on this repository, measured on 2026-11-24 (work item 438, ADR
-#          0033), which the session's `gh` and git then hold. The writer commits in the checkout and never pushes; the
+#          0033), which the session's `gh` then holds (its git keeps the checkout's own credential, the
+#          job's: shown on claude.yml's fixer, run 45502056649). The writer commits in the checkout and never pushes; the
 #          commits leave the job as a `git bundle`, after a look for a token in everything that leaves.
 #   land   no agent. Pushes the bundle's commits as `scheduled/<job>-<date>` with the job's own token, then
 #          opens the pull request with GH_ACTIONS_TOKEN, so that `ci.yml` runs on it (a pull request opened

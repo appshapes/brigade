@@ -50,7 +50,10 @@
   jobs hold the App's token, each named in `scripts/ci/agent_token_test.go` with its reason and the wish its
   step sends: the reviewer (`review-pull-request.yml`), whose step asks for it at `contents: read` and
   `issues: read`, so that it reviews as `claude[bot]` and cannot push or merge; and the fixer (`claude.yml`),
-  which has to push. Never drop a line of the reviewer's `additional_permissions`, never grant `id-token` in
+  whose `gh` and comments are `claude[bot]`'s. That token is the agent's `gh`'s: an agent's `git push` goes
+  with the job's own token, the checkout's credential, which is why the fixer's job is the one job with an
+  agent that grants `contents: write`, and why the reviewer's `contents: read` keeps its git from pushing:
+  never raise it. Never drop a line of the reviewer's `additional_permissions`, never grant `id-token` in
   another job, and never add a job to that table without the owner: what such a token can do is set by
   Anthropic's exchange and was measured once (the ADR has what was and what was not).
 - **Pinned actions.** `anthropics/claude-code-action` is pinned by **full commit SHA**, the only action in this

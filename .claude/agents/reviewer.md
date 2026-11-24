@@ -12,9 +12,9 @@ tools: Read, Write, Edit, Bash, Grep, Glob
      the memory marker and commits — it cannot do any of that without them. They are NOT a hole in the
      read-only promise of the two reviewing modes: that promise rests on the WORKFLOW, on the token the agent
      holds there, plus the explicit `deny` of Write/Edit/MultiEdit/NotebookEdit in the reviewing step. On a
-     pull request that token is the Claude GitHub App's, asked for at `contents: read` by the step's
-     `additional_permissions` (work item 438, ADR 0033); in a scheduled job it is the job's own read-only
-     token. A tool merely absent from an allowlist is not withheld; a token that cannot write is. -->
+     pull request its `gh` holds the Claude GitHub App's token, asked for at `contents: read` by the step's
+     `additional_permissions`, and its git the job's own read-only token (work item 438, ADR 0033); in a
+     scheduled job both hold the job's own read-only token. A tool merely absent from an allowlist is not withheld; a token that cannot write is. -->
 
 
 You are the code reviewer for **brigade** — a Go CLI and Claude Code plugin that carries messages between the

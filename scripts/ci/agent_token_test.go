@@ -3,9 +3,10 @@
 // The token an agent holds in a workflow (work item 438, ADR 0033).
 //
 // `anthropics/claude-code-action` takes a `github_token`. Handed none, it exchanges the job's identity
-// (`id-token: write`) for a token of the Claude GitHub App, which the session's `gh` and git then hold: contents,
+// (`id-token: write`) for a token of the Claude GitHub App, which the session's `gh` then holds: contents,
 // pull requests and issues at write on this repository, whatever the job's `permissions:` block says (measured
-// on 2026-11-24, run 45476572377 of the work item's throwaway workflow). Until this work item
+// on 2026-11-24, run 45476572377 of the work item's throwaway workflow). The session's git is another matter:
+// it keeps the checkout's own credential, the job's token (shown on the fixer, run 45502056649). Until this work item
 // review-pull-request.yml, release-notes.yml and send-release-notes.yml all ran their agents that way, under
 // headers that named `contents: read` as the boundary.
 //
@@ -15,9 +16,10 @@
 //     `permissions:` block grants `contents: read`, nothing at write and no `id-token`, and that never names
 //     the owner's token: nothing an agent holds there can write to the repository;
 //   - or its job is one agentAppTokenJobs names with its reason, and then the job has that one agent step,
-//     grants the identity, hands no token and asks the exchange for exactly the wish the entry names: the
-//     entry says what is true. The reviewer's wish, `contents: read` and `issues: read`, is what keeps it from
-//     pushing and merging;
+//     grants the identity, hands no token, asks the exchange for exactly the wish the entry names and grants
+//     its own token exactly what the entry names: the entry says what is true. The reviewer's wish,
+//     `contents: read` and `issues: read`, is what keeps its `gh` from merging, and its job's own
+//     `contents: read` is what keeps its git from pushing;
 //   - no other job grants `id-token`, the one permission a workflow needs to get the App's token, in a block,
 //     in the inline form or by `write-all`, and no workflow grants it to all its jobs at once.
 //
@@ -41,27 +43,42 @@ import (
 // agentJobToken is the line that hands an agent step the job's own token.
 const agentJobToken = "          github_token: ${{ github.token }}"
 
-// agentAppTokenJob is one job whose agent holds the Claude GitHub App's token in place of the job's own: why,
-// and the lines of the `additional_permissions` block its one agent step carries, letter for letter. The
-// action lays those lines over its own wish of `contents`, `pull_requests` and `issues` at write, and
-// Anthropic's exchange mints the token for the result.
+// agentAppTokenJob is one job whose agent's `gh` holds the Claude GitHub App's token in place of the job's
+// own: why; the lines of the `additional_permissions` block its one agent step carries, letter for letter;
+// and the job's own `permissions:` block, whole. The action lays the wish's lines over its own wish of
+// `contents`, `pull_requests` and `issues` at write, and Anthropic's exchange mints the token for the result.
+// The job's own block is what the agent's git presents, so it is held as closely as the wish.
 type agentAppTokenJob struct {
 	reason string
 	wish   []string
+	grants map[string]string
 }
 
 // agentAppTokenJobs names each such job, as `<workflow>/<job>`. A new entry is added on purpose, and ADR 0033
 // says what one costs.
 var agentAppTokenJobs = map[string]agentAppTokenJob{
-	// The fixer and a person's `@claude`: the agent pushes its branch, and the push has to start `ci.yml` and
-	// the reviewer again, which a push made with a job's token never does. Its token keeps the three at write
-	// and adds the read of its own run's logs.
-	"claude.yml/agent": {"pushes a branch whose push must start workflows", []string{"actions: read"}},
+	// The fixer and a person's `@claude`: the agent's `gh` holds the App's token, so what it writes on a pull
+	// request, its progress comment first, is `claude[bot]`'s; the wish keeps the action's three at write and
+	// adds the read of its own run's logs. Its `git push` does NOT go with that token: git presents the
+	// checkout's credential, the job's own token, which is why that job, alone among the jobs that run an
+	// agent, grants `contents: write`, and
+	// the runs the push raises are held until `approve-fixer-runs` approves them (shown on pull request #130:
+	// run 45502056649, refused at `contents: read`; run 45507085498, pushed at `write`). Whether the fixer
+	// needs the App's token at write at all is a question this work item left to the owner.
+	"claude.yml/agent": {
+		"its `gh` and its comments on a pull request are `claude[bot]`'s",
+		[]string{"actions: read"},
+		map[string]string{"contents": "write", "pull-requests": "write", "issues": "write", "id-token": "write", "actions": "read"},
+	},
 	// The reviewer: its review has to approve, which this repository's settings forbid a job's token, and to
 	// start auto-merge.yml and claude.yml's fixer, which an event raised with a job's token never does. Its
-	// token is asked for at `contents: read`, so it cannot push or merge, and at `issues: read`: the wish that
-	// was measured (run 45476572377).
-	"review-pull-request.yml/review": {"submits the review that auto-merge.yml and the fixer wait for", []string{"contents: read", "issues: read"}},
+	// token is asked for at `contents: read`, so its `gh` cannot merge, and at `issues: read`: the wish that was
+	// measured (run 45476572377). Its job's own `contents: read` is what its git presents: no push.
+	"review-pull-request.yml/review": {
+		"submits the review that auto-merge.yml and the fixer wait for",
+		[]string{"contents: read", "issues: read"},
+		map[string]string{"contents": "read", "pull-requests": "write", "id-token": "write", "actions": "read"},
+	},
 }
 
 // agentIdentityJobs names each job that grants `id-token` and runs no agent, with the reason. There is none:
@@ -211,6 +228,20 @@ func checkAgentTokens(r reporter, root string) {
 				}
 				if !identity {
 					r.Errorf("agentAppTokenJobs names %s as a job whose agent holds the App's token, and the job grants no `id-token`, so the action can mint none: drop the entry", key)
+				}
+				// The job's own block, whole: it is what the agent's git presents.
+				granted := map[string]string{}
+				block, found := agentBlock(body, "    permissions:", 6)
+				for _, line := range block {
+					if m := agentPermission.FindStringSubmatch(line); m != nil {
+						granted[m[1]] = m[2]
+					} else {
+						r.Errorf("%s: the job `%s`'s `permissions:` block has a line this check cannot read: %q", rel, job, strings.TrimSpace(line))
+					}
+				}
+				if !found || !maps.Equal(granted, entry.grants) {
+					r.Errorf("%s: the job `%s` grants its own token %v, want exactly %v: the agent's git presents that token, so the reviewer's "+
+						"`contents: read` is what keeps it from pushing, and nothing is added to either block without the table saying so", rel, job, granted, entry.grants)
 				}
 				if handed := agentAnyToken.FindString(body); handed != "" {
 					r.Errorf("agentAppTokenJobs names %s as a job whose agent holds the App's token, and a step of it is handed one (%s): drop the entry", key, strings.TrimSpace(handed))
@@ -389,6 +420,16 @@ var agentTokenMutations = []struct {
 		"the fixer asks for more",
 		replaceInFile(agentHubRel, "          additional_permissions: |\n            actions: read\n", "          additional_permissions: |\n            actions: write\n"),
 		"the fixer's wish is named too, so that a wider one is a change someone sees",
+	},
+	{
+		"the reviewer's own token can write contents",
+		replaceInFile(agentReviewRel, "      contents: read           # the checkout, and the boundary of the agent's git: no push\n", "      contents: write          # the checkout\n"),
+		"the reviewer's git presents the job's own token: with contents at write it can push",
+	},
+	{
+		"the fixer's own token gains a permission",
+		replaceInFile(agentHubRel, "      actions: read            # `additional_permissions: actions: read`", "      actions: write           # `additional_permissions: actions: read`"),
+		"the fixer's git presents the job's own token too: what it may do is named whole",
 	},
 	{
 		"a second agent step in the reviewer's job",

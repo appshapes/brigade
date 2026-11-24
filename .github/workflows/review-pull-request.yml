@@ -1,8 +1,8 @@
-# The reviewer half of the loop. Read-only, and what makes it so is the TOKEN THE AGENT HOLDS, which is not this
-# job's own (work item 438, 2026-11-24, ADR 0033).
+# The reviewer half of the loop. Read-only, and what makes it so is the TWO TOKENS THE AGENT HOLDS: its `gh`
+# has one that is not this job's own, and its git has this job's (work item 438, 2026-11-24, ADR 0033).
 #
 # The agent step is handed no `github_token`, so the action exchanges the job's identity (`id-token: write`)
-# for a token of the Claude GitHub App, and the session's `gh` and git hold THAT token. It has to be so: the
+# for a token of the Claude GitHub App, and the session's `gh` holds THAT token. It has to be so: the
 # review must be `claude[bot]`'s. A job's own token may not approve a pull request in this repository
 # (`can_approve_pull_request_reviews` is false), and a review submitted with one raises no event, so neither
 # auto-merge.yml nor claude.yml's fixer would ever start.
@@ -15,9 +15,16 @@
 # pull request may be written, and it has nothing of Actions, check runs, the repository's settings or its
 # webhooks. A merge and a push are both content writes, so no tool the agent holds can perform one.
 #
-# That is the boundary, and THIS IS WHAT IT RESTS ON: Anthropic's exchange honouring the wish. It is not
-# GitHub's `permissions:` block, which bounds only the job's own token (the guard's comment and the verify
-# step below); it was measured once; and it could change without a commit here. Not measured: whether the
+# That is the boundary of the agent's `gh`, and THIS IS WHAT IT RESTS ON: Anthropic's exchange honouring the
+# wish. It is not GitHub's `permissions:` block, which bounds only the job's own token (the guard's comment
+# and the verify step below); it was measured once; and it could change without a commit here.
+#
+# The agent's git is another matter, and there the boundary IS GitHub's. The checkout step keeps its
+# credential, the job's own token, and git presents that one before it would ask for the App's: shown on
+# claude.yml's fixer, whose push was refused as `github-actions[bot]` when its job had `contents: read` (run
+# 45502056649), and this job's runs log the same two lines (`persist-credentials: true`, and the action's "No
+# existing authentication headers to remove"). No push was tried from this job; with `contents: read` in the
+# block below, the one the fixer's job was refused with, a `git push` from here is GitHub's to refuse. Not measured: whether the
 # token could write a workflow file had it contents at write, and whether `issues: read` lowers issues (an
 # issue with no title was still refused for its content, not for the permission). Until this work item the
 # step asked for nothing and held contents at write, under a header that named this job's `contents: read`
@@ -70,10 +77,12 @@ jobs:
     # below at the slowest observed pace (~8.5 s a turn, that same run: ~10 min). The measurement is on the
     # P14-1 row of the execution log.
     timeout-minutes: 30
-    # The job's OWN token, which the guard's comment and the verify step use. The agent does not hold it: the
-    # header says which token it holds and what bounds that one.
+    # The job's OWN token, which the guard's comment and the verify step use, AND WHICH THE AGENT'S GIT
+    # PRESENTS (the header): `contents: read` here is what refuses a `git push` from the reviewer. Never raise
+    # it; scripts/ci/agent_token_test.go holds this block whole. The agent's `gh` holds another token, and the
+    # header says what bounds that one.
     permissions:
-      contents: read           # the checkout
+      contents: read           # the checkout, and the boundary of the agent's git: no push
       pull-requests: write     # the comment that explains a guard trip
       id-token: write          # the identity the action exchanges for the Claude App's token (the header)
       actions: read
@@ -163,7 +172,8 @@ jobs:
         with:
           # After the autonomous fixer pushes, the resulting `synchronize` run's ACTOR is a bot; without its
           # name the action rejects the run and the loop dead-ends unreviewed. MEASURED 2026-09-10 (PR #3, run
-          # 34485452913): GitHub attributes the fixer's App-token push to `github-actions[bot]`, not `claude[bot]`,
+          # 34485452913): the fixer's push is `github-actions[bot]`'s, not `claude[bot]`'s (it goes with the
+          # fixer job's own token and not with the App's, as claude.yml's header has it since work item 438),
           # so both names are needed here — `github-actions` events can only come from this repository's own
           # workflow tokens (a fork PR's token is read-only and cannot push or comment). The `opened` run needs
           # neither: that PR was opened by a person with write access. Explicit list, two entries, never '*'.
