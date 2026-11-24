@@ -11,6 +11,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 **Who must act**
 
+- **Team Member:** nothing.
+- **Team Admin:** nothing.
+- **Project Owner:** nothing.
+
+## [0.60.0] — 2026-11-24
+
+**Who must act**
+
 - **Team Member:** on Grok Build, with Brigade installed before
   2026-11-23: `grok plugin update brigade` now fails with `plugin
   'grok/brigade' not found in install registry`. Your package keeps
