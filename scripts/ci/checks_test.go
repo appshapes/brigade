@@ -8,6 +8,7 @@
 package ci_test
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,18 +38,105 @@ func runScript(t *testing.T, name, workdir string, env []string, args ...string)
 	return runScriptAt(t, filepath.Join(testutil.RepoRoot(t), "scripts", "ci", name), workdir, env, args...)
 }
 
-// baseEnv is the environment every fixture run gets: PATH so tools can be found, a temp HOME so git never
-// reads the developer's own configuration, and the two GIT_CONFIG_* muzzles for the same reason.
+// fixtureGitConfig is the one configuration file every fixture's git reads, as its global one (baseEnv). It
+// turns git's own maintenance off (work item 424). A commit, a fetch and the receiving end of a push each end
+// by starting `git maintenance run --auto --detach`, which outlives the command. git judges how many
+// loose objects a repository has by counting those whose name begins with 17, and with git 2.55 two of them
+// were enough for a repack (measured 2026-11-24). The Codex CLI fixture always has one, a skill's file, and
+// a commit is named after the time it was made: in one fixture of sixty a commit's name began with 17 and git
+// repacked in the background. When that repack was still writing `.git/info/refs` while the test's temporary
+// directory was removed, the removal failed and the test with it (seen once, in TestThePinIsARelease).
+//
+// It is a file and not GIT_CONFIG_COUNT variables, because git takes those out of the environment of the
+// `git receive-pack` a push to a local repository starts, and a fixture's origin is such a repository.
+// `gc.auto` and `receive.autogc` are the same switch for a git from before `git maintenance`.
+var fixtureGitConfig string
+
+const fixtureGitConfigText = "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false\n"
+
+// TestMain writes fixtureGitConfig once for the package's tests and removes it when they end. Every fixture of
+// a run reads the one file: none of them, and no script they run, writes git's global configuration.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "ci-fixture-git-")
+	if err != nil {
+		panic(err)
+	}
+	fixtureGitConfig = filepath.Join(dir, "config")
+	if err := os.WriteFile(fixtureGitConfig, []byte(fixtureGitConfigText), 0o600); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code) //nolint:forbidigo // TestMain owns the process exit
+}
+
+// baseEnv is the environment every fixture run gets: PATH so tools can be found, a temp HOME and no system
+// configuration so git never reads the developer's own, and fixtureGitConfig as the one configuration it does
+// read.
 func baseEnv(t *testing.T, home string, extra ...string) []string {
 	t.Helper()
 	return append([]string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + home,
-		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_GLOBAL=" + fixtureGitConfig,
 		"GIT_CONFIG_SYSTEM=/dev/null",
 		"GIT_AUTHOR_NAME=ci-test",
 		"GIT_AUTHOR_EMAIL=ci-test@example.invalid",
 	}, extra...)
+}
+
+// TestAFixturesGitStartsNothingInTheBackground holds what fixtureGitConfig says of git's maintenance: a
+// commit made with baseEnv, a push to a repository beside it and a fetch from that repository start no `git
+// maintenance` and no `git gc`, the push's receiving end included. It is read from git's own trace of the
+// processes it starts, which a child inherits.
+func TestAFixturesGitStartsNothingInTheBackground(t *testing.T) {
+	t.Parallel()
+	tr := newTree(t)
+	base := t.TempDir()
+	trace, origin := filepath.Join(base, "trace"), filepath.Join(base, "origin.git")
+	git := func(args ...string) {
+		t.Helper()
+		argv := append([]string{"-c", "user.name=ci-test", "-c", "user.email=ci-test@example.invalid"}, args...)
+		cmd := exec.CommandContext(t.Context(), "git", argv...) //nolint:gosec // G204: fixed words and paths under t.TempDir()
+		cmd.Dir = tr.root
+		cmd.Env = tr.env("GIT_TRACE2_EVENT=" + trace)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	tr.write("file", "x\n")
+	git("add", "file")
+	git("commit", "-q", "-m", "a commit")
+	git("init", "-q", "--bare", origin)
+	git("push", "-q", origin, "HEAD:refs/heads/master")
+	git("fetch", "-q", origin, "master")
+	//nolint:gosec // G304: a path of this test's own temp directory
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatalf("git wrote no trace: %v", err)
+	}
+	// Every process git ran or started, by the words of its command line.
+	ran := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		var event struct {
+			Event string   `json:"event"`
+			Argv  []string `json:"argv"`
+		}
+		if json.Unmarshal([]byte(line), &event) != nil || (event.Event != "start" && event.Event != "child_start") {
+			continue
+		}
+		for _, word := range event.Argv {
+			ran[filepath.Base(word)] = true
+		}
+		if slices.Contains(event.Argv, "maintenance") || slices.Contains(event.Argv, "gc") {
+			t.Errorf("git started its own maintenance, which outlives the command and writes into the repository while the test ends: %v", event.Argv)
+		}
+	}
+	for _, word := range []string{"commit", "git-receive-pack", "fetch"} {
+		if !ran[word] {
+			t.Fatalf("git's trace names no %s, so it does not show what the commit, the push and the fetch started:\n%s", word, data)
+		}
+	}
 }
 
 func wantPass(t *testing.T, r result, mentions ...string) {
