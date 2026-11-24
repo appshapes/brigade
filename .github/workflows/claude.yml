@@ -114,20 +114,28 @@ jobs:
     # environment (no `allowed_non_write_users`, so the action's conditional secret scrub and bubblewrap
     # isolation are both off — §1.1.1), and Rjae's classic PAT reaches EVERY repository their account can reach,
     # so it is kept out of the job entirely rather than merely out of an earlier step. Reachable here, by design
-    # and by acceptance: CLAUDE_CODE_OAUTH_TOKEN, and the token the agent's `gh` and git hold, which is NOT this
-    # job's own. The agent step is handed no `github_token`, so the action exchanges the job's identity for a
-    # token of the Claude GitHub App and gives git that one in place of the checkout's (its
-    # src/github/operations/git-config.ts, read at this pin): the agent's push has to start `ci.yml` and the
-    # reviewer again, and a push made with a job's token starts nothing. What that token can do was measured on 2026-11-24 (work item
-    # 438, ADR 0033; run 45476572377 of its throwaway workflow, on a token minted with no wish): contents,
-    # pull requests and issues at write, on this repository alone (another repository of the organisation
-    # answers 404), and nothing of Actions at write, check runs, the repository's settings or its webhooks.
-    # The step's own wish adds `actions: read`. That reach is set by Anthropic's exchange and not by the block
-    # below, which bounds the job's own token: the fix gate, which reads the pull request and writes one
-    # hand-off comment, and the two verifiers, which read. Not measured: whether it could
-    # write a workflow file; the denies of the agent's settings are what keep it from one.
+    # and by acceptance: CLAUDE_CODE_OAUTH_TOKEN and TWO tokens of GitHub's (work item 438, ADR 0033).
+    #
+    # The agent's `gh` holds a token of the Claude GitHub App. The agent step is handed no `github_token`, so
+    # the action exchanges the job's identity for one. What it can do was measured on 2026-11-24 (run
+    # 45476572377 of the work item's throwaway workflow, on a token minted with no wish): contents, pull
+    # requests and issues at write, on this repository alone (another repository of the organisation answers
+    # 404), and nothing of Actions at write, check runs, the repository's settings or its webhooks. The step's
+    # own wish adds `actions: read`. That reach is set by Anthropic's exchange and not by the block below.
+    # Not measured: whether it could write a workflow file; the denies of the agent's settings are what keep
+    # it from one.
+    #
+    # The agent's `git push` goes with THIS JOB'S OWN token, which the block below bounds. The checkout step
+    # keeps its credential (`persist-credentials`, on by default: an `extraheader` in a file git includes for
+    # this directory), the action looks for that header where earlier checkouts put it and finds none ("No
+    # existing authentication headers to remove"), and git sends it before it would ask the helper that holds
+    # the App's token. Shown on 2026-11-24: with this job's `contents` lowered to `read` for one commit
+    # (426d7158), the agent's push was refused as `github-actions[bot]` (run 45502056649, pull request #130).
+    # It is why a fixer's push is `github-actions[bot]`'s (measured 2026-09-10 and 2026-09-17, the notes on
+    # `allowed_bots` in review-pull-request.yml and on `approve-fixer-runs` below). So `contents: write` here
+    # is not spare: it is what the fixer pushes with. The same block bounds the fix gate and the two verifiers.
     permissions:
-      contents: read           # the checkout. It was `write` until work item 438 and no step used it: the agent's pushes go with the App's token (above)
+      contents: write          # THE AGENT'S `git push` GOES WITH THIS TOKEN (above). At `read` the push is refused: run 45502056649
       pull-requests: write     # the fix gate's hand-off comment
       issues: write            # a pull request's conversation comments are issue comments
       id-token: write          # the identity the action exchanges for the Claude App's token (above)
