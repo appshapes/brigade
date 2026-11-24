@@ -123,10 +123,11 @@ jobs:
     # pull requests and issues at write, on this repository alone (another repository of the organisation
     # answers 404), and nothing of Actions at write, check runs, the repository's settings or its webhooks.
     # The step's own wish adds `actions: read`. That reach is set by Anthropic's exchange and not by the block
-    # below, which bounds the job's own token: the fix gate, the two verifiers. Not measured: whether it could
+    # below, which bounds the job's own token: the fix gate, which reads the pull request and writes one
+    # hand-off comment, and the two verifiers, which read. Not measured: whether it could
     # write a workflow file; the denies of the agent's settings are what keep it from one.
     permissions:
-      contents: write          # as before work item 438, which left this block alone: no step writes contents with the job's own token today, and the agent's pushes go with the App's (above)
+      contents: read           # the checkout. It was `write` until work item 438 and no step used it: the agent's pushes go with the App's token (above)
       pull-requests: write     # the fix gate's hand-off comment
       issues: write            # a pull request's conversation comments are issue comments
       id-token: write          # the identity the action exchanges for the Claude App's token (above)
