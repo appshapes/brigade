@@ -1,7 +1,7 @@
 # Send the release notes
 
 Once a week `send-release-notes.yml` emails the releases published since the last email to a list of recipients,
-laid out as HTML by the dev-only `cmd/brigade-release-email`; `release.yml` dispatches it after a publish too. The
+laid out as HTML by the dev-only `cmd/brigade-release-email`. The
 release-notes agent (`.claude/agents/release-notes-email.md`) writes and reviews the text; `scripts/ci/release-notes-lint.sh`
 lints it.
 

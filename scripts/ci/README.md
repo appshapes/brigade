@@ -670,7 +670,7 @@ files on disk while CI failed on a clean checkout that never had them (run `3391
 
 ### Grok monitor package (card 120)
 
-`make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook commands, seven reachable
+`make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook commands, fifteen reachable
 skills, no symlinks/stray files and all three bin assets equal to `plugin/bin`. Mutation tests exercise source
 checks; `--source` is a diagnostic subset and never CI/release readiness. Canonical VERSION/checksum copies
 are existing release-produced assets; only the normal release sequence changes their contents. The package's

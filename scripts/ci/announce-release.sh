@@ -84,7 +84,7 @@ elif [ -n "$above" ]; then
 elif [ "$mode" = plan ]; then
   echo "would open: \"$title\""
 else
-  # No `claude` label: it is an announcement, not a work order, and the label would start an agent on it.
+  # No `claude` label: it is an announcement, not a work order.
   # shellcheck disable=SC2016  # the backticks in the single-quoted format are Markdown, meant literally
   gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$(printf 'Brigade %s is published. To get it, run:\n\n```\n/brigade:update\n```\n\nthen `/reload-plugins`.\n\nRelease notes: https://github.com/%s/releases/tag/%s\n' "$version" "$GITHUB_REPOSITORY" "$RELEASE_TAG")"
   # What is closed below is decided on the issues as they are now, this one among them: a run for another

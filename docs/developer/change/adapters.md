@@ -14,7 +14,7 @@ Everything you need is in this repository, in this order:
    layout; it is the worked example the guide walks through.
 4. **`brigade-conformance`**, the arbiter. `make build`, then
    `bin/brigade-conformance --adapter /abs/path/to/your-adapter` (`--shared-env <VAR>` if your backend is a
-   directory every test principal must share, `--setup <cmd>` if principals are provisioned out of band). 49
+   directory every test principal must share, `--setup <cmd>` if principals are provisioned out of band). 57
    cases, three principals in two teams. An adapter is correct when the suite is green.
 
 Facts worth knowing: the lease range is each adapter's own and is advertised in `describe`; the suite reads no poll

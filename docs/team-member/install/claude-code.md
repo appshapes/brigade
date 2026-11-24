@@ -57,8 +57,8 @@ version of its own that only an update run in that checkout moves. Measured on C
 
 ## What the first use does
 
-On a cold cache the first session downloads the 8 MB Brigade binary before the hooks can run, so the first
-`SessionStart` waits on the download; the line naming your team appears on a later prompt. It needs about
+On a cold cache the first session downloads the 8 MB Brigade binary before the hooks can run: the first
+`SessionStart` starts that download in the background and returns, and the line naming your team appears on a later prompt. It needs about
 185 kB/s; an attempt gives up after 45 s, your next prompt then shows one line beginning `Brigade: not installed:`,
 and `/clear` or a new session tries again. The download is one file, checked against the sha256 that ships inside
 the plugin, once per version per machine.
