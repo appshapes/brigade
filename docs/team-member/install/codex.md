@@ -106,6 +106,13 @@ message; the reply was stored 88 seconds after the send, two approvals included)
   sandbox either way, so team messages arrive under both.
 - **A message is a turn.** It looks like a prompt in the transcript, and its first sentence says it was not typed
   by you.
+- **The reminder and the ask.** Brigade reminds the model to keep its roster sentence current only where the
+  call will not stop at an approval: in Codex, under "Full Access" of `/permissions` or in a session launched
+  with `--dangerously-bypass-approvals-and-sandbox`. There, in a project that shares a state folder, it also asks
+  for a note after a commit, at the session's next prompt, since Codex runs no hook of Brigade's at the end of a
+  turn. Under "Ask for approval" (the default profile), "Approve for me" and "Read Only" it does neither, and the
+  session's line stays blank unless you ask for it
+  ([Where Brigade asks the model](../use/your-session-on-the-roster.md#the-sentence-under-your-row)).
 
 What Codex's own layers add and what has not been measured: [docs/security.md, section 16](../../security.md#16-codex-cli-sessions).
 The package itself: [codex/brigade/README.md](../../../codex/brigade/README.md); the measurements behind it:

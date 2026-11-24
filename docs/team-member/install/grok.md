@@ -83,3 +83,8 @@ was measured on 2026-11-24, with a server on the same machine: 36 seconds.
   marketplace remove brigade` can take the marketplace out of Claude Code's list too
   ([Leave and uninstall from Grok Build](../leave/grok.md)).
 - **The roster shows no context size** for a Grok Build session.
+- **The reminder to keep the roster sentence current does not reach the model.** Brigade prints it from the
+  prompt hook, and Grok Build shows the model nothing that hook prints. Under always-approve, in a project that
+  shares a state folder, the session is asked at the end of a long turn instead; elsewhere its line stays blank
+  unless you ask for it
+  ([Where Brigade asks the model](../use/your-session-on-the-roster.md#the-sentence-under-your-row)).

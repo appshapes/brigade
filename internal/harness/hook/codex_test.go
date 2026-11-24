@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/config"
@@ -20,15 +21,37 @@ import (
 // fakeadapterResponse is the scripted fake adapter's response type.
 type fakeadapterResponse = fakeadapter.Response
 
-// codexDoc is a hook document as Codex CLI 0.163.0 writes it (measured,
-// docs/experiments/codex-queue-participation.md §5): session_id, cwd,
-// transcript_path (the rollout), hook_event_name, model, permission_mode;
-// SessionStart adds source. The thread id is the document's; the hook's
-// environment carries none.
+// The words Codex CLI gives a hook as its permission mode (measured in a
+// live session of Codex CLI 0.166.0, work item 440): they are Claude Code's
+// own, never Codex's names for a sandbox. `default` under "Ask for
+// approval", which is the default profile, under "Approve for me" and
+// under "Read Only"; `bypassPermissions` under "Full Access".
+const (
+	codexModeDefault    = "default"
+	codexModeFullAccess = "bypassPermissions"
+)
+
+// codexDoc is a hook document as Codex CLI writes it in its default
+// profile (measured on 0.163.0, docs/experiments/codex-queue-participation.md
+// §5, and again on 0.166.0, work item 440): session_id, cwd, transcript_path
+// (the rollout) and hook_event_name in every one; model and permission_mode
+// in every one but SessionEnd; SessionStart adds source, UserPromptSubmit
+// prompt and turn_id, SessionEnd reason. The thread id is the document's;
+// the hook's environment carries none.
 func (f *fixture) codexDoc(event, source string) string {
+	return f.codexDocIn(codexModeDefault, event, source)
+}
+
+// codexDocIn is codexDoc under the permissions the member chose, by the
+// word the hook is given for them.
+func (f *fixture) codexDocIn(mode, event, source string) string {
 	m := map[string]any{
-		"session_id": f.nativeID, "cwd": f.cwd, "hook_event_name": event,
-		"permission_mode": "danger-full-access", "model": "gpt-5.6-sol", "transcript_path": "/never/read/rollout.jsonl",
+		"session_id": f.nativeID, "cwd": f.cwd, "hook_event_name": event, "transcript_path": "/never/read/rollout.jsonl",
+	}
+	if event == "SessionEnd" {
+		m["reason"] = "other"
+	} else {
+		m["permission_mode"], m["model"] = mode, "gpt-5.6-sol"
 	}
 	if source != "" {
 		m["source"] = source
@@ -102,7 +125,7 @@ func TestCodexSessionStart(t *testing.T) {
 	switch {
 	case m.Harness != string(config.HostCodex), m.Model != "gpt-5.6-sol", m.ClaudePID != key, m.HostProcessPID != f.pid,
 		m.LivenessPID() != f.pid, m.ClaudeSessionID != f.nativeID, m.BrigadeSessionID != "brigade-sess-1", m.SocketPath != "",
-		m.TranscriptPath != "/never/read/rollout.jsonl", m.PermissionMode != "danger-full-access", m.Inbound != "accept",
+		m.TranscriptPath != "/never/read/rollout.jsonl", m.PermissionMode != codexModeDefault, m.Inbound != "accept",
 		m.PluginBin != f.pluginBin, m.SessionName != "checkout", m.HarnessVersion != "unknown", m.Entrypoint != "", m.NonInteractive:
 		t.Fatalf("map %+v", *m)
 	}
@@ -250,32 +273,94 @@ const evilThread = "evil-thread-id-must-not-be-echoed"
 // TestCodexPromptKeepsAccept pins D5 for Codex (card 107): no Claude
 // settings scan, no parity rule, nothing written under the Claude config
 // directory, the policy at accept, and the watcher kept alive by the
-// prompt hook — which fires on queued turns too.
+// prompt hook — which fires on queued turns too. Under both words a real
+// Codex CLI gives the hook (work item 440): `bypassPermissions`, "Full
+// Access", is the one under which a Claude Code session would be held to
+// the parity rule and have its settings file written, and until the
+// fixture carried it this test never ran there.
 func TestCodexPromptKeepsAccept(t *testing.T) {
 	t.Parallel()
-	f := newCodexFixture(t)
-	f.spawner.watcherPID = testutil.NewSleeper(t)
-	f.deps.WriteFile = func(path string, _ []byte, _ os.FileMode) error {
-		t.Errorf("a Codex session wrote %s", path)
-		return nil
+	for _, mode := range []string{codexModeDefault, codexModeFullAccess} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			f := newCodexFixture(t)
+			f.spawner.watcherPID = testutil.NewSleeper(t)
+			f.deps.WriteFile = func(path string, _ []byte, _ os.FileMode) error {
+				t.Errorf("a Codex session wrote %s", path)
+				return nil
+			}
+			if exit, _, errOut := f.run(SubSessionStart, f.codexDocIn(mode, "SessionStart", "startup")); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			exit, out, errOut := f.run(SubPrompt, f.codexDocIn(mode, "UserPromptSubmit", ""))
+			if exit != 0 {
+				t.Fatalf("prompt exit %d: %s", exit, errOut)
+			}
+			for _, l := range lines(out) {
+				if strings.Contains(l, "refuse") || strings.Contains(l, "crossSessionInbound") {
+					t.Fatalf("the prompt printed a parity line on Codex: %q", l)
+				}
+			}
+			if m := f.mustMap(); m.Inbound != "accept" || m.PermissionMode != mode {
+				t.Fatalf("map after prompt %+v", *m)
+			}
+			if f.spawner.count() != 1 {
+				t.Fatalf("spawns %d: the live watcher stays", f.spawner.count())
+			}
+		})
 	}
-	if exit, _, errOut := f.run(SubSessionStart, f.codexDoc("SessionStart", "startup")); exit != 0 {
-		t.Fatalf("exit %d: %s", exit, errOut)
-	}
-	exit, out, errOut := f.run(SubPrompt, f.codexDoc("UserPromptSubmit", ""))
-	if exit != 0 {
-		t.Fatalf("prompt exit %d: %s", exit, errOut)
-	}
-	for _, l := range lines(out) {
-		if strings.Contains(l, "refuse") || strings.Contains(l, "crossSessionInbound") {
-			t.Fatalf("the prompt printed a parity line on Codex: %q", l)
-		}
-	}
-	if m := f.mustMap(); m.Inbound != "accept" || m.PermissionMode != "danger-full-access" {
-		t.Fatalf("map after prompt %+v", *m)
-	}
-	if f.spawner.count() != 1 {
-		t.Fatalf("spawns %d: the live watcher stays", f.spawner.count())
+}
+
+// TestCodexIsRemindedAndAskedUnderFullAccessAlone (work item 440): a Codex
+// CLI session is reminded of its roster line and asked for its state where
+// a Claude Code session in the same position is. The hook is given Claude
+// Code's words, and it reads no Codex setting, so nothing can stand for an
+// allow rule there: under `bypassPermissions`, "Full Access", the first
+// prompt carries the reminder and the prompt after a long turn carries the
+// ask, by the command's path; under `default`, which is every other choice
+// of Codex's, neither is said.
+func TestCodexIsRemindedAndAskedUnderFullAccessAlone(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		mode string
+		said bool
+	}{
+		{codexModeFullAccess, true},
+		{codexModeDefault, false},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			t.Parallel()
+			f := newCodexFixture(t)
+			f.unhurried()
+			f.writeTeamFile(stateMember)
+			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+			seam.describe = describeWithDescription()
+			if exit, _, errOut := f.run(SubSessionStart, f.codexDocIn(tc.mode, "SessionStart", "startup")); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			exit, out, errOut := f.run(SubPrompt, f.codexDocIn(tc.mode, "UserPromptSubmit", ""))
+			if exit != 0 {
+				t.Fatalf("prompt exit %d: %s", exit, errOut)
+			}
+			if got := strings.Contains(out, namedIn(f, doingLineBlank)); got != tc.said || strings.Contains(out, stopAskOpen) {
+				t.Fatalf("the first prompt: reminded %v, want %v, and never the ask:\n%s", got, tc.said, out)
+			}
+			// Where nothing is said, no reminder is, in any of its forms and
+			// by the bare command as little as by its path.
+			if !tc.said && strings.Contains(out, "Brigade doing:") {
+				t.Fatalf("a reminder under %s:\n%s", tc.mode, out)
+			}
+			f.now = fixedTime.Add(12 * time.Minute)
+			if exit, out, errOut = f.run(SubPrompt, f.codexDocIn(tc.mode, "UserPromptSubmit", "")); exit != 0 {
+				t.Fatalf("prompt exit %d: %s", exit, errOut)
+			}
+			if got := strings.Contains(out, namedIn(f, stopAskOpen+stopAskDoing+stopAskClose)); got != tc.said || (!tc.said && strings.Contains(out, stopAskOpen)) {
+				t.Fatalf("the prompt after a long turn: asked %v, want %v:\n%s", got, tc.said, out)
+			}
+			if !tc.said && strings.Contains(out, "Brigade doing:") {
+				t.Fatalf("a reminder under %s, twelve minutes on:\n%s", tc.mode, out)
+			}
+		})
 	}
 }
 

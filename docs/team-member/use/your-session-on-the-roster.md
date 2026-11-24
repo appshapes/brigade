@@ -28,6 +28,21 @@ rule is never asked and has a blank line, and one line in your user settings cha
 { "permissions": { "allow": ["Bash(brigade doing:*)"] } }
 ```
 
+**In Codex CLI** the hook is given the same words (measured on Codex CLI 0.166.0): `bypassPermissions` under
+"Full Access" of `/permissions` and in a session launched with `--dangerously-bypass-approvals-and-sandbox`, and
+`default` under "Ask for approval", which is the default profile, under "Approve for me" and under "Read Only".
+Brigade reads no setting of Codex's, so no rule can stand for an `allow` there: a Codex CLI session is reminded of
+its sentence under `bypassPermissions` alone. There, in a project that shares a state folder, it is also asked at
+its next prompt for a note after a commit, or to refresh a sentence gone stale over a long turn: Codex CLI runs
+no hook at the end of a turn. Under the other three choices its line stays blank unless you ask the model to set
+it.
+
+**In Grok Build** the words are the same again (measured on Grok Build 1.0.92): `bypassPermissions` under
+always-approve, `default` where no mode is shown, `plan`, and `auto` under auto-review. Grok Build shows the
+model nothing that a prompt hook prints, so the reminder itself does not reach it: under always-approve, in a
+project that shares a state folder, a Grok Build session is asked at the end of a long turn to refresh its
+sentence, and after a commit for a note; otherwise its line stays blank unless you ask the model to set it.
+
 **To stop it:** set `share_doing` to `false` (from the next session start the line is blanked, the reminders stop
 and `brigade doing` refuses), run `brigade doing --clear`, put an ask or deny on `Bash(brigade doing*)` in your
 settings, or answer No to the harness's dialog where one is raised. What the refusals cannot recognise (a

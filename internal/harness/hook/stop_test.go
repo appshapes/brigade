@@ -774,14 +774,12 @@ func TestGrokStopCarriesTheAsk(t *testing.T) {
 
 // TestStatusInTheOptionsFileStopsTheAsk (work item 439): `status` is a key
 // of the options file, so a member of a host that reads its options there
-// can turn the end-of-turn ask off. Grok Build's Stop hook and Muse Code's
-// next prompt, on the long turn with no doing line that the two tests
-// above show is asked about, ask nothing when the file says off; the same
-// session with the key left out is the control. Codex CLI has no case
-// here: its fixture's prompt carries Codex's own word for the permission
-// mode, under which the ask is not made at all, so the case would pass on
-// any code. That its file takes the key is held in the config package
-// (TestStatusInTheOptionsFile).
+// can turn the end-of-turn ask off. Grok Build's Stop hook and the next
+// prompt of Muse Code and of Codex CLI, on the long turn with no doing line
+// that the tests of each host show is asked about, ask nothing when the
+// file says off; the same session with the key left out is the control.
+// Codex CLI's case runs under "Full Access", the one choice of Codex's
+// under which the ask is made (work item 440).
 func TestStatusInTheOptionsFileStopsTheAsk(t *testing.T) {
 	t.Parallel()
 	options := func(t *testing.T, f *fixture, file, status string, with map[string]string) {
@@ -841,38 +839,52 @@ func TestStatusInTheOptionsFileStopsTheAsk(t *testing.T) {
 				t.Fatalf("status off in the options file: out %q, stamp %q\n%s", out, f.stopStamp(t), errOut)
 			}
 		})
-		t.Run("Muse Code's next prompt, "+tc.name, func(t *testing.T) {
-			t.Parallel()
-			f := newMuseFixture(t)
-			f.unhurried()
-			// The fixture's default reader answers only Claude Code's
-			// settings path; this hook reads the options file for real.
-			f.deps.ReadFile = os.ReadFile
-			options(t, f, config.MuseOptionsFile, tc.status, map[string]string{})
-			f.writeTeamFile(stateMember)
-			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
-			seam.describe = describeWithDescription()
-			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
-				t.Fatalf("exit %d: %s", exit, errOut)
-			}
-			if exit, out, _ := f.run(SubPrompt, f.promptDoc("bypassPermissions")); exit != 0 || strings.Contains(out, stopAskOpen) {
-				t.Fatalf("the first prompt asked: exit %d out %q", exit, out)
-			}
-			f.now = fixedTime.Add(12 * time.Minute)
-			exit, out, errOut := f.run(SubPrompt, f.promptDoc("bypassPermissions"))
-			if exit != 0 {
-				t.Fatalf("exit %d: %s", exit, errOut)
-			}
-			if tc.wantAsk {
-				if !strings.Contains(out, namedIn(f, stopAskOpen+stopAskDoing+stopAskClose)) {
-					t.Fatalf("the control was not asked:\n%s", out)
+		for _, host := range []struct {
+			name          string
+			fixture       func(*testing.T) *fixture
+			file          string
+			start, prompt func(*fixture) string
+		}{
+			{"Muse Code", newMuseFixture, config.MuseOptionsFile,
+				func(f *fixture) string { return f.startDoc("startup") },
+				func(f *fixture) string { return f.promptDoc("bypassPermissions") }},
+			{"Codex CLI", newCodexFixture, config.CodexOptionsFile,
+				func(f *fixture) string { return f.codexDocIn(codexModeFullAccess, "SessionStart", "startup") },
+				func(f *fixture) string { return f.codexDocIn(codexModeFullAccess, "UserPromptSubmit", "") }},
+		} {
+			t.Run(host.name+"'s next prompt, "+tc.name, func(t *testing.T) {
+				t.Parallel()
+				f := host.fixture(t)
+				f.unhurried()
+				// The fixture's default reader answers only Claude Code's
+				// settings path; this hook reads the options file for real.
+				f.deps.ReadFile = os.ReadFile
+				options(t, f, host.file, tc.status, map[string]string{})
+				f.writeTeamFile(stateMember)
+				seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+				seam.describe = describeWithDescription()
+				if exit, _, errOut := f.run(SubSessionStart, host.start(f)); exit != 0 {
+					t.Fatalf("exit %d: %s", exit, errOut)
 				}
-				return
-			}
-			if strings.Contains(out, stopAskOpen) || f.stopStamp(t) != "" {
-				t.Fatalf("status off in the options file: stamp %q, out:\n%s", f.stopStamp(t), out)
-			}
-		})
+				if exit, out, _ := f.run(SubPrompt, host.prompt(f)); exit != 0 || strings.Contains(out, stopAskOpen) {
+					t.Fatalf("the first prompt asked: exit %d out %q", exit, out)
+				}
+				f.now = fixedTime.Add(12 * time.Minute)
+				exit, out, errOut := f.run(SubPrompt, host.prompt(f))
+				if exit != 0 {
+					t.Fatalf("exit %d: %s", exit, errOut)
+				}
+				if asked := strings.Contains(out, namedIn(f, stopAskOpen+stopAskDoing+stopAskClose)); asked != tc.wantAsk || (!tc.wantAsk && strings.Contains(out, stopAskOpen)) {
+					t.Fatalf("asked %v, want %v:\n%s", asked, tc.wantAsk, out)
+				}
+				// The stamp is the session's, by the key its map has: the
+				// hook's parent on Muse Code, the thread's key on Codex CLI.
+				stamp, _ := os.ReadFile(stopStampPath(f.stateDir, f.mustMap().ClaudePID))
+				if stamped := strings.HasSuffix(strings.TrimSpace(string(stamp)), " asked"); stamped != tc.wantAsk || (!tc.wantAsk && len(stamp) != 0) {
+					t.Fatalf("stamp %q, want asked %v", stamp, tc.wantAsk)
+				}
+			})
+		}
 	}
 }
 

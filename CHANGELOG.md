@@ -43,9 +43,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   file the other three read, so `"status": "off"` there was passed over
   without a word. It is a key of all three files now, as the options
   page already said of every option: with `off` in the file, Grok
-  Build's Stop hook and Muse Code's next prompt ask nothing. The value
-  is the word, in quotes: `true` and `false` are neither `on` nor `off`,
-  and such a value is read as `off`
+  Build's Stop hook and the next prompt of Muse Code and of Codex CLI
+  ask nothing. The value is the word, in quotes: `true` and `false` are
+  neither `on` nor `off`, and such a value is read as `off`
   ([Know the options](docs/team-member/configure/options.md)).
 - **A `status` that is neither `on` nor `off` is said when the session
   starts** (work item 439). Such a value has always switched the ask

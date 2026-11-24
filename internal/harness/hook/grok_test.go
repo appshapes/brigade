@@ -49,6 +49,12 @@ func grokFixture(t *testing.T) *fixture {
 	}
 	return f
 }
+
+// grokDoc is a hook document as Grok Build writes it. Its words for the
+// permission mode are Claude Code's own (measured in a live session of
+// Grok Build 1.0.92, work item 440): `bypassPermissions` under
+// always-approve, `default` where no mode is shown, `plan`, and `auto`
+// under auto-review.
 func grokDoc(f *fixture, event, source string, extra map[string]any) string {
 	d := map[string]any{"sessionId": f.nativeID, "cwd": f.cwd, "workspaceRoot": f.cwd, "hookEventName": event, "source": source, "permissionMode": "default"}
 	for k, v := range extra {

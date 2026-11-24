@@ -303,3 +303,24 @@ Rjae Fable review, PR and release remain pending. Linux native execution and the
 full-package 35-minute hold are unmeasured. Broader burst/loss envelopes and
 cross-incarnation backlog recovery are not claimed; this checkpoint does not
 close or release the card.
+
+## The words of the permission mode (work item 440, 2026-11-24)
+
+One live session of Grok Build 1.0.92, started by `grok --no-leader --always-approve`, the checkout's package
+installed with `--trust` in a throwaway home on a local team, with what each hook was given on stdin kept beside
+the binary. Every document carries the mode twice, as `permissionMode` and as `permission_mode`, with one value,
+and the values are Claude Code's own words:
+
+| Grok Build's mode (Shift+Tab cycles them) | The word the hook is given |
+| --- | --- |
+| always-approve | `bypassPermissions` |
+| no mode shown | `default` |
+| plan | `plan` |
+| auto-review | `auto` |
+
+Under always-approve the prompt hook wrote the stamp of the roster-line reminder, whose line Grok Build discards
+with everything else a prompt hook prints, and a commit made inside a turn brought the end-of-turn ask through
+the Stop hook: "Stop blocked by plugin/brigade/hooks, continuing: Brigade state (one ask, then finish): a commit
+was made in this checkout during this turn and no note followed; …". The model looked at the commit's author,
+found it was not its own, and recorded no note, as the ask says. Grok Build writes the mode chosen with
+Shift+Tab into its `config.toml` (`[ui] permission_mode`): the file was put back from a copy afterwards.
