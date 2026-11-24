@@ -10,7 +10,7 @@ A JSON object whose keys are the option names of [Know the options](options.md) 
 booleans or numbers:
 
 ```json
-{ "team_inbound": "hold", "label": "none", "message_sound": true, "message_interval": 60 }
+{ "team_inbound": "hold", "label": "none", "message_sound": "on", "message_interval": 60 }
 ```
 
 - A missing file is the defaults. A file that is not a JSON object, or is too large, earns one line at session

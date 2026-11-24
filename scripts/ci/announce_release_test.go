@@ -131,7 +131,7 @@ func TestAnnounceRelease(t *testing.T) {
 		if !created || strings.Join(numbers, " ") != "117 116 60" {
 			t.Fatalf("created %v, closed %v; want the announcement opened and 117, 116 and 60 closed\n%s", created, numbers, r.all())
 		}
-		// The announcement as it always read, with no label: a label would make it a work order. The body
+		// The announcement as it always read, with no label. The body
 		// has line ends, so the call is read whole, up to the first close.
 		all := strings.Join(f.writes(t), "\n")
 		create, _, _ := strings.Cut(all, "\nissue close ")
