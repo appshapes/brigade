@@ -12,6 +12,9 @@ working-tree change (`git add --verbose :/ .`) and commits; `make push` adds the
 chain there: none of the work is staged, committed or pushed, and what the pull merged stays merged. In a shared
 checkout, check `git status` first: another session's edits are staged too.
 
+With nothing to commit, `make push` needs no message: it says so and pushes what the branch is ahead of origin
+by, a merge you concluded for one. With nothing ahead either, it says there is nothing to push. Both end well.
+
 A merge conflict is resolved where it happens, by whoever hit it, not handed back (the owner, 2026-11-13, work
 item 298): keep what both sides meant, run the gate, and say in the merge's commit message which files conflicted
 and how each was resolved. Never `git merge --abort` to escape one, never a rebase or a force-push to resolve

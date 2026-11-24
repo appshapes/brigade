@@ -84,5 +84,5 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `slack-gateway-install` | Install the hosted Slack gateway (usage: make slack-gateway-install project=<ref> [team_file=<path to the project's .brigade.json>] [dry=1]; first run prints the manifest, second run needs SLACK_SECRETS_FILE) |
 | `functions-check` | Format-check, type-check and unit-test supabase/functions/ with Deno (CI) |
 | `pull` | Merge origin into the current branch (plain merge — never rebase; no editor) |
-| `commit` | Typecheck, pull, lint, build, test, stage, commit (usage: make commit message="...") |
-| `push` | commit + push |
+| `commit` | Typecheck, pull, lint, build, test, stage, commit (usage: make commit message="..."; with nothing to commit it says so and ends well) |
+| `push` | commit + push (with nothing to commit, pushes what is ahead of origin; with nothing ahead either, says so) |

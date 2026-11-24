@@ -20,10 +20,9 @@
   3. Conclude the merge with a commit that names every file that conflicted and how it was resolved:
      `git commit -m "<work item>: Merge origin/master: <file>: <how>; <file>: <how>"`. No pull works until it
      is concluded.
-  4. Push: `make push message="…"` when the work itself is still uncommitted, otherwise `make pull` then
-     `git push` (`make push` on a clean tree runs its whole chain, then stops at `nothing to commit, working
-     tree clean`, and the merge never reaches origin). If origin moved again, its new conflict is resolved the
-     same way.
+  4. Push: `make push message="…"` when the work itself is still uncommitted, otherwise `make push` alone
+     (on a clean tree the chain has nothing to commit, says so and pushes the merge; work item 443). If origin
+     moved again, its new conflict is resolved the same way.
 
   When the pull refuses with `Your local changes to the following files would be overwritten by merge`, no merge
   has started: `git stash push -m "<work item>: before the pull"`, then `make pull`; if that pull conflicts,
