@@ -8,7 +8,6 @@
 package ci_test
 
 import (
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,21 +37,12 @@ func runScript(t *testing.T, name, workdir string, env []string, args ...string)
 	return runScriptAt(t, filepath.Join(testutil.RepoRoot(t), "scripts", "ci", name), workdir, env, args...)
 }
 
-// fixtureGitConfig is the one configuration file every fixture's git reads, as its global one (baseEnv). It
-// turns git's own maintenance off (work item 424). A commit, a fetch and the receiving end of a push each end
-// by starting `git maintenance run --auto --detach`, which outlives the command. git judges how many
-// loose objects a repository has by counting those whose name begins with 17, and with git 2.55 two of them
-// were enough for a repack (measured 2026-11-24). The Codex CLI fixture always has one, a skill's file, and
-// a commit is named after the time it was made: in one fixture of sixty a commit's name began with 17 and git
-// repacked in the background. When that repack was still writing `.git/info/refs` while the test's temporary
-// directory was removed, the removal failed and the test with it (seen once, in TestThePinIsARelease).
-//
-// It is a file and not GIT_CONFIG_COUNT variables, because git takes those out of the environment of the
-// `git receive-pack` a push to a local repository starts, and a fixture's origin is such a repository.
-// `gc.auto` and `receive.autogc` are the same switch for a git from before `git maintenance`.
+// fixtureGitConfig is the one configuration file every fixture's git reads, as its global one (baseEnv). Its
+// text is testutil.GitQuietConfig, which turns git's own maintenance off and says why (work item 424): a
+// repack git starts in the background can still be writing into a fixture when the test removes it. It is a
+// file of its own, named in GIT_CONFIG_GLOBAL, and not a `.gitconfig` in the fixture's home, because a
+// fixture's home here lies inside the repository the fixture builds.
 var fixtureGitConfig string
-
-const fixtureGitConfigText = "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false\n"
 
 // TestMain writes fixtureGitConfig once for the package's tests and removes it when they end. Every fixture of
 // a run reads the one file: none of them, and no script they run, writes git's global configuration.
@@ -62,7 +52,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	fixtureGitConfig = filepath.Join(dir, "config")
-	if err := os.WriteFile(fixtureGitConfig, []byte(fixtureGitConfigText), 0o600); err != nil {
+	if err := os.WriteFile(fixtureGitConfig, []byte(testutil.GitQuietConfig), 0o600); err != nil {
 		panic(err)
 	}
 	code := m.Run()
@@ -115,27 +105,14 @@ func TestAFixturesGitStartsNothingInTheBackground(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git wrote no trace: %v", err)
 	}
-	// Every process git ran or started, by the words of its command line.
-	ran := map[string]bool{}
-	for _, line := range strings.Split(string(data), "\n") {
-		var event struct {
-			Event string   `json:"event"`
-			Argv  []string `json:"argv"`
-		}
-		if json.Unmarshal([]byte(line), &event) != nil || (event.Event != "start" && event.Event != "child_start") {
-			continue
-		}
-		for _, word := range event.Argv {
-			ran[filepath.Base(word)] = true
-		}
-		if slices.Contains(event.Argv, "maintenance") || slices.Contains(event.Argv, "gc") {
-			t.Errorf("git started its own maintenance, which outlives the command and writes into the repository while the test ends: %v", event.Argv)
-		}
-	}
-	for _, word := range []string{"commit", "git-receive-pack", "fetch"} {
-		if !ran[word] {
+	ran, maintenance := testutil.GitStarted(data)
+	for _, word := range []string{"commit", "receive-pack", "fetch"} {
+		if !strings.Contains(ran, word) {
 			t.Fatalf("git's trace names no %s, so it does not show what the commit, the push and the fetch started:\n%s", word, data)
 		}
+	}
+	for _, argv := range maintenance {
+		t.Errorf("git started its own maintenance, which outlives the command and writes into the repository while the test ends: %v", argv)
 	}
 }
 

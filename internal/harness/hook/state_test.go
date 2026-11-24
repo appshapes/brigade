@@ -281,7 +281,9 @@ func (f *fixture) git(extraEnv []string, args ...string) string {
 		f.t.Skip("no git on PATH")
 	}
 	cmd := exec.CommandContext(f.t.Context(), git, append([]string{"-C", f.cwd}, args...)...) //nolint:gosec // G204: a test fixture
-	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + f.dirs.Home, "GIT_CONFIG_NOSYSTEM=1"}, extraEnv...)
+	// The home's own configuration keeps git from starting its maintenance in the background, which could still
+	// be writing into the fixture when the test removes it (testutil.GitQuietConfig, work item 424).
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + testutil.QuietGitHome(f.t, f.dirs.Home), "GIT_CONFIG_NOSYSTEM=1"}, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		f.t.Fatalf("git %v: %v\n%s", args, err, out)

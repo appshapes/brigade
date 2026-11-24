@@ -30,7 +30,7 @@ const (
 func docsGit(t *testing.T, root, home string, args ...string) string {
 	t.Helper()
 	argv := append([]string{"-C", root, "-c", "user.name=Gate Test", "-c", "user.email=gate@example.invalid",
-		"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "-c", "gc.auto=0"}, args...)
+		"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)
 	cmd := exec.CommandContext(t.Context(), "git", argv...) //nolint:gosec // G204: fixed words and a path under t.TempDir()
 	cmd.Env = baseEnv(t, home)
 	out, err := cmd.CombinedOutput()

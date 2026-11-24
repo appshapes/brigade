@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/harness/gitfacts"
+	"github.com/appshapes/brigade/internal/testutil"
 )
 
 const (
@@ -134,9 +135,12 @@ func gitRun(t *testing.T, git, dir string, env []string, args ...string) string 
 
 // environ is the environment of the spawning tests: the real PATH (for
 // git) and a HOME of the test's own, so no global git config leaks in.
+// That HOME's own configuration keeps git from starting its maintenance
+// in the background, which could still be writing into a fixture when
+// the test removes it (testutil.GitQuietConfig, work item 424).
 func environ(t *testing.T) []string {
 	t.Helper()
-	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1"}
+	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + testutil.QuietGitHome(t, t.TempDir()), "GIT_CONFIG_NOSYSTEM=1"}
 }
 
 // TestLogListsTheRangeByAuthor: the commits since a start head, newest
