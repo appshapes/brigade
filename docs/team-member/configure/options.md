@@ -28,8 +28,33 @@ values are read from your own settings only, never from a project.
 | `team_move_in_session` | `on` | `on` lets `brigade team move` run inside your sessions: a session can then move a team you own to a Brigade server with the values you give it, record where a team went and clear that record, and every member's next session follows such a move. `off` refuses the three inside a session and says to run them in your own terminal; `brigade team move --show` still reads the record. It changes nothing for a team you do not own: only the team's owner can move it. In a Supabase project that is the member who created it; on a Brigade server it is whoever created it, took it in, was the first to join one its operator took in, or was handed it. Any other value is `off`, and the session says so at its start ([Move the team to a server](../../team-admin/members/move-the-team.md#from-a-session-and-how-to-turn-that-off)) |
 
 Where an option is read in Claude Code: your user settings, `--settings` and managed settings. In Muse Code:
-`~/.config/brigade/muse-options.json`; in Codex CLI: `~/.config/brigade/codex-options.json`. A value Brigade cannot use is named in one line at session start and the
-default is used; a `frame_file` that fails a check leaves the session without Brigade, with one line saying why.
+`~/.config/brigade/muse-options.json`; in Codex CLI: `~/.config/brigade/codex-options.json`; in Grok Build:
+`~/.config/brigade/grok-options.json`. Every option of the table is a key of each of the three files.
+
+## A value Brigade cannot use
+
+What happens depends on the option. A line is said when the session starts, and it never repeats the value.
+
+| Option | A value Brigade cannot use | What the session says |
+| --- | --- | --- |
+| `team_inbound` | is read as `refuse` | one line: the inbound policy is `refuse` |
+| `sync`, `message_sound`, `message_notification`, `status`, `follow_team_move`, `team_move_in_session` | is read as `off` | one line that names the option |
+| `message_interval` | is read as `30` | one line |
+| `share_workspace_label`, `share_doing`, `poll_on_prompt`, `claude_inbound_setting` | leaves the session without Brigade | one line that names the option: ``Brigade: not connected (config: invalid_boolean); fix the `share_doing` option in your settings`` |
+| `config_dir` that is not an absolute path | leaves the session without Brigade | the same line, with `relative_path` and `config_dir` |
+| `frame` that is none of its three words; `frame_file` that is not an absolute path or fails a check | leaves the session without Brigade | one line with the reason, which ends ``fix the `frame` or `frame_file` option in your settings`` |
+| `adapter_command` that cannot be resolved | leaves the session without Brigade | one line that names the team's adapter and `brigade team status` |
+| `label`, `workspace_label` | any text is taken, without the characters a roster cannot show; a `label` left with nothing is read as `none` | nothing |
+
+An option whose values are `on` and `off` takes those two words alone. In an options file write them in quotes,
+`"status": "off"`: `true` and `false` are neither word, so `"status": true` is read as `off`, and the session
+says so. The four options whose values are `true` and `false` also take `1`/`0`, `yes`/`no` and `on`/`off`.
+"Your settings", in a line, is the options file in Muse Code, Codex CLI and Grok Build.
+
+An options file that is not a JSON object is said in one line and the defaults apply; a key it does not know is
+ignored. Grok Build's own `grok_strict` is on [its page](grok.md): a value that is neither word is read as `on`
+there, with one line.
+
 A session that is already running stays connected when its `/clear` meets a value that would leave a new session
 without Brigade: it goes on with the frame and the options it had, and says so in one line
 ([Choose the frame text](frame-text.md)).

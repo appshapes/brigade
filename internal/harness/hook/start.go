@@ -1692,6 +1692,12 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 	if res.opts.MessageIntervalWarning != "" {
 		warnings = append(warnings, res.opts.MessageIntervalWarning)
 	}
+	// The end-of-turn ask's option (work item 439): its line was written
+	// with the option (card 162) and said by nothing, so a value that is
+	// neither word switched the ask off without a word.
+	if res.opts.StatusWarning != "" {
+		warnings = append(warnings, res.opts.StatusWarning)
+	}
 	// Said at every start, as each option's is, and not only on the day a
 	// team moves: a member who misspelt the option should learn it before
 	// the day it matters (work item 273).

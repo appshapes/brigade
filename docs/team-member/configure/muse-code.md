@@ -22,6 +22,9 @@ booleans or numbers:
   label](../join/your-label.md)). `none` sends no label, and any other text is your label.
 - A Muse session resolves Brigade's directories from `HOME` alone. A member who sets `XDG_CONFIG_HOME` and keeps
   the credential store there puts `config_dir` in this file.
+- An option whose values are `on` and `off` takes those two words, in quotes: a JSON `true` or `false` is
+  neither, and is read as `off` with one line at session start
+  ([A value Brigade cannot use](options.md#a-value-brigade-cannot-use)).
 - A change takes effect at the next session start.
 
 What Muse's own layers add: [docs/security.md, section 15](../../security.md#15-muse-code-sessions).

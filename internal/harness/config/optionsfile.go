@@ -63,8 +63,12 @@ var optionsFileKeys = map[string]string{
 	"message_notification":   OptionMessageNotification,
 	"message_interval":       OptionMessageInterval,
 	"claude_inbound_setting": OptionClaudeInboundSetting,
-	"follow_team_move":       OptionFollowTeamMove,
-	"team_move_in_session":   OptionTeamMoveInSession,
+	// The end-of-turn ask (work item 439): Grok Build's Stop hook makes
+	// it, and a host with no Stop hook carries it at the next prompt, so
+	// a member of a host that reads this file turns it off here.
+	"status":               OptionStatus,
+	"follow_team_move":     OptionFollowTeamMove,
+	"team_move_in_session": OptionTeamMoveInSession,
 	// Grok Build's own (work item 377, ADR 0021): no userConfig option of
 	// the Claude Code plugin has this name, and no other host reads it.
 	"grok_strict": OptionGrokStrict,

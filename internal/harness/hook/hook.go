@@ -1324,17 +1324,34 @@ func teamFileNotes(tf *teamfile.File) []string {
 // optionsLine is the context line for an option ParseOptions refused. A
 // frame or frame_file value the parser itself refuses — a level outside
 // the three words, a relative path — is the frame line, whose remedy is
-// the user's settings (the P5-12 verifier's 3.1); every other option keeps
-// the terminal remedy. The reason tokens are the parser's own.
+// the user's settings (the P5-12 verifier's 3.1). Any other option the
+// parser names is said the same way (work item 439): the session is left
+// without Brigade as before, and the line names the option and where it
+// is fixed, where it used to name a join, which cures no option. A failure
+// that names no option keeps the terminal remedy. The reason tokens are
+// the parser's own.
 func optionsLine(err error) string {
 	var perr *protocol.Error
 	if errors.As(err, &perr) {
-		switch perr.Details["option"] {
+		switch option := perr.Details["option"]; option {
 		case "frame", "frame_file":
 			return frameLine(err)
+		case "":
+		default:
+			return optionLine(option, perr.Details["reason"])
 		}
 	}
 	return notConnected(protocol.CodeConfig)
+}
+
+// optionLine is the context line for one option the hook could not use,
+// in the frame line's form: the parser's fixed reason and the option's
+// name, never the value; the remedy is the user's settings.
+func optionLine(option, reason string) string {
+	if reason == "" {
+		reason = "unusable"
+	}
+	return "Brigade: not connected (config: " + attr(reason) + "); fix the `" + attr(option) + "` option in your settings"
 }
 
 // frameLine is the context line for a frame or frame_file option the hook

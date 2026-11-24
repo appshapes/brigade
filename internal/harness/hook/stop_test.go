@@ -772,6 +772,110 @@ func TestGrokStopCarriesTheAsk(t *testing.T) {
 	}
 }
 
+// TestStatusInTheOptionsFileStopsTheAsk (work item 439): `status` is a key
+// of the options file, so a member of a host that reads its options there
+// can turn the end-of-turn ask off. Grok Build's Stop hook and Muse Code's
+// next prompt, on the long turn with no doing line that the two tests
+// above show is asked about, ask nothing when the file says off; the same
+// session with the key left out is the control. Codex CLI has no case
+// here: its fixture's prompt carries Codex's own word for the permission
+// mode, under which the ask is not made at all, so the case would pass on
+// any code. That its file takes the key is held in the config package
+// (TestStatusInTheOptionsFile).
+func TestStatusInTheOptionsFileStopsTheAsk(t *testing.T) {
+	t.Parallel()
+	options := func(t *testing.T, f *fixture, file, status string, with map[string]string) {
+		t.Helper()
+		if status != "" {
+			with["status"] = status
+		}
+		body, err := json.Marshal(with)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(f.configDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(f.configDir, file), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		status  string
+		wantAsk bool
+	}{
+		{"the key left out", "", true},
+		{"off", "off", false},
+	} {
+		t.Run("Grok Build's Stop hook, "+tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := grokFixture(t)
+			f.unhurried()
+			f.writeTeamFile(stateMember)
+			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+			seam.describe = describeWithDescription()
+			// As in TestGrokStopCarriesTheAsk: the state folder rides on sync.
+			options(t, f, config.GrokOptionsFile, tc.status, map[string]string{"adapter_command": f.adapterOption(), "sync": "on"})
+			mode := map[string]any{"permissionMode": "bypassPermissions"}
+			if exit, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", mode)); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			if exit, _, errOut := grokRun(f, SubPrompt, grokDoc(f, "user_prompt_submit", "", mode)); exit != 0 {
+				t.Fatalf("prompt: exit %d: %s", exit, errOut)
+			}
+			// The first completed turn arms the monitor, whatever `status` says.
+			f.now = fixedTime.Add(12 * time.Minute)
+			if _, out, errOut := grokRun(f, SubStop, grokDoc(f, "stop", "", mode)); !strings.Contains(blockReason(t, out), "Arm this session's Brigade inbox") {
+				t.Fatalf("the first Stop did not arm the monitor: %q\n%s", out, errOut)
+			}
+			f.now = fixedTime.Add(13 * time.Minute)
+			_, out, errOut := grokRun(f, SubStop, grokDoc(f, "stop", "", mode))
+			if tc.wantAsk {
+				if got := blockReason(t, out); got != namedIn(f, stopAskOpen+stopAskDoing+stopAskClose) {
+					t.Fatalf("the control was not asked: %q\n%s", got, errOut)
+				}
+				return
+			}
+			if out != "" || f.stopStamp(t) != "" {
+				t.Fatalf("status off in the options file: out %q, stamp %q\n%s", out, f.stopStamp(t), errOut)
+			}
+		})
+		t.Run("Muse Code's next prompt, "+tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMuseFixture(t)
+			f.unhurried()
+			// The fixture's default reader answers only Claude Code's
+			// settings path; this hook reads the options file for real.
+			f.deps.ReadFile = os.ReadFile
+			options(t, f, config.MuseOptionsFile, tc.status, map[string]string{})
+			f.writeTeamFile(stateMember)
+			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+			seam.describe = describeWithDescription()
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			if exit, out, _ := f.run(SubPrompt, f.promptDoc("bypassPermissions")); exit != 0 || strings.Contains(out, stopAskOpen) {
+				t.Fatalf("the first prompt asked: exit %d out %q", exit, out)
+			}
+			f.now = fixedTime.Add(12 * time.Minute)
+			exit, out, errOut := f.run(SubPrompt, f.promptDoc("bypassPermissions"))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			if tc.wantAsk {
+				if !strings.Contains(out, namedIn(f, stopAskOpen+stopAskDoing+stopAskClose)) {
+					t.Fatalf("the control was not asked:\n%s", out)
+				}
+				return
+			}
+			if strings.Contains(out, stopAskOpen) || f.stopStamp(t) != "" {
+				t.Fatalf("status off in the options file: stamp %q, out:\n%s", f.stopStamp(t), out)
+			}
+		})
+	}
+}
+
 // TestStopAnswerFollowsTheVersion (card 186): the same ask, as the
 // feedback answer when the session registry's version is 2.1.163 or later,
 // and as the block answer when the version is older, unparsable, not a

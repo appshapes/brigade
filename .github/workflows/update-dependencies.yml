@@ -44,8 +44,10 @@ env:
     in your report rather than editing the allow-list. Majors are allowed, and adapting the call sites is part
     of the job. The committed Windows launcher `plugin/bin/brigade.exe` links `golang.org/x/sys`: when
     `make launcher-check` fails after the bump, run `make launcher` and commit the result in the same commit
-    as `go.mod`. Run `make typecheck tidy-check lint build test deps-check plugin-check launcher-check` before
-    you commit. If nothing is behind, change nothing and say what you checked.
+    as `go.mod`. An update that changes anything writes its own entry in `CHANGELOG.md`, under
+    `## [Unreleased]` and never under a released version, as that mode's point 5 says. Run
+    `make typecheck tidy-check lint build test deps-check plugin-check launcher-check` before you commit. If
+    nothing is behind, change nothing and say what you checked.
 
 # ---- from here on the three scheduled jobs are one text (scripts/ci/scheduled_job_test.go holds it) ----------
 #

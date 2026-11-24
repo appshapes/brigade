@@ -3,6 +3,7 @@
 package config_test
 
 import (
+	json "encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 )
 
 const (
@@ -321,6 +323,75 @@ func TestOptionsEnviron(t *testing.T) {
 			t.Fatalf("path %q %v (BRIGADE_CONFIG_DIR must be ignored in a session)", p, err)
 		}
 	})
+}
+
+// TestEveryOptionOfTheManifestIsAKeyOfTheOptionsFile (work item 439): the
+// options page says the names are the same in every harness, and `status`
+// was no key of the file, so a member of Muse Code, Codex CLI or Grok
+// Build could not turn the end-of-turn ask off. Every userConfig option of
+// the Claude Code plugin's manifest reaches ParseOptions from the file,
+// under its own name.
+func TestEveryOptionOfTheManifestIsAKeyOfTheOptionsFile(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join(testutil.RepoRoot(t), "plugin", ".claude-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		UserConfig map[string]any `json:"userConfig"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.UserConfig) == 0 {
+		t.Fatal("the manifest has no userConfig option: the test reads nothing")
+	}
+	dir := t.TempDir()
+	for name := range manifest.UserConfig {
+		path := filepath.Join(dir, name+".json")
+		if err := os.WriteFile(path, []byte(`{"`+name+`": "set-in-the-file"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		env, warn := config.OptionsEnviron([]string{"HOME=/h", "MUSE_SESSION_ID=" + museID}, path, os.ReadFile)
+		if warn != "" {
+			t.Fatalf("%s: warning %q", name, warn)
+		}
+		if got := adapterkit.Getenv(env, "CLAUDE_PLUGIN_OPTION_"+strings.ToUpper(name)); got != "set-in-the-file" {
+			t.Errorf("the option %q is not a key of the options file: a member of a host that reads the file cannot set it", name)
+		}
+	}
+}
+
+// TestStatusInTheOptionsFile (work item 439): the file's `status` is the
+// option ParseOptions reads, off for the word and on with the key left
+// out, in a session of each host that reads an options file.
+func TestStatusInTheOptionsFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for host, marker := range map[string]string{
+		"muse":  "MUSE_SESSION_ID=" + museID,
+		"codex": "CODEX_THREAD_ID=" + codexID,
+		"grok":  "GROK_SESSION_ID=02000000-0000-7000-8000-000000000001",
+	} {
+		for name, tc := range map[string]struct {
+			body string
+			want bool
+		}{
+			"off":      {`{"status": "off"}`, false},
+			"on":       {`{"status": "on"}`, true},
+			"left-out": {`{}`, true},
+		} {
+			path := filepath.Join(dir, host+"-"+name+".json")
+			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			env, warn := config.OptionsEnviron([]string{"HOME=/h", marker}, path, os.ReadFile)
+			opts, err := config.ParseOptions(env)
+			if err != nil || warn != "" || opts.Status != tc.want || opts.StatusWarning != "" {
+				t.Errorf("%s, %s: status %v (want %v), warnings %q %q, error %v", host, tc.body, opts.Status, tc.want, warn, opts.StatusWarning, err)
+			}
+		}
+	}
 }
 
 // codexMap is sampleMap as the Codex CLI hook writes it (card 107): the

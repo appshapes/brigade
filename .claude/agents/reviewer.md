@@ -121,7 +121,8 @@ your errand**: `go.mod`, `tools.mod` and the action pins belong to the dependenc
 - **Layering.** `internal/harness` must not import `internal/adapters/supabase` (depguard). The plugin speaks
   only the adapter protocol and spawns the bundled adapter as a child process.
 - **Tests stay Docker-free.** `make test` must not need Docker or a stack; live Supabase tests are opt-in behind
-  `BRIGADE_TEST_LIVE=1`, which only `make test-integration-adapter` sets (`make test-integration` runs it).
+  `BRIGADE_TEST_LIVE=1`, which `make test-integration-adapter`, `make test-integration-gateway` and
+  `make test-move-live` set (`make test-integration` runs the first two).
 - **CI hygiene.** Every job sets `timeout-minutes` — with one exception GitHub forces: a job whose body is
   `uses:` a reusable workflow cannot carry one, and the bound lives on the called workflow's job instead. No
   constant-false gate in `ci.yml` — gate on a real condition

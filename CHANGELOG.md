@@ -11,9 +11,67 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 **Who must act**
 
-- **Team Member:** nothing.
+- **Team Member:** on Muse Code, Codex CLI or Grok Build, with a
+  `status` key in your options file: the key is read from this release
+  on, where it was passed over. Check its value: `"on"` and `"off"`, in
+  quotes, are the option's two words, and any other value, a JSON
+  `true` included, is read as `off`, which the session says when it
+  starts ("`status` is an option of Muse Code, Codex CLI and Grok Build
+  too"). Everyone else: nothing.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
+
+### Changed
+
+- **The monthly dependency refresh** (work item 435). `golang.org/x/sys`
+  0.50.0, `golang.org/x/term` 0.48.0, `golang.org/x/text` 0.44.0 and the
+  `x509roots/fallback` bundle of 2026-11-23, the certificate authorities
+  the static binary trusts where the system offers none: the four
+  modules of the shipped binary that moved. `github.com/jackc/pgx/v5`
+  5.13.0 and `github.com/pb33f/go-yaml` 0.2.0, which only the tests and
+  the repository's own checks use, and `goimports` and `govulncheck`
+  moved with them. The Windows launcher `bin\brigade.exe` is rebuilt
+  against the new `x/sys`. Nothing in Brigade's own code changed. From
+  this one on, the monthly job writes this entry itself.
+
+### Fixed
+
+- **`status` is an option of Muse Code, Codex CLI and Grok Build too**
+  (work item 439). The end-of-turn ask, by which Brigade has the model
+  record a note after a commit or refresh a stale roster line, could be
+  switched off in Claude Code alone: `status` was no key of the options
+  file the other three read, so `"status": "off"` there was passed over
+  without a word. It is a key of all three files now, as the options
+  page already said of every option: with `off` in the file, Grok
+  Build's Stop hook and Muse Code's next prompt ask nothing. The value
+  is the word, in quotes: `true` and `false` are neither `on` nor `off`,
+  and such a value is read as `off`
+  ([Know the options](docs/team-member/configure/options.md)).
+- **A `status` that is neither `on` nor `off` is said when the session
+  starts** (work item 439). Such a value has always switched the ask
+  off, and nothing said so: the line was written with the option and no
+  hook printed it. Every session now says it at its start, in Claude
+  Code as in the other three, as it does for `sync`, `message_sound`
+  and the other options whose values are `on` and `off`.
+- **A session left without Brigade by an option names the option**
+  (work item 439). A value that is no true/false for
+  `share_workspace_label`, `share_doing`, `poll_on_prompt` or
+  `claude_inbound_setting`, or a `config_dir` that is not an absolute
+  path, leaves a session without Brigade, as before. Its one line read
+  ``Brigade: not connected (config); run `brigade team join` ``, which
+  named no option and a join that cures none. It now reads
+  ``Brigade: not connected (config: invalid_boolean); fix the
+  `share_doing` option in your settings``, in the form the `frame`
+  option's line always had. The value is never in the line.
+- **The options page says what a value Brigade cannot use does, option
+  by option** (work item 439). It said the default is used, which holds
+  for `message_interval` alone: `team_inbound` becomes `refuse`, an
+  on/off option becomes `off`, and a bad true/false value, a
+  `config_dir` that is not an absolute path or a bad `frame` leaves the
+  session without Brigade. The page now has each, with the line the
+  session says, and names Grok Build's options file beside the other
+  two
+  ([A value Brigade cannot use](docs/team-member/configure/options.md#a-value-brigade-cannot-use)).
 
 ## [0.60.0] — 2026-11-24
 

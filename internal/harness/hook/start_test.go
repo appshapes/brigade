@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -650,6 +651,94 @@ func TestPolicyWarnings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAnOptionTheParserRefusesIsNamedInTheLine (work item 439): a value
+// that is no true/false for one of the four options that take one, or a
+// config_dir that is not an absolute path, leaves the session without
+// Brigade, as it did, and the one line names the option and where it is
+// fixed. It used to read `not connected (config); run `brigade team
+// join“, which named no option and a remedy that cures none. The value is
+// never in the line, nothing is spawned and no map is written.
+func TestAnOptionTheParserRefusesIsNamedInTheLine(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		option, variable, reason string
+	}{
+		{"share_workspace_label", config.OptionShareWorkspaceLabel, config.ReasonInvalidBoolean},
+		{"share_doing", config.OptionShareDoing, config.ReasonInvalidBoolean},
+		{"poll_on_prompt", config.OptionPollOnPrompt, config.ReasonInvalidBoolean},
+		{"claude_inbound_setting", config.OptionClaudeInboundSetting, config.ReasonInvalidBoolean},
+		{"config_dir", config.OptionConfigDir, config.ReasonRelativePath},
+	} {
+		t.Run(tc.option, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+			const value = "a-value-nobody-meant"
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"), tc.variable+"="+value)
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			want := "Brigade: not connected (config: " + tc.reason + "); fix the `" + tc.option + "` option in your settings"
+			if got := lines(out); len(got) != 1 || got[0] != want {
+				t.Fatalf("stdout %q\nwant  %q", out, want)
+			}
+			if strings.Contains(out, value) || strings.Contains(out, "team join") {
+				t.Fatalf("the line carries the value or names a join: %q", out)
+			}
+			if len(seam.calls) != 0 || f.spawner.count() != 0 || f.mapExists() {
+				t.Fatalf("calls %d spawns %d map %v after an option the parser refused", len(seam.calls), f.spawner.count(), f.mapExists())
+			}
+		})
+	}
+	// A config failure that names no option keeps the line it had.
+	if got, want := optionsLine(&protocol.Error{Code: protocol.CodeConfig}), notConnected(protocol.CodeConfig); got != want {
+		t.Fatalf("a failure with no option: %q, want %q", got, want)
+	}
+}
+
+// TestAStatusThatIsNeitherWordIsSaidAtTheStart (work item 439): `status`
+// set to anything but on or off switches the end-of-turn ask off, and the
+// session says so in a line of its own at its start, as it does for every
+// other option whose values are on and off. The line was written with the
+// option and said by nothing. A JSON true in an options file is such a
+// value: the file's `"status": true` is read as off, with the line.
+func TestAStatusThatIsNeitherWordIsSaidAtTheStart(t *testing.T) {
+	t.Parallel()
+	t.Run("the option in Claude Code", func(t *testing.T) {
+		t.Parallel()
+		for value, wantLine := range map[string]bool{"maybe": true, "true": true, "off": false, "on": false} {
+			f := newFixture(t)
+			f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"), config.OptionStatus+"="+value)
+			if exit != 0 {
+				t.Fatalf("%s: exit %d: %s", value, exit, errOut)
+			}
+			if got := slices.Contains(lines(out), config.WarnStatusInvalid); got != wantLine {
+				t.Fatalf("status %q: the line said %v, want %v:\n%s", value, got, wantLine, out)
+			}
+		}
+	})
+	t.Run("a JSON true in Muse Code's options file", func(t *testing.T) {
+		t.Parallel()
+		f := newMuseFixture(t)
+		f.deps.ReadFile = os.ReadFile
+		if err := os.MkdirAll(f.configDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(f.configDir, config.MuseOptionsFile), []byte(`{"status": true}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+		exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+		if exit != 0 {
+			t.Fatalf("exit %d: %s", exit, errOut)
+		}
+		if !slices.Contains(lines(out), config.WarnStatusInvalid) {
+			t.Fatalf("the start did not say that `status` is neither word:\n%s", out)
+		}
+	})
 }
 
 // TestRegistrationCarriesTheBrigadeVersion pins card 29's hook half

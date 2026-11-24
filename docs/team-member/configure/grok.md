@@ -17,7 +17,10 @@ The Go resolvers and the shared bootstrap use HOME-only Brigade directories insi
 A Claude, Muse or Codex session started from Grok keeps those variables; Grok strips them only when it is
 the host.
 `config_dir` relocates credentials only after this options file is found. Missing files give defaults;
-malformed/oversized files produce a fixed warning; unknown keys and nested values are ignored.
+malformed/oversized files produce a fixed warning; unknown keys and nested values are ignored. An option whose
+values are `on` and `off` takes those two words, in quotes: a JSON `true` or `false` is neither, and is read as
+`off`, or as `on` for `grok_strict`, with one line at session start
+([A value Brigade cannot use](options.md#a-value-brigade-cannot-use)).
 
 `team_inbound` controls local injection: accept appends to the private sink, hold retains server-side pending
 messages until the human releases them, and refuse injects/ACKs nothing. `poll_on_prompt` does not deliver on

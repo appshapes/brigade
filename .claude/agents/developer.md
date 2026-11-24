@@ -124,8 +124,8 @@ regenerating a checksum or bumping a version.
 
 ## Dependency update
 
-The monthly scheduled job `update-dependencies`. Three surfaces, three prohibitions, one gate list. Do all
-three surfaces in the one change unless a bump forces call-site work large enough to deserve its own: then
+The monthly scheduled job `update-dependencies`. Five points, three prohibitions, one gate list. Do all
+five in the one change unless a bump forces call-site work large enough to deserve its own: then
 bump what stands by itself and describe the rest in your report.
 
 **1. Go modules (`go.mod`).** Bump the **direct** requirements:
@@ -180,6 +180,14 @@ bump of that module changes the committed launcher's bytes and `make launcher-ch
 after the bump; when it fails, run `make launcher` and commit `plugin/bin/brigade.exe` **in the same commit as
 `go.mod`**. The build is reproducible (release flags, no version stamp) and CI's `fast` job rebuilds and diffs
 it, which is what makes a launcher you built safe to commit. Nothing else under `plugin/bin/` is yours to touch.
+
+**5. The changelog (`CHANGELOG.md`).** An update that changes anything writes its own entry, in the same commit
+(the owner's ruling of 2026-11-24, work item 439): one bullet, **The monthly dependency refresh**, under
+`## [Unreleased]`, `### Changed` (add that heading, before `### Fixed`, when the section has none), and never
+under a released version. It names each module of `docs/allowed-deps.txt` that moved, with its new version,
+since those are what the shipped binary links (or says that none of them moved), then in a clause what moved
+beside them, and says that the Windows launcher `bin\brigade.exe` was rebuilt when it was. The 0.47.2 section
+has the form. Leave the three "who must act" lines of the section as they are: an update asks nothing of anyone.
 
 **Three prohibitions, each one a blocked PR if you cross it:**
 
