@@ -21,7 +21,7 @@
 #       (typecheck, pull, lint, build, test with -race) on the developer's machine, a Mac today, before it reaches
 #       origin, and `make release` goes through the same chain; `fast` still cross-compiles both darwin targets
 #       (`make checksums-check`) and `lint` still loads the tree with GOOS=darwin. What is given up: a pull
-#       request written off a Mac (the agentic loop's, a dependency bump) meets macOS at the next `make push`
+#       request written off a Mac (an agent's, a dependency bump) meets macOS at the next `make push`
 #       rather than before its merge, and the byte-identical cross-host build is asserted when a release is cut
 #       (checksums-check rule (c) on the release commit, release.yml's guard on the tag: both rebuild on Linux
 #       what `make release` pinned) rather than on every push. Bringing either job back is the owner's decision.

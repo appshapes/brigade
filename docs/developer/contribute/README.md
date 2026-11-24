@@ -7,7 +7,7 @@
 | commit and push a change | [Commit and push](#commit-and-push) |
 | read, add, start or finish the work item the work belongs to | [Work from the Brigade Board](#work-from-the-brigade-board) |
 | record a decision, or correct one that is recorded | [Record a decision](#record-a-decision) |
-| hand a piece of work to the repository's agents | [Use the agentic loop](#use-the-agentic-loop) |
+| have a pull request reviewed, fixed and merged by the repository's agents, or run a scheduled job | [Use the repository's agents](#use-the-repositorys-agents) |
 
 ## Commit and push
 
@@ -33,9 +33,10 @@ Details: [Work from the Brigade Board](work-items.md).
 
 Details: [Decisions](../../decisions/README.md).
 
-## Use the agentic loop
+## Use the repository's agents
 
-1. Label an issue `claude`, titled `<work item>: <title>`: the developer, reviewer and auto-merge workflows carry it from branch to squash merge.
-2. Agents commit with plain `git` on their branch and never run `make commit`, `make push` or `make release`.
+1. Open a pull request from a branch of the repository, titled `<work item>: <Imperative summary>`: the reviewer agent reviews it, and its request for changes starts the fixer on the branch.
+2. Label it `auto-merge` to have it merged once the reviewer approved its head and the required checks are green.
+3. `gh workflow run update-documentation.yml` (or `update-dependencies.yml`, `review-repository.yml`) starts a scheduled job by hand: one run writes, reviews and opens the pull request.
 
-Details: [Use the agentic loop](agentic-loop.md).
+Details: [Use the repository's agents](repository-agents.md).

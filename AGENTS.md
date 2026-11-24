@@ -7,7 +7,7 @@
 2. [Invariants: protocol, output, secrets, configuration, dependencies](docs/agent/repository/invariants.md)
 3. [Gates: what runs before a push, and what a release needs](docs/agent/repository/gates.md)
 4. [Documentation: where a page goes, and the gate that holds it](docs/agent/repository/documentation.md)
-5. [Automation: the release-notes email, the agentic loop, pinned actions](docs/agent/repository/automation.md)
+5. [Automation: the release-notes email, the scheduled jobs, the pull-request agents, pinned actions](docs/agent/repository/automation.md)
 
 The agent persona's page, [docs/agent/README.md](docs/agent/README.md), says what an agent does inside a Brigade
 team and what it does on this repository. Humans start at [README.md](README.md).

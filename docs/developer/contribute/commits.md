@@ -16,9 +16,9 @@ A merge conflict is resolved where it happens, by whoever hit it, not handed bac
 item 298): keep what both sides meant, run the gate, and say in the merge's commit message which files conflicted
 and how each was resolved. Never `git merge --abort` to escape one, never a rebase or a force-push to resolve
 one. The steps, for a pull that conflicts and for one that refuses because local changes would be overwritten,
-are in one place, the rule file: [Conventions](../../agent/repository/conventions.md). The pull request branches
-of the agentic loop are the exception: an agent on a runner hands a conflict back in a comment
-([The agentic loop](agentic-loop.md)).
+are in one place, the rule file: [Conventions](../../agent/repository/conventions.md). A pull request's branch
+that an agent works on is the exception: an agent on a runner hands a conflict back in a comment
+([The repository's agents](repository-agents.md)).
 
 - **The message** is `<work item>: <Imperative summary>`, the number being the work item's on the team's Brigade
   Board ([Work from the Brigade Board](work-items.md)). `/commit <work item>` in Claude Code writes the message

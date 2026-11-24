@@ -1,19 +1,21 @@
 //go:build !windows
 
-// A work order of the agentic loop does not vanish (work item 398, 2026-11-22).
+// What an agent's checkout holds, and the lines of claude.yml that keep a run of it from vanishing (work item
+// 398, 2026-11-22; brought to the form work item 433 left on 2026-11-24).
 //
-// Two ways were seen. The factory labels a work order's issue with three labels in one call; the three
-// `labeled` runs met in claude.yml's concurrency group, which held one waiting run, and the `claude` one was
-// cancelled by a newer one (2026-10-01, issue #50: no agent ran and nothing said so). And an agent ended in
-// `success` with two pages edited and nothing committed; `open-pr` saw "success and no branch" and closed the
-// issue as "finished without changes" (2026-11-22, issue #118).
+// Both were found on the issue-driven loop, which work item 433 removed. Three `labeled` runs of one work
+// order met in claude.yml's concurrency group, which held one waiting run, and the `claude` one was cancelled
+// by a newer one (2026-10-01, issue #50: no agent ran and nothing said so). And an agent ended in `success`
+// with two pages edited and nothing committed, and its issue was closed as "finished without changes"
+// (2026-11-22, issue #118).
 //
-// This file holds what stands against both:
+// This file holds what stands against both, where each can still happen:
 //   - scripts/ci/agent-leftover.sh, run for real in fixture checkouts: it says whether an agent's checkout
-//     holds changed paths or unpushed commits, and names a `make` or `go` still running;
-//   - the lines of claude.yml that use it and the queue: every run of the group waits its turn, the script is
-//     read from the commit the run started on, and an issue is closed as "nothing to change" only when the
-//     script found the checkout unchanged.
+//     holds changed paths or unpushed commits, and names a `make` or `go` still running. The gate of the
+//     scheduled jobs calls it now (scripts/ci/scheduled-job.sh; scheduled_job_test.go holds that call);
+//   - the lines of claude.yml that a pull request's agent still needs: every run of the group waits its turn,
+//     a pull request starts an agent by the `claude` label's own event, a long command stays in the
+//     foreground, and nothing an issue does starts an agent.
 //
 // Both halves run twice, on the repository and on mutated copies, where silence is the bug.
 package ci_test
@@ -82,6 +84,7 @@ func (r *leftoverRepo) write(file, text string) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		r.t.Fatalf("creating the directory of %s: %v", file, err)
 	}
+	//nolint:gosec // G703: every caller's path is under the fixture's own t.TempDir().
 	if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
 		r.t.Fatalf("writing %s: %v", file, err)
 	}
@@ -358,11 +361,39 @@ func TestAgentLeftoverCasesFailOnAMutatedScript(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------------------------------------
-// the workflow lines that use the queue and the script
+// TestAgentLeftoverWritesItsCounts holds the four counts the gate of the scheduled jobs reads beside `left`
+// (work item 433): a writer's own commits are unpushed by design there, so `left` alone cannot tell them
+// from work that was never committed.
+func TestAgentLeftoverWritesItsCounts(t *testing.T) {
+	t.Parallel()
+	r := newLeftoverRepo(t)
+	r.write(filepath.Join(r.work, "README.md"), "a page, edited\n")
+	r.write(filepath.Join(r.work, "docs", "new.md"), "a new page\n")
+	r.git("add", "docs/new.md")
+	r.git("commit", "--quiet", "-m", "a commit never pushed")
+	r.write(filepath.Join(r.work, "docs", "new.md"), "a new page, edited\n")
+	r.git("stash", "push", "--quiet", "--", "docs/new.md")
+	out := filepath.Join(t.TempDir(), "github-output")
+	res := runScriptAt(t, filepath.Join(testutil.RepoRoot(t), leftoverScriptRel), r.work, append(r.env, "GITHUB_OUTPUT="+out))
+	wantPass(t, res)
+	//nolint:gosec // G304: out is under t.TempDir().
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("the script wrote no outputs: %v", err)
+	}
+	for _, want := range []string{"left=true\n", "\nchanged=1\n", "\nunpushed=1\n", "\nstashed=1\n", "\nrunning=\n"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("the outputs do not carry %q:\n%s", want, data)
+		}
+	}
+}
 
-// checkWorkOrderWorkflow reports what claude.yml under root lacks of the lines work item 398 put there.
-func checkWorkOrderWorkflow(r reporter, root string) {
+// ---------------------------------------------------------------------------------------------------------
+// the lines of claude.yml
+
+// checkHubLines reports what claude.yml under root lacks of the lines work item 398 put there and work item
+// 433 left, and what it carries of the issue-driven loop that work item 433 removed.
+func checkHubLines(r reporter, root string) {
 	r.Helper()
 	text, ok := readText(r, root, loopHubRel)
 	if !ok {
@@ -372,25 +403,8 @@ func checkWorkOrderWorkflow(r reporter, root string) {
 		{
 			"\nconcurrency:\n  group: claude-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}\n" +
 				"  cancel-in-progress: false\n  queue: max\n",
-			"every run of an issue or a pull request waits its turn: without `queue: max` a newer waiting run takes " +
-				"the place of an older one, and that older one can be the work order's",
-		},
-		{
-			"          git show \"$GITHUB_SHA:" + leftoverScriptRel + "\" > \"$RUNNER_TEMP/agent-leftover.sh\"\n" +
-				"          sh \"$RUNNER_TEMP/agent-leftover.sh\"\n",
-			"the script runs from the commit the run started on, never from the working tree the agent can edit",
-		},
-		{
-			"        id: leftover\n        if: ${{ !cancelled() && github.event_name == 'issues' && (steps.claude.outcome == 'success' || steps.claude.outcome == 'failure') }}\n",
-			"the step looks at the checkout of every work order whose agent step ran, whatever its outcome",
-		},
-		{
-			"        continue-on-error: true\n        run: |\n          set -euo pipefail\n          git show \"$GITHUB_SHA:" + leftoverScriptRel + "\"",
-			"the step is never the job's verdict: were it to fail the job, `open-pr` would be skipped over a pushed branch",
-		},
-		{
-			"        if: steps.create_pr.outputs.pr_created == 'true' && needs.agent.outputs.agent_left == 'true'\n",
-			"a pull request whose agent left more in the checkout says so on the issue its merge will close",
+			"every run of a pull request waits its turn: without `queue: max` a newer waiting run takes the place " +
+				"of an older one, and that older one can be the one a person asked for",
 		},
 		{
 			"  pull_request:\n    types: [labeled]\n",
@@ -402,16 +416,9 @@ func checkWorkOrderWorkflow(r reporter, root string) {
 				"labelled `claude` beside other labels must match once",
 		},
 		{
-			"      agent_left: ${{ steps.leftover.outputs.left }}\n      agent_left_summary: ${{ steps.leftover.outputs.summary }}\n",
-			"the two outputs are the only way what the step found reaches `open-pr`",
-		},
-		{
-			"        if: steps.create_pr.outputs.pr_created == 'false' && needs.agent.outputs.agent_outcome == 'success' && needs.agent.outputs.agent_left == 'false'\n",
-			"an issue is closed as \"nothing to change\" only when the checkout was looked at and found unchanged",
-		},
-		{
-			"        if: steps.create_pr.outputs.pr_created == 'false' && (needs.agent.outputs.agent_outcome != 'success' || needs.agent.outputs.agent_left != 'false')\n",
-			"every other case with no branch leaves the issue open and says why: a failed agent, work left, a checkout not looked at",
+			"        (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude')",
+			"`issue_comment` is raised for an issue and for a pull request: only a comment on a pull request " +
+				"starts an agent, since nothing turns the branch of any other into a pull request (work item 433)",
 		},
 		{
 			"              \"env\": {\n                \"BASH_DEFAULT_TIMEOUT_MS\": \"900000\",\n                \"BASH_MAX_TIMEOUT_MS\": \"1800000\",\n" +
@@ -420,21 +427,30 @@ func checkWorkOrderWorkflow(r reporter, root string) {
 		},
 	} {
 		if !strings.Contains(text, want.line) {
-			r.Errorf("%s no longer carries\n%s\n(%s; work item 398)", loopHubRel, want.line, want.why)
+			r.Errorf("%s no longer carries\n%s\n(%s)", loopHubRel, want.line, want.why)
 		}
 	}
-	if strings.Count(text, "agent-leftover.sh") != strings.Count(text, "$RUNNER_TEMP/agent-leftover.sh")+strings.Count(text, "$GITHUB_SHA:"+leftoverScriptRel) {
-		r.Errorf("%s names agent-leftover.sh somewhere other than the `git show` of the starting commit and its "+
-			"copy under RUNNER_TEMP: the working tree's copy is the agent's to edit", loopHubRel)
+	// What an issue could start, comment lines apart: the trigger, a clause on the event, and the job that
+	// opened a pull request for an issue's branch.
+	for i, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		for _, gone := range []string{"issues:", "github.event_name == 'issues'", "open-pr", "gh pr create", "gh issue"} {
+			if strings.Contains(line, gone) && !strings.Contains(line, "issues: write") {
+				r.Errorf("%s:%d carries %q: an issue starts no agent and this workflow opens no pull request "+
+					"since work item 433 removed the issue-driven loop (ADR 0032)", loopHubRel, i+1, gone)
+			}
+		}
 	}
 }
 
-func TestWorkOrderLinesOfTheHub(t *testing.T) {
+func TestTheLinesOfTheHub(t *testing.T) {
 	t.Parallel()
-	checkWorkOrderWorkflow(t, testutil.RepoRoot(t))
+	checkHubLines(t, testutil.RepoRoot(t))
 }
 
-var workOrderWorkflowMutations = []struct {
+var hubLineMutations = []struct {
 	name    string
 	mutate  mutation
 	because string
@@ -442,38 +458,7 @@ var workOrderWorkflowMutations = []struct {
 	{
 		"the_group_holds_one_waiting_run_again",
 		replaceInFile(loopHubRel, "  cancel-in-progress: false\n  queue: max\n", "  cancel-in-progress: false\n"),
-		"the race of 2026-10-01: the third label's run cancels the second",
-	},
-	{
-		"the_script_runs_from_the_working_tree",
-		replaceInFile(loopHubRel, "          sh \"$RUNNER_TEMP/agent-leftover.sh\"\n", "          sh scripts/ci/agent-leftover.sh\n"),
-		"the agent can edit that copy",
-	},
-	{
-		"the_issue_closes_without_a_look_at_the_checkout",
-		replaceInFile(loopHubRel, " && needs.agent.outputs.agent_left == 'false'\n", "\n"),
-		"the closing of issue #118: success and no branch, over two edited pages",
-	},
-	{
-		"the_issue_closes_when_the_checkout_was_not_looked_at",
-		replaceInFile(loopHubRel, "needs.agent.outputs.agent_outcome == 'success' && needs.agent.outputs.agent_left == 'false'",
-			"needs.agent.outputs.agent_outcome == 'success' && needs.agent.outputs.agent_left != 'true'"),
-		"an empty output, a step that never ran, is not a checkout found unchanged",
-	},
-	{
-		"the_step_looks_only_when_the_agent_succeeded",
-		replaceInFile(loopHubRel, "(steps.claude.outcome == 'success' || steps.claude.outcome == 'failure')", "steps.claude.outcome == 'success'"),
-		"an agent that died at its ceiling may have left work too, and the comment should say so",
-	},
-	{
-		"the_step_can_fail_the_job",
-		replaceInFile(loopHubRel, "        continue-on-error: true\n        run: |\n          set -euo pipefail\n          git show", "        run: |\n          set -euo pipefail\n          git show"),
-		"a failed agent job skips `open-pr`, and a pushed branch then has no pull request",
-	},
-	{
-		"nothing_says_what_was_left_beside_a_pushed_branch",
-		replaceInFile(loopHubRel, "steps.create_pr.outputs.pr_created == 'true' && needs.agent.outputs.agent_left == 'true'", "false"),
-		"the pull request's merge closes the issue over the work that went with the runner",
+		"the race of 2026-10-01: a newer waiting run cancels the older",
 	},
 	{
 		"any_label_on_a_claude_pull_request_starts_an_agent",
@@ -496,26 +481,42 @@ var workOrderWorkflowMutations = []struct {
 		replaceInFile(loopHubRel, "\"BASH_MAX_TIMEOUT_MS\": \"1800000\",\n                \"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS\": \"1\"\n", "\"BASH_MAX_TIMEOUT_MS\": \"1800000\"\n"),
 		"a command in the background is one the session may end without",
 	},
+	{
+		"a_comment_on_an_issue_starts_an_agent_again",
+		replaceInFile(loopHubRel, "github.event_name == 'issue_comment' && github.event.issue.pull_request && ", "github.event_name == 'issue_comment' && "),
+		"the last door of the issue-driven loop: an agent whose branch nothing turns into a pull request",
+	},
+	{
+		"an_issue_labelled_claude_is_a_work_order_again",
+		replaceInFile(loopHubRel, "  pull_request:\n    types: [labeled]\n", "  issues:\n    types: [labeled]\n  pull_request:\n    types: [labeled]\n"),
+		"the trigger work item 433 removed",
+	},
+	{
+		"the_job_matches_an_issue_event",
+		replaceInFile(loopHubRel, "        (github.event_name == 'pull_request' && github.event.action == 'labeled'",
+			"        (github.event_name == 'issues' && github.event.label.name == 'claude') ||\n        (github.event_name == 'pull_request' && github.event.action == 'labeled'"),
+		"the clause work item 433 removed",
+	},
 }
 
-func TestWorkOrderLinesPassOnAnUnmutatedCopy(t *testing.T) {
+func TestHubLinesPassOnAnUnmutatedCopy(t *testing.T) {
 	t.Parallel()
 	var rec recorder
-	checkWorkOrderWorkflow(&rec, copyWorkflows(t))
+	checkHubLines(&rec, copyWorkflows(t))
 	if len(rec.msgs) != 0 {
 		t.Errorf("the check reported %d problem(s) on an unmutated copy: %s", len(rec.msgs), strings.Join(rec.msgs, "; "))
 	}
 }
 
-func TestWorkOrderLinesFailOnAMutatedCopy(t *testing.T) {
+func TestHubLinesFailOnAMutatedCopy(t *testing.T) {
 	t.Parallel()
-	for _, m := range workOrderWorkflowMutations {
+	for _, m := range hubLineMutations {
 		t.Run(m.name, func(t *testing.T) {
 			t.Parallel()
 			root := copyWorkflows(t)
 			m.mutate(t, root)
 			var rec recorder
-			checkWorkOrderWorkflow(&rec, root)
+			checkHubLines(&rec, root)
 			if len(rec.msgs) == 0 {
 				t.Fatalf("the mutation changed nothing the check can see, so the check is vacuous (%s)", m.because)
 			}

@@ -6,7 +6,8 @@
 | `release.yml` | a `v*` tag | guards that the plugin pins the tag, the four manifests agree, the documentation gate passes and the source reproduces the committed checksums; goreleaser builds a draft; the build is verified against the checksums; publish; dispatch the notes |
 | `send-release-notes.yml` | weekly, and on dispatch | the release-notes email ([Send the release notes](../release/release-notes.md)) |
 | `keepalive.yml` | daily | one job per hosted project ([Arm the keep-alive](../../project-owner/install/keep-alive.md)) |
-| `claude.yml`, `review-pull-request.yml`, `update-documentation.yml`, `review-repository.yml`, `update-dependencies.yml` | an issue labelled `claude`; a PR; monthly | the agentic loop ([Use the agentic loop](../contribute/agentic-loop.md)) |
+| `update-documentation.yml`, `update-dependencies.yml`, `review-repository.yml` | monthly, and on dispatch | the scheduled jobs: one run writes, gates, reviews and opens the pull request ([Use the repository's agents](../contribute/repository-agents.md)) |
+| `review-pull-request.yml`, `claude.yml`, `auto-merge.yml` | a pull request; a review or an `@claude` on one | the reviewer, the fixer and the merge of a pull request labelled `auto-merge` ([Use the repository's agents](../contribute/repository-agents.md)) |
 
 [scripts/ci/README.md](../../../scripts/ci/README.md) is the reference: every workflow, every script under
 `scripts/ci/` and `scripts/`, what calls it, how to run it locally, the required GitHub configuration (secrets,

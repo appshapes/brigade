@@ -21,12 +21,11 @@ jobs:
     # fixer pushing to PR branches, an approval from a reviewer session that started on an older head must never
     # arm a merge for commits it never reviewed.
     #
-    # The label clause is the policy switch, and it is LIVE FROM DAY ONE. Two of the three scheduled callers set
-    # it — update-documentation.yml and update-dependencies.yml both pass `auto_merge: true` — and one never
-    # does: review-repository.yml, because a whole-tree review merges by hand (Rjae's standing decision 5, which
-    # is a permanent policy and not a burn-in measure). Earlier drafts expected this `if:` to be false on every
-    # run for the first two months; Rjae rejected that staging on 2026-09-10, so expect it to fire on the first
-    # documentation or dependency PR that the reviewer approves.
+    # The label clause is the policy switch: whoever opens a pull request puts `auto-merge` on it, or leaves
+    # it off and merges by hand. The three scheduled jobs no longer come this way (work item 433, ADR 0032):
+    # each is reviewed inside its own run, which arms the merge itself for documentation and dependencies and
+    # leaves the repository review's pull request to Rjae (his standing decision 5, a permanent policy), and
+    # review-pull-request.yml skips their branches, so no review of theirs reaches this job.
     #
     # The login clause names the reviewer agent's WHOLE login: `claude[bot]`, the Claude GitHub App (work item
     # 397, 2026-11-22; measured that day: every one of the agent's 79 reviews in this repository carries that
@@ -53,8 +52,7 @@ jobs:
       # --squash: the merge commit's subject must read `<work item>: <Imperative summary>` (CLAUDE.md). That subject
       # comes from the PR TITLE because the repository is configured with squash_merge_commit_title=PR_TITLE
       # (§4.10); GitHub's default, COMMIT_OR_PR_TITLE, would use the single commit's own subject on a one-commit PR
-      # and the rule would hold only by luck. The title itself is minted with the number by claude.yml: the
-      # issue's own when its title carries one, `15: ` (a maintenance work order) when it does not.
+      # and the rule would hold only by luck. The title is the author's to write with the work item's number.
       #
       # The `||` fallback is not defensive noise, it is the COMMON path. `--auto` calls GitHub's
       # enablePullRequestAutoMerge mutation, which ERRORS with "Pull request is in clean status" when the PR is

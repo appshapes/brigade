@@ -1,4 +1,4 @@
-# Automation: the release-notes email, the agentic loop, pinned actions
+# Automation: the release-notes email, the scheduled jobs, the pull-request agents, pinned actions
 
 - **The release-notes email** (card 43, `.github/workflows/send-release-notes.yml`, whose writer and reviewer both
   follow `.claude/agents/release-notes-email.md`) goes to a list kept by hand in
@@ -11,13 +11,37 @@
   make the script believe a mark with a run of the workflow missing after it, which would mail the list every
   release since an older email again. A release
   may show one picture under a change, made by the rules of `docs/email/README.md` (`make email-picture`).
-- **Repository automation.** An issue labelled `claude` is a work order for the agentic loop
-  (`.github/workflows/claude.yml`). An agent working on a PR branch follows `.claude/agents/developer.md`; the PR
-  reviewer follows `.claude/agents/reviewer.md`; the monthly documentation refresh follows
-  `.claude/agents/documenter.md`. Agents commit with plain `git` on their branch and never run `make commit`,
-  `make push` or `make release`. A PR labelled `maintenance` is exempt from the execution-log-row rule (owner
-  ruling, 2026-09-09); its squash-merge title, `<work item>: <Imperative summary>`, satisfies the commit-message
-  rule.
+- **The scheduled jobs** (work item 433, ADR 0032). Three jobs run on the first of each month, each as ONE
+  workflow whose steps are the personas in turn: `update-documentation.yml` (its writer follows
+  `.claude/agents/documenter.md`), `update-dependencies.yml` (`developer.md`, dependency-update mode) and
+  `review-repository.yml` (`reviewer.md`, review-repository mode). After the writer come a shell gate, a
+  reviewer (`reviewer.md`, scheduled-job mode), one fix cycle (`developer.md`) and a second review; an approved
+  change leaves as a pull request, which merges by itself when the required checks are green, except the
+  repository review's, which waits for the owner. No issue is opened and no issue is a work order: an issue
+  labelled `claude` starts nothing.
+  - **A scheduled job names its work by its standing work item.** The number is `STANDING_WORK_ITEM` in the
+    job's workflow file (434, 435 and 436; [conventions.md](conventions.md) says what such a work item is). The
+    pull request is titled `<that number>: <the job's title>`, the squash merge takes the title, and the record
+    of one run is its pull request. A new scheduled job gets a standing work item of its own first.
+  - **No step that runs a model holds a token that can write to the repository.** The job `work` is
+    `contents: read` and every agent step is handed that token (`github_token`): without the input the action
+    mints a token of the Claude GitHub App, which the job's permissions do not bound. Never give that job a
+    write permission, `id-token` or `GH_ACTIONS_TOKEN`, and never drop the input. The job `land` holds the
+    owner's token in one step and runs no agent and nothing that came out of the writer's commits.
+  - **The three are one text** from a marked line on, and the shell steps are one script,
+    `scripts/ci/scheduled-job.sh`, which the job `work` runs from the commit the run started on. Change a step
+    in all three; what is a job's own (its number, title, gate, how it merges, the writer's brief) is above the
+    line. `scripts/ci/scheduled_job_test.go` holds all of it.
+  - A run that fails is a red run with the report, the gate's findings and the reviews as its artifact. The
+    owner hears of it from GitHub's own mail for a failed run; nothing else tells anyone.
+- **The agents on a pull request.** A pull request from a branch of the repository is reviewed by the reviewer
+  agent (`review-pull-request.yml`, `.claude/agents/reviewer.md`); its request for changes, or a person's
+  `@claude` on the pull request, starts the fixer on the branch (`claude.yml`, `.claude/agents/developer.md`);
+  `auto-merge.yml` merges a pull request labelled `auto-merge` once the reviewer approved its head. A pull
+  request whose branch begins `scheduled/` is a scheduled job's and gets none of the three. Agents commit with
+  plain `git` and never run `make commit`, `make push` or `make release`. A PR labelled `maintenance` is exempt
+  from the execution-log-row rule (owner ruling, 2026-09-09); its squash-merge title,
+  `<work item>: <Imperative summary>`, satisfies the commit-message rule.
   Agent memory lives under `.context/plans/agent-memory/`, never under `.claude/`.
 - **Pinned actions.** `anthropics/claude-code-action` is pinned by **full commit SHA**, the only action in this
   repository that is, because it is the only one that runs a model with repository write access; every other

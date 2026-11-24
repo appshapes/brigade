@@ -4,8 +4,9 @@
   force-push of pushed history. Integrate with `git pull --no-edit` (`make pull`).
 - **A merge conflict is the session's to resolve, in place** (the owner's global rule, made this repository's on
   2026-11-13, work item 298; until then the rule here was to stop and hand it back). This is a session's rule:
-  an agent of the agentic loop on a runner has nobody to ask and never runs `make push`, so it still hands a
-  conflict back in a pull request comment, as `.claude/agents/developer.md` says, and nothing below is for it.
+  an agent on a runner, the fixer of a pull request, has nobody to ask and never runs `make push`, so it still
+  hands a conflict back in a pull request comment, as `.claude/agents/developer.md` says, and nothing below is
+  for it (the owner's word of 2026-11-24, work item 314).
   A pull conflicts when origin and local commits it has not seen change the same lines; `make push` then stops
   at its pull, with a merge in progress.
   1. Read what each side meant (`git log --merge -p`, and the work items its commits name), keep both, and leave
@@ -40,16 +41,21 @@
   escape a conflict, though git's own hint offers it, never a rebase or a force-push to resolve one. When what
   one side meant cannot be told from the code, its commits and its work item, ask the user at once
   and leave the merge in progress, never aborted: until it is concluded, no other session in the checkout can
-  pull. The agentic loop's agents are not sessions and have nobody to ask: on a runner a conflict is still handed
-  back in a pull request comment (`.claude/agents/developer.md`).
+  pull. An agent on a runner is not a session and has nobody to ask: there a conflict is still handed back in a
+  pull request comment (`.claude/agents/developer.md`).
 - **Commit messages** are `<work item>: <Imperative summary>`, the number being the work item's on the team's
   Brigade Board. Commit and push through `make push message="<work item>: …"` (typecheck, pull, lint, build,
   test, stage every working-tree change, commit, push) or the `/commit <work item>` skill, which is a port of it.
   `make push` stages everything in the checkout, including another session's edits: check `git status` first in
-  a shared checkout. The agentic loop's runner has no board (2026-11-13, work item 265): a pull request's number
-  is the work item's that its issue's title names (`<number>: <title>`), never read from the board there and
-  never invented. An issue that names none is a maintenance work order and takes `15`, the number of the
-  build-out card of the Trello days, which is not a work item of the board.
+  a shared checkout. A runner has no board (2026-11-13, work item 265), so an agent there never reads a number
+  from it and never invents one: on a pull request's branch the number is the one the pull request's title
+  carries, written by whoever opened it. **A scheduled job names its work by its standing work item** (the
+  owner's rulings of 2026-11-24, work items 314 and 433, ADR 0032): each of the three monthly jobs has one work
+  item of the board, added once and closed on purpose so that no listing shows it as open work, and its
+  workflow file carries that number, so the job's pull request, and the commit its squash merge leaves on
+  `master`, read `<number>: <Imperative summary>` with no exception. They are 434 (`update-documentation`),
+  435 (`update-dependencies`) and 436 (`review-repository`); never reopen one, and never comment a run on one:
+  the record of a run is its pull request. No other number stands in for a work item.
 - **Plans** go in `.context/plans/`; **ephemeral scratch** in `.ignored/` (gitignored) or the session's scratchpad.
   Never a stray file in the repository root. `.context/plans/brigade-execution-log.md` is the single source of
   truth for where the work stands: a commit that finishes a piece of work adds its row in the same commit (a PR
@@ -134,8 +140,8 @@
   its ADR lands in that work item's change. The rulings made before ADR 0001 stay where they were written (no
   backfill). A decision is written once: a plan is how a piece of work is designed and the execution log is
   where the work stands, and from ADR 0001 on a plan, a log row and a rule file name the ADR by its number
-  instead of retelling its reasons. The agentic loop's runner has no board: its agent writes the ADR in its pull
-  request and names the work item its issue's title names.
+  instead of retelling its reasons. A runner has no board: an agent there writes the ADR in its change and names
+  the work item its pull request's title names.
 - **Skills of this repository** live in `.claude/skills/`: `commit`, `playwright-cli`. The Brigade plugin's own
   skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`, `grok/brigade/skills/`) are the
   product. Never edit a `SKILL.md` there: change the skill's one source, `skills/<name>.md`, then run

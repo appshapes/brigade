@@ -1,15 +1,16 @@
 #!/bin/sh
 # Says what an agent's checkout held when its session ended: paths changed or untracked, commits that no
 # remote branch carries, stashed work, and a `make` or `go` still running. Called by
-# .github/workflows/claude.yml after the agent step of a work order (an `issues` event), where `open-pr` must
-# tell an agent that had nothing to change from one that ended with its work unpushed (work item 398: on
-# 2026-11-22 an agent edited two pages, never committed, and its issue was closed as "finished without
-# changes").
+# scripts/ci/scheduled-job.sh, the gate of the three scheduled jobs, after the writer's session and after the
+# fixer's: a writer that had nothing to change must be told from one that ended with its work uncommitted.
+# It was written for the issue-driven loop (work item 398: on 2026-11-22 an agent edited two pages, never
+# committed, and its issue was closed as "finished without changes"), which work item 433 removed.
 #
-# It never fails on what it finds: it prints the finding and, when $GITHUB_OUTPUT is set, writes two outputs,
-# `left` (`true` when a path changed, a commit was never pushed or something is stashed, else `false`) and
-# `summary` (the lines printed). The workflow runs the copy of the commit the run started on, never the
-# working tree's, which the agent could have edited. Usage, in the checkout: scripts/ci/agent-leftover.sh
+# It never fails on what it finds: it prints the finding and, when $GITHUB_OUTPUT is set, writes its outputs:
+# the four counts it took (`changed`, `unpushed`, `stashed`, and `running`, the names still running), `left`
+# (`true` when a path changed, a commit was never pushed or something is stashed, else `false`) and `summary`
+# (the lines printed). Its caller runs the copy of the commit the run started on, never the working tree's,
+# which the agent could have edited. Usage, in the checkout: scripts/ci/agent-leftover.sh
 set -eu
 
 # One line per changed or untracked path, as `git status --porcelain` prints it. Ignored files (bin/, the
@@ -82,6 +83,10 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
   # fixed word.
   {
     echo "left=$left"
+    echo "changed=$changed"
+    echo "unpushed=$unpushed"
+    echo "stashed=$stashed"
+    echo "running=$running"
     echo "summary<<AGENT_LEFTOVER_SUMMARY"
     printf '%s\n' "$summary"
     echo "AGENT_LEFTOVER_SUMMARY"

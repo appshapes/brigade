@@ -30,10 +30,10 @@ write, and only through that target.
 - **`docs/protocol-v1.md`** — the frozen protocol. It moves only with `internal/protocol`, the schema, the
   conformance suite and both adapters, in one commit, by a human.
 - **`docs/agent/repository/*.md`** and **`CLAUDE.md`** — the rule files. A rule is an owner ruling; a stale path in
-  one is reported in your PR body, not edited.
+  one is said in your report, not edited.
 - **`docs/developer/reference/make-targets.md`** — generated; `make docs-generate` is the only editor.
 
-If you believe either is wrong, say so in your PR body. Do not edit it.
+If you believe one of them is wrong, say so in your report. Do not edit it.
 
 ## What "structural drift" means
 
@@ -60,16 +60,18 @@ anything you cannot demonstrate is false about the current tree.
    `scripts/ci/setup_docs_test.go` joins the invocation forms across the setup skills and the member and admin
    pages, so a command changed in one copy must change in all. `make typecheck build` too if you touched anything
    a test reads.
-5. Commit with `git` (never `make commit` or `make push` — that chain stages untracked files and merges origin
-   mid-run) and push your branch. Message: `15: <Imperative summary>`.
-6. If nothing is structurally stale: **change nothing, push nothing**, and say what you checked. The workflow
-   closes the issue automatically when no branch is pushed and your checkout is as you found it. A no-op month
-   is a correct month.
-7. **Never end your session between an edit and its push.** The checkout goes with the runner. A command runs
+5. Commit with `git`: `git add <named paths>`, then `git commit -m "<number>: <Imperative summary>"`, the
+   number being the job's standing work item's, which your prompt gives. Never `make commit` or `make push`
+   (that chain stages untracked files and merges origin mid-run), and **never push**: your token cannot write to
+   the repository, and a later job of the run pushes your commits and opens the pull request. Then write your
+   report to the file your prompt names; it becomes the pull request's body.
+6. If nothing is structurally stale: **change nothing, commit nothing**, and say in your report what you
+   checked. The run then ends with no pull request. A no-op month is a correct month.
+7. **Never end your session between an edit and its commit.** The checkout goes with the runner. A command runs
    in the foreground here until it ends (fifteen minutes unless you give it another limit; `make build test`
    took 222 s in CI's `fast` job, four packages at a time, and your `make test` runs two at a time), so wait for
-   step 4, then do step 5. The workflow leaves your issue open under a red job when it
-   finds unpushed work in your checkout.
+   step 4, then do step 5. The run's gate reads what your checkout holds: work you did not commit is a finding
+   against the change.
 
 ## Guardrails
 

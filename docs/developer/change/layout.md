@@ -25,7 +25,7 @@
 | `scripts/ci/` | the CI checks, their fixtures and the Go drift tests ([scripts/ci/README.md](../../../scripts/ci/README.md)) |
 | `scripts/experiments/` | the experiment drivers, one directory per report |
 | `docs/` | the five persona trees, the reference documents, `experiments/`, `research/`, `email/` |
-| `.claude/` | the repository's skills and the agents of the agentic loop |
-| `.github/workflows/` | CI, release, release notes, keep-alive, the agentic loop |
+| `.claude/` | the repository's skills and the agents of its workflows |
+| `.github/workflows/` | CI, release, release notes, keep-alive, the scheduled jobs, the agents on a pull request |
 | `.context/plans/` | the plans, the execution log and its archive, the proof results, agent memory |
 | `docs/allowed-deps.txt`, `tools.mod` | the shipped binary's module allowlist; the dev tools |

@@ -1,6 +1,6 @@
 //go:build !windows
 
-// The reviewer agent's login in the workflows of the agentic loop (work item 397, 2026-11-22).
+// The reviewer agent's login in the workflows that act on a pull request (work item 397, 2026-11-22).
 //
 // auto-merge.yml merges a labelled pull request on an approving review of the reviewer agent, claude.yml arms
 // the fixer on its reviews and counts them against the fix cap, and review-pull-request.yml takes its review

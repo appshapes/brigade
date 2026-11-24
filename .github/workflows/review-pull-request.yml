@@ -27,8 +27,17 @@ jobs:
     # because a Dependabot branch lives in THIS repository and would therefore pass the same-repo test while
     # being unable to read the repository's secrets. Rjae's ruling of 2026-09-10 removes Dependabot from this
     # repository entirely — dependency bumps are the agent's job (§4.8) — so that clause is DELETED, not
-    # commented out. A dependency PR now arrives like any other agent PR and is reviewed like one.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # commented out.
+    #
+    # The second clause skips the pull request of a scheduled job (work item 433, ADR 0032): its branch begins
+    # `scheduled/`, and its change was reviewed, twice at most, in the run that opened it
+    # (update-documentation.yml, update-dependencies.yml, review-repository.yml), which also arms its merge. A
+    # second review here would cost a session and could start `claude.yml`'s fixer on a change that run had
+    # already closed. A person's branch of that name gets no agent review either, and so no `auto-merge.yml`
+    # merge, which needs this reviewer's approval: the name opens nothing.
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !startsWith(github.event.pull_request.head.ref, 'scheduled/')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # MEASURED 2026-09-16 — the P9-3 re-pin that §7.3 deferred to "the first ten real runs"; there were fifteen
     # that reached the agent (PRs #3, #7 and #8, 2026-09-10 to 2026-09-13): the longest job was 5m41s (run
@@ -132,8 +141,7 @@ jobs:
           # 34485452913): GitHub attributes the fixer's App-token push to `github-actions[bot]`, not `claude[bot]`,
           # so both names are needed here — `github-actions` events can only come from this repository's own
           # workflow tokens (a fork PR's token is read-only and cannot push or comment). The `opened` run needs
-          # neither: that PR was created with Rjae's PAT, so its actor is a human with write access. Explicit
-          # list, two entries, never '*'.
+          # neither: that PR was opened by a person with write access. Explicit list, two entries, never '*'.
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # --max-turns is a hard stop on a wandering session. 70 is MEASURED 2026-09-16 — the P9-3 re-pin —
@@ -170,10 +178,8 @@ jobs:
             @claude Read `.claude/agents/developer.md`, then address every blocker in this review: apply the fixes directly on this PR branch and push.
 
             The `.claude/agents/developer.md` clause is not decoration: this
-            trailer is the ONLY thing in the whole loop that hands the fixer
-            its rules file. Nothing else in the fix path names it — the issue
-            bodies of the two scheduled agents name documenter.md and
-            reviewer.md, and a human's issue names nothing — so without it the
+            trailer is the ONLY thing in the fix path that hands the fixer
+            its rules file. Nothing else there names it, so without it the
             gate list, the never-`make commit` rule and the pin prohibitions
             reach the writer through CLAUDE.md's short paragraph alone.
 

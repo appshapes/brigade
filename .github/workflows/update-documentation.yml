@@ -1,47 +1,562 @@
 # Monthly structural-documentation refresh. SCOPED, deliberately: paths, make targets, versions and command
 # names in the persona trees a reader actually follows. Not prose, not reasoning, and explicitly NOT
-# docs/security.md, docs/protocol-v1.md or the rule files under docs/agent/repository/ — those are argued
+# docs/security.md, docs/protocol-v1.md or the rule files under docs/agent/repository/: those are argued
 # documents whose sentences carry rulings, and an agent rewriting them for "accuracy" would be rewriting
 # decisions. The gate is `make docs-check` (card 110) plus CI's own doc-witness tests
 # (scripts/ci/setup_docs_test.go joins the invocation forms across the setup skills and the member and admin
 # pages; `make test` runs both).
+#
+# Its pull request merges by itself when CI is green (the owner's workflows-item 4, kept on 2026-09-10 without
+# a burn-in): the gate on the content is this run's reviewer and CI's doc-witness join, and the scope guard is
+# documenter.md's file list.
+#
+# What is this job's own is the block down to the line that says so: its name, when it runs, the number of its
+# standing work item, its title, its gate, how it merges and the writer's brief. Everything after that line is
+# the same text in update-documentation.yml, update-dependencies.yml and review-repository.yml.
 name: update documentation
 
 on:
-  schedule:
-    - cron: '17 9 1 * *'    # monthly, 1st, 09:17 UTC. Off the hour on GitHub's own advice (keepalive.yml's
-                            # header quotes it: scheduled runs are delayed at the top of the hour), and clear of
-                            # the other two monthly agents — review-repository at 04:43 and update-dependencies
-                            # at 11:29, both LIVE, so three agent sessions never contend for the runner.
+  # By hand alone until each of the three has run once by hand in this form (work item 433): the schedule,
+  # `17 9 1 * *` (the first of each month, 09:17 UTC), comes back in the commit after those runs.
   workflow_dispatch:
 
+env:
+  SCHEDULED_JOB: update-documentation
+  # The job's standing work item on the team's Brigade Board (work item 433): closed, so no listing shows it
+  # as open work, and still shown by its number. Every pull request of this job is titled with it.
+  STANDING_WORK_ITEM: "434"
+  SCHEDULED_TITLE: Refresh the structural documentation
+  SCHEDULED_GATE: docs-check test
+  SCHEDULED_MERGE: when-green
+  SCHEDULED_BRIEF: |
+    You are the documenter agent. Read `.claude/agents/documenter.md` for your operating instructions and
+    follow them exactly. Scope: structural drift only (paths, `make` target names, version strings, command
+    names and file layout) in the five persona trees under `docs/`, `README.md`, `plugin/README.md`,
+    `muse/brigade/README.md`, `codex/brigade/README.md`, `grok/brigade/README.md` and
+    `docs/adapter-authors.md`. Do not touch `docs/security.md`, `docs/protocol-v1.md` or the rule files under
+    `docs/agent/repository/`. After an edit to `muse/brigade/README.md`, run `make muse-digest` and commit
+    `marketplace.json` with it (the Muse catalog carries the digest of that package's files). Run
+    `make docs-check` and `make test` before you commit: the documentation gate and the doc-witness tests are
+    the gate on the pages. If nothing is structurally stale, change nothing and say what you checked.
+
+# ---- from here on the three scheduled jobs are one text (scripts/ci/scheduled_job_test.go holds it) ----------
+#
+# One run of this workflow is the whole job (work item 433, ADR 0032): no issue is opened and no other workflow
+# takes part. Three jobs, and what each can reach is the design:
+#
+#   sweep  no agent. Removes the branch of an earlier run whose pull request is merged or closed, and stops the
+#          run while one is still open, so the job has one pull request at a time.
+#   work   the personas, as steps: the writer; the gate (scripts/ci/scheduled-job.sh, what the checkout holds,
+#          pr-guard.sh and this job's `make` targets); the reviewer; one fix cycle; the gate again; a second
+#          review bounded to the first one's findings and to what the fix changed; the decision. Nothing in
+#          this job can write to the repository: its token is `contents: read`, and each agent step is handed
+#          THAT token (`github_token`), so the action mints none of its own. Left to itself the action
+#          exchanges the job's identity for a token of the Claude GitHub App, whose permissions the job's
+#          `permissions:` block does not bound (src/github/token.ts at the pin, read 2026-11-24), and writes
+#          it into the checkout's remote URL. The writer commits in the checkout and never pushes; the
+#          commits leave the job as a `git bundle`, after a look for a token in everything that leaves.
+#   land   no agent. Pushes the bundle's commits as `scheduled/<job>-<date>` with the job's own token, then
+#          opens the pull request with GH_ACTIONS_TOKEN, so that `ci.yml` runs on it (a pull request opened
+#          with the job's token raises no event), and for a `when-green` job arms the merge, which the
+#          `master` ruleset's five required checks then let through. It runs nothing that came out of the
+#          bundle: its checkout stays at the commit the run started on, the script it runs is that commit's,
+#          and the bundle is fetched into a ref and pushed. GH_ACTIONS_TOKEN is in one step's environment,
+#          which runs `gh` and reads the writer's report as text.
+#
+# `review-pull-request.yml` skips a pull request whose branch begins `scheduled/`: it was reviewed here, twice
+# at most, before it existed. Nothing else of the pull-request workflows is involved; `claude.yml` and
+# `auto-merge.yml` never see a review on it.
+#
+# The shell steps of `work` run the script of the commit the run started on (`git show "$GITHUB_SHA:…"`),
+# never the working tree's copy, which the agents can edit. That holds against an agent's mistake, not
+# against an agent that means harm: the agents share this job with those steps, and a step can write the
+# environment of the next. What an agent that means harm can reach is the model's token, which it holds by
+# construction, and a read-only token of a public repository; `land` is a job of its own for that reason and
+# takes the bundle and the report as data.
+#
+# A run that fails is a red run: its artifact has the report, the gate's findings and the reviews, the run's
+# summary says which way it ended, and GitHub mails the owner of the schedule (the account that last changed
+# this file's `schedule:`, or whoever started the run by hand). Nothing else tells anyone.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false     # a second run waits: it would find the first one's pull request open and stop
+
 jobs:
-  # NO `timeout-minutes` here, and that is the one documented exception to CLAUDE.md's "every CI job sets
-  # timeout-minutes": GitHub REJECTS `timeout-minutes` on a job whose body is `uses:` a reusable workflow. The
-  # bound lives where the steps do — on `_create-claude-issue.yml`'s own `create-issue` job (5 minutes). The
-  # same exception applies to review-repository.yml and update-dependencies.yml below, and to the `notes:` job
-  # §6 adds to release.yml.
-  create-issue:
-    uses: ./.github/workflows/_create-claude-issue.yml
-    secrets:
-      gh_actions_token: ${{ secrets.GH_ACTIONS_TOKEN }}
-    with:
-      # TRUE from day one, and that is a ruling rather than a default. v3 of the brief proposed holding this at
-      # `false` for two months so a human would read the first few diffs; Rjae rejected the hold on 2026-09-10 —
-      # they have run this exact loop on numerous projects for many months, and a burn-in that answers a
-      # question already answered elsewhere is just a delay. So the original agreement (Rjae's workflows-item 4:
-      # documentation PRs auto-merge) stands unqualified. The gate on the content is the reviewer agent plus
-      # CI's doc-witness join; the scope guard is documenter.md's four-in, two-out file list.
-      auto_merge: true
-      maintenance: true     # exempt from the execution-log-row rule
-      title: Refresh the structural documentation
-      body: >-
-        You are the documenter agent. Read `.claude/agents/documenter.md` for your operating instructions and
-        follow them exactly. Scope: structural drift only — paths, `make` target names, version strings, command
-        names and file layout — in the five persona trees under `docs/`, `README.md`, `plugin/README.md`,
-        `muse/brigade/README.md`, `codex/brigade/README.md` and `docs/adapter-authors.md`. Do not touch `docs/security.md`,
-        `docs/protocol-v1.md` or the rule files under `docs/agent/repository/`. After an edit to
-        `muse/brigade/README.md`, run `make muse-digest` and commit `marketplace.json` with it (the Muse catalog
-        carries the digest of that package's files). Run `make docs-check` and
-        `make test` before you push: the documentation gate and the doc-witness tests are the gate on the pages. If nothing is structurally stale, change
-        nothing and say so — the workflow closes this issue automatically when no branch is pushed.
+  sweep:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5            # a handful of API calls; not a p90, a floor
+    permissions:
+      contents: write             # deletes the branch of an earlier run
+      pull-requests: read         # reads whether that branch's pull request is open
+    outputs:
+      open_pr: ${{ steps.sweep.outputs.open_pr }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Put away what earlier runs left
+        id: sweep
+        run: scripts/ci/scheduled-job.sh sweep
+        env: {GH_TOKEN: "${{ github.token }}"}
+
+  work:
+    needs: sweep
+    if: needs.sweep.outputs.open_pr == ''
+    runs-on: blacksmith-4vcpu-ubuntu-2404       # the label ci.yml's `fast` job uses: docker, jq, gh, shellcheck 0.9.0
+    # Not a p90: no run in this form exists yet (2026-11-24). It is above the sum of the steps' own limits,
+    # 60 (writer) + 25 (gate) + 20 (review) + 40 (fix) + 25 (gate) + 20 (review) = 190, with 20 for the setup
+    # and the steps that carry no limit, so that the job's limit never ends a run its steps would have ended
+    # with an artifact. That is also above what a job that runs `go test` needs (ci.yml's header, work item
+    # 400): the second gate starts at most 5 + 60 + 25 + 20 + 40 = 150 minutes in, its tests a few minutes
+    # after that, and `go_test_timeout=5m` plus the minute `go test` waits ends a hung test by 165. Measure
+    # the first ten runs and pin it as ci.yml's rule says.
+    timeout-minutes: 210
+    permissions:
+      contents: read              # the boundary: nothing in this job, agent or shell, can write to the repository
+      actions: read               # an agent may read a run's log
+    outputs:
+      land: ${{ steps.decide.outputs.land }}
+    env:
+      SCHEDULED_DIR: /tmp/brigade-job
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0          # pr-guard.sh diffs against the merge base, and `make checksums-check` reads tags
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools.sum
+      # Here and not inside the writer's session: a 40 s network install kept out of its turns (claude.yml).
+      - name: Install the pinned linter
+        run: make setup-lint
+      - name: Make the job's directory
+        run: mkdir -p "$SCHEDULED_DIR"
+
+      # ---- the writer -----------------------------------------------------------------------------------------
+      - name: Write the change
+        id: write
+        # The commits decide, not the step: the action fails a step whose agent reached --max-turns even when
+        # its work is committed (release-notes.yml, run 34583310273). `decide` reads this step's outcome only
+        # when nothing was committed.
+        continue-on-error: true
+        timeout-minutes: 60
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1 — pinned by SHA: the one action that runs a model
+        with:
+          github_token: ${{ github.token }}       # the job's read-only token, so the action mints none (the header)
+          allowed_bots: "claude,github-actions"   # as send-release-notes.yml, the other workflow a schedule starts
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # --add-dir: the job's directory is outside the checkout, and Claude Code refuses a write outside the
+          # session's working directories whatever the Bash rules say (release-notes.yml, run 41816544619).
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 200 --add-dir /tmp/brigade-job"
+          show_full_output: false                 # a public repository: the session stays out of the run's log
+          prompt: |
+            You are the writer of brigade's scheduled job `${{ env.SCHEDULED_JOB }}`, on a CI runner, in a
+            checkout of `master`.
+
+            Your brief:
+            ${{ env.SCHEDULED_BRIEF }}
+
+            How this run takes your work, the same for every scheduled job:
+            - Commit what you change, here, on the branch you are on: `git add <named paths>`, then
+              `git commit -m "${{ env.STANDING_WORK_ITEM }}: <Imperative summary>"`. Never `git add :/ .`,
+              never `make commit`, `make push` or `make release`. Do not push, do not open a pull request and
+              do not create or switch a branch: your token cannot write to the repository, and a later job of
+              this run pushes your commits and opens the pull request.
+            - Then write your report to /tmp/brigade-job/report.md from the Bash tool with a quoted heredoc,
+              exactly `tee /tmp/brigade-job/report.md <<'EOF'` … `EOF`. It becomes the pull request's body and
+              the message of the commit on `master`: at most 40 lines, what you changed and why, what you
+              found and left alone, and what you could not check. No secret, no token, no address, and no
+              output of `env` or of `git remote`.
+            - When nothing needs changing: commit nothing, leave the checkout exactly as you found it, and say
+              in the report what you checked. A run with nothing to change is a correct run.
+            - Never end your session with work that is not committed: the checkout goes with the runner. A
+              command runs in the foreground here until it ends, so wait for a gate, read what it printed,
+              then commit.
+            - After you, a shell step runs `make ${{ env.SCHEDULED_GATE }}` and the repository's guards, a
+              reviewer reads your commits against your brief, and you get exactly one cycle to fix what they
+              find.
+          settings: |
+            {
+              "env": {
+                "BASH_DEFAULT_TIMEOUT_MS": "900000",
+                "BASH_MAX_TIMEOUT_MS": "1800000",
+                "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"
+              },
+              "permissions": {
+                "allow": [
+                  "Bash(tee /tmp/brigade-job/report.md:*)",
+                  "Read(//tmp/brigade-job/**)",
+                  "Bash(make:*)",
+                  "Bash(go:*)",
+                  "Bash(git:*)",
+                  "Bash(gh:*)",
+                  "Bash(docker:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(find:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(sed:*)",
+                  "Bash(jq:*)",
+                  "Write(.context/plans/**)",
+                  "Edit(.context/plans/**)"
+                ],
+                "deny": [
+                  "Write(plugin/bin/**)",
+                  "Edit(plugin/bin/**)",
+                  "Write(.claude/**)",
+                  "Edit(.claude/**)",
+                  "Write(.github/workflows/**)",
+                  "Edit(.github/workflows/**)",
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+          # The settings are claude.yml's writer's, and its comments say why each line is there: the three
+          # `env` values keep `make test` in the foreground until it ends (work item 398); the general edit
+          # tools come from the action's own defaults; no WebFetch and no WebSearch; the denies keep the
+          # release pins, the agent files and the workflows out of an agent's hands. The first two lines are
+          # this job's: the report, written with `tee` under a Bash rule because the action honours those and
+          # not a `Write(//tmp/…)` rule (release-notes.yml, run 34541118273).
+
+      - name: Keep the writer's execution log
+        if: ${{ !cancelled() && steps.write.outcome != 'skipped' }}
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$SCHEDULED_DIR/write-execution.json" 2>/dev/null || true
+
+      # ---- the gate, round 1 ----------------------------------------------------------------------------------
+      - name: Gate the change
+        id: gate1
+        continue-on-error: true   # a finding is for the reviewer and the fix cycle; `decide` reads the outcome
+        timeout-minutes: 25
+        env:
+          # CI's own two (ci.yml's `fast` job): four packages at a time on this runner's four cores, and a
+          # package's tests ended by `go test` after five minutes, which names the test that hung.
+          SCHEDULED_MAKE_VARS: go_test_p=4 go_test_timeout=5m
+        run: |
+          git show "$GITHUB_SHA:scripts/ci/scheduled-job.sh" > "$RUNNER_TEMP/scheduled-job.sh"
+          sh "$RUNNER_TEMP/scheduled-job.sh" gate
+
+      # ---- the reviewer ---------------------------------------------------------------------------------------
+      - name: Review the change
+        id: review1
+        if: steps.gate1.outputs.changed == 'true'
+        continue-on-error: true   # the file it wrote, or did not, is the verdict
+        timeout-minutes: 20
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        with:
+          github_token: ${{ github.token }}
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # 70 turns: review-pull-request.yml's measured budget for the same reading of a diff.
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 70 --add-dir /tmp/brigade-job"
+          show_full_output: false
+          prompt: |
+            You are the reviewer of brigade's scheduled job `${{ env.SCHEDULED_JOB }}`. Read
+            `.claude/agents/reviewer.md` and review in its scheduled-job mode. The writer's commits are in this
+            checkout, on top of ${{ github.sha }}: `git log ${{ github.sha }}..HEAD` and
+            `git diff ${{ github.sha }}...HEAD`. The writer's report is /tmp/brigade-job/report.md, and the
+            gate's result is /tmp/brigade-job/gate.txt: `make ${{ env.SCHEDULED_GATE }}` and the repository's
+            guards, where every `FAIL:` line is a fact and a finding.
+
+            The writer's brief was:
+            ${{ env.SCHEDULED_BRIEF }}
+
+            Write your verdict to /tmp/brigade-job/review.md from the Bash tool with a quoted heredoc, exactly
+            `tee /tmp/brigade-job/review.md <<'EOF'` … `EOF` (the Write tool is not available in this step):
+            the FIRST line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line, each naming
+            the file and what is wrong. Approve only what you would merge: the change does what the brief asks
+            and nothing beyond it, it breaks no invariant of reviewer.md's checklist, and the report says
+            nothing the commits do not bear out. You read: change nothing in the checkout, commit nothing and
+            run no build. This job fails if the checkout is not as you found it.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(tee /tmp/brigade-job/review.md:*)",
+                  "Read(//tmp/brigade-job/**)",
+                  "Bash(git log:*)",
+                  "Bash(git show:*)",
+                  "Bash(git diff:*)",
+                  "Bash(git status:*)",
+                  "Bash(git ls-files:*)",
+                  "Bash(git rev-parse:*)",
+                  "Bash(git merge-base:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(find:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(head:*)",
+                  "Bash(wc:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Write",
+                  "Edit",
+                  "MultiEdit",
+                  "NotebookEdit",
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+          # The four bare names in `deny` have to be written: the action grants the edit tools by default
+          # (review-pull-request.yml). No `make`, no `go`, no `gh`: this reviewer reads a diff it already has.
+
+      - name: Keep the reviewer's execution log
+        if: ${{ !cancelled() && steps.review1.outcome != 'skipped' }}
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$SCHEDULED_DIR/review1-execution.json" 2>/dev/null || true
+      - name: Read the round-1 verdict
+        id: verdict1
+        if: steps.gate1.outputs.changed == 'true'
+        env:
+          SCHEDULED_ROUND: 1
+          SCHEDULED_GATE_OUTCOME: ${{ steps.gate1.outcome }}
+          SCHEDULED_EXPECT_STATE: ${{ steps.gate1.outputs.state }}
+        run: |
+          git show "$GITHUB_SHA:scripts/ci/scheduled-job.sh" > "$RUNNER_TEMP/scheduled-job.sh"
+          sh "$RUNNER_TEMP/scheduled-job.sh" verdict
+
+      # ---- round 2: exactly one fix cycle -----------------------------------------------------------------------
+      - name: Fix the change
+        id: fix
+        if: steps.verdict1.outputs.fix == 'true'
+        continue-on-error: true   # the commits decide, as for the writer
+        timeout-minutes: 40
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        with:
+          github_token: ${{ github.token }}
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # 100 turns: the eleven fixer sessions measured in claude.yml took 13 to 58.
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 100 --add-dir /tmp/brigade-job"
+          show_full_output: false
+          prompt: |
+            You are the writer of brigade's scheduled job `${{ env.SCHEDULED_JOB }}` again: your commits in
+            this checkout, on top of ${{ github.sha }}, were not approved. Read `.claude/agents/developer.md`,
+            its "Fix a review" job. Read /tmp/brigade-job/gate-round1.txt (the gate: every `FAIL:` line is a
+            fact) and /tmp/brigade-job/review-round1.md (the reviewer's findings), and fix EVERY finding with
+            new commits on top of yours: `git add <named paths>`, then
+            `git commit -m "${{ env.STANDING_WORK_ITEM }}: <Imperative summary>"`. Never amend, never rebase,
+            never push, never create or switch a branch. Change what the findings name and what making room
+            for them requires, and nothing else: the second review re-reads only what changed, and this cycle
+            is the last. Run `make ${{ env.SCHEDULED_GATE }}` before you end, wait for it and read what it
+            printed. If the report no longer says what the commits do, rewrite /tmp/brigade-job/report.md
+            with `tee /tmp/brigade-job/report.md <<'EOF'` … `EOF` under the rules it was written by: at most
+            40 lines, no secret, no token, no address.
+
+            Your brief was, and is:
+            ${{ env.SCHEDULED_BRIEF }}
+          settings: |
+            {
+              "env": {
+                "BASH_DEFAULT_TIMEOUT_MS": "900000",
+                "BASH_MAX_TIMEOUT_MS": "1800000",
+                "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"
+              },
+              "permissions": {
+                "allow": [
+                  "Bash(tee /tmp/brigade-job/report.md:*)",
+                  "Read(//tmp/brigade-job/**)",
+                  "Bash(make:*)",
+                  "Bash(go:*)",
+                  "Bash(git:*)",
+                  "Bash(gh:*)",
+                  "Bash(docker:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(find:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(sed:*)",
+                  "Bash(jq:*)",
+                  "Write(.context/plans/**)",
+                  "Edit(.context/plans/**)"
+                ],
+                "deny": [
+                  "Write(plugin/bin/**)",
+                  "Edit(plugin/bin/**)",
+                  "Write(.claude/**)",
+                  "Edit(.claude/**)",
+                  "Write(.github/workflows/**)",
+                  "Edit(.github/workflows/**)",
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+
+      - name: Keep the fixer's execution log
+        if: ${{ !cancelled() && steps.fix.outcome != 'skipped' }}
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$SCHEDULED_DIR/fix-execution.json" 2>/dev/null || true
+      - name: Gate the fix
+        id: gate2
+        if: steps.verdict1.outputs.fix == 'true'
+        continue-on-error: true
+        timeout-minutes: 25
+        env:
+          SCHEDULED_MAKE_VARS: go_test_p=4 go_test_timeout=5m
+        run: |
+          git show "$GITHUB_SHA:scripts/ci/scheduled-job.sh" > "$RUNNER_TEMP/scheduled-job.sh"
+          sh "$RUNNER_TEMP/scheduled-job.sh" gate
+
+      - name: Review the fix
+        id: review2
+        # Not when the fix cycle left nothing at all: there is no change to review, and `decide` says so.
+        if: steps.verdict1.outputs.fix == 'true' && steps.gate2.outputs.changed != 'false'
+        continue-on-error: true
+        timeout-minutes: 20
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        with:
+          github_token: ${{ github.token }}
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 70 --add-dir /tmp/brigade-job"
+          show_full_output: false
+          prompt: |
+            You are the reviewer of brigade's scheduled job `${{ env.SCHEDULED_JOB }}`, for the second and
+            last time. Your first review is /tmp/brigade-job/review-round1.md and the first gate's result is
+            /tmp/brigade-job/gate-round1.txt. The writer had one cycle to fix them: the commits you reviewed
+            end at ${{ steps.gate1.outputs.head }}, the fix is
+            `git diff ${{ steps.gate1.outputs.head }}..HEAD`, and the gate's result on it is
+            /tmp/brigade-job/gate.txt. A finding raised now cannot be fixed, it can only refuse the change. So
+            this review is BOUNDED. Check three things, by `.claude/agents/reviewer.md`'s scheduled-job mode:
+            that every finding of your first review and every `FAIL:` line of the first gate is fixed, that
+            gate.txt has no `FAIL:` line left, and that the lines the fix changed are right. A line your first
+            review did not name and the fix did not change was approved by your first review: it is not
+            re-read, and nothing you notice in it changes the verdict.
+
+            Write /tmp/brigade-job/review.md from the Bash tool with a quoted heredoc, exactly
+            `tee /tmp/brigade-job/review.md <<'EOF'` … `EOF` (the Write tool is not available in this step):
+            the FIRST line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line, then,
+            after a line that reads exactly `NOTES`, whatever you noticed outside the bound. Approve when the
+            three things hold. You read: change nothing in the checkout, commit nothing and run no build.
+
+            The writer's brief was:
+            ${{ env.SCHEDULED_BRIEF }}
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(tee /tmp/brigade-job/review.md:*)",
+                  "Read(//tmp/brigade-job/**)",
+                  "Bash(git log:*)",
+                  "Bash(git show:*)",
+                  "Bash(git diff:*)",
+                  "Bash(git status:*)",
+                  "Bash(git ls-files:*)",
+                  "Bash(git rev-parse:*)",
+                  "Bash(git merge-base:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(find:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(head:*)",
+                  "Bash(wc:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Write",
+                  "Edit",
+                  "MultiEdit",
+                  "NotebookEdit",
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+
+      - name: Keep the second reviewer's execution log
+        if: ${{ !cancelled() && steps.review2.outcome != 'skipped' }}
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$SCHEDULED_DIR/review2-execution.json" 2>/dev/null || true
+      - name: Read the round-2 verdict
+        id: verdict2
+        if: steps.verdict1.outputs.fix == 'true' && steps.gate2.outputs.changed != 'false'
+        env:
+          SCHEDULED_ROUND: 2
+          SCHEDULED_GATE_OUTCOME: ${{ steps.gate2.outcome }}
+          SCHEDULED_EXPECT_STATE: ${{ steps.gate2.outputs.state }}
+        run: |
+          git show "$GITHUB_SHA:scripts/ci/scheduled-job.sh" > "$RUNNER_TEMP/scheduled-job.sh"
+          sh "$RUNNER_TEMP/scheduled-job.sh" verdict
+
+      # ---- the decision, and what leaves the job ----------------------------------------------------------------
+      - name: Decide on the last gate and verdict
+        id: decide
+        env:
+          SCHEDULED_WRITER_OUTCOME: ${{ steps.write.outcome }}
+          SCHEDULED_CHANGED: ${{ steps.gate1.outputs.changed }}
+          SCHEDULED_FIX_OUTCOME: ${{ steps.fix.outcome }}
+          SCHEDULED_GATE1: ${{ steps.gate1.outcome }}
+          SCHEDULED_GATE2: ${{ steps.gate2.outcome }}
+          SCHEDULED_CHANGED2: ${{ steps.gate2.outputs.changed }}
+          SCHEDULED_VERDICT1: ${{ steps.verdict1.outputs.verdict }}
+          SCHEDULED_VERDICT2: ${{ steps.verdict2.outputs.verdict }}
+        run: |
+          git show "$GITHUB_SHA:scripts/ci/scheduled-job.sh" > "$RUNNER_TEMP/scheduled-job.sh"
+          sh "$RUNNER_TEMP/scheduled-job.sh" decide
+      # The one step of this job that is handed the two tokens as values, to compare them whole with what is
+      # about to leave: the commits, the report, the reviews, the logs. It runs master's script and no file an
+      # agent wrote. An artifact of a public repository can be downloaded by anyone, and the branch is public
+      # the moment it is pushed.
+      - name: Look for a token in what leaves this job
+        id: scan
+        if: ${{ !cancelled() }}
+        env:
+          SCHEDULED_SECRET_MODEL: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          SCHEDULED_SECRET_GITHUB: ${{ github.token }}
+        run: |
+          git show "$GITHUB_SHA:scripts/ci/scheduled-job.sh" > "$RUNNER_TEMP/scheduled-job.sh"
+          sh "$RUNNER_TEMP/scheduled-job.sh" scan
+      - name: Bundle the commits for the landing job
+        if: steps.decide.outputs.land == 'true' && steps.scan.outcome == 'success'
+        run: |
+          git show "$GITHUB_SHA:scripts/ci/scheduled-job.sh" > "$RUNNER_TEMP/scheduled-job.sh"
+          sh "$RUNNER_TEMP/scheduled-job.sh" bundle
+      - name: Attach the report, the gate, the reviews and the bundle
+        if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: scheduled-job-${{ github.run_id }}
+          path: /tmp/brigade-job/
+          if-no-files-found: ignore
+          overwrite: true         # a second attempt of this job replaces the first one's artifact
+
+  land:
+    needs: work
+    if: needs.work.outputs.land == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10           # one download, one push and two API calls; not a p90, a floor
+    permissions:
+      contents: write             # pushes the branch. The pull request is opened with GH_ACTIONS_TOKEN.
+      actions: read               # downloads this run's artifact
+    env:
+      SCHEDULED_DIR: /tmp/brigade-job-landing
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0          # the bundle sits on the commit the run started on, and pr-guard.sh needs its history
+      - name: Take the run's artifact
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "scheduled-job-$GITHUB_RUN_ID" --dir "$SCHEDULED_DIR"
+        env: {GH_TOKEN: "${{ github.token }}"}
+      # This checkout is the commit the run started on and stays there: the script is master's own, and the
+      # bundle is never checked out.
+      - name: Push the change as a branch
+        id: land
+        run: scripts/ci/scheduled-job.sh land
+      # The one step with GH_ACTIONS_TOKEN, the owner's classic token: a pull request it opens raises
+      # `pull_request: opened`, so `ci.yml` runs, and a merge it arms raises the push to `master`. The step
+      # runs master's script and `gh`; the report is read as the body's text.
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACTIONS_TOKEN }}
+          SCHEDULED_BRANCH: ${{ steps.land.outputs.branch }}
+          SCHEDULED_HEAD: ${{ steps.land.outputs.head }}
+          SCHEDULED_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: scripts/ci/scheduled-job.sh open

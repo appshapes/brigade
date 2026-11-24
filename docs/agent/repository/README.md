@@ -12,7 +12,7 @@ one subject and is the only place its rules live.
 | touch the protocol, stdout, a secret, a configuration directory or a dependency | [Keep the invariants](#keep-the-invariants) |
 | know what must pass before a push and before a release | [Pass the gates](#pass-the-gates) |
 | add or change a page, a harness's pages, or the documentation gate | [Write documentation](#write-documentation) |
-| touch the release-notes email, the agentic loop or a pinned action | [Change the automation](#change-the-automation) |
+| touch the release-notes email, a scheduled job, the agents on a pull request or a pinned action | [Change the automation](#change-the-automation) |
 
 ## Follow the conventions
 
@@ -58,7 +58,7 @@ Details: [Documentation](documentation.md).
 ## Change the automation
 
 1. Recipients of the release-notes email are a secret, never printed, committed or put on a work item.
-2. Agents of the loop commit with plain `git` on their branch; a `maintenance` PR needs no execution-log row.
+2. A scheduled job is one workflow, named by its standing work item; no agent step holds a token that can write.
 3. Only `anthropics/claude-code-action` is pinned by full SHA; every other action stays on its major tag.
 
 Details: [Automation](automation.md).

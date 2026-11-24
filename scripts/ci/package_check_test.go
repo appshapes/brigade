@@ -32,9 +32,9 @@ const packageChecksFollowVar = "BRIGADE_PACKAGE_CHECKS_FOLLOW"
 // onceInCI skips a test that runs a package's check on the real repository where a later step runs it: the
 // `fast` job runs `make test` and then each package's make target as a step of its own, with CI set, which is
 // the strict form (a missing shellcheck is a failure there). Here it would be the same check a second time.
-// The job says so with a variable of its own. Being in CI is not enough: an agent of the agentic loop runs
-// `make test` on a runner with no such step after it, and on a developer's machine nothing else runs the check
-// before a push. In both the test is the check.
+// The job says so with a variable of its own. Being in CI is not enough: an agent of a scheduled job, or one
+// on a pull request's branch, runs `make test` on a runner with no such step after it, and on a developer's
+// machine nothing else runs the check before a push. In both the test is the check.
 func onceInCI(t *testing.T, target string) {
 	t.Helper()
 	if os.Getenv(packageChecksFollowVar) != "" {

@@ -6,6 +6,11 @@ them.**
 Nothing in section 4 is to be committed, and no GitHub setting in section 4.10 is to be changed, until the owner
 charters the rows proposed in section 6.
 
+**2026-11-24.** The issue-driven loop this plan designed is removed, and its three scheduled callers are each
+one workflow (work item 433, ADR 0032). The plan stays as the record of how the loop was designed; where a
+workflow's comment cites one of its sections (§1.1.1 on what an agent can reach, above all), the section is
+still what the comment means.
+
 **Review record.** v1 was drafted by Opus. v2 followed an Opus adversarial verifier pass — 4 high, 8 medium and 9
 low notes, all applied — and a re-check of the applied fixes. v3 follows brigade-33's review of v2 (verified
 against the tree at `b14f1f3`): 1 high, 3 medium and 2 low, all applied, plus their answers to the eight open
