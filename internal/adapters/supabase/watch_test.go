@@ -60,15 +60,21 @@ type fakePhoenix struct {
 	srv *httptest.Server
 
 	joined     chan *fakeChannel // every successful join, in order
-	attempts   chan *fakeChannel // every join attempt as it arrives, before the reply (the channel not yet joined)
+	attempts   chan *fakeChannel // every join attempt the fake does not refuse, as it arrives and before the reply (a refused one is on joinTokens alone)
 	tokens     chan string       // every access_token push
 	joinTokens chan string       // the access_token of every join attempt
-	refuse     atomic.Value      // a non-empty string refuses joins with that reason
-	silent     atomic.Bool       // when set, heartbeats go unanswered
-	heartbeats atomic.Int32
-	leaves     atomic.Int32
-	dials      atomic.Int32
-	closed     atomic.Int32 // sockets whose read loop has ended
+	// What the fake answers a join with is decided by the fake, once for each join and BEFORE that join's
+	// token is published on joinTokens, and a test says it before the watch starts and never while it runs
+	// (work item 301). A test that changed the answer on seeing a token raced the fake's own read of it:
+	// the read came after the token, so "refuse the first join, accept the second" could accept the first,
+	// and the second never came.
+	refuse      atomic.Value           // a non-empty string refuses every join with that reason
+	refuseFirst atomic.Pointer[string] // a reason for the next join alone, taken by the join it refuses (refuseNextJoin)
+	silent      atomic.Bool            // when set, heartbeats go unanswered
+	heartbeats  atomic.Int32
+	leaves      atomic.Int32
+	dials       atomic.Int32
+	closed      atomic.Int32 // sockets whose read loop has ended
 
 	mu       sync.Mutex
 	joinHold chan struct{} // when set, every join's ok reply waits on it (holdJoins); the socket is read meanwhile
@@ -144,13 +150,22 @@ func (ph *fakePhoenix) serve(conn *websocket.Conn) {
 			if !payload.Config.Private || payload.AccessToken == "" {
 				ph.t.Errorf("fake phoenix: join without private:true and an access token: %s", data)
 			}
-			ph.joinTokens <- payload.AccessToken
-			if reason, _ := ph.refuse.Load().(string); reason != "" {
+			// The answer first, the token after: whoever reads the token reads it of a join already decided.
+			reason, _ := ph.refuse.Load().(string)
+			if once := ph.refuseFirst.Swap(nil); once != nil {
+				reason = *once
+			}
+			if !publish(ctx, ph.joinTokens, payload.AccessToken) {
+				return
+			}
+			if reason != "" {
 				ph.reply(conn, f.Topic, ref, ref, `{"status":"error","response":{"reason":"`+reason+`"}}`)
 				continue
 			}
 			ch = &fakeChannel{ph: ph, conn: conn, topic: f.Topic, joinRef: ref}
-			ph.attempts <- ch
+			if !publish(ctx, ph.attempts, ch) {
+				return
+			}
 			if gate := ph.joinGate(); gate != nil {
 				// The server's join latency, held open by the test: the JWT
 				// check, the topic policy's query on a cold tenant, a runner's
@@ -182,7 +197,9 @@ func (ph *fakePhoenix) serve(conn *websocket.Conn) {
 				AccessToken string `json:"access_token"`
 			}
 			_ = json.Unmarshal(f.Payload, &payload)
-			ph.tokens <- payload.AccessToken
+			if !publish(ctx, ph.tokens, payload.AccessToken) {
+				return
+			}
 		case phxEventLeave:
 			ph.leaves.Add(1)
 			ph.reply(conn, f.Topic, ref, refString(f.JoinRef), `{"status":"ok","response":{}}`)
@@ -253,7 +270,20 @@ func (ch *fakeChannel) write(frame string) {
 func (ph *fakePhoenix) complete(ch *fakeChannel) {
 	ch.joined.Store(true)
 	ph.reply(ch.conn, ch.topic, ch.joinRef, ch.joinRef, `{"status":"ok","response":{"postgres_changes":[]}}`)
-	ph.joined <- ch
+	publish(ph.t.Context(), ph.joined, ch)
+}
+
+// publish puts what the fake saw on one of its channels for the test to read, and gives up when the test has
+// ended. The channels hold sixteen and most tests read few of them: a send with no way out would hold the
+// socket's handler past the test, and the fake's own Close waits for its handlers (work item 301: nothing in
+// this file waits without a bound).
+func publish[T any](ctx context.Context, to chan<- T, v T) bool {
+	select {
+	case to <- v:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // holdJoins makes every join's ok reply wait until release is called (or
@@ -278,6 +308,25 @@ func (ph *fakePhoenix) joinGate() chan struct{} {
 	ph.mu.Lock()
 	defer ph.mu.Unlock()
 	return ph.joinHold
+}
+
+// refuseNextJoin makes the fake refuse the next join, and that one alone, with reason. It is said before
+// the watch starts: the join that takes the refusal is the fake's to pick, never a test's to time.
+func (ph *fakePhoenix) refuseNextJoin(reason string) {
+	ph.refuseFirst.Store(&reason)
+}
+
+// nextJoinToken waits for the access token of the next join attempt, refused or not. what names the
+// attempt for the message of a test that waited in vain.
+func (ph *fakePhoenix) nextJoinToken(what string) string {
+	ph.t.Helper()
+	select {
+	case token := <-ph.joinTokens:
+		return token
+	case <-time.After(hangCatcher):
+		ph.t.Fatalf("no join attempt reached the realtime server within %s: %s", hangCatcher, what)
+		return ""
+	}
 }
 
 // nextJoin waits for a join to complete.
@@ -1065,23 +1114,28 @@ func TestWatchJoinRefusedKeepsPolling(t *testing.T) {
 // TestWatchBadTokenRefreshesAndRejoins: a join refused for the JWT earns
 // one forced refresh and a rejoin with the new token; the channel then
 // comes up.
+//
+// The fake refuses the first join and accepts every later one, said once before the watch starts. Until work
+// item 301 the test set the fake to refuse and cleared that on seeing the first join's token; the fake read
+// the setting after it had published the token, so on a busy machine the first join could be accepted, no
+// second one came, and the test waited for its token with no bound until `go test` ended the package (seen
+// on 2026-11-13 and in ci.yml run 45365234509).
 func TestWatchBadTokenRefreshesAndRejoins(t *testing.T) {
 	t.Parallel()
 	r, ph, _ := watchRig(t)
-	ph.refuse.Store("InvalidJWTToken: Token has expired 10 seconds ago")
+	ph.refuseNextJoin("InvalidJWTToken: Token has expired 10 seconds ago")
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	w.expectReady()
-	select {
-	case first := <-ph.joinTokens:
-		ph.refuse.Store("")
-		ph.nextJoin()
-		second := <-ph.joinTokens
-		if first == second {
-			t.Fatalf("the rejoin presented the refused token again")
-		}
-	case <-time.After(hangCatcher):
-		t.Fatal("no join attempt")
+	first := ph.nextJoinToken("the watch's first join, which the fake refuses for its token")
+	// The fake decides before it publishes, so the refusal is taken by now, or it never will be.
+	if ph.refuseFirst.Load() != nil {
+		t.Fatalf("the fake did not refuse the first join: its one-time refusal is still waiting")
 	}
+	second := ph.nextJoinToken("the rejoin after the refused join: the watch joined once and never again")
+	if first == second {
+		t.Fatalf("the rejoin presented the refused token again")
+	}
+	ph.nextJoin()
 	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
 	if r.be.calls("/auth/v1/token") != 1 {
 		t.Fatalf("/token called %d times, want exactly one forced refresh", r.be.calls("/auth/v1/token"))
