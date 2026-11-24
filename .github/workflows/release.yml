@@ -51,8 +51,9 @@ concurrency:
 # runs on `github.token`, and events raised by the job token start no workflow run — with two exceptions,
 # `workflow_dispatch` and `repository_dispatch`. So the last step dispatches release-notes.yml, which then runs
 # under an event the action supports, with the tag as its input; this workflow's own ceiling shrinks back to
-# what its one job uses plus the dispatch (`actions: write`), and the notes job's `issues: write` and
-# `id-token: write` live in release-notes.yml, where they are granted.
+# what its one job uses plus the dispatch (`actions: write`), and the notes' own writes, `contents: write` and
+# `issues: write`, live in release-notes.yml's job `publish`, where they are granted. (Its agents hold a
+# read-only token and no job of it grants `id-token` since work item 438, ADR 0033.)
 permissions:
   contents: write                                   # create the release and upload assets
   actions: write                                    # dispatch release-notes.yml after the publish

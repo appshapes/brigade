@@ -61,4 +61,8 @@ was removed on 2026-11-24 ([ADR 0032](../../decisions/0032-run-each-scheduled-jo
 - Agent memory lives under `.context/plans/agent-memory/`, never under `.claude/`.
 - `anthropics/claude-code-action` is pinned by full commit SHA, the only action in the repository that is, because
   it is the only one that runs a model.
+- An agent holds its job's own read-only token, and a write is made by a job that runs no agent. Two agents
+  hold a token of the Claude GitHub App instead: the reviewer, asked for at read-only contents so that it
+  cannot push or merge, and the fixer, which has to push
+  ([ADR 0033](../../decisions/0033-hand-an-agent-the-jobs-own-token-and-name-the-jobs-that-hold-the-claude-apps.md)).
 - The workflows, their schedules and the required GitHub configuration: [scripts/ci/README.md](../../../scripts/ci/README.md).

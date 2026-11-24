@@ -1165,7 +1165,7 @@ var scheduledWorkflowMutations = []struct {
 	},
 	{
 		"the_landing_job_runs_an_agent",
-		replaceInAll("      - name: Push the change as a branch\n", "      - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c\n      - name: Push the change as a branch\n"),
+		replaceInAll("      - name: Push the change as a branch\n", "      - uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b\n      - name: Push the change as a branch\n"),
 		"the job that holds the owner's token runs no model",
 	},
 	{

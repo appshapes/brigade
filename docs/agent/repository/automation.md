@@ -43,6 +43,16 @@
   from the execution-log-row rule (owner ruling, 2026-09-09); its squash-merge title,
   `<work item>: <Imperative summary>`, satisfies the commit-message rule.
   Agent memory lives under `.context/plans/agent-memory/`, never under `.claude/`.
+- **An agent's token** (work item 438, ADR 0033). A step that runs `anthropics/claude-code-action` is handed the
+  job's own token (`github_token: ${{ github.token }}`), in a job that grants `contents: read`, nothing at write
+  and no `id-token`: handed none, the action mints a token of the Claude GitHub App, which the job's
+  `permissions:` do not bound. A write is made by a job that runs no agent, from files the agents left. Two
+  jobs hold the App's token, each named in `scripts/ci/agent_token_test.go` with its reason and the wish its
+  step sends: the reviewer (`review-pull-request.yml`), whose step asks for it at `contents: read` and
+  `issues: read`, so that it reviews as `claude[bot]` and cannot push or merge; and the fixer (`claude.yml`),
+  which has to push. Never drop a line of the reviewer's `additional_permissions`, never grant `id-token` in
+  another job, and never add a job to that table without the owner: what such a token can do is set by
+  Anthropic's exchange and was measured once (the ADR has what was and what was not).
 - **Pinned actions.** `anthropics/claude-code-action` is pinned by **full commit SHA**, the only action in this
   repository that is, because it is the only one that runs a model with repository write access; every other
   action stays on its major tag.

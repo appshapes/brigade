@@ -40,6 +40,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0030. Pin the Codex CLI and Grok Build packages to the last release in their marketplace files](0030-pin-the-codex-cli-and-grok-build-packages-to-the-last-release-in-their-marketplace-files.md)
 - [0031. Name the command by the package's path in the lines a session reads on a host with no brigade on PATH](0031-name-the-command-by-the-packages-path-on-a-host-with-no-brigade-on-path.md)
 - [0032. Run each scheduled job as one workflow, named by a standing work item](0032-run-each-scheduled-job-as-one-workflow-named-by-a-standing-work-item.md)
+- [0033. Hand an agent the job's own token, and name the jobs that hold the Claude App's](0033-hand-an-agent-the-jobs-own-token-and-name-the-jobs-that-hold-the-claude-apps.md)
 
 ## Record a decision
 

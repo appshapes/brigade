@@ -1,5 +1,28 @@
-# The reviewer half of the loop. Read-only because the job's GITHUB_TOKEN is `contents: read` — that, and only
-# that, is the boundary: a merge and a push are both content writes, so no tool the agent holds can perform one.
+# The reviewer half of the loop. Read-only, and what makes it so is the TOKEN THE AGENT HOLDS, which is not this
+# job's own (work item 438, 2026-11-24, ADR 0033).
+#
+# The agent step is handed no `github_token`, so the action exchanges the job's identity (`id-token: write`)
+# for a token of the Claude GitHub App, and the session's `gh` and git hold THAT token. It has to be so: the
+# review must be `claude[bot]`'s. A job's own token may not approve a pull request in this repository
+# (`can_approve_pull_request_reviews` is false), and a review submitted with one raises no event, so neither
+# auto-merge.yml nor claude.yml's fixer would ever start.
+#
+# The step asks the exchange for that token at `contents: read` and `issues: read` (`additional_permissions`,
+# which the action lays over its own wish of `contents`, `pull_requests` and `issues` at write). Measured on
+# 2026-11-24, run 45476572377 of the work item's throwaway workflow, on a token minted with exactly that wish:
+# it is a token for this repository alone (another repository of the organisation answers 404), a push is
+# refused for the permission (403 where a token minted with no wish got as far as the request's content), a
+# pull request may be written, and it has nothing of Actions, check runs, the repository's settings or its
+# webhooks. A merge and a push are both content writes, so no tool the agent holds can perform one.
+#
+# That is the boundary, and THIS IS WHAT IT RESTS ON: Anthropic's exchange honouring the wish. It is not
+# GitHub's `permissions:` block, which bounds only the job's own token (the guard's comment and the verify
+# step below); it was measured once; and it could change without a commit here. Not measured: whether the
+# token could write a workflow file had it contents at write, and whether `issues: read` lowers issues (an
+# issue with no title was still refused for its content, not for the permission). Until this work item the
+# step asked for nothing and held contents at write, under a header that named this job's `contents: read`
+# as the boundary: the reviewer could push.
+#
 # The `deny` list below is the belt: an `allow` list that merely OMITS Write/Edit withholds nothing, because the
 # action grants the general edit tools by default (see §4.1's note), so the denial has to be written out.
 # A reviewer that can push is not a reviewer.
@@ -47,10 +70,12 @@ jobs:
     # below at the slowest observed pace (~8.5 s a turn, that same run: ~10 min). The measurement is on the
     # P14-1 row of the execution log.
     timeout-minutes: 30
+    # The job's OWN token, which the guard's comment and the verify step use. The agent does not hold it: the
+    # header says which token it holds and what bounds that one.
     permissions:
-      contents: read           # the reviewer must not be able to push. This is the boundary; the allowlist is the belt.
-      pull-requests: write     # `gh pr review` needs it
-      id-token: write          # claude-code-action's OIDC
+      contents: read           # the checkout
+      pull-requests: write     # the comment that explains a guard trip
+      id-token: write          # the identity the action exchanges for the Claude App's token (the header)
       actions: read
     steps:
       - name: Checkout
@@ -134,7 +159,7 @@ jobs:
         # Re-resolve for the current `v1` whenever this pin is bumped —
         #   gh api repos/anthropics/claude-code-action/git/ref/tags/v1 --jq '.object.sha'
         #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1
         with:
           # After the autonomous fixer pushes, the resulting `synchronize` run's ACTOR is a bot; without its
           # name the action rejects the run and the loop dead-ends unreviewed. MEASURED 2026-09-10 (PR #3, run
@@ -143,6 +168,12 @@ jobs:
           # workflow tokens (a fork PR's token is read-only and cannot push or comment). The `opened` run needs
           # neither: that PR was opened by a person with write access. Explicit list, two entries, never '*'.
           allowed_bots: "claude,github-actions"
+          # THE BOUNDARY (the header): the token the action mints for this step is asked for at these two, over
+          # its own wish of all three at write, so the agent can review and comment and cannot push or merge.
+          # Exactly the wish that was measured. Never drop a line: scripts/ci/agent_token_test.go holds both.
+          additional_permissions: |
+            contents: read
+            issues: read
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # --max-turns is a hard stop on a wandering session. 70 is MEASURED 2026-09-16 — the P9-3 re-pin —
           # from the fourteen reviewer sessions that reported a turn count (PRs #3, #7 and #8, runs 34485085258
@@ -212,10 +243,10 @@ jobs:
           # The four bare tool names in `deny` are the belt, and they have to be WRITTEN: the action grants the
           # general edit tools by default, so leaving them off the `allow` list withholds nothing (§4.1's note
           # says the same thing from the writer's side, where those defaults are what let it edit a Go file).
-          # `Bash(gh:*)` includes `gh pr merge`. It cannot merge: the job's GITHUB_TOKEN is `contents: read`, and
-          # a merge is a content write. That is why the permissions block above is the boundary and this list is
-          # only the belt. No `make`, no `go`, no `docker`: a reviewer that can run the build can also write files
-          # through a build script.
+          # `Bash(gh:*)` includes `gh pr merge`. It cannot merge: the token it holds was asked for at
+          # `contents: read`, and a merge is a content write. That is why `additional_permissions` above is the
+          # boundary and this list is only the belt. No `make`, no `go`, no `docker`: a reviewer that can run the
+          # build can also write files through a build script.
           # No WebFetch and no WebSearch either, and here the case is even plainer than for the writer (§4.1): a
           # reviewer reads a diff in a checkout it already has, and the OAuth token in its environment is
           # reachable to anything it runs (§1.1.1). Reviewing a PR whose diff is hostile is this agent's ENTIRE

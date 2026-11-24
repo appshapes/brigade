@@ -1,12 +1,12 @@
 # Write a published release's notes from the repository's own record, gate them, and tell members to update.
 #
-# Four stages, in one job: a writer agent DRAFTS the notes to a file outside the checkout; a deterministic lint
+# Four stages, in the job `notes`: a writer agent DRAFTS the notes to a file outside the checkout; a deterministic lint
 # (scripts/ci/release-notes-lint.sh) refuses anything that does not exist — a skill, a CLI command, an asset — or
 # that is placeholder, "Unreleased" or secret-shaped, and holds the notes to the changelog's "who must act" lines;
 # a reviewer agent reads the draft against CHANGELOG.md, the
 # tag's log and the plugin tree and answers APPROVED or CHANGES_REQUESTED with findings; the writer gets exactly
 # one fix cycle; and only an APPROVED, lint-clean draft is published. The publish and the announcement issue are
-# shell steps, not the agent: the two writes are deterministic and idempotent UNDER SERIALISATION -- a re-dispatch
+# shell steps of a second job, `publish`, not the agent: the two writes are deterministic and idempotent UNDER SERIALISATION -- a re-dispatch
 # minutes later rewrites the same notes and opens no second issue. Two SIMULTANEOUS runs were another matter:
 # release.yml's duplicated tag push for v0.6.1 (its header) dispatched this workflow twice in one second, runs
 # 34779894653 and 34779894742, both reached "Announce, once" a second apart, and both opened the issue (#10 and
@@ -42,6 +42,26 @@
 # and whether the lines are there and right is the lint's finding alone: it compares them with the changelog word
 # for word, which no reviewer has to. Change the order in NOTES_ORDER, and the lint with it when the lines move.
 #
+# Two jobs, and what each can reach is the design (work item 438, 2026-11-24, ADR 0033; the three scheduled jobs
+# have had this shape since ADR 0032):
+#
+#   notes    the four agent steps, the lint and the gate. Nothing in this job can write to the repository: its
+#            token is `contents: read`, and each agent step is handed THAT token (`github_token`), so the action
+#            mints none of its own. Until this work item the workflow was one job with `contents: write`,
+#            `issues: write` and `id-token: write`, no step was handed a token, and each agent held a token of
+#            the Claude GitHub App in its place: contents, pull requests and issues at write on this repository
+#            (measured, run 45476572377), which no `permissions:` block bounded. The draft, the lint's result
+#            and the review leave the job as an artifact.
+#   publish  no agent. Runs only when `notes` ended green, which is the gate's word. Takes the artifact and
+#            makes the two writes with its own token, `contents: write` for `gh release edit` and
+#            `issues: write` for the announcement. It reads the notes as text and runs nothing an agent wrote.
+#
+# A dry run (`-f dry_run=true`) goes all the way to `publish`, which then takes the artifact, says what it
+# would publish and writes nothing: no notes change and no issue is opened or closed. It is how a change to
+# this workflow is tried on a release that is already published:
+#
+#   gh workflow run release-notes.yml -f tag=v0.60.0 -f dry_run=true
+#
 # The agents write their files with `tee` from the Bash tool, under a `Bash(tee <path>:*)` prefix rule: the first
 # gated run (34541118273) showed the action honouring every Bash rule and none of the `Write(//tmp/…)` rules —
 # two denials per agent, no file, and nothing published (the gate held). Each agent step's execution log is
@@ -55,6 +75,11 @@ on:
         description: The tag to write notes for, e.g. v0.5.1
         required: true
         type: string
+      dry_run:
+        description: "true: the notes are drafted, linted and reviewed, and nothing is published or announced."
+        required: false
+        type: boolean
+        default: false
 
 # One run per tag at a time, queued, never cancelled. Two dispatches for v0.6.1 arrived in the same second (runs
 # 34779894653 and 34779894742) and reached "Announce, once" one second apart -- no guard, search-backed or not,
@@ -68,11 +93,9 @@ concurrency:
 jobs:
   notes:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 30         # not a p90: two bounded agent sessions, at most four, plus a build and two writes
+    timeout-minutes: 30         # not a p90: two bounded agent sessions, at most four, plus a build
     permissions:
-      contents: write           # `gh release edit --notes` is a contents write
-      issues: write             # the one announcement issue, and closing the earlier releases' (work item 403)
-      id-token: write           # claude-code-action's OIDC
+      contents: read            # the boundary: nothing in this job, agent or shell, can write to the repository
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       NOTES_DIR: /tmp/brigade-notes
@@ -121,8 +144,9 @@ jobs:
       - name: Draft the notes
         id: draft1
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (run 34583310273)
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1 — pinned by SHA: the one action that runs a MODEL with repository write access
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1 — pinned by SHA: the one action that runs a model
         with:
+          github_token: ${{ github.token }}       # the job's read-only token, so the action mints none (the header)
           allowed_bots: "claude,github-actions"   # github-actions is release.yml's dispatch actor (run 34539842793 measured the refusal)
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # --add-dir: the notes directory is OUTSIDE the checkout, and the Claude Code that claude-code-action
@@ -191,7 +215,8 @@ jobs:
               }
             }
           # No WebFetch, no WebSearch, no `gh` write verb: the draft is composed from the checkout and the job's
-          # own token, and the writes happen in the shell steps below. NO GH_ACTIONS_TOKEN anywhere in this job.
+          # own read-only token, and the writes happen in the job `publish`. NO GH_ACTIONS_TOKEN anywhere in this
+          # workflow.
 
       - name: Keep the drafter's execution log
         if: always() && steps.draft1.outcome != 'skipped'
@@ -204,8 +229,9 @@ jobs:
       - name: Review the draft
         id: review1
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (run 34583310273)
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1
         with:
+          github_token: ${{ github.token }}
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
@@ -289,8 +315,9 @@ jobs:
         id: draft2
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (run 34583310273)
         if: steps.lint1.outcome != 'success' || steps.verdict1.outputs.verdict != 'APPROVED'
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1
         with:
+          github_token: ${{ github.token }}
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
@@ -355,8 +382,9 @@ jobs:
         id: review2
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (run 34583310273)
         if: steps.draft2.outcome == 'success'
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1
         with:
+          github_token: ${{ github.token }}
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
@@ -439,6 +467,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-notes-${{ inputs.tag }}
+          overwrite: true             # a second attempt of this job replaces the first one's artifact, which `publish` takes by name
           path: |
             /tmp/brigade-notes/notes-round1.md
             /tmp/brigade-notes/notes.md
@@ -447,12 +476,41 @@ jobs:
             /tmp/brigade-notes/*-execution.json
           if-no-files-found: ignore
 
-      # ---- the two writes, by the shell, idempotent under the concurrency group (v0.6.1's two simultaneous runs
-      # ---- each opened an issue; the header) ------------------------------------------------------------------
+  # ---- the two writes, by the shell, in a job of their own, idempotent under the concurrency group (v0.6.1's two
+  # ---- simultaneous runs each opened an issue; the header) --------------------------------------------------
+  # No agent runs here, and nothing here runs what an agent wrote: the notes are a file, handed to `gh` as text.
+  # `needs: notes` is the gate: this job starts only when the draft was approved and lint-clean.
+  publish:
+    needs: notes
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10         # one download and two writes; not a p90, a floor
+    permissions:
+      contents: write           # `gh release edit --notes` is a contents write, and the checkout
+      issues: write             # the one announcement issue, and closing the earlier releases' (work item 403)
+      actions: read             # downloads this run's artifact
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      NOTES_DIR: /tmp/brigade-notes
+    steps:
+      - uses: actions/checkout@v7      # for scripts/ci/announce-release.sh, at the commit the run started on
+      - name: Take the approved notes
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "release-notes-$RELEASE_TAG" --dir "$NOTES_DIR"
+          test -s "$NOTES_DIR/notes.md"
+        env: {GH_TOKEN: "${{ github.token }}"}
+      - name: Say what a dry run would publish
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "::notice::dry run: nothing is published and nothing is announced for $RELEASE_TAG"
+          echo "the notes this run would publish: $(wc -l < "$NOTES_DIR/notes.md") lines, beginning"
+          head -n 1 "$NOTES_DIR/notes.md"
+          echo "(the whole draft is in the run's artifact)"
       - name: Publish the notes
+        if: ${{ !inputs.dry_run }}
         run: gh release edit "$RELEASE_TAG" --notes-file "$NOTES_DIR/notes.md"   # never --draft or --latest: release.yml owns the publish state
         env: {GH_TOKEN: "${{ github.token }}"}
       - name: Announce, once
+        if: ${{ !inputs.dry_run }}
         # scripts/ci/announce-release.sh opens the announcement issue unless one with this title exists, and closes
         # the announcements of the releases before it, so the one open is the newest release's (work item 403:
         # nothing closed one, and 71 of the repository's 74 open issues were announcements). Its header has the

@@ -51,8 +51,9 @@ env:
 #          this job can write to the repository: its token is `contents: read`, and each agent step is handed
 #          THAT token (`github_token`), so the action mints none of its own. Left to itself the action
 #          exchanges the job's identity for a token of the Claude GitHub App, whose permissions the job's
-#          `permissions:` block does not bound (src/github/token.ts at the pin, read 2026-11-24), and writes
-#          it into the checkout's remote URL. The writer commits in the checkout and never pushes; the
+#          `permissions:` block does not bound (src/github/token.ts at the pin, read 2026-11-24): contents,
+#          pull requests and issues at write on this repository, measured on 2026-11-24 (work item 438, ADR
+#          0033), which the session's `gh` and git then hold. The writer commits in the checkout and never pushes; the
 #          commits leave the job as a `git bundle`, after a look for a token in everything that leaves.
 #   land   no agent. Pushes the bundle's commits as `scheduled/<job>-<date>` with the job's own token, then
 #          opens the pull request with GH_ACTIONS_TOKEN, so that `ci.yml` runs on it (a pull request opened
@@ -139,7 +140,7 @@ jobs:
         # when nothing was committed.
         continue-on-error: true
         timeout-minutes: 60
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1 — pinned by SHA: the one action that runs a model
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1 — pinned by SHA: the one action that runs a model
         with:
           github_token: ${{ github.token }}       # the job's read-only token, so the action mints none (the header)
           allowed_bots: "claude,github-actions"   # as send-release-notes.yml, the other workflow a schedule starts
@@ -251,7 +252,7 @@ jobs:
         if: steps.gate1.outputs.changed == 'true'
         continue-on-error: true   # the file it wrote, or did not, is the verdict
         timeout-minutes: 20
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1
         with:
           github_token: ${{ github.token }}
           allowed_bots: "claude,github-actions"
@@ -335,7 +336,7 @@ jobs:
         if: steps.verdict1.outputs.fix == 'true'
         continue-on-error: true   # the commits decide, as for the writer
         timeout-minutes: 40
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1
         with:
           github_token: ${{ github.token }}
           allowed_bots: "claude,github-actions"
@@ -423,7 +424,7 @@ jobs:
         if: steps.verdict1.outputs.fix == 'true' && steps.gate2.outputs.changed != 'false'
         continue-on-error: true
         timeout-minutes: 20
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@eb56b6666facdbd501035f4a0269d8caee2e7a8b   # v1
         with:
           github_token: ${{ github.token }}
           allowed_bots: "claude,github-actions"
