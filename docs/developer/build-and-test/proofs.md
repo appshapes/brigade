@@ -41,5 +41,5 @@ A proof measures attempts, not effects, and a run is one machine, one account, o
 [docs/security.md, section 11](../../security.md#11-what-the-proofs-proved-and-what-they-did-not) says what the
 body of measurement does not cover.
 
-Experiment drivers live in `scripts/experiments/<name>/` beside their report `docs/experiments/<name>.md`; a new
-experiment adds both and a row in the experiments index.
+Experiment drivers live in `scripts/experiments/<name>/` or `scripts/experiments/<name>.sh` beside their report
+`docs/experiments/<name>.md`; a new experiment adds both and a row in the experiments index.
