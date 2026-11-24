@@ -36,9 +36,6 @@ was removed on 2026-11-24 ([ADR 0032](../../decisions/0032-run-each-scheduled-jo
 | `update-dependencies.yml` | the 1st, 11:29 UTC | `developer.md`, dependency-update mode | merges when green | 435 |
 | `review-repository.yml` | the 1st, 04:43 UTC | `reviewer.md`, review-repository mode | waits for the owner | 436 |
 
-Until each has run once by hand in this form (work item 433), the three files carry `workflow_dispatch` alone
-and the schedule above is not in them.
-
 - **One run is the whole job.** The writer commits in the runner's checkout; a shell gate reads what the
   checkout holds and runs `pr-guard.sh` and the job's `make` targets; the reviewer reads the commits against
   the writer's brief; the writer gets one fix cycle; a second review is bounded to the first one's findings and

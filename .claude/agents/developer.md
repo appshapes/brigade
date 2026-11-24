@@ -142,9 +142,11 @@ left both layers in the file):
 
 ```sh
 go get -modfile=tools.mod -u golang.org/x/tools/cmd/goimports golang.org/x/vuln/cmd/govulncheck
-rm tools.sum && go mod download -modfile=tools.mod all      # `all` is load-bearing: bare, only the go.mod
-                                                            # hashes are written and `go tool` reports a
-                                                            # missing go.sum entry
+sed -i d tools.sum && go mod download -modfile=tools.mod all   # `sed -i d` empties the file: the job's tooling
+                                                              # has no `rm`. It is the runner's GNU sed; on a
+                                                              # Mac, `rm tools.sum`. `all` is load-bearing:
+                                                              # bare, only the go.mod hashes are written and
+                                                              # `go tool` reports a missing go.sum entry
 go tool -modfile=tools.mod goimports -h && go tool -modfile=tools.mod govulncheck -version   # both resolve
 ```
 

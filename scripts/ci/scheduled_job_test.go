@@ -42,6 +42,14 @@ const (
 // scheduledWorkflows are the three jobs, by file name without `.yml`: the name each gives SCHEDULED_JOB.
 var scheduledWorkflows = []string{"update-documentation", "update-dependencies", "review-repository"}
 
+// scheduledCrons is when each runs: the first of the month, off the hour, and no two at one time
+// (TestTheScheduledWorkflows holds that the three differ).
+var scheduledCrons = map[string]string{
+	"update-documentation": "17 9 1 * *",
+	"update-dependencies":  "29 11 1 * *",
+	"review-repository":    "43 4 1 * *",
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // the fixture
 
@@ -914,6 +922,14 @@ func checkScheduledWorkflows(r reporter, root string) {
 		case job == "review-repository" && merge[1] != "by-hand":
 			r.Errorf("%s arms the merge of a whole-tree review: that pull request waits for the owner (his standing decision 5)", rel)
 		}
+		// A schedule starts it, and a person can: the three were disabled while they were rebuilt, and a
+		// file that lost its `schedule:` would look enabled and never run.
+		if !strings.Contains(head, "\non:\n  schedule:\n    - cron: '"+scheduledCrons[job]+"'") || !strings.Contains(uncommented(head), "\n  workflow_dispatch:\n") {
+			r.Errorf("%s is not started by its schedule (cron '%s') and by hand (`workflow_dispatch`)", rel, scheduledCrons[job])
+		}
+		if crons := strings.Count(uncommented(head), "- cron:"); crons != 1 {
+			r.Errorf("%s has %d `cron` lines, want 1: a second one could be another job's minute", rel, crons)
+		}
 		for _, name := range []string{"SCHEDULED_TITLE: ", "SCHEDULED_GATE: ", "SCHEDULED_BRIEF: |\n"} {
 			if !strings.Contains(head, "\n  "+name) {
 				r.Errorf("%s has no %s", rel, strings.TrimSpace(name))
@@ -951,6 +967,22 @@ func checkScheduledWorkflows(r reporter, root string) {
 	if agents, handed := strings.Count(work, action), strings.Count(work, "          github_token: ${{ github.token }}"); agents != 4 || handed != agents {
 		r.Errorf("%s: the job `work` has %d agent step(s) and %d of them are handed the job's own token, want 4 and 4: "+
 			"an agent step without `github_token` is given a token of the Claude App, which the job's permissions do not bound", shared, agents, handed)
+	}
+	// The writer and the fixer are given the edit tools by name, and the two reviewers are denied them by
+	// name: where a workflow gives the prompt the action grants none by default (the first three runs in this
+	// form wrote with `sed -i`), and a reviewer that can edit is not one. With the tools granted, a writer is
+	// kept from the release pins, the agent files and the workflows by the denies, which name each tool.
+	const named = "                  \"Edit\",\n                  \"Write\",\n                  \"MultiEdit\"\n                ],\n                \"deny\": [\n                  \"Write(plugin/bin/**)\","
+	const denied = "                \"deny\": [\n                  \"Write\",\n                  \"Edit\",\n                  \"MultiEdit\",\n                  \"NotebookEdit\","
+	if strings.Count(work, named) != 2 || strings.Count(work, denied) != 2 {
+		r.Errorf("%s: of the four agent steps of `work`, %d name the edit tools in `allow` beside the denies for plugin/bin, and %d deny them outright, want 2 (the writer, the fixer) and 2 (the reviewers)", shared, strings.Count(work, named), strings.Count(work, denied))
+	}
+	for _, tool := range []string{"Write", "Edit", "MultiEdit"} {
+		for _, path := range []string{"plugin/bin/**", ".claude/**", ".github/workflows/**"} {
+			if rule := `"` + tool + "(" + path + `)"`; strings.Count(work, rule) != 2 {
+				r.Errorf("%s: the writer and the fixer are not both denied %s", shared, rule)
+			}
+		}
 	}
 	// The shell steps beside the agents run the script of the commit the run started on.
 	show := `git show "$GITHUB_SHA:` + scheduledScriptRel + `" > "$RUNNER_TEMP/scheduled-job.sh"`
@@ -1010,6 +1042,14 @@ func TestTheScheduledWorkflows(t *testing.T) {
 	if script, ok := readText(t, root, scheduledScriptRel); ok && !strings.Contains(script, `branch="scheduled/$SCHEDULED_JOB-$(date -u +%Y%m%d)"`) {
 		t.Errorf("%s no longer names a job's branch `scheduled/<job>-<date>`: review-pull-request.yml skips that prefix, and `sweep` removes those names", scheduledScriptRel)
 	}
+	// No two jobs at one time: three agent runs at the same minute contend for the runner and the plan.
+	times := map[string]string{}
+	for job, cron := range scheduledCrons {
+		if other, taken := times[cron]; taken {
+			t.Errorf("%s and %s are both scheduled at '%s'", job, other, cron)
+		}
+		times[cron] = job
+	}
 	// `sweep` and `land` run the script by its path, so it has to be a file that can be run.
 	if info, err := os.Stat(filepath.Join(root, scheduledScriptRel)); err != nil || info.Mode()&0o111 == 0 {
 		t.Errorf("%s is not executable (%v): the jobs `sweep` and `land` run it by its path", scheduledScriptRel, err)
@@ -1065,6 +1105,36 @@ var scheduledWorkflowMutations = []struct {
 		"the_repository_review_merges_by_itself",
 		replaceInFile(workflowsDirRel+"/review-repository.yml", "  SCHEDULED_MERGE: by-hand\n", "  SCHEDULED_MERGE: when-green\n"),
 		"a whole-tree review waits for the owner",
+	},
+	{
+		"a_job_has_no_schedule",
+		replaceInFile(workflowsDirRel+"/update-documentation.yml", "  schedule:\n    - cron: '17 9 1 * *'", "  # schedule:\n  #  - cron: '17 9 1 * *'"),
+		"an enabled workflow that never runs by itself",
+	},
+	{
+		"two_jobs_run_at_one_time",
+		replaceInFile(workflowsDirRel+"/update-dependencies.yml", "    - cron: '29 11 1 * *'", "    - cron: '17 9 1 * *'"),
+		"two agent sessions on the first of the month at the same minute",
+	},
+	{
+		"a_job_has_a_second_time",
+		replaceInFile(workflowsDirRel+"/review-repository.yml", "  workflow_dispatch:\n", "    - cron: '17 9 1 * *'\n  workflow_dispatch:\n"),
+		"a second `cron` line can be another job's minute, and the first still matches",
+	},
+	{
+		"a_writer_may_multiedit_a_workflow",
+		replaceInAll("                  \"MultiEdit(.github/workflows/**)\",\n", ""),
+		"the edit tools are granted by name now, and a deny that names two of the three leaves the third",
+	},
+	{
+		"the_writer_has_no_edit_tool",
+		replaceInAll("                  \"Edit\",\n                  \"Write\",\n                  \"MultiEdit\"\n", "                  \"Edit(.context/plans/**)\"\n"),
+		"the writer and the fixer change files with `sed -i`, as in the first two runs",
+	},
+	{
+		"a_reviewer_may_edit",
+		replaceInAll("                \"deny\": [\n                  \"Write\",\n                  \"Edit\",\n                  \"MultiEdit\",\n                  \"NotebookEdit\",\n", "                \"deny\": [\n"),
+		"a reviewer that can write to the checkout",
 	},
 	{
 		"an_agent_step_gets_the_apps_token",

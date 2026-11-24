@@ -14,8 +14,10 @@
 name: review repository
 
 on:
-  # By hand alone until each of the three has run once by hand in this form (work item 433): the schedule,
-  # `43 4 1 * *` (the first of each month, 04:43 UTC), comes back in the commit after those runs.
+  schedule:
+    - cron: '43 4 1 * *'    # the first of each month, 04:43 UTC. Off the hour on GitHub's own advice (keepalive.yml's
+                            # header: scheduled runs are delayed at the top of the hour), and clear of the
+                            # other two, update-documentation at 09:17 and update-dependencies at 11:29.
   workflow_dispatch:
 
 env:
@@ -195,8 +197,9 @@ jobs:
                   "Bash(rg:*)",
                   "Bash(sed:*)",
                   "Bash(jq:*)",
-                  "Write(.context/plans/**)",
-                  "Edit(.context/plans/**)"
+                  "Edit",
+                  "Write",
+                  "MultiEdit"
                 ],
                 "deny": [
                   "Write(plugin/bin/**)",
@@ -205,6 +208,9 @@ jobs:
                   "Edit(.claude/**)",
                   "Write(.github/workflows/**)",
                   "Edit(.github/workflows/**)",
+                  "MultiEdit(plugin/bin/**)",
+                  "MultiEdit(.claude/**)",
+                  "MultiEdit(.github/workflows/**)",
                   "Read(./CLAUDE.user.md)",
                   "Read(./.env)",
                   "Read(./.env.*)"
@@ -212,11 +218,15 @@ jobs:
               }
             }
           # The settings are claude.yml's writer's, and its comments say why each line is there: the three
-          # `env` values keep `make test` in the foreground until it ends (work item 398); the general edit
-          # tools come from the action's own defaults; no WebFetch and no WebSearch; the denies keep the
-          # release pins, the agent files and the workflows out of an agent's hands. The first two lines are
-          # this job's: the report, written with `tee` under a Bash rule because the action honours those and
-          # not a `Write(//tmp/…)` rule (release-notes.yml, run 34541118273).
+          # `env` values keep `make test` in the foreground until it ends (work item 398); no WebFetch and no
+          # WebSearch; the denies keep the release pins, the agent files and the workflows out of an agent's
+          # hands. Two things are this job's. The report, written with `tee` under a Bash rule because the
+          # action honours those and not a `Write(//tmp/…)` rule (release-notes.yml, run 34541118273). And the
+          # three edit tools, named: where the workflow gives the prompt, as here, the action grants none by
+          # default. With only `.context/plans/**` allowed, as in claude.yml, the writers of the first three
+          # runs in this form (45359451690, 45367535472 and 45374077637, 2026-11-24) changed every other file
+          # with `sed -i`. The denies name `MultiEdit` beside `Write` and `Edit` for the three paths: with the
+          # tools granted, the denies are what stands between a writer and those files before the gate.
 
       - name: Keep the writer's execution log
         if: ${{ !cancelled() && steps.write.outcome != 'skipped' }}
@@ -300,8 +310,10 @@ jobs:
                 ]
               }
             }
-          # The four bare names in `deny` have to be written: the action grants the edit tools by default
-          # (review-pull-request.yml). No `make`, no `go`, no `gh`: this reviewer reads a diff it already has.
+          # The four bare names in `deny` are written out whatever the action grants by default. It grants the
+          # edit tools in the mode review-pull-request.yml measured, and none where the workflow gives the
+          # prompt, as the writers' first runs here showed: a reviewer's read-only state rests on neither.
+          # No `make`, no `go`, no `gh`: this reviewer reads a diff it already has.
 
       - name: Keep the reviewer's execution log
         if: ${{ !cancelled() && steps.review1.outcome != 'skipped' }}
@@ -370,8 +382,9 @@ jobs:
                   "Bash(rg:*)",
                   "Bash(sed:*)",
                   "Bash(jq:*)",
-                  "Write(.context/plans/**)",
-                  "Edit(.context/plans/**)"
+                  "Edit",
+                  "Write",
+                  "MultiEdit"
                 ],
                 "deny": [
                   "Write(plugin/bin/**)",
@@ -380,6 +393,9 @@ jobs:
                   "Edit(.claude/**)",
                   "Write(.github/workflows/**)",
                   "Edit(.github/workflows/**)",
+                  "MultiEdit(plugin/bin/**)",
+                  "MultiEdit(.claude/**)",
+                  "MultiEdit(.github/workflows/**)",
                   "Read(./CLAUDE.user.md)",
                   "Read(./.env)",
                   "Read(./.env.*)"
