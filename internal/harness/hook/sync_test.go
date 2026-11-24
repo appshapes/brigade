@@ -331,3 +331,40 @@ func TestSyncChangeRespawnsTheWatcher(t *testing.T) {
 		})
 	}
 }
+
+// TestTheBoardsSyncLineNamesACommandTheSessionCanRun (work item 432): the
+// sync line of a team with a board names the command that lists its work
+// items, and named it by the bare `brigade`, which is on the PATH of a
+// Claude Code session's shell and of no other host's. On a host whose
+// command is the package's bootstrap it names that path; on Claude Code it
+// is the line it was, byte for byte.
+func TestTheBoardsSyncLineNamesACommandTheSessionCanRun(t *testing.T) {
+	t.Parallel()
+	for name, build := range map[string]func(*testing.T) *fixture{"Claude Code": newFixture, "Muse Code": newMuseFixture, "Codex CLI": newCodexFixture} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := build(t)
+			f.spawner.watcherPID = testutil.NewSleeper(t)
+			f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "x", false))}})
+			f.writeTeamFile(`,"sync":{"folders":["shared"],"board":true}`)
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			command := "brigade"
+			if name != "Claude Code" {
+				command = f.pluginBin
+			}
+			want := "Brigade: file sync on: 1 folder(s) and the team's Brigade Board of work items (`" + command + " work-item list`) through syncthing."
+			got := lines(out)
+			if !slices.Contains(got, want) {
+				t.Fatalf("lines = %q\nwant among them\n%q", got, want)
+			}
+			for _, line := range got {
+				if name != "Claude Code" && strings.Contains(line, "`brigade ") {
+					t.Fatalf("a host with no brigade on PATH is told the bare word: %q", line)
+				}
+			}
+		})
+	}
+}

@@ -545,8 +545,10 @@ rule nor the deny rule sees them:
 
 **What Brigade did about it.** Brigade used to name that full path to the model itself, in the line it prints at
 session start. It no longer does. That line now names only the bare `brigade`, and ends
-``Use `brigade sessions` and `brigade send`.`` The path moved to the human output of `brigade whoami`, on a line
-reading `terminal: <path>`, and deliberately not into `brigade whoami --json`, which is the form a model reads.
+``Use `brigade sessions` and `brigade send`.`` On Muse Code, Codex CLI and Grok Build the line names the command
+by the package's own path, as the reminder does: a session's shell there has no `brigade` on PATH. The path moved
+to the human output of `brigade whoami`, on a line reading `terminal: <path>`, and deliberately not into
+`brigade whoami --json`, which is the form a model reads.
 
 **What that bought, measured on Claude Code 2.1.261.** Across three runs, **15 of 15** idle wakes replied in the
 bare form, with **zero** occurrences of the plugin's binary path in any transcript, stream or watcher log. And in

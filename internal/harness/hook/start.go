@@ -416,7 +416,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	desc, err := res.client.Describe(dctx)
 	dcancel()
 	if err != nil {
-		failed("session-start: describe", err, notConnectedFor(err))
+		failed("session-start: describe", err, r.joinIn(f, notConnectedFor(err)))
 		return
 	}
 	// The doing mode is resolved from THIS describe (plan 5.2): no extra
@@ -458,7 +458,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	}
 	result, err := r.register(ctx, res.client, reg)
 	if err != nil {
-		failed("session-start: register", err, notConnectedFor(err))
+		failed("session-start: register", err, r.joinIn(f, notConnectedFor(err)))
 		return
 	}
 	m := r.buildMap(f, in, res, result.SessionID, desc.Profile.TeamRef, desc.Profile.TeamName, now, now)
@@ -483,7 +483,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		// back before restoring the previous map, or those records would
 		// sit in a directory no reader resolves.
 		r.restoreGrokBacklog(f.stateDir, res.store, prior, m)
-		r.fail("session-start: grok backlog not moved", err, notConnected(protocol.CodeConfig))
+		r.fail("session-start: grok backlog not moved", err, r.joinIn(f, notConnected(protocol.CodeConfig)))
 		return
 	}
 	if f.host.BindsReceiver() {
@@ -492,7 +492,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			return
 		}
 	} else if err := res.store.WriteByPID(m); err != nil {
-		failed("session-start: session map not written", err, notConnected(protocol.CodeConfig))
+		failed("session-start: session map not written", err, r.joinIn(f, notConnected(protocol.CodeConfig)))
 		return
 	}
 	spawned := r.spawnWatcher(ctx, f, m, pidfileWait)
@@ -614,7 +614,7 @@ func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 	opts, err := r.options()
 	if err != nil {
 		r.settingRefused = keptOptionLine(err)
-		r.fail("session-start: options", err, optionsLine(err))
+		r.fail("session-start: options", err, r.joinIn(f, optionsLine(err)))
 		return resolved{}, false
 	}
 	// The start facts go down BEFORE the team gates (P7-11): joined or not,
@@ -670,7 +670,7 @@ func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 		r.fail("session-start: frame text", err, frameLine(err))
 		return resolved{}, false
 	}
-	sync, syncLine := r.resolveSync(opts, tf, in.Cwd, foldersync.BoardPath(f.stateDir, tf.TeamRef))
+	sync, syncLine := r.resolveSync(opts, tf, in.Cwd, foldersync.BoardPath(f.stateDir, tf.TeamRef), r.commandName(f))
 	polling := resolvePolling(tf)
 	messageSound, soundLine := r.resolveAnnounce(opts.MessageSound, r.deps.SoundPlayer, announceSound)
 	messageNotification, notificationLine := r.resolveAnnounce(opts.MessageNotification, r.deps.Notifier, announceNotification)
@@ -981,7 +981,7 @@ const (
 // derives the folder's id from. Nothing here looks for the adapter on
 // PATH: the watcher discovers it, and says so through its notice when it
 // cannot (watch/sync.go).
-func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd, boardPath string) (frozenSync, string) {
+func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd, boardPath, command string) (frozenSync, string) {
 	switch {
 	case tf == nil || tf.Sync == nil:
 		return frozenSync{}, ""
@@ -1014,7 +1014,7 @@ func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd, boardPath
 			return frozenSync{}, syncOffLine(syncOffUnresolved)
 		}
 	}
-	return sync, syncOnLine(len(tf.Sync.Folders), sync.boardFolder != "", tf.Sync.Adapter)
+	return sync, syncOnLine(len(tf.Sync.Folders), sync.boardFolder != "", tf.Sync.Adapter, command)
 }
 
 // syncScope is the repository's name for the folder ids (card 42):
@@ -1056,14 +1056,16 @@ func syncRoot(cwd string) (string, bool) {
 // reasons; neither carries a folder, a path or a value from the option.
 // A team with a board (card 263) is told so here, with the command that
 // lists its work items: the line is how a session learns the board
-// exists.
-func syncOnLine(folders int, board bool, adapter string) string {
+// exists. command is how this host's model can run brigade (commandName):
+// the bare word on Claude Code, the package's path on a host whose shell
+// has none on PATH (work item 432).
+func syncOnLine(folders int, board bool, adapter, command string) string {
 	what := strconv.Itoa(folders) + " folder(s)"
 	switch {
 	case board && folders == 0:
-		what = syncBoardWords
+		what = syncBoardWords(command)
 	case board:
-		what += " and " + syncBoardWords
+		what += " and " + syncBoardWords(command)
 	}
 	return "Brigade: file sync on: " + what + " through " + attr(adapter) + "."
 }
@@ -1071,7 +1073,9 @@ func syncOnLine(folders int, board bool, adapter string) string {
 // syncBoardWords is how the sync line names the team's board: by the
 // feature's name, Brigade Board (work item 268), so a session whose user
 // says "the brigade board" knows what is meant and which command reads it.
-const syncBoardWords = "the team's Brigade Board of work items (`brigade work-item list`)"
+func syncBoardWords(command string) string {
+	return "the team's Brigade Board of work items (`" + command + " work-item list`)"
+}
 
 func syncOffLine(why string) string {
 	return "Brigade: file sync off (" + why + ")."
@@ -1166,12 +1170,12 @@ func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in 
 	}
 	canon, err := teamfile.Canonicalize(filepath.Dir(path))
 	if err != nil {
-		r.fail("session-start: canonicalize checkout", err, notConnected(protocol.CodeConfig))
+		r.fail("session-start: canonicalize checkout", err, r.joinIn(f, notConnected(protocol.CodeConfig)))
 		return nil, "", "", false
 	}
 	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, canon)
 	if err != nil {
-		r.fail("session-start: pin store", err, notConnectedFor(err))
+		r.fail("session-start: pin store", err, r.joinIn(f, notConnectedFor(err)))
 		return nil, "", "", false
 	}
 	if !pinned {
@@ -1638,7 +1642,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 // watcher: without one the sync line says off, whatever was resolved.
 func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *sessionmap.ByPID, now time.Time, watcherRuns bool) {
 	if err := res.store.WriteByPID(m); err != nil {
-		r.fail("session-start: session map not written", err, notConnected(protocol.CodeConfig))
+		r.fail("session-start: session map not written", err, r.joinIn(f, notConnected(protocol.CodeConfig)))
 		return
 	}
 	r.writeByNative(res.store, in.SessionID, m, now)
@@ -1718,7 +1722,7 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 // that leaves a session attached says first, whether it registered the
 // session, continued it or kept it where it is.
 func (r *run) sayContext(f facts, m *sessionmap.ByPID) {
-	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
+	r.say(r.startLineIn(f, m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
 	// What follows the start line says how a message reaches the model in
 	// this host, so it goes by the host's delivery.
 	switch f.host.Delivery() {

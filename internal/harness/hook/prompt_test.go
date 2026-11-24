@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -597,6 +598,68 @@ func TestPromptRetryStampFollowsTheAttempt(t *testing.T) {
 	data, err = adapterkit.ReadStrict(stamp)
 	if err != nil || strings.TrimSpace(string(data)) != f.now.Format(time.RFC3339Nano) {
 		t.Fatalf("stamp after the successful attempt %q %v, want %s", data, err, f.now.Format(time.RFC3339Nano))
+	}
+}
+
+// TestAStoppedWatchersNoticeNamesACommandTheSessionCanRun (work item 432):
+// a watcher that stopped for good leaves a line that ends in a command for
+// the session to run, written with the bare `brigade`, which is on the
+// PATH of a Claude Code session's shell and of no other host's. The prompt
+// that prints it names the command by the package's path on a host whose
+// command is the bootstrap, and prints the watcher's line as it is on
+// Claude Code. A notice of another topic carries someone else's words and
+// is printed as it was written on every host.
+func TestAStoppedWatchersNoticeNamesACommandTheSessionCanRun(t *testing.T) {
+	t.Parallel()
+	// The two lines of internal/harness/watch's stopNotice that name a
+	// command (TestStopNoticeWording there holds their words, and that a
+	// command in one opens with "`brigade ").
+	notices := map[string]string{
+		"a membership the backend refuses": "Brigade: watcher stopped: unauthorized; run `brigade team join` again",
+		"a profile that cannot be read":    "Brigade: watcher stopped: config; run `brigade whoami`",
+	}
+	const teams = "Brigade sync: the folder `brigade notes` has 2 files"
+	for name, build := range map[string]func(*testing.T) *fixture{"Claude Code": newFixture, "Muse Code": newMuseFixture, "Codex CLI": newCodexFixture} {
+		for what, text := range notices {
+			t.Run(name+"/"+what, func(t *testing.T) {
+				t.Parallel()
+				f := build(t)
+				f.spawner.watcherPID = testutil.NewSleeper(t)
+				registered(t, f, nil)
+				// The notice is named by the session's key, which is the
+				// host's process on Claude Code and Muse Code and a number of
+				// the thread's on Codex CLI.
+				path := noticePath(f.stateDir, f.mustMap().ClaudePID)
+				at := time.Date(2026, 11, 24, 2, 0, 0, 0, time.UTC)
+				for topic, line := range map[string]string{notice.TopicSync: teams, notice.TopicWatcher: text} {
+					if err := notice.Put(path, topic, line, at); err != nil {
+						t.Fatal(err)
+					}
+				}
+				doc := f.promptDoc("default")
+				if name == "Codex CLI" {
+					doc = f.codexDoc("UserPromptSubmit", "")
+				}
+				exit, out, errOut := f.run(SubPrompt, doc)
+				if exit != 0 {
+					t.Fatalf("exit %d: %s", exit, errOut)
+				}
+				want := saidIn(f, text)
+				if name == "Claude Code" && want != text {
+					t.Fatalf("Claude Code's line changed: %q", want)
+				}
+				if name != "Claude Code" && (strings.Contains(want, "`brigade ") || !strings.Contains(want, "`"+f.pluginBin+" ")) {
+					t.Fatalf("the line wanted on a host with no brigade on PATH: %q", want)
+				}
+				got := lines(out)
+				if !slices.Contains(got, want) {
+					t.Fatalf("lines = %q\nwant among them\n%q", got, want)
+				}
+				if !slices.Contains(got, teams) {
+					t.Fatalf("lines = %q\nwant the sync notice as it was written:\n%q", got, teams)
+				}
+			})
+		}
 	}
 }
 

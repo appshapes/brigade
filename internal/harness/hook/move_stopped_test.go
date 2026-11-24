@@ -61,7 +61,7 @@ func TestAMoveWhoseHookWasStoppedLeavesTheShellsRoadToTheSession(t *testing.T) {
 			if host == config.HostCodex {
 				own = codexLine(f.pluginBin)
 			}
-			want := []string{followedLine(tf, &before, true, f.pluginBin), startLine(f.mustMap().SessionName, "brigade-sess-2", teamName, "accept"), own}
+			want := []string{followedLine(tf, &before, true, f.pluginBin), startLineOn(f, f.mustMap().SessionName, "brigade-sess-2"), own}
 			if got := f.prompted(); !slices.Equal(got, want) {
 				t.Fatalf("the prompt after the hook that was stopped:\n%q\nwant\n%q", got, want)
 			}

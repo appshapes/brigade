@@ -97,6 +97,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   every line a session says once about its team's move, the one of a
   backend that refuses the membership a machine holds among them.
 
+- **The lines a session reads name a command it can run, in Muse Code,
+  Codex CLI and Grok Build** (work item 432, ADR 0031). Four kinds of
+  line still named the bare `brigade`, which is not on the PATH of
+  those three harnesses' shells, so a model that ran what the line
+  named got `command not found`: the line a session reads at its start
+  ("teammates: run `brigade sessions`. Use `brigade sessions` and
+  `brigade send`."), the line of a registration that failed for good
+  ("run `brigade team join`"), the sync line of a team with a board
+  ("`brigade work-item list`"), and the line a prompt prints when the
+  session's watcher stopped for good ("run `brigade team join` again",
+  "run `brigade whoami`"). There each now names the command by the
+  package's own path, as the lines that ask for a command do since
+  0.58.0. In Claude Code every one of them is what it was.
+  `docs/security.md` section 5.1, which quotes the start line, says so
+  in one sentence.
+
 ## [0.59.0] — 2026-11-23
 
 **Who must act**

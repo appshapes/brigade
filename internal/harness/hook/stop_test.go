@@ -597,6 +597,24 @@ func saidIn(f *fixture, line string) string {
 	return line
 }
 
+// startLine is the start line as Claude Code says it, with the bare word:
+// what startLineIn gives a host that has brigade on PATH.
+func startLine(name, id, team, policy string) string {
+	return startLineWho(name, id, team, policy) + startLineUse
+}
+
+// startLineOn is the start line of a session of the fixture's team that
+// accepts messages, as the fixture's host says it (work item 432): its two
+// commands by the package's path on a host whose shell has no brigade on
+// PATH, and startLine itself on Claude Code. The names before the commands
+// are never rewritten, whatever they hold.
+func startLineOn(f *fixture, name, id string) string {
+	if f.host.Pointed() {
+		return startLineWho(name, id, teamName, "accept") + namedIn(f, startLineUse)
+	}
+	return startLine(name, id, teamName, "accept")
+}
+
 // TestRemindersNameTheCommandOnAPointedHost (work item 249): the line that
 // asks for a doing line is a constant that names the bare `brigade`, which
 // is on the PATH of a Claude Code session's shell and of no other host's.

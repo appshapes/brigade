@@ -37,9 +37,9 @@ Blocks sending in **every** mode, `bypassPermissions` included. No hook and no p
 ## The text-matching limit
 
 The rules match the whole command text, so the cached binary's full path and `sh -c '…'` are different text that
-neither rule sees. Brigade's session-start line names only the bare `brigade` (15 of 15 idle wakes replied in the
-bare form, measured), the skills forbid the evasive spellings, and a model that deliberately evades the rule is a
-residual risk this version accepts. A command over 10,000 characters always prompts in Manual mode and is denied
+neither rule sees. In Claude Code, Brigade's session-start line names only the bare `brigade` (15 of 15 idle wakes
+replied in the bare form, measured), the skills forbid the evasive spellings, and a model that deliberately evades
+the rule is a residual risk this version accepts. A command over 10,000 characters always prompts in Manual mode and is denied
 in `claude -p`: send anything over about 8 KB with `brigade send --body-file <path>`.
 
 The whole argument: [docs/security.md, section 5](../../security.md#5-sending-what-the-ask-and-deny-rules-stop-and-what-they-miss).

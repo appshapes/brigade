@@ -882,7 +882,7 @@ func (r *run) sayMoved(ctx context.Context, f facts, in input, m *sessionmap.ByP
 			r.dropFollowedMark(f, opts, canon)
 		}
 	}
-	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
+	r.say(r.startLineIn(f, m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
 	switch f.host.Delivery() {
 	case config.DeliverFollowedSink:
 		r.say(armLine(r.commandName(f)))
@@ -1099,7 +1099,7 @@ func (r *run) keep(ctx context.Context, f facts, in input, res resolved, existin
 		// cannot write that map again says the session's line all the same,
 		// and not that a session which is attached is `not connected`.
 		r.log.Warn("the map of the session this start keeps was not refreshed", log.Err(err))
-		r.say(startLine(existing.SessionName, existing.BrigadeSessionID, existing.TeamName, existing.Inbound))
+		r.say(r.startLineIn(f, existing.SessionName, existing.BrigadeSessionID, existing.TeamName, existing.Inbound))
 		return
 	}
 	r.finishKept(ctx, f, in, res, kept, now, watcherRuns)
@@ -1161,7 +1161,7 @@ func (r *run) keptSyncLine(f facts, m *sessionmap.ByPID, watcherRuns bool) strin
 	case m.SyncAdapter == "":
 		return ""
 	case watcherRuns:
-		return syncOnLine(len(m.SyncFolders), m.BoardFolder != "", m.SyncAdapter)
+		return syncOnLine(len(m.SyncFolders), m.BoardFolder != "", m.SyncAdapter, r.commandName(f))
 	case !r.canInject(f):
 		return syncOffLine(syncOffNoSocket)
 	}

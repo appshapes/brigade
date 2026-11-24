@@ -557,6 +557,13 @@ func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, r
 // file is taken before it is read, so a line the watcher writes meanwhile
 // waits for the next prompt instead of being removed unread. A notice file
 // that is not a private file is removed unread.
+//
+// A notice of the watcher's own topic is one of its fixed lines, and the
+// ones of a watcher that stopped for good end in a command for the session
+// to run. The watcher writes them for Claude Code, with the bare word, and
+// here the command is named the way this host's model can run it
+// (commandIn; work item 432). The other topics carry what a team, a
+// teammate or a folder said, and are printed as they were written.
 func (r *run) printNotice(f facts) {
 	notices, err := notice.Take(noticePath(f.stateDir, f.pid))
 	if err != nil {
@@ -564,7 +571,11 @@ func (r *run) printNotice(f facts) {
 		return
 	}
 	for _, n := range notices {
-		if line := oneLine(n.Text, 512); line != "" && r.fits(line) {
+		line := oneLine(n.Text, 512)
+		if n.Topic == notice.TopicWatcher {
+			line = r.commandIn(f, line)
+		}
+		if line != "" && r.fits(line) {
 			r.say(line)
 		}
 	}

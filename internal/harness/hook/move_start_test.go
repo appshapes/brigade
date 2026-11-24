@@ -704,7 +704,7 @@ func TestAStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 				if m.TeamKey != f.teamKey || m.BrigadeSessionID != "brigade-sess-1" || m.Checkout != own || m.ClaudeSessionID != otherConversation {
 					t.Fatalf("the map after the start names %q, %q, the checkout %q and the conversation %q", m.TeamKey, m.BrigadeSessionID, m.Checkout, m.ClaudeSessionID)
 				}
-				want := []string{startLine(m.SessionName, "brigade-sess-1", teamName, "accept")}
+				want := []string{startLineOn(f, m.SessionName, "brigade-sess-1")}
 				if host == config.HostMuse {
 					want = append(want, armLine(f.pluginBin))
 				}
@@ -898,7 +898,7 @@ func TestAStartWhoseSettingsAreRefusedKeepsTheSessionAndSaysWhatHolds(t *testing
 				registers, spawns := len(seam.callsFor("session register")), f.spawner.count()
 				f.nativeID = otherConversation
 				exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("clear"), tc.setting)
-				want := []string{startLine(before.SessionName, "brigade-sess-1", teamName, "accept")}
+				want := []string{startLineOn(f, before.SessionName, "brigade-sess-1")}
 				if host == config.HostMuse {
 					want = append(want, armLine(f.pluginBin))
 				}
@@ -998,7 +998,7 @@ func TestACodexStartThatResolvesNoTeamKeepsARunningSession(t *testing.T) {
 	registers := len(seam.callsFor("session register"))
 	f.cwd = bare
 	exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("resume"))
-	want := []string{startLine(f.mustMap().SessionName, "brigade-sess-1", teamName, "accept"), codexLine(f.pluginBin)}
+	want := []string{startLineOn(f, f.mustMap().SessionName, "brigade-sess-1"), codexLine(f.pluginBin)}
 	if exit != 0 || !slices.Equal(lines(out), want) {
 		t.Fatalf("exit %d, lines\n%q\nwant\n%q\n%s", exit, lines(out), want, errOut)
 	}
@@ -1076,7 +1076,7 @@ func TestAStartThatCannotRefreshAKeptMapLeavesTheShellsRoad(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(mapPath), 0o700) }) //nolint:gosec // G302: the directory's own mode again
 	f.nativeID, f.cwd = otherConversation, bare
 	exit, out, errOut := f.run(SubSessionStart, f.sessionDoc("clear"))
-	want := []string{startLine(name, "brigade-sess-1", teamName, "accept"), armLine(f.pluginBin)}
+	want := []string{startLineOn(f, name, "brigade-sess-1"), armLine(f.pluginBin)}
 	if got := lines(out); exit != 0 || !slices.Equal(got, want) {
 		t.Fatalf("exit %d, lines %q\nwant %q\n%s", exit, got, want, errOut)
 	}

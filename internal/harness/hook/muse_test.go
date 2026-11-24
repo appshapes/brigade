@@ -58,7 +58,9 @@ func TestMuseSessionStart(t *testing.T) {
 	}
 	// No registry and no session_title on Muse: the name is the checkout's
 	// directory name, which the fixture's cwd ends in.
-	if want := "Brigade: this session is \"checkout\" (brigade-sess-1) in team \"ops\"; inbound: accept; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`."; got[0] != want {
+	// The commands are named by the package's path: this host's shell has
+	// no brigade on PATH (work item 432).
+	if want := "Brigade: this session is \"checkout\" (brigade-sess-1) in team \"ops\"; inbound: accept; teammates: run `" + f.pluginBin + " sessions`. Use `" + f.pluginBin + " sessions` and `" + f.pluginBin + " send`."; got[0] != want {
 		t.Fatalf("line 1 %q\nwant   %q", got[0], want)
 	}
 	if !strings.HasPrefix(got[1], "Brigade: team messages reach this session through your Monitor tool.") ||

@@ -1007,12 +1007,32 @@ func isCode(err error, codes ...protocol.Code) bool {
 
 // notConnected is the context line for a failed registration (6.3): a
 // retryable code is retried by the next prompt hook; anything else needs
-// the human to join again — here or in a terminal (P7-11).
+// the human to join again — here or in a terminal (P7-11). The line is
+// written for Claude Code; a caller that has the session's facts says it
+// through joinIn, so that the join is named by the package's path on a
+// host whose shell has no `brigade` on PATH (work item 432).
 func notConnected(code protocol.Code) string {
 	if code.Retryable() {
 		return "Brigade: not connected (" + string(code) + "); retrying at your next prompt"
 	}
-	return "Brigade: not connected (" + string(code) + "); run `brigade team join`"
+	return "Brigade: not connected (" + string(code) + ")" + notConnectedJoin
+}
+
+// notConnectedJoin is how a `not connected` line ends when its remedy is a
+// join: the line's own words, apart from the code and the reason before
+// them, which an adapter chose.
+const notConnectedJoin = "; run `brigade team join`"
+
+// joinIn is a `not connected` line with the join it ends in named the way
+// this host's model can run it (work item 432): commandIn, on the line's
+// closing words alone, so that a reason an adapter sent is said as it was
+// sent on every host. A line that ends otherwise is returned as it is.
+func (r *run) joinIn(f facts, line string) string {
+	head, ok := strings.CutSuffix(line, notConnectedJoin)
+	if !ok {
+		return line
+	}
+	return head + r.commandIn(f, notConnectedJoin)
 }
 
 // notConnectedFor is notConnected for an adapter failure: a `config` the
@@ -1023,7 +1043,7 @@ func notConnected(code protocol.Code) string {
 func notConnectedFor(err error) string {
 	code, reason := codeOf(err)
 	if code == protocol.CodeConfig && reason != "" {
-		return "Brigade: not connected (config: " + attr(reason) + "); run `brigade team join`"
+		return "Brigade: not connected (config: " + attr(reason) + ")" + notConnectedJoin
 	}
 	return notConnected(code)
 }
@@ -1330,19 +1350,31 @@ func frameLine(err error) string {
 	return "Brigade: not connected (config: " + attr(reason) + "); fix the `frame` or `frame_file` option in your settings"
 }
 
-// startLine is the one SessionStart context line (6.3, brief 2.2: the
-// teammate count is omitted — the registration result carries none and a
-// second spawn is not worth it — so the line points at `brigade sessions`).
-// It names ONLY the bare `brigade`, the form the Bash tool finds on PATH
-// inside a session and the only form the permission rules can see: an
-// earlier line ended "terminal commands: <plugin path>" and the model took
-// it literally — it replied through that absolute path in 4 of 29 idle
-// wakes (P4-3) and in an interactive bypass session (P4-5), a form
-// `Bash(brigade:*)` denies, the ask rule `Bash(brigade send*)` does not
-// gate (that send executed with no dialog) and 9.6's judge classes
-// `evasive`. The path is a human surface now — `brigade whoami` and
-// docs/team-member/install/terminal.md (finding F1, ruled 2026-09-04).
-func startLine(name, id, team, policy string) string {
+// startLineUse is the end of the one SessionStart context line (6.3, brief
+// 2.2: the teammate count is omitted — the registration result carries
+// none and a second spawn is not worth it — so the line points at
+// `brigade sessions`). It names ONLY the bare `brigade`, the form the Bash
+// tool finds on PATH inside a Claude Code session and the only form the
+// permission rules can see: an earlier line ended "terminal commands:
+// <plugin path>" and the model took it literally — it replied through
+// that absolute path in 4 of 29 idle wakes (P4-3) and in an interactive
+// bypass session (P4-5), a form `Bash(brigade:*)` denies, the ask rule
+// `Bash(brigade send*)` does not gate (that send executed with no dialog)
+// and 9.6's judge classes `evasive`. The path is a human surface now —
+// `brigade whoami` and docs/team-member/install/terminal.md (finding F1,
+// ruled 2026-09-04).
+//
+// That is Claude Code's line. A Muse Code, Codex CLI or Grok Build session
+// has no `brigade` on the PATH of its shell, and there the two commands
+// are named by the package's path (startLineIn; work item 432, ADR 0031,
+// which says what was not measured on those hosts). The words are a
+// constant so that the command can be named for the host without touching
+// the names before them, which a team chose.
+const startLineUse = "; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`."
+
+// startLineWho is the start line up to its commands: who this session is,
+// in which team, and its inbound policy.
+func startLineWho(name, id, team, policy string) string {
 	var b strings.Builder
 	b.WriteString("Brigade: this session is \"")
 	b.WriteString(attr(name))
@@ -1352,8 +1384,14 @@ func startLine(name, id, team, policy string) string {
 	b.WriteString(attr(team))
 	b.WriteString("\"; inbound: ")
 	b.WriteString(policy)
-	b.WriteString("; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`.")
 	return b.String()
+}
+
+// startLineIn is the start line, with its commands named the way this
+// host's model can run them (commandIn; work item 432): on Claude Code
+// the line ends in startLineUse, byte for byte.
+func (r *run) startLineIn(f facts, name, id, team, policy string) string {
+	return startLineWho(name, id, team, policy) + r.commandIn(f, startLineUse)
 }
 
 // shadowLine warns that another `brigade` on the hook's PATH shadows the
@@ -1371,7 +1409,7 @@ func shadowLine(path string) string {
 // stamp is doingNudgeInterval old (the full text is still in context). They
 // are CONSTANTS — no session text, no teammate text, nothing to sanitise —
 // declarative as the hooks page advises, naming only the bare `brigade`
-// (the F1 rule of startLine; on a host with no such PATH the prompt hook
+// (the F1 rule of startLineUse; on a host with no such PATH the prompt hook
 // names the command through commandIn), and every one says a refusal is final for the
 // conversation, because an ask or deny Brigade cannot see fails open (plan
 // 5.2). Byte for byte what is printed. Measured on a real interactive

@@ -71,7 +71,9 @@ func TestCodexSessionStart(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("stdout %q, want the context line and the Codex line", out)
 	}
-	if want := "Brigade: this session is \"checkout\" (brigade-sess-1) in team \"ops\"; inbound: accept; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`."; got[0] != want {
+	// The commands are named by the package's path: this host's shell has
+	// no brigade on PATH (work item 432).
+	if want := "Brigade: this session is \"checkout\" (brigade-sess-1) in team \"ops\"; inbound: accept; teammates: run `" + f.pluginBin + " sessions`. Use `" + f.pluginBin + " sessions` and `" + f.pluginBin + " send`."; got[0] != want {
 		t.Fatalf("line 1 %q\nwant   %q", got[0], want)
 	}
 	if !strings.HasPrefix(got[1], "Brigade: a team message reaches this session as a turn of its own") ||

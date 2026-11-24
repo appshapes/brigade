@@ -87,7 +87,7 @@ func TestAStartFromAnotherCheckoutSaysNothingOfThatCheckoutsSettings(t *testing.
 				config.OptionMessageSound+"=on", config.OptionMessageNotification+"=on", config.OptionTeamInbound+"=bogus", config.OptionSync+"=on")
 			// The name is the one the map has after the start: a host that
 			// gives a session no title names it after the start's directory.
-			want := []string{startLine(f.mustMap().SessionName, "brigade-sess-1", teamName, "accept")}
+			want := []string{startLineOn(f, f.mustMap().SessionName, "brigade-sess-1")}
 			if host == config.HostMuse {
 				want = append(want, armLine(f.pluginBin))
 			}

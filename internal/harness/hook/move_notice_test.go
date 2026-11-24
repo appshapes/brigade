@@ -118,7 +118,7 @@ func TestAMoveWhoseHookWasStoppedIsSaidByTheNextPrompt(t *testing.T) {
 			if host == config.HostMuse {
 				command = f.pluginBin
 			}
-			want := []string{followedLine(tf, &before, true, command), startLine(f.mustMap().SessionName, "brigade-sess-2", teamName, "accept")}
+			want := []string{followedLine(tf, &before, true, command), startLineOn(f, f.mustMap().SessionName, "brigade-sess-2")}
 			if host == config.HostMuse {
 				want = append(want, armLine(f.pluginBin))
 			}

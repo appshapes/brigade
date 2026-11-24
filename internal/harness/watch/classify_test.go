@@ -89,6 +89,16 @@ func TestStopNoticeWording(t *testing.T) {
 			t.Errorf("stopNotice(%s) is not one line", code)
 		}
 	}
+	// A stop notice that names a command opens it with "`brigade ": the
+	// prompt hook finds the command by those words and names it the way
+	// the session's host can run it (work item 432, the hook's
+	// printNotice). A command written another way would be said bare on
+	// Muse Code, Codex CLI and Grok Build, whose shells have no brigade.
+	for _, code := range allCodes {
+		if line := stopNotice(code); strings.Count(line, "brigade ") != strings.Count(line, "`brigade ") {
+			t.Errorf("stopNotice(%s) names brigade outside the form the prompt hook rewrites: %q", code, line)
+		}
+	}
 	if got := giveUpNotice(10, 5*time.Minute); got != "Brigade: watcher gave up after 10 failures within 5m0s; it will be restarted at your next prompt" {
 		t.Errorf("giveUpNotice = %q", got)
 	}

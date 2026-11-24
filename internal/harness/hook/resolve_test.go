@@ -12,6 +12,8 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
 
@@ -259,6 +261,110 @@ func TestTheDriftLineNamesACommandTheSessionCanRun(t *testing.T) {
 				t.Fatal("the session attached")
 			}
 		})
+	}
+}
+
+// TestAStartsLinesNameACommandTheSessionCanRun (work item 432): the line
+// of a registration that failed for good ends in the join, and the line of
+// a session that started ends in the two commands a session uses. Both
+// named the bare `brigade`, which is on the PATH of a Claude Code
+// session's shell and of no other host's, so a model that ran what the
+// line named got `command not found`. On a host whose command is the
+// package's bootstrap each names that path; on Claude Code each is the
+// line it was, byte for byte.
+func TestAStartsLinesNameACommandTheSessionCanRun(t *testing.T) {
+	t.Parallel()
+	for name, build := range map[string]func(*testing.T) *fixture{"Claude Code": newFixture, "Muse Code": newMuseFixture, "Codex CLI": newCodexFixture} {
+		start := func(t *testing.T, responses map[string][]fakeadapter.Response) (f *fixture, command string, got []string) {
+			t.Helper()
+			f = build(t)
+			f.spawner.watcherPID = testutil.NewSleeper(t)
+			f.useSeam(responses)
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			command = "brigade"
+			if name != "Claude Code" {
+				command = f.pluginBin
+			}
+			got = lines(out)
+			for _, line := range got {
+				if name != "Claude Code" && strings.Contains(line, "`brigade ") {
+					t.Fatalf("a host with no brigade on PATH is told the bare word: %q", line)
+				}
+			}
+			return f, command, got
+		}
+		t.Run(name+"/a registration the backend refuses", func(t *testing.T) {
+			t.Parallel()
+			f, command, got := start(t, map[string][]fakeadapter.Response{"session register": {errResp(protocol.CodeUnauthenticated, "")}})
+			want := "Brigade: not connected (unauthenticated); run `" + command + " team join`"
+			if len(got) != 1 || got[0] != want {
+				t.Fatalf("lines = %q, want exactly\n%q", got, want)
+			}
+			if name == "Claude Code" && got[0] != notConnected(protocol.CodeUnauthenticated) {
+				t.Fatalf("Claude Code's line changed: %q", got[0])
+			}
+			if f.mapExists() {
+				t.Fatal("the session attached")
+			}
+		})
+		t.Run(name+"/a profile the adapter cannot read", func(t *testing.T) {
+			t.Parallel()
+			f, command, got := start(t, map[string][]fakeadapter.Response{"session register": {errResp(protocol.CodeConfig, "profile_missing")}})
+			want := "Brigade: not connected (config: profile_missing); run `" + command + " team join`"
+			if len(got) != 1 || got[0] != want {
+				t.Fatalf("lines = %q, want exactly\n%q", got, want)
+			}
+			if f.mapExists() {
+				t.Fatal("the session attached")
+			}
+		})
+		t.Run(name+"/a session that started", func(t *testing.T) {
+			t.Parallel()
+			f, command, got := start(t, map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+			m := f.mustMap()
+			want := "Brigade: this session is \"" + m.SessionName + "\" (" + m.BrigadeSessionID + ") in team \"" + m.TeamName + "\"; inbound: accept; teammates: run `" + command + " sessions`. Use `" + command + " sessions` and `" + command + " send`."
+			if len(got) == 0 || got[0] != want {
+				t.Fatalf("lines = %q, want first\n%q", got, want)
+			}
+			if name == "Claude Code" && got[0] != startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, "accept") {
+				t.Fatalf("Claude Code's line changed: %q", got[0])
+			}
+		})
+	}
+}
+
+// TestTheStartLineKeepsANameThatLooksLikeACommand (work item 432): the
+// command is named in the line's own words alone. A session's name, a
+// team's name and an adapter's reason are text someone else chose, and one
+// that holds "`brigade " stays as it was written on every host.
+func TestTheStartLineKeepsANameThatLooksLikeACommand(t *testing.T) {
+	t.Parallel()
+	r := &run{}
+	pointed := facts{host: config.HostMuse, pluginBin: "/p/bin/brigade"}
+	got := r.startLineIn(pointed, "a `brigade x` name", "s-1", "the `brigade y` team", "accept")
+	want := "Brigade: this session is \"a `brigade x` name\" (s-1) in team \"the `brigade y` team\"; inbound: accept; teammates: run `/p/bin/brigade sessions`. Use `/p/bin/brigade sessions` and `/p/bin/brigade send`."
+	if got != want {
+		t.Fatalf("the line:\n%q\nwant\n%q", got, want)
+	}
+	if got := r.startLineIn(facts{}, "n", "s-1", "t", "hold"); got != startLine("n", "s-1", "t", "hold") {
+		t.Fatalf("Claude Code's line is not startLine: %q", got)
+	}
+	// The same for the reason an adapter gave for a registration that
+	// failed: the join after it is named for the host, the reason is said
+	// as it was sent.
+	line := notConnectedFor(&protocol.Error{Code: protocol.CodeConfig, Details: map[string]string{"reason": "see `brigade adapter docs`"}})
+	if got, want := r.joinIn(pointed, line), "Brigade: not connected (config: see `brigade adapter docs`); run `/p/bin/brigade team join`"; got != want {
+		t.Fatalf("the line:\n%q\nwant\n%q", got, want)
+	}
+	if got := r.joinIn(facts{}, line); got != line {
+		t.Fatalf("Claude Code's line changed: %q", got)
+	}
+	// A line that ends in no join is nobody's to rewrite.
+	if retry := notConnected(protocol.CodeUnavailable); r.joinIn(pointed, retry) != retry {
+		t.Fatalf("a line with no join changed: %q", r.joinIn(pointed, retry))
 	}
 }
 
