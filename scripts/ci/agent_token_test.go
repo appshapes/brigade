@@ -64,11 +64,9 @@ var agentAppTokenJobs = map[string]agentAppTokenJob{
 	"review-pull-request.yml/review": {"submits the review that auto-merge.yml and the fixer wait for", []string{"contents: read", "issues: read"}},
 }
 
-// agentIdentityJobs names each job that grants `id-token` and runs no agent, with the reason.
-var agentIdentityJobs = map[string]string{
-	// The throwaway workflow of work item 438, which made the measurement above. It goes with the work item.
-	"probe-438.yml/token": "reads what a minted token can do; removed with work item 438",
-}
+// agentIdentityJobs names each job that grants `id-token` and runs no agent, with the reason. There is none:
+// the one there was, the throwaway workflow of work item 438 that made the measurement above, is gone.
+var agentIdentityJobs = map[string]string{}
 
 var (
 	// agentStep finds a step that runs the action, or the lower-level action beside it, and what it is pinned to.

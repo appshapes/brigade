@@ -1,42 +1,19 @@
-# THROWAWAY, work item 438: reads what a token can do that `anthropics/claude-code-action` mints when a
-# workflow hands it no `github_token`. It is removed in the work item's last commit. Started by hand only, and
-# on the owner's word of 2026-11-24, recorded on the work item: "Run it, but do not revoke any tokens unless
-# they are throwaway ones that you have minted."
+# THROWAWAY, work item 438. It is removed in the work item's last commit. Started by hand only.
 #
-# What the action does at its pin (src/github/token.ts, the same file at `v1`): it takes the job's OIDC token
-# for the audience `claude-code-github-action` and posts it to Anthropic's exchange, which answers with a token
-# of the Claude GitHub App. With no `additional_permissions` it sends no wish; with one it sends
-# `contents: write, pull_requests: write, issues: write` overlaid by the input's lines. This job makes the same
-# call, with no action and no model, three times:
+# Its first form, in 0f32e4e3, minted the Claude GitHub App's token as `anthropics/claude-code-action` does
+# and asked GitHub what it reaches: run 45476572377, which is ADR 0033's measurement. That job is gone, and
+# with it the one grant of `id-token` outside the two jobs scripts/ci/agent_token_test.go names: this file can
+# no longer mint anything.
 #
-#   1  no wish, as review-pull-request.yml, release-notes.yml and send-release-notes.yml mint today
-#   2  no wish, again: if the exchange answers with the token of mint 1, it hands a token out more than once,
-#      and one it hands out may be held by another run
-#   3  the wish `contents: read, pull_requests: write, issues: read`: does the exchange narrow a token?
-#
-# and asks GitHub, with each token, what it reaches. Every request that could write is one that cannot
-# succeed: a permission that is missing answers 403 before the request is read, and one that is there answers
-# 422 or 409 because the request itself is impossible. Nothing is written to any repository.
-#
-# The rules it runs under (the manager session's, on the owner's word):
-#   - Nothing is revoked but a token this run minted itself, each by presenting itself to
-#     `DELETE /installation/token`, and only once the three are shown to differ (their digests are compared
-#     and neither token nor digest is printed). If two are the same, nothing is revoked: the tokens run out
-#     by themselves within their hour, and the run says so.
-#   - It is started when no run that uses the action is in progress in this repository.
-#   - No `set -x`, no verbose curl, no response body printed or kept. Each answer is masked before anything
-#     else touches it. Printed: HTTP statuses, counts, permission names and GitHub's
-#     `x-accepted-github-permissions` header. No repository is named but this one.
-#   - A token reaches curl through a 0600 header file, never on argv (keepalive.sh's rule).
+# What is left is one dispatch. release.yml starts release-notes.yml after a publish with its job's own token,
+# so the actor of that run is `github-actions[bot]`, a bot the action lets through by `allowed_bots`. A
+# dispatch by hand has a person as its actor and does not take that path. This job makes the same dispatch as a
+# DRY RUN on a release that is already published: the tag and `dry_run=true` are written here and are no
+# inputs, so a run of this workflow can publish nothing and announce nothing.
 name: probe 438
 
 on:
   workflow_dispatch:
-    inputs:
-      other_repository:
-        description: Another repository of the organisation, owner/name, asked about when a token lists none. Never printed.
-        required: false
-        type: string
 
 concurrency:
   group: probe-438
@@ -45,166 +22,14 @@ concurrency:
 permissions: {}
 
 jobs:
-  token:
+  notes-dry-run:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 5          # some thirty requests; not a p90, a floor
+    timeout-minutes: 5          # one API call; not a p90, a floor
     permissions:
-      id-token: write           # the OIDC token the exchange takes, and nothing else: the job checks nothing out
+      actions: write            # the dispatch, one of the two events a job's own token may raise (release.yml's header)
     steps:
-      - name: Read what a minted token can do
+      - name: Dispatch the notes' dry run as release.yml dispatches the notes
         env:
-          EXCHANGE: https://api.anthropic.com/api/github/github-app-token-exchange
-          API: https://api.github.com
-          # A run of ci.yml on master that has ended (6f9cb35f): cancelling it is impossible, which is the point.
-          ENDED_RUN: "45453960719"
-        run: |
-          set -euo pipefail
-          umask 077
-          work=$(mktemp -d)
-          revoke_ok=false
-          minted=''
-
-          # revoke <n>: the token presents itself to its own revocation. Only a token this run minted has a
-          # header file here, and only after the three were shown to differ is revoke_ok true.
-          revoke() {
-            [ "$revoke_ok" = true ] || return 0
-            [ -f "$work/t$1.hdr" ] || return 0
-            code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H @"$work/t$1.hdr" \
-              -H 'Accept: application/vnd.github+json' "$API/installation/token" || echo curl-failed)
-            echo "token $1: revoked by itself, status $code"
-            rm -f "$work/t$1.hdr"
-          }
-          finish() {
-            for n in $minted; do revoke "$n"; done
-            rm -rf "$work"
-          }
-          trap finish EXIT
-
-          # The other repository, when the dispatch named one: read from the event's file, so that no step
-          # header shows it, and masked before it is used.
-          other_input=$(jq -r '.inputs.other_repository // ""' "$GITHUB_EVENT_PATH")
-          if [ -n "$other_input" ]; then
-            echo "::add-mask::$other_input"
-            case $other_input in */*) : ;; *) echo "::error::other_repository is not owner/name"; exit 1 ;; esac
-          fi
-
-          # mint <n> <wish as JSON, or nothing>: the action's own exchange. Prints the status and nothing of
-          # the answer; leaves the token in a header file for curl.
-          mint() {
-            n=$1; wish=${2:-}
-            printf 'Authorization: bearer %s\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" > "$work/runner.hdr"
-            oidc=$(curl -sS -H @"$work/runner.hdr" \
-              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=claude-code-github-action" | jq -r '.value // empty')
-            rm -f "$work/runner.hdr"
-            [ -n "$oidc" ] || { echo "::error::mint $n: GitHub gave no OIDC token"; exit 1; }
-            echo "::add-mask::$oidc"
-            printf 'Authorization: Bearer %s\n' "$oidc" > "$work/oidc.hdr"
-            if [ -n "$wish" ]; then
-              printf '{"permissions":%s}' "$wish" > "$work/wish.json"
-              code=$(curl -sS -o "$work/answer" -w '%{http_code}' -X POST -H @"$work/oidc.hdr" \
-                -H 'Content-Type: application/json' --data @"$work/wish.json" "$EXCHANGE")
-            else
-              code=$(curl -sS -o "$work/answer" -w '%{http_code}' -X POST -H @"$work/oidc.hdr" "$EXCHANGE")
-            fi
-            rm -f "$work/oidc.hdr"
-            token=$(jq -r '.token // .app_token // empty' "$work/answer" 2>/dev/null || true)
-            if [ -n "$token" ]; then
-              echo "::add-mask::$token"
-            fi
-            if [ "$code" != 200 ] || [ -z "$token" ]; then
-              if grep -q -i -e 'workflow validation' -e 'workflow_not_found_on_default_branch' "$work/answer"; then why='the answer names a workflow validation'; else why='the answer names no workflow validation'; fi
-              rm -f "$work/answer"
-              echo "::error::mint $n: the exchange answered $code and gave no token ($why)"
-              exit 1
-            fi
-            rm -f "$work/answer"
-            printf 'Authorization: Bearer %s\n' "$token" > "$work/t$n.hdr"
-            printf '%s' "$token" | sha256sum | cut -d' ' -f1 > "$work/t$n.digest"
-            minted="$minted $n"
-            token=''
-            echo "mint $n: the exchange answered $code"
-          }
-
-          # ask <n> <words> <method> <path> [<body as JSON>]: one request with token n. Prints the status and
-          # the permissions GitHub says the request wanted, when it says so. The body stays in a file.
-          ask() {
-            n=$1; words=$2; method=$3; path=$4; body=${5:-}
-            if [ -n "$body" ]; then
-              printf '%s' "$body" > "$work/body.json"
-              code=$(curl -sS -o "$work/response" -D "$work/headers" -w '%{http_code}' -X "$method" -H @"$work/t$n.hdr" \
-                -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-                -H 'Content-Type: application/json' --data @"$work/body.json" "$API$path")
-            else
-              code=$(curl -sS -o "$work/response" -D "$work/headers" -w '%{http_code}' -X "$method" -H @"$work/t$n.hdr" \
-                -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$API$path")
-            fi
-            wanted=$(grep -i '^x-accepted-github-permissions:' "$work/headers" | tr -d '\r' | cut -d' ' -f2- || true)
-            echo "  $words: $code${wanted:+  (GitHub says the request wants: $wanted)}"
-          }
-
-          mint 1
-          mint 2
-          mint 3 '{"contents":"read","pull_requests":"write","issues":"read"}'
-
-          # Are the three one token each? Digests are compared; neither they nor the tokens are printed.
-          d1=$(cat "$work/t1.digest"); d2=$(cat "$work/t2.digest"); d3=$(cat "$work/t3.digest")
-          if [ "$d1" != "$d2" ] && [ "$d1" != "$d3" ] && [ "$d2" != "$d3" ]; then
-            echo "the three tokens: distinct, so each is this run's own and is revoked at the end"
-            revoke_ok=true
-          else
-            echo "::warning::the three tokens: at least two are the same, so the exchange hands a token out more than once: NOTHING is revoked, and they run out by themselves"
-          fi
-          rm -f "$work"/t?.digest
-
-          zeros=0000000000000000000000000000000000000000
-          for n in 1 2 3; do
-            case $n in
-              1) echo "--- token 1: no wish, as the three workflows mint it today" ;;
-              2) echo "--- token 2: no wish, minted a second time" ;;
-              3) echo "--- token 3: the wish contents: read, pull_requests: write, issues: read" ;;
-            esac
-            # Which repositories it lists. Counts only.
-            ask "$n" "the repositories the token lists" GET "/installation/repositories?per_page=100"
-            if [ "$code" = 200 ]; then
-              total=$(jq -r '.total_count' "$work/response")
-              others=$(jq -r --arg this "$GITHUB_REPOSITORY" '[.repositories[] | select(.full_name != $this)] | length' "$work/response")
-              selection=$(jq -r '.repository_selection // "not said"' "$work/response")
-              echo "    listed: $total; on this page other than $GITHUB_REPOSITORY: $others; selection: $selection"
-              other=$(jq -r --arg this "$GITHUB_REPOSITORY" '[.repositories[] | select(.full_name != $this) | .full_name][0] // ""' "$work/response")
-            else
-              other=''
-            fi
-            if [ -n "$other" ]; then
-              echo "::add-mask::$other"
-              echo "    the other repository asked about below is one the token lists itself"
-            else
-              other=$other_input
-              if [ -n "$other" ]; then echo "    the token lists no other repository; the one asked about below was named at the dispatch"; fi
-            fi
-            # What it says of this repository.
-            ask "$n" "this repository, read" GET "/repos/$GITHUB_REPOSITORY"
-            if [ "$code" = 200 ]; then
-              echo "    $(jq -r '.permissions // {} | to_entries | map("\(.key)=\(.value)") | join(" ")' "$work/response")"
-            fi
-            # Writes that cannot succeed: 422 or 409 says the permission is there, 403 that it is not.
-            ask "$n" "contents write: a ref for a commit of forty zeros" POST "/repos/$GITHUB_REPOSITORY/git/refs" \
-              "{\"ref\":\"refs/heads/probe-438-never\",\"sha\":\"$zeros\"}"
-            ask "$n" "pull requests write: a pull request from a branch that does not exist" POST "/repos/$GITHUB_REPOSITORY/pulls" \
-              '{"title":"probe 438","head":"probe-438-no-such-branch","base":"master"}'
-            ask "$n" "issues write: an issue with no title" POST "/repos/$GITHUB_REPOSITORY/issues" '{}'
-            ask "$n" "actions write: the cancel of a run that has ended" POST "/repos/$GITHUB_REPOSITORY/actions/runs/$ENDED_RUN/cancel"
-            ask "$n" "checks write: a check run with no name and no commit" POST "/repos/$GITHUB_REPOSITORY/check-runs" '{}'
-            # Reads that the installation's wider permissions would open. Their answers are not printed.
-            ask "$n" "administration read: the repository's Actions settings" GET "/repos/$GITHUB_REPOSITORY/actions/permissions"
-            ask "$n" "repository hooks read: the list of webhooks" GET "/repos/$GITHUB_REPOSITORY/hooks?per_page=1"
-            # One other repository of the organisation, never named.
-            if [ -n "$other" ]; then
-              ask "$n" "another repository of the organisation, read" GET "/repos/$other"
-              ask "$n" "another repository of the organisation, contents write: the same impossible ref" POST "/repos/$other/git/refs" \
-                "{\"ref\":\"refs/heads/probe-438-never\",\"sha\":\"$zeros\"}"
-            else
-              echo "  another repository of the organisation: not asked, none listed and none named"
-            fi
-            rm -f "$work/response" "$work/headers" "$work/body.json"
-          done
-          echo "--- not measured: workflows write, which only a real write to a workflow file can show"
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run release-notes.yml -f tag=v0.60.0 -f dry_run=true
