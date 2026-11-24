@@ -233,11 +233,22 @@ jobs:
     # The earlier shape's bound and deliberately loose: this job pulls images over the network. It is also above
     # what a hung test costs (work item 400; the rule is in this file's header): the adapter's live tests run
     # under `-timeout 20m` (`make test-integration-adapter`) in a step that began 45 s to 48 s into the job on
-    # three runs, so a hang ends by 0.8 + 20 + 1 = 21.8 minutes, with three to spare for a slow image pull. The
-    # gateway's test after it has a sum of its own, at its step.
-    timeout-minutes: 25
+    # three runs, and up to 1.9 minutes later when the stack's start meets a held port (work item 437: two
+    # waits of 35 s and two refused attempts before the one that starts it, each counted as 20 s, which is a
+    # refusal at the API's port, asked for 13 s into the start on run 45383370769; at the database's port an
+    # attempt ends in a second or two), so a hang ends by 0.8 + 1.9 + 20 + 1 = 23.7 minutes, with three to
+    # spare for a slow image pull, as there were at 25 before the start could wait. The gateway's test after
+    # it has a sum of its own, at its step.
+    timeout-minutes: 27
     steps:
       - uses: actions/checkout@v7
+      # The stack's ports lie in the range the kernel gives to the runner's own outgoing connections, and one of
+      # those sitting on the database's port made `supabase start` fail four times in about 200 starts (work
+      # item 437; scripts/ci/supabase-start.sh has the account). `reserve` takes the ports out of that range
+      # here, straight after the checkout that brings the script and before the steps that download the most,
+      # and `start` below runs the Makefile's recipe at most three times, saying each refusal. The adapter's
+      # fault test starts the stack once more inside its own step, where only the reservation covers it.
+      - run: scripts/ci/supabase-start.sh reserve
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -246,9 +257,11 @@ jobs:
             supabase/config.toml
       - uses: supabase/setup-cli@v3
         with: {version: 2.116.0}          # pinned explicitly; no lockfile exists any more to read it from
-      - run: make supabase-start supabase=supabase   # `supabase ?=` in the Makefile: CI overrides the npx form with
-      - run: make test-db supabase=supabase          # the setup-cli binary, so local and CI run the same recipes and
-      - run: make supabase-env advisor-lints supabase=supabase   # the version is pinned in exactly one place per context
+      # `supabase ?=` in the Makefile: CI overrides the npx form with the setup-cli binary, so local and CI run
+      # the same recipes and the version is pinned in exactly one place per context.
+      - run: scripts/ci/supabase-start.sh start make supabase-start supabase=supabase
+      - run: make test-db supabase=supabase
+      - run: make supabase-env advisor-lints supabase=supabase
       # go test (the self-skip of testutil.RequireSupabase is lifted by BRIGADE_TEST_LIVE=1 and .env.test)
       # against the stack started above. BRIGADE_TEST_LIVE=1 and BRIGADE_TEST_DOCKER=1 both come from the
       # Makefile recipe: the first is the opt-in EVERY live test waits on, so this job is the only place in CI
@@ -259,8 +272,9 @@ jobs:
       # The webhook gateway for a team on this stack (work items 389 and 408), through the built `brigade` and
       # `brigade-webhook-gateway`: the one live test outside the adapter's package. It runs after the adapter's
       # tests, whose fault tests restart the stack, and only when they passed. Its `go test` has `-timeout 5m`:
-      # the step before it ended 181 s into the job on runs 45038662396 and 45040179199, so a hang here ends by
-      # 3 + 5 + 1 = 9 minutes, well under the 21.8 above.
+      # the step before it ended 181 s into the job on runs 45038662396 and 45040179199, and up to 1.9 minutes
+      # later after a start that met a held port (work item 437), so a hang here ends by 3 + 1.9 + 5 + 1 = 10.9
+      # minutes, well under the 23.7 above.
       - run: make test-integration-gateway
       # The mail and Slack gateways' inbound Edge Functions on this stack (work item 388): mail-in and slack-in
       # as they are served, run by Deno against the stack's database (supabase/functions/_live/). `fast` checks
@@ -278,9 +292,10 @@ jobs:
   # local stack of this job's own. Before card 245 these were the last two steps of `supabase`.
   e2e:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 25                   # `supabase`'s bound, for the same reason: the image pulls
+    timeout-minutes: 27                   # `supabase`'s bound, for the same reason: the image pulls
     steps:
       - uses: actions/checkout@v7
+      - run: scripts/ci/supabase-start.sh reserve   # as in `supabase`, and for the same reason (work item 437)
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -289,7 +304,9 @@ jobs:
             scripts/proof.sh
       - uses: supabase/setup-cli@v3
         with: {version: 2.116.0}          # the same pin as the `supabase` job's
-      - run: make supabase-start supabase-env supabase=supabase
+      - run: |
+          scripts/ci/supabase-start.sh start make supabase-start supabase=supabase
+          make supabase-env supabase=supabase
       # conformance(supabase) --slow against the stack started above. The step that ran `make test-integration`
       # used to name scripts/ci/conformance-setup-supabase.sh as P2-11's landing. The
       # script exists (P2-6..P2-10 landed it) but the Makefile recipe no longer uses it: --setup was

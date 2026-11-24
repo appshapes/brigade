@@ -55,6 +55,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/no-secrets.sh` | `make plugin-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/checksums-check.sh` | `make checksums-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/advisor-lints.sql` | `make advisor-lints` → `ci.yml`'s `supabase` job |
+| `scripts/ci/supabase-start.sh` | `ci.yml`'s `supabase` and `e2e` jobs, in two steps of each: `reserve` straight after the checkout, and `start` around `make supabase-start` — no `make` target (work item 437) |
 | `scripts/ci/release-verify.sh` | `release.yml` only — no `make` target |
 | `scripts/ci/release-guard.sh` | `release.yml`, before anything is built, and `server-release.yml`'s `guard` job, which every other job waits on — no `make` target (work item 416, ADR 0028): the tag's commit is on `master`, `ci.yml` is green on it by `scripts/release-ci-check.sh`, and an override is read from the tag's message, where `release-prep.sh` and `server-tag.sh` write the `release_over_ci` they were given |
 | `scripts/ci/release-notes-lint.sh` | `release-notes.yml` and `send-release-notes.yml` — no `make` target |
@@ -68,6 +69,8 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/scheduled-job.sh` | the three scheduled jobs (`update-documentation.yml`, `update-dependencies.yml`, `review-repository.yml`): `sweep` in the job of that name, `gate`, `verdict`, `decide`, `scan` and `bundle` in `work`, read there from the commit the run started on, and `land` and `open` in `land` (not `make`) |
 | `cmd/brigade-docs` (Go, not a script) | `make docs-check` and `make docs-generate` (which writes `docs/developer/reference/make-targets.md` from the Makefile's help lines and `docs/developer/reference/commands.md` from `internal/cli`'s command table) → `ci.yml`'s `fast` job, `release.yml`'s guard, `scripts/release-prep.sh`; the same rules run in `make test` through `docs_check_test.go` |
 
+`supabase-start.sh` has no `make` target because it is what a job puts around one: `make supabase-start` stays the
+recipe, and a developer's machine needs neither the reservation nor the waits.
 `release-verify.sh` and `keepalive.sh` have no `make` target on purpose, and the house does the same with its own
 workflow-only scripts (`thinktech-php` runs `send-weekly-metrics.yml`, `phinx-ownership.yml` and
 `permission-writers.yml`'s scripts directly and documents them in a scripts README). `keepalive.sh` needs a pair of
@@ -312,6 +315,76 @@ Invoked by `make advisor-lints`, which pipes it into `psql -v ON_ERROR_STOP=1` *
 `supabase_db_brigade` container, so no host `psql` is needed → `ci.yml`'s `supabase` job.
 
 Needs the local stack running (`make supabase-start`) and `docker`.
+
+## `scripts/ci/supabase-start.sh`
+
+The start of the local Supabase stack in `ci.yml`'s `supabase` and `e2e` jobs, made to stand up to a port of the
+stack that something else on the runner holds (work item 437). `make supabase-start` is still the one recipe
+that starts the stack, on a developer's machine and in CI; this script is what the two jobs put around it.
+
+**What Docker says when it refuses**, as it did four times in about 200 starts of the two jobs between
+2026-11-22 and 2026-11-24, about a second into `supabase start` and before any test:
+
+```
+failed to start docker container "supabase_db_brigade": Error response from daemon: failed to set up container
+networking: driver failed programming external connectivity on endpoint supabase_db_brigade (…): failed to bind
+host port for 0.0.0.0:54322:172.18.0.2:5432/tcp: address already in use
+```
+
+**Why.** The stack's ports (54320 to 54329, `supabase/config.toml`) lie inside the range Linux gives to outgoing
+connections (`net.ipv4.ip_local_port_range`, 32768 to 60999). Every connection the runner makes takes a port of
+that range and keeps it while it is open and for a minute after it closed. While one sits on 54322, the
+database's port and the first the stack asks for, Docker's bind is refused with that message. This was shown on
+Docker 28.0.4, the runner's version, with an open connection and with a closed one; that it is what happened
+on the runner is inferred, because the four logs name the port and not its holder. The fault is not the
+provider's: any Linux runner does this.
+
+**What the script does about it**
+
+- `scripts/ci/supabase-start.sh reserve` takes every port `supabase/config.toml` names out of the kernel's range
+  (`sudo sysctl -w net.ipv4.ip_local_reserved_ports=…`, keeping what was reserved before), so no connection made
+  from then on lands on one. It is the step after the checkout, which brings the script, and before the steps
+  that download the most. It prints the range, how many of its ports are held at that moment and by what any of
+  the stack's is. Where it cannot reserve (the setting is refused, or the machine is not Linux) it says so in a
+  `::warning::` and exits 0.
+- `scripts/ci/supabase-start.sh start <command>` runs the command, in the jobs
+  `make supabase-start supabase=supabase`. When the command fails and a line of its output has
+  `address already in use` and names a port of the stack (`:54322`): a `::warning::` with Docker's words, then
+  the sockets that hold that port as `ss` prints them (state, peer and process), a wait of 35 seconds, and the
+  command again. At most three attempts, so the last begins 70 seconds after the first failed, when a
+  connection that was closed by then has given its port back. A start that passes at a later attempt says so in
+  a `::warning::`, which the run's page shows though the job is green. When the third attempt is refused too, an
+  `::error::` and exit 1: the job is red, and the lines above the error name what held the port. A port held by
+  a connection that stays open ends this way.
+- Any other failure of the command is not tried again, a migration that does not apply for one, or the same
+  words about something that is no port of the stack: the script ends at once with the command's exit status.
+
+No test is run again and no test's timing changes. That leaves one start of the `supabase` job outside `start`:
+the adapter's fault test stops the stack and starts it again with `make supabase-start`
+(`internal/adapters/supabase/fault_integration_test.go`), and only the reservation keeps a connection off the
+ports for that one.
+
+**What a start that waits costs.** Two refused attempts and two waits before the one that starts the stack:
+1.9 minutes, an attempt refused at the API's port counted as 20 seconds. The sums beside the `supabase` job's
+`timeout-minutes` and its gateway step in `ci.yml` count it in (`e2e` runs no `go test` and has no sum): change
+`SUPABASE_START_ATTEMPTS` (3) or `SUPABASE_START_WAIT_SECONDS` (35) and do those sums again. On that path a job
+also runs past the five minutes that CI's shape asks of each job, where it was red before.
+
+**When a run shows the warning**, read the `supabase-start:` lines under it: the socket's peer address and
+process say whose connection it was, which the four sightings before this script could not.
+
+Needs `sudo`, `sysctl` and `ss` for the Linux half, all on the Ubuntu runner. Without `sysctl` or `sudo`,
+`reserve` warns; without an `ss` that answers, both verbs say that they cannot see what is held, and `start`
+still tries again.
+
+### Run locally
+
+```sh
+# the start as the jobs run it; on macOS nothing is reserved and no holder is printed
+scripts/ci/supabase-start.sh start make supabase-start
+# the refusal, without Docker: three attempts a second apart, then exit 1
+SUPABASE_START_WAIT_SECONDS=1 scripts/ci/supabase-start.sh start sh -c 'echo "address already in use"; exit 1'
+```
 
 ## `scripts/ci/release-verify.sh`
 
@@ -617,6 +690,7 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | `loop_login_test.go` | The reviewer agent's login in the workflows (work item 397): every workflow read, comment lines apart; a login is compared whole and on one line with `claude[bot]`; `auto-merge.yml`, `claude.yml` and `review-pull-request.yml` carry the `==` and `!=` comparisons its table names (1, 4 and 7, 1), so none is dropped or turned round quietly; and any other read of a login or of the actor, however spelled (`.login`, `['login']`, `github.actor`, `GITHUB_ACTOR`), is a line its second table names, today the registry login of `server-release.yml`. Fifteen mutations, the removed prefix forms among them. |
 | `loop_work_order_test.go` | What an agent's checkout holds, and the lines of `claude.yml` a pull request's agent needs (work item 398, in the form work item 433 left). `agent-leftover.sh` run for real in eleven fixture checkouts: an untouched one, a build's ignored output, an edited page, a new file, a commit pushed and one never pushed, a commit on a branch no longer checked out, a stash, a name that is not plain, more than twenty paths, a `make` still running; eight mutations of the script, each caught by its case; and the four counts it writes for the scheduled jobs' gate. And the lines of `claude.yml`: `queue: max`, the pull request clause that matches the `claude` label's own event, a comment clause that takes a comment on a pull request only, the three `env` values, and nothing that an issue could start (no `issues` trigger, no clause on that event, no `open-pr`), with eight mutations. |
 | `scheduled_job_test.go` | The scheduled jobs (work item 433, ADR 0032). Every verb of `scheduled-job.sh` run for real, 49 cases in fixture repositories with an origin beside them, a `make` that answers as told and a `gh` that answers from files and records its calls: the gate (nothing to change, uncommitted work, a stash, a commit on another branch, a rewritten history, a release pin held by the starting commit's guard, a workflow file, a failing target, a review left by an earlier session), the verdict (no review, a first line that is neither word and a refusal that carries the word are no approval, a reviewer that changed the checkout fails the job), the decision in eleven endings, the look for a token (a held value whole, a token's shape, in every file under the job's directory, never printed), the bundle and the landing (the commits become `scheduled/<job>-<date>`, nothing of the bundle is checked out, the landing job's own guard, paths, ancestry and look for a token), the pull request (title under the standing work item, the report as body, the merge armed only for a `when-green` job, for the commit the run pushed, and never made past red checks) and the sweep; a run on a branch other than `master` is refused by `sweep`, `land` and `open`. Thirty-four mutations of the script, each caught by its case. And the three workflows: one text from the marked line on, each job's own schedule, number, title, gate and merge above it, `contents: read` and `github_token` on all four agent steps of `work`, the edit tools named for the writer and the fixer and denied to the two reviewers, no `id-token` and no `GH_ACTIONS_TOKEN` there, the script read from the starting commit, nothing leaving before the look for a token, no agent in `sweep` and `land`, and the reviewer's skip of `scheduled/`; eighteen mutations. `TestNothingNamesFifteenAsAWorkItem`: no workflow, agent file or rule file names `15` as a work item's number. |
+| `supabase_start_test.go` | `supabase-start.sh` (work item 437), run for real around a stand-in that fails the way Docker did on the runner, with the lines of run 45383370769, and with stand-ins for `uname`, `sysctl`, `sudo`, `ss` and `sleep`, so no kernel setting is touched and no test waits. `start`: thirteen cases (the stack starts at once; the database's port is held once, twice and at every attempt; the API's port is held; a failure that is not a port's, alone and after a refusal; the words `address already in use` about what is no port of the stack; one attempt allowed; another wait; what is held before the first attempt; an `ss` that does not answer), each holding the exit status, how often the command ran, its arguments whole, the waits, the annotations and the line of the refused port's holder; the waits between the first and the last attempt are over 65 seconds. `reserve`: every port of `supabase/config.toml` written as root, what was reserved before kept, a refusal a warning, nothing read or written off Linux. Seventeen mutations of the script, each caught by its case. And `ci.yml`: both stack jobs reserve after the checkout and before `setup-go`, start through the script, and nothing starts the stack past it. |
 | `shell_test.go` | Every `scripts/*.sh`, `scripts/ci/*.sh` and `plugin/bin/brigade`: no comment line may sit directly after a line ending in a backslash. A commit put four such comments inside the `exec env … \` that launches every nested `claude` session, and three proof scripts silently ran `env` instead while `sh -n`, both shellcheck versions and every other drift test stayed green. |
 | `push_chain_test.go` | The chain of `make push` (work item 423): `make commit` runs typecheck, pull, lint, build and test, in that order, before its recipe stages anything; `make push` is `make commit` and the push; no step of the chain, nor a target one depends on, stages, commits or pushes in its recipe (what a script a recipe starts does is not read); and each place that says the chain in words (the Makefile's help line and the generated make-target page, `conventions.md`, the developer's pages on the gate, on committing and on a release, the `/commit` skill, `ci.yml`'s header and `release-prep.sh`) names those five steps and no other, in that order. |
 
