@@ -822,14 +822,17 @@ pull: ## Merge origin into the current branch (plain merge — never rebase; no 
 # chain turned master red in CI's `lint` job (77579966, e3e07811). It runs after the pull, so that what is linted
 # is the merged tree, the one that is pushed, and before build and test, so that a fault stops the push in seconds
 # and not after the suite. Nothing is staged before every prerequisite has passed.
+# The staging, the commit and the push are scripts/commit-push.sh, which says what each does (work item 443):
+# with nothing to commit the chain goes on and pushes what is ahead of origin, a merge a session concluded for
+# one, where it used to stop at git's "nothing to commit". A message is required when there is something to
+# commit.
 .PHONY: commit
-commit: typecheck pull lint build test ## Typecheck, pull, lint, build, test, stage, commit (usage: make commit message="...")
-	git add --verbose :/ .
-	git commit -m "$(message)"
+commit: typecheck pull lint build test ## Typecheck, pull, lint, build, test, stage, commit (usage: make commit message="..."; with nothing to commit it says so and ends well)
+	scripts/commit-push.sh commit "$(message)"
 
 .PHONY: push
-push: commit ## commit + push
-	git push --verbose
+push: commit ## commit + push (with nothing to commit, pushes what is ahead of origin; with nothing ahead either, says so)
+	scripts/commit-push.sh push
 
 # Default target
 .DEFAULT_GOAL := help

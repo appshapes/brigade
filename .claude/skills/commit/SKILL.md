@@ -14,7 +14,7 @@ The work item's number is: $ARGUMENTS
 
 ## 1. Validate the work item's number
 
-If `$ARGUMENTS` is empty or non-numeric, stop and ask the user for the number of the work item on the team's Brigade Board that the change belongs to (e.g., `/commit 270`). Do not proceed, and do not invent a number.
+If `$ARGUMENTS` is empty or non-numeric, stop and ask the user for the number of the work item on the team's Brigade Board that the change belongs to (e.g., `/commit 270`). Do not proceed, and do not invent a number. One case needs none: a clean tree that is only ahead of origin, where step 2 pushes and no commit is made.
 
 ## 2. Analyze changes
 
@@ -25,7 +25,7 @@ Run these commands in parallel to understand what will be committed:
 - `git diff --cached`
 - `git log --oneline -5`
 
-If the working tree is clean (no staged, unstaged, or untracked changes), there is nothing to commit. If `git status` also says the branch is ahead of origin (a merge you concluded, or commits not yet pushed), `make push` would run its whole chain and stop at "nothing to commit": run `make pull`, then `git push`, and report that. Otherwise inform the user there is nothing to commit and stop.
+If the working tree is clean (no staged, unstaged, or untracked changes), there is nothing to commit. If `git status` also says the branch is ahead of origin (a merge you concluded, or commits not yet pushed), run `make push` with no message: the chain says there is nothing to commit and pushes what is ahead. Report that, and skip steps 3 to 5. Otherwise inform the user there is nothing to commit and stop.
 
 Remember: `make push` runs `git add --verbose :/ .` before committing, so ALL working tree changes will be included, not just staged files. It also runs `git pull` BETWEEN typecheck and lint, so lint, build and test run against the MERGED tree rather than a stale one.
 
