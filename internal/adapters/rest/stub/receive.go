@@ -30,7 +30,12 @@ import (
 // something to answer, the time has passed, or the caller has gone. A
 // failure met while waiting (the principal left its team, the credential
 // was revoked) is answered at once: that is what ends a member's running
-// watch within the five seconds C-08 gives it.
+// watch within the five seconds C-08 gives it. So what the contract gives
+// a second for, a message accepted or a caller refused while a request
+// waits, is answered at the request's first look after it, and two looks
+// are a poll interval apart. The time is the server's clock and the pause
+// the server's own (stub.go), so a test holds this by the looks and not by
+// the wall clock.
 
 // The contract's bounds (section 4).
 const (
@@ -71,7 +76,7 @@ func (s *Server) messageReceive(c *call) (any, *protocol.Error) {
 	if perr != nil {
 		return nil, perr
 	}
-	deadline := time.Now().Add(time.Duration(wait) * time.Second)
+	deadline := s.clock().Add(time.Duration(wait) * time.Second)
 	for {
 		if s.lookup(c.key) != c.who {
 			return nil, unknownCredential()
@@ -90,15 +95,24 @@ func (s *Server) messageReceive(c *call) (any, *protocol.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		if len(answer.Messages) > 0 || !time.Now().Before(deadline) {
+		if len(answer.Messages) > 0 || !s.clock().Before(deadline) {
 			return answer, nil
 		}
 		select {
 		case <-c.r.Context().Done():
 			return nil, &protocol.Error{Code: protocol.CodeUnavailable, Message: "the caller abandoned the request"}
-		case <-time.After(s.poll):
+		case <-s.pauseFor(s.poll):
 		}
 	}
+}
+
+// pauseFor is the pause before a waiting receive looks at its inbox again.
+// The field is read and set under mu, as the clock is.
+func (s *Server) pauseFor(d time.Duration) <-chan time.Time {
+	s.mu.Lock()
+	pause := s.pause
+	s.mu.Unlock()
+	return pause(d)
 }
 
 // page numbers the pending messages it has not seen, forgets the ones that

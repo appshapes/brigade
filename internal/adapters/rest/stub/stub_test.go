@@ -43,6 +43,83 @@ func newHarness(t *testing.T, o Options) *harness {
 	return h
 }
 
+// A gate stands at the pause between two looks of a waiting receive (work
+// item 444). Without one a receive that found nothing looks again after
+// the poll interval, by the wall clock, and a test could only sleep and
+// hope that the request was held by then, and measure how soon it was
+// answered: on a loaded machine that measures the machine. With one, the
+// test is told that a receive has looked, found nothing and now waits, and
+// that receive looks again when the test says so. Nothing of it is timed.
+type gate struct {
+	t    *testing.T
+	held chan chan time.Time
+}
+
+// gate puts a gate into the harness's server, before any receive waits.
+func (h *harness) gate() *gate {
+	h.t.Helper()
+	g := &gate{t: h.t, held: make(chan chan time.Time, 16)}
+	server, _ := h.srv.Config.Handler.(*Server)
+	server.mu.Lock()
+	poll := server.poll
+	server.pause = func(d time.Duration) <-chan time.Time {
+		// The pause a receive asks for is the server's poll interval and
+		// nothing longer: that interval is what the contract's second
+		// rests on (TestReceiveWaits).
+		if d != poll {
+			g.t.Errorf("a waiting receive asked to pause %s; the server's poll interval is %s", d, poll)
+		}
+		again := make(chan time.Time, 1)
+		g.held <- again
+		return again
+	}
+	server.mu.Unlock()
+	return g
+}
+
+// realClock puts the server's clock back on the machine's, after setClock.
+func (h *harness) realClock() {
+	server, _ := h.srv.Config.Handler.(*Server)
+	server.mu.Lock()
+	server.now = time.Now
+	server.mu.Unlock()
+}
+
+// next waits for a receive that has looked, found nothing to answer and is
+// held, and returns what lets it look again. The bound catches a hang.
+func (g *gate) next(what string) chan time.Time {
+	g.t.Helper()
+	select {
+	case again := <-g.held:
+		return again
+	case <-time.After(hangCatcher):
+		g.t.Fatalf("%s: no receive came to wait", what)
+		return nil
+	}
+}
+
+// nextNotAnswered is next for a receive whose answer comes on answered: a
+// receive that answers where it should have gone on waiting fails the test
+// at once, in those words, and not at the hang catcher.
+func nextNotAnswered[T any](g *gate, what string, answered <-chan T) chan time.Time {
+	g.t.Helper()
+	select {
+	case again := <-g.held:
+		return again
+	case got := <-answered:
+		g.t.Fatalf("%s: the receive answered where it should have waited: %v", what, got)
+	case <-time.After(hangCatcher):
+		g.t.Fatalf("%s: no receive came to wait", what)
+	}
+	return nil
+}
+
+// idle reports whether no receive has come to wait that next has not taken.
+func (g *gate) idle() bool { return len(g.held) == 0 }
+
+// lookAgain lets one held receive look at its inbox again.
+func lookAgain(again chan time.Time) { again <- time.Time{} }
+
 // An answer is one response: the status and the envelope's two halves.
 type answer struct {
 	status int
@@ -172,7 +249,27 @@ func (h *harness) send(m member, from, to, body string) string {
 // cursor.
 func (h *harness) receive(m member, session, extra string) ([]string, string) {
 	h.t.Helper()
-	r := h.must(m.credential, "/v1/message/receive", `{"session_id":"`+session+`"`+extra+`}`)
+	return h.received(h.post(m.credential, "/v1/message/receive", `{"session_id":"`+session+`"`+extra+`}`))
+}
+
+// receiving starts a receive that may wait and returns where its answer
+// comes. The answer is read with received on the test's own goroutine: a
+// failure there is the test's, which one in the request's goroutine is not.
+func (h *harness) receiving(m member, session, extra string) chan answer {
+	out := make(chan answer, 1)
+	go func() {
+		out <- h.post(m.credential, "/v1/message/receive", `{"session_id":"`+session+`"`+extra+`}`)
+	}()
+	return out
+}
+
+// received reads a receive's answer: the ids of its messages and the cursor.
+func (h *harness) received(a answer) ([]string, string) {
+	h.t.Helper()
+	if !a.ok {
+		h.t.Fatalf("receive: %s", a.raw)
+	}
+	r := a.result
 	messages, isArray := r["messages"].([]any)
 	if !isArray {
 		h.t.Fatalf("receive: messages is not an array in %v", r)
@@ -462,57 +559,73 @@ func TestReceiveCursor(t *testing.T) {
 }
 
 // TestReceiveWaits is `wait_seconds`: an empty answer is held until a
-// message is accepted, which is then in that answer within a second, or
-// until the time has passed; an answer that is not empty is not held.
+// message is accepted, which is then in that answer, or until the time has
+// passed; an answer that is not empty is not held.
+//
+// The contract gives the answer one second from the acceptance. That is
+// held here by what makes it so and not by a stopwatch (work item 444: the
+// stopwatch read 1.44 s once, on a machine under load): the held receive
+// answers at its first look after the acceptance, and two looks are the
+// poll interval apart, which is well under the second.
 func TestReceiveWaits(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, Options{})
+	g := h.gate()
 	alice := h.create("ops")
 	bob := h.join(alice.secret)
 	a, b := h.register(alice, "a"), h.register(bob, "b")
 	_, cursor := h.receive(alice, a, "")
+	if !g.idle() {
+		t.Fatal("a receive that asked for no wait came to wait")
+	}
+	// A stand-in as it runs outside a test looks often enough for the second.
+	if production, err := New(t.TempDir(), Options{}); err != nil || production.poll*2 > time.Second {
+		t.Errorf("a waiting receive of a stand-in with no options looks every %v (%v): an acceptance could wait longer than the contract's second for its answer", production.poll, err)
+	}
 
 	// Held, then answered by the acceptance.
-	type held struct {
-		ids  []string
-		took time.Duration
-	}
-	waiting := make(chan held, 1)
-	started := time.Now()
-	go func() {
-		ids, _ := h.receive(alice, a, `,"after":"`+cursor+`","wait_seconds":30`)
-		waiting <- held{ids, time.Since(started)}
-	}()
-	select {
-	case got := <-waiting:
-		t.Fatalf("a receive with nothing to answer returned at once: %v", got.ids)
-	case <-time.After(300 * time.Millisecond):
-	}
-	sent := time.Now()
+	waiting := h.receiving(alice, a, `,"after":"`+cursor+`","wait_seconds":30`)
+	again := nextNotAnswered(g, "a receive with nothing to answer", waiting) // it looked, found nothing, and is held
 	m := h.send(bob, b, a, "wake up")
+	lookAgain(again) // its first look after the acceptance
 	select {
 	case got := <-waiting:
-		if len(got.ids) != 1 || got.ids[0] != m {
-			t.Errorf("the waiting receive answered %v, want the accepted message", got.ids)
-		}
-		if lag := time.Since(sent); lag > time.Second {
-			t.Errorf("the waiting receive answered %s after the acceptance; the contract gives it one second", lag)
+		if ids, _ := h.received(got); len(ids) != 1 || ids[0] != m {
+			t.Errorf("the waiting receive answered %v, want the accepted message", ids)
 		}
 	case <-time.After(hangCatcher):
 		t.Fatalf("the waiting receive did not answer after an acceptance")
 	}
-
-	// Held for the time asked, then answered empty.
-	started = time.Now()
-	ids, _ := h.receive(alice, a, `,"after":"`+h.cursorOf(alice, a)+`","wait_seconds":1`)
-	if took := time.Since(started); len(ids) != 0 || took < 900*time.Millisecond || took > 10*time.Second {
-		t.Errorf("a receive with wait_seconds 1 and nothing to answer: %v after %s", ids, took)
+	if !g.idle() {
+		t.Error("the waiting receive came to wait again after the acceptance: the message was not in its first answer")
 	}
-	// Not empty: answered at once, whatever the wait.
-	started = time.Now()
-	ids, _ = h.receive(alice, a, `,"wait_seconds":30`)
-	if took := time.Since(started); len(ids) != 1 || took > 5*time.Second {
-		t.Errorf("a receive with something to answer: %v after %s, want it at once", ids, took)
+
+	// Held for the time asked, then answered empty: by the server's clock,
+	// which the test moves. A millisecond short of the second the request
+	// is still held; at the second it is answered.
+	at := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	h.setClock(at)
+	waiting = h.receiving(alice, a, `,"after":"`+h.cursorOf(alice, a)+`","wait_seconds":1`)
+	again = nextNotAnswered(g, "a receive with wait_seconds 1", waiting)
+	h.setClock(at.Add(time.Second - time.Millisecond))
+	lookAgain(again)
+	again = nextNotAnswered(g, "a receive with wait_seconds 1, a millisecond before its second has passed", waiting)
+	h.setClock(at.Add(time.Second))
+	lookAgain(again)
+	select {
+	case got := <-waiting:
+		if ids, _ := h.received(got); len(ids) != 0 {
+			t.Errorf("a receive with wait_seconds 1 and nothing to answer: %v, want nothing", ids)
+		}
+	case <-time.After(hangCatcher):
+		t.Fatal("a receive with wait_seconds 1 was not answered when its second had passed")
+	}
+	h.realClock()
+
+	// Not empty: answered without a wait, whatever the wait asked for.
+	ids, _ := h.receive(alice, a, `,"wait_seconds":30`)
+	if len(ids) != 1 || !g.idle() {
+		t.Errorf("a receive with something to answer: %v, held %v; want the message and no wait", ids, !g.idle())
 	}
 }
 
@@ -524,12 +637,14 @@ func (h *harness) cursorOf(m member, session string) string {
 }
 
 // TestAWaitingReceiveLearnsOfARefusal: a request that waits is answered at
-// once when its principal leaves the team (`unauthorized`) and when its
-// credential is revoked (`unauthenticated`), and is abandoned without a
-// fuss when its caller goes away.
+// its first look after its principal leaves the team (`unauthorized`) and
+// after its credential is revoked (`unauthenticated`), which is the
+// contract's second for them as it is for an acceptance (TestReceiveWaits),
+// and is abandoned without a fuss when its caller goes away.
 func TestAWaitingReceiveLearnsOfARefusal(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, Options{})
+	g := h.gate()
 	alice := h.create("ops")
 	bob := h.join(alice.secret)
 	carol := h.join(alice.secret)
@@ -547,16 +662,26 @@ func TestAWaitingReceiveLearnsOfARefusal(t *testing.T) {
 		select {
 		case got := <-waiting:
 			h.refused(got, code, status)
-		case <-time.After(5 * time.Second):
-			t.Fatalf("%s: the waiting receive was not answered within 5 s", what)
+		case <-time.After(hangCatcher):
+			t.Fatalf("%s: the waiting receive was not answered", what)
 		}
 	}
 	bobs, carols := wait(bob, b), wait(carol, c)
-	time.Sleep(100 * time.Millisecond)
+	first, second := g.next("the first of two receives"), g.next("the second of two receives") // both held
 	h.must(bob.credential, "/v1/team/leave", `{"team_ref":"`+bob.team+`"}`)
+	lookAgain(first)
+	lookAgain(second)
 	expect("after a leave", bobs, "unauthorized", http.StatusForbidden)
+	third := g.next("the receive of the member who stayed") // carol's looked, found nothing and waits again
+	if !g.idle() {
+		t.Error("two receives came to wait again after the leave: the one of the member who left was not refused at its first look")
+	}
 	h.must(carol.credential, "/v1/credential/revoke", `{}`)
+	lookAgain(third)
 	expect("after a revocation", carols, "unauthenticated", http.StatusUnauthorized)
+	if !g.idle() {
+		t.Error("the receive of the revoked credential came to wait again: it was not refused at its first look")
+	}
 
 	// A caller that goes away: the handler ends, so the server can close.
 	a := h.register(alice, "a")
@@ -571,7 +696,7 @@ func TestAWaitingReceiveLearnsOfARefusal(t *testing.T) {
 			_ = resp.Body.Close()
 		}
 	}()
-	time.Sleep(100 * time.Millisecond)
+	g.next("the receive whose caller goes away") // held, and its caller goes
 	cancel()
 	select {
 	case <-gone:

@@ -125,8 +125,14 @@ type Server struct {
 	takeIn      bool
 	moves       bool
 	// now is the server's clock: what a move ticket's end is counted from
-	// and held against. A test sets it.
+	// and held against, and what a waiting receive's time is counted by. A
+	// test sets it.
 	now func() time.Time
+	// pause is how a waiting receive passes the time between two looks at
+	// its inbox: time.After. A test puts its own in, so that it knows when
+	// a receive is held and decides when it looks again, and holds what the
+	// contract says of a wait without measuring the machine (work item 444).
+	pause func(time.Duration) <-chan time.Time
 
 	// membership makes the requests that change who is in a team, or read
 	// it to decide something, take turns: a create, a join and the three
@@ -180,6 +186,7 @@ func New(dir string, o Options) (*Server, error) {
 		takeIn:      !o.WithoutTakeIn,
 		moves:       !o.WithoutTeamMove,
 		now:         time.Now,
+		pause:       time.After,
 		principals:  map[[sha256.Size]byte]*principal{},
 		inboxes:     map[string]*inbox{},
 		byRef:       map[string]*principal{},

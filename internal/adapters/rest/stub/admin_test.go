@@ -221,6 +221,7 @@ func TestRotateSecret(t *testing.T) {
 func TestRevokeMember(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, Options{})
+	g := h.gate()
 	alice := h.create("ops")
 	bob := h.join(alice.secret)
 	b1, b2 := h.register(bob, "b1"), h.register(bob, "b2")
@@ -245,19 +246,20 @@ func TestRevokeMember(t *testing.T) {
 	go func() {
 		waiting <- h.post(bob.credential, "/v1/message/receive", `{"session_id":"`+b1+`","wait_seconds":30}`)
 	}()
-	time.Sleep(100 * time.Millisecond)
+	again := g.next("the receive of the member to revoke") // held
 	expect("a revocation", revoke(``), "revoked", true, 2)
-	// The membership had ended by the time the revocation was answered, so
-	// the second the contract gives the waiting receive is counted from here.
-	ended := time.Now()
+	// The membership had ended by the time the revocation was answered. The
+	// second the contract gives the waiting receive from there is its first
+	// look after it (TestReceiveWaits says why that is the second).
+	lookAgain(again)
 	select {
 	case got := <-waiting:
 		h.refused(got, "unauthorized", http.StatusForbidden)
-		if took := time.Since(ended); took > time.Second {
-			t.Errorf("the waiting receive was answered %s after the revocation; the contract gives it one second", took)
-		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangCatcher):
 		t.Fatal("the waiting receive of a revoked member was not answered")
+	}
+	if !g.idle() {
+		t.Error("the waiting receive of a revoked member came to wait again: it was not refused at its first look")
 	}
 
 	// Refused as a member that left is refused, on every endpoint.
