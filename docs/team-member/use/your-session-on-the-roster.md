@@ -39,9 +39,12 @@ it.
 
 **In Grok Build** the words are the same again (measured on Grok Build 1.0.92): `bypassPermissions` under
 always-approve, `default` where no mode is shown, `plan`, and `auto` under auto-review. Grok Build shows the
-model nothing that a prompt hook prints, so the reminder itself does not reach it: under always-approve, in a
-project that shares a state folder, a Grok Build session is asked at the end of a long turn to refresh its
-sentence, and after a commit for a note; otherwise its line stays blank unless you ask the model to set it.
+model nothing that a prompt hook prints, so there the line comes at the end of a turn, as the answer of
+Brigade's Stop hook: under always-approve, once the first turn has armed the inbox monitor, at most once in ten
+minutes, and each time it takes one more turn of the model. In a project that shares a state folder a turn's
+end says one thing, the ask for a note when that is due, else this line. Under the other three modes the line
+stays blank unless you ask the model to set it
+([ADR 0034](../../decisions/0034-say-the-roster-line-reminder-from-grok-builds-stop-hook.md)).
 
 **To stop it:** set `share_doing` to `false` (from the next session start the line is blanked, the reminders stop
 and `brigade doing` refuses), run `brigade doing --clear`, put an ask or deny on `Bash(brigade doing*)` in your

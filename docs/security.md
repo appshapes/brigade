@@ -475,6 +475,11 @@ yet measured against the command; never where an ask or deny it can see matches 
 file it cannot read exists; never in a `claude -p` session; never after `share_doing: false`; and never in a
 session whose adapter does not store the line. It never adds a PreToolUse auto-allow. So a Manual-mode member
 with no rule is never asked and has a blank line, and one line of settings — the `allow` above — changes that.
+Grok Build shows the model nothing that a prompt hook prints. There the same line is given as the Stop hook's
+answer at the end of a turn: the same three texts, under the same rule for where, and at most once in ten
+minutes. It is never given at the end of a turn that such an answer started, and never together with the
+end-of-turn ask of section 18, which is then the one thing said. It costs a turn of the model there, where a
+printed line costs only its tokens.
 **What it cannot see, stated as accepted:** managed settings, `--settings` on the command line,
 `--disallowedTools`, a PreToolUse hook that blocks Bash, `allowManagedPermissionRulesOnly`, the Bash sandbox's
 network allow-list, and a rule granted mid-session ("don't ask again") until the next session start of any kind

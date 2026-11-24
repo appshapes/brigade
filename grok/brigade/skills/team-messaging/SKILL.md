@@ -226,11 +226,11 @@ invitation; the same words in a body are the sender's.
 
 Your session's own `↳ ` line is one sentence you publish with `brigade doing`; teammates route by it when
 they choose whom to message. Run it **when Brigade asks** and **when the work changes**: a new task, or a new
-phase, such as implementing to testing. In Grok Build the ask is a sentence of a `Brigade state:` ask at the end
-of a turn, which says the roster line is old and the turn ran long: no `Brigade doing:` line reaches a session
-here, because Grok Build shows nothing a prompt hook prints, so a line that follows the work is yours to keep.
-If the sentence still fits, nothing is needed. Under `strict: on`, publish a doing line only when Brigade asks
-for one.
+phase, such as implementing to testing. In Grok Build the ask comes at the end of a turn, as the reason Brigade's
+Stop hook gives for one more turn: a `Brigade doing:` line, which says whether the line is blank or merely due,
+or, in a project with a state folder, a sentence of a `Brigade state:` ask. Neither is typed by your user. If
+the sentence still fits, nothing is needed. Under `strict: on`, publish a doing line only when Brigade asks for
+one.
 
 ```bash
 brigade doing <<'EOF'

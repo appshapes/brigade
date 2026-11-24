@@ -772,6 +772,291 @@ func TestGrokStopCarriesTheAsk(t *testing.T) {
 	}
 }
 
+// TestGrokStopCarriesTheReminder (work item 442, ADR 0034): Grok Build
+// shows its model nothing a prompt hook prints, so the roster-line
+// reminder is the Stop hook's answer there, by the reminder's own gates and
+// its own stamp. In a project with no state folder, under always-approve:
+// the prompt says nothing and stamps nothing; the first Stop arms the
+// monitor; the next says the line is blank; a Stop within ten minutes says
+// nothing; one ten minutes on says the short line; the Stop of a turn that
+// a Stop answer started says nothing; and a Stop with under a second of its
+// budget left says nothing and stamps nothing.
+func TestGrokStopCarriesTheReminder(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t) // its options file says sync off: no state folder, so no state ask
+	f.unhurried()
+	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+	seam.describe = describeWithDescription()
+	mode := map[string]any{"permissionMode": "bypassPermissions"}
+	stop := func(extra map[string]any) string {
+		t.Helper()
+		doc := map[string]any{"permissionMode": "bypassPermissions"}
+		for k, v := range extra {
+			doc[k] = v
+		}
+		exit, out, errOut := grokRun(f, SubStop, grokDoc(f, "stop", "", doc))
+		if exit != 0 {
+			t.Fatalf("stop: exit %d: %s", exit, errOut)
+		}
+		return out
+	}
+	stamped := func() bool { t.Helper(); _, err := os.Stat(f.doingStamp()); return err == nil }
+
+	if exit, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", mode)); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if exit, out, errOut := grokRun(f, SubPrompt, grokDoc(f, "user_prompt_submit", "", mode)); exit != 0 || out != "" {
+		t.Fatalf("prompt: exit %d, out %q: %s", exit, out, errOut)
+	}
+	if f.mustMap().StateFolder != "" {
+		t.Fatal("the fixture's session has a state folder: this test is for a project without one")
+	}
+	if stamped() {
+		t.Fatal("the prompt hook stamped a reminder that Grok Build shows nobody")
+	}
+	if reason := blockReason(t, stop(nil)); !strings.Contains(reason, "Arm this session's Brigade inbox") {
+		t.Fatalf("the first Stop's reason: %q", reason)
+	}
+	if stamped() {
+		t.Fatal("the arming Stop stamped the reminder")
+	}
+
+	// Too little budget: nothing said, nothing stamped.
+	f.deps.StopBudget = 500 * time.Millisecond
+	if out := stop(nil); out != "" || stamped() {
+		t.Fatalf("a Stop with half a second of budget: out %q, stamped %v", out, stamped())
+	}
+	f.unhurried()
+	// The Stop of a turn that a Stop answer started never continues it again.
+	if out := stop(map[string]any{"stopHookActive": true}); out != "" || stamped() {
+		t.Fatalf("the Stop of a continued turn: out %q, stamped %v", out, stamped())
+	}
+	// A turn that did not end by itself is not started again: the person interrupted it.
+	if out := stop(map[string]any{"stop_reason": "cancelled"}); out != "" || stamped() {
+		t.Fatalf("the Stop of an interrupted turn: out %q, stamped %v", out, stamped())
+	}
+	// A quiet session's line says that it is quiet: no turn is spent asking for another.
+	quiet := f.mustMap()
+	quiet.SetInboundRequest("hold")
+	writeMapOf(t, f, quiet)
+	if out := stop(nil); out != "" || stamped() {
+		t.Fatalf("the Stop of a quiet session: out %q, stamped %v", out, stamped())
+	}
+	quiet.SetInboundRequest("")
+	writeMapOf(t, f, quiet)
+	// The line is blank: said once, by the package's path, and stamped then.
+	if got := blockReason(t, stop(nil)); got != namedIn(f, doingLineBlank) || strings.Contains(got, "`brigade ") {
+		t.Fatalf("the Stop's reminder: %q", got)
+	}
+	if !stamped() {
+		t.Fatal("the reminder was said and not stamped")
+	}
+	// At most one in ten minutes.
+	f.now = fixedTime.Add(9 * time.Minute)
+	if out := stop(nil); out != "" {
+		t.Fatalf("a second reminder inside ten minutes: %q", out)
+	}
+	f.now = fixedTime.Add(10 * time.Minute)
+	if got := blockReason(t, stop(nil)); got != namedIn(f, doingLineShort) {
+		t.Fatalf("the reminder ten minutes on: %q, want the short line", got)
+	}
+}
+
+// TestGrokStopRemindsOnlyWhereTheCallWillNotBeStopped (work item 442): the
+// permission gate is the prompt hook's own. In Grok Build's `default`,
+// `plan` and `auto` the Stop says nothing; a stretch in one of them zeroes
+// a stamp, as it does at a prompt, so the next Stop under always-approve
+// says the full line once.
+func TestGrokStopRemindsOnlyWhereTheCallWillNotBeStopped(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	f.unhurried()
+	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+	seam.describe = describeWithDescription()
+	in := func(permission string) map[string]any { return map[string]any{"permissionMode": permission} }
+	stop := func(permission string) string {
+		t.Helper()
+		exit, out, errOut := grokRun(f, SubStop, grokDoc(f, "stop", "", in(permission)))
+		if exit != 0 {
+			t.Fatalf("stop: exit %d: %s", exit, errOut)
+		}
+		return out
+	}
+	if exit, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", in("default"))); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if exit, _, errOut := grokRun(f, SubPrompt, grokDoc(f, "user_prompt_submit", "", in("default"))); exit != 0 {
+		t.Fatalf("prompt: exit %d: %s", exit, errOut)
+	}
+	if reason := blockReason(t, stop("default")); !strings.Contains(reason, "Arm this session's Brigade inbox") {
+		t.Fatalf("the first Stop's reason: %q", reason)
+	}
+	for _, permission := range []string{"default", "plan", "auto"} {
+		if out := stop(permission); out != "" {
+			t.Fatalf("a reminder under %s: %q", permission, out)
+		}
+	}
+	if got := blockReason(t, stop("bypassPermissions")); got != namedIn(f, doingLineBlank) {
+		t.Fatalf("the first Stop under always-approve: %q", got)
+	}
+	// A prompt in plan zeroes the stamp; the next Stop under always-approve says the full line.
+	if exit, _, errOut := grokRun(f, SubPrompt, grokDoc(f, "user_prompt_submit", "", in("plan"))); exit != 0 {
+		t.Fatalf("prompt: exit %d: %s", exit, errOut)
+	}
+	if out := stop("plan"); out != "" {
+		t.Fatalf("a reminder under plan: %q", out)
+	}
+	if got := blockReason(t, stop("bypassPermissions")); got != namedIn(f, doingLineFull) {
+		t.Fatalf("the Stop after a stretch in plan: %q, want the full line", got)
+	}
+}
+
+// TestGrokStopSaysOneThingAtATurnsEnd (work item 442): in a project with a
+// state folder a Stop answers once. With the state ask due the answer is
+// the ask and the reminder waits; when that ask spoke of the roster line,
+// the reminder's stamp says the model was reminded, so the next Stop does
+// not say it again. With no state ask due, the answer is the reminder.
+func TestGrokStopSaysOneThingAtATurnsEnd(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	f.unhurried()
+	f.writeTeamFile(stateMember)
+	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+	seam.describe = describeWithDescription()
+	body, _ := json.Marshal(map[string]string{"adapter_command": f.adapterOption(), "sync": "on"})
+	if err := os.WriteFile(filepath.Join(f.configDir, config.GrokOptionsFile), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mode := map[string]any{"permissionMode": "bypassPermissions"}
+	stop := func() string {
+		t.Helper()
+		exit, out, errOut := grokRun(f, SubStop, grokDoc(f, "stop", "", mode))
+		if exit != 0 {
+			t.Fatalf("stop: exit %d: %s", exit, errOut)
+		}
+		return out
+	}
+	if exit, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", mode)); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if exit, _, errOut := grokRun(f, SubPrompt, grokDoc(f, "user_prompt_submit", "", mode)); exit != 0 {
+		t.Fatalf("prompt: exit %d: %s", exit, errOut)
+	}
+	if f.mustMap().StateFolder == "" {
+		t.Fatal("the fixture's session has no state folder")
+	}
+	if reason := blockReason(t, stop()); !strings.Contains(reason, "Arm this session's Brigade inbox") {
+		t.Fatalf("the first Stop's reason: %q", reason)
+	}
+	// A short turn: no state ask is due, so the answer is the reminder.
+	if got := blockReason(t, stop()); got != namedIn(f, doingLineBlank) {
+		t.Fatalf("a short turn's Stop: %q, want the reminder", got)
+	}
+	// A long turn with a stale line, the reminder due again: one answer, the
+	// state ask, which speaks of the roster line.
+	f.now = fixedTime.Add(12 * time.Minute)
+	if got := blockReason(t, stop()); got != namedIn(f, stopAskOpen+stopAskDoing+stopAskClose) {
+		t.Fatalf("a long turn's Stop: %q, want the state ask alone", got)
+	}
+	// The next Stop says no reminder: that ask was one.
+	f.now = fixedTime.Add(13 * time.Minute)
+	if out := stop(); out != "" {
+		t.Fatalf("the Stop after an ask that spoke of the roster line: %q", out)
+	}
+}
+
+// TestGrokStateAskDoesNotStandForTheFirstReminder (work item 442): the
+// blank line and the full line carry the rules of a roster line, which the
+// state ask's sentence does not. A conversation that has had neither still
+// gets one at a later Stop, though an ask that spoke of the roster line
+// came first.
+func TestGrokStateAskDoesNotStandForTheFirstReminder(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	f.unhurried()
+	f.writeTeamFile(stateMember)
+	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+	seam.describe = describeWithDescription()
+	body, _ := json.Marshal(map[string]string{"adapter_command": f.adapterOption(), "sync": "on"})
+	if err := os.WriteFile(filepath.Join(f.configDir, config.GrokOptionsFile), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mode := map[string]any{"permissionMode": "bypassPermissions"}
+	stop := func() string {
+		t.Helper()
+		exit, out, errOut := grokRun(f, SubStop, grokDoc(f, "stop", "", mode))
+		if exit != 0 {
+			t.Fatalf("stop: exit %d: %s", exit, errOut)
+		}
+		return out
+	}
+	if exit, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", mode)); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if exit, _, errOut := grokRun(f, SubPrompt, grokDoc(f, "user_prompt_submit", "", mode)); exit != 0 {
+		t.Fatalf("prompt: exit %d: %s", exit, errOut)
+	}
+	// The first turn is a long one: its Stop arms, and the next is the state ask, which speaks of the roster line.
+	f.now = fixedTime.Add(12 * time.Minute)
+	if reason := blockReason(t, stop()); !strings.Contains(reason, "Arm this session's Brigade inbox") {
+		t.Fatalf("the first Stop's reason: %q", reason)
+	}
+	if got := blockReason(t, stop()); got != namedIn(f, stopAskOpen+stopAskDoing+stopAskClose) {
+		t.Fatalf("the long turn's Stop: %q, want the state ask", got)
+	}
+	if _, err := os.Stat(f.doingStamp()); err == nil {
+		t.Fatal("the state ask stamped a reminder the conversation has not had")
+	}
+	// The blank line is still due, and the next Stop says it.
+	f.now = fixedTime.Add(13 * time.Minute)
+	if got := blockReason(t, stop()); got != namedIn(f, doingLineBlank) {
+		t.Fatalf("the Stop after the state ask: %q, want the blank line, which the conversation has not had", got)
+	}
+}
+
+// TestTheReminderIsThePromptsOnTheOtherHosts (work item 442): the other
+// three harnesses are told nothing new. A Claude Code prompt and a Muse
+// Code prompt carry the reminder as before, and Claude Code's Stop, in a
+// project with no state folder, says nothing.
+func TestTheReminderIsThePromptsOnTheOtherHosts(t *testing.T) {
+	t.Parallel()
+	for name, fixture := range map[string]func(*testing.T) *fixture{"Claude Code": newFixture, "Muse Code": newMuseFixture} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := fixture(t)
+			f.unhurried()
+			f.spawner.watcherPID = testutil.NewSleeper(t)
+			if f.host == config.HostClaude {
+				doingRegistered(t, f) // a session whose adapter stores the line, as the reminder's own tests start one
+			} else {
+				seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+				seam.describe = describeWithDescription()
+				if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
+					t.Fatalf("exit %d: %s", exit, errOut)
+				}
+			}
+			want := doingLineBlank // Claude Code's shell has `brigade` on PATH: the bare name
+			if f.host != config.HostClaude {
+				want = namedIn(f, doingLineBlank)
+			}
+			exit, out, errOut := f.run(SubPrompt, f.promptDoc("bypassPermissions"))
+			if exit != 0 || !strings.Contains(out, want) {
+				t.Fatalf("the prompt did not carry the reminder: exit %d\n%s\n%s", exit, out, errOut)
+			}
+			if _, err := os.Stat(f.doingStamp()); err != nil {
+				t.Fatalf("the prompt's reminder was not stamped: %v", err)
+			}
+			if f.host != config.HostClaude {
+				return // no Stop hook
+			}
+			f.now = fixedTime.Add(11 * time.Minute)
+			if exit, out, errOut := f.run(SubStop, f.stopDoc("bypassPermissions", false)); exit != 0 || out != "" {
+				t.Fatalf("Claude Code's Stop said %q (exit %d): the reminder is its prompt's\n%s", out, exit, errOut)
+			}
+		})
+	}
+}
+
 // TestStatusInTheOptionsFileStopsTheAsk (work item 439): `status` is a key
 // of the options file, so a member of a host that reads its options there
 // can turn the end-of-turn ask off. Grok Build's Stop hook and the next
@@ -835,8 +1120,15 @@ func TestStatusInTheOptionsFileStopsTheAsk(t *testing.T) {
 				}
 				return
 			}
-			if out != "" || f.stopStamp(t) != "" {
+			// `status` is the state ask's switch. The roster-line reminder
+			// is not that ask and follows `share_doing`, here as on every
+			// host: Grok Build's Stop carries it (work item 442), so the
+			// answer is the reminder, and nothing of the state ask.
+			if strings.Contains(out, stopAskOpen) || f.stopStamp(t) != "" {
 				t.Fatalf("status off in the options file: out %q, stamp %q\n%s", out, f.stopStamp(t), errOut)
+			}
+			if got := blockReason(t, out); got != namedIn(f, doingLineBlank) {
+				t.Fatalf("status off: the Stop's answer is %q, want the roster-line reminder alone\n%s", got, errOut)
 			}
 		})
 		for _, host := range []struct {

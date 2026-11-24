@@ -2,6 +2,7 @@ package hook
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -473,9 +474,60 @@ func (r *run) grokStop() int {
 	}
 	e := r.stateStop(ctx, f, m, r.deps.Now())
 	if reason := r.stopAsk(ctx, f, in, m, e); reason != "" {
+		// One ask at a turn's end, not two: the reminder waits for a later
+		// Stop. When the ask itself spoke of the roster line, the model has
+		// been reminded, and the reminder's stamp says so: but only where
+		// the short line was the one due. A conversation that has not had
+		// the blank or the full line yet still gets it, at a later Stop,
+		// since those two carry the rules and the ask's sentence does not.
+		path := doingStampPath(f.stateDir, f.pid)
+		if stamp := readDoingStamp(path, in.SessionID); stamp.ours && !stamp.at.IsZero() && strings.Contains(reason, r.commandIn(f, stopAskDoing)) {
+			r.writeDoingStamp(path, r.deps.Now(), in.SessionID)
+		}
 		r.emitBlock(reason)
+		return 0
+	}
+	if line := r.stopDoingReminder(ctx, f, in, m); line != "" {
+		r.emitBlock(line)
 	}
 	return 0
+}
+
+// stopDoingReminder is the roster-line reminder on a host that shows the
+// model nothing a prompt hook prints (work item 442, ADR 0034): the Stop
+// hook's answer carries it, as it carries the arming ask and the state
+// ask, since that answer is the one thing of Brigade's such a model is
+// shown. The gates and the stamp's table are the prompt hook's own
+// (doingReminder): the same three lines, at most one in ten minutes, only
+// where the call will neither prompt nor be denied. It needs no state
+// folder. Because it costs a turn here, three more things stop it, each
+// the arming ask's or the state ask's own: it is never said at the Stop of
+// a turn that a Stop answer started, which would keep the session turning;
+// never at the Stop of a turn that did not end by itself (one the person
+// interrupted is not started again); and never in a quiet session, whose
+// line says that it is quiet. Nor with under stopMinBudget left. The
+// stamp is written before the line is answered, at the Stop that shows it
+// to the model.
+func (r *run) stopDoingReminder(ctx context.Context, f facts, in input, m *sessionmap.ByPID) string {
+	if !f.host.DiscardsPromptOutput() || in.stopActive() || m.InboundRequest != "" {
+		return ""
+	}
+	if in.StopReason != "" && in.StopReason != "end_turn" {
+		return ""
+	}
+	line, path, now := r.doingReminder(f, in, m)
+	if line == "" {
+		return ""
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < stopMinBudget {
+		r.log.Debug("stop: too little budget left for the doing line")
+		return ""
+	}
+	if !r.writeDoingStamp(path, now, in.SessionID) {
+		return ""
+	}
+	r.log.Info("stop: doing line said")
+	return line
 }
 
 // grokArm is the monitor-arming half of Grok's Stop: it reports whether

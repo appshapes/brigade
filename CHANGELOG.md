@@ -17,7 +17,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   quotes, are the option's two words, and any other value, a JSON
   `true` included, is read as `off`, which the session says when it
   starts ("`status` is an option of Muse Code, Codex CLI and Grok Build
-  too"). Everyone else: nothing.
+  too"). On Grok Build, under always-approve: a turn of a session now
+  ends, at most once in ten minutes, with one more turn in which the
+  model is reminded to set its roster line. To stop that, set
+  `share_doing` to `false` in `~/.config/brigade/grok-options.json`:
+  from the next session start the reminders stop, the line is blanked
+  and `brigade doing` refuses ("A Grok Build session is reminded to
+  keep its roster line current"). Everyone else: nothing.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
 
@@ -47,6 +53,23 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   ask nothing. The value is the word, in quotes: `true` and `false` are
   neither `on` nor `off`, and such a value is read as `off`
   ([Know the options](docs/team-member/configure/options.md)).
+- **A Grok Build session is reminded to keep its roster line current**
+  (work item 442, ADR 0034). Grok Build shows its model nothing that a
+  prompt hook prints, so the reminder Brigade prints there reached
+  nobody, and in a project with no state folder a Grok Build session
+  was never reminded: its roster line stayed blank unless the member
+  asked for it. The reminder is now the answer of Brigade's Stop hook
+  there, by the reminder's own rule: under always-approve, once the
+  first turn has armed the inbox monitor, the same three lines, at most
+  one in ten minutes. Each one takes a turn of the model. A turn's end
+  says one thing: in a project with a state folder, the ask for a note
+  when it is due, else the reminder. It is never said at the end of a
+  turn you interrupted, nor in a quiet session. `share_doing: false`
+  stops it, and `status` stays the switch of the end-of-turn ask alone.
+  The `team-messaging` skill of the Grok Build package says where the
+  line comes from. Nothing
+  changes in Claude Code, Muse Code or Codex CLI
+  ([What teammates see about your session](docs/team-member/use/your-session-on-the-roster.md#the-sentence-under-your-row)).
 - **A `status` that is neither `on` nor `off` is said when the session
   starts** (work item 439). Such a value has always switched the ask
   off, and nothing said so: the line was written with the option and no

@@ -232,32 +232,16 @@ func (r *run) resolveDoingMode(ctx context.Context, f facts, in input, store ses
 // plan mode is served at the next eligible prompt. No settings file is read
 // here (the scan is frozen in doing_mode), the prompt is never read, and
 // nothing touches the network.
+//
+// A host that shows the model nothing a prompt hook prints (Grok Build)
+// is not told the line here, and no stamp says it was: its Stop hook says
+// it, by the same gates and the same stamp (stopDoingReminder, work item
+// 442). The zeroing in an ineligible mode is this hook's there as well.
 func (r *run) doingNudge(ctx context.Context, f facts, in input, m *sessionmap.ByPID) {
-	if !doingModePrints(m.DoingMode) || m.NonInteractive || f.entrypoint == entrypointSDK || in.SessionID == "" {
+	line, path, now := r.doingReminder(f, in, m)
+	if line == "" || f.host.DiscardsPromptOutput() {
 		return
 	}
-	if m.ClaudeSessionID != in.SessionID {
-		r.log.Debug("prompt: the map names another conversation; no doing line")
-		return
-	}
-	path := doingStampPath(f.stateDir, f.pid)
-	stamp := readDoingStamp(path, in.SessionID)
-	// prompt() has already refreshed the map's permission_mode from the
-	// document, so the map's word is the prompt's, else the last seen.
-	if !doingLineEligible(m.DoingMode, m.PermissionMode) {
-		if stamp.ours && !stamp.at.IsZero() {
-			r.writeDoingStamp(path, time.Time{}, in.SessionID)
-		}
-		return
-	}
-	// One reading of the clock: the stamp records the instant the line was
-	// chosen by.
-	now := r.deps.Now()
-	line := doingLineFor(stamp, now)
-	if line == "" {
-		return
-	}
-	line = r.commandIn(f, line)
 	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < doingNudgeMinBudget {
 		r.log.Debug("prompt: too little budget left for the doing line")
 		return
@@ -269,6 +253,38 @@ func (r *run) doingNudge(ctx context.Context, f facts, in input, m *sessionmap.B
 		return
 	}
 	r.say(line)
+}
+
+// doingReminder is the reminder that is due in this conversation now, by
+// doingNudge's gates and the stamp's table, named the way this host's
+// model can run it, with the stamp's path and the one reading of the clock
+// the line was chosen by: the caller writes the stamp at that instant
+// before it says the line. "" when none is due. In an ineligible permission
+// mode it zeroes a stamp of this conversation, once, and answers "".
+func (r *run) doingReminder(f facts, in input, m *sessionmap.ByPID) (line, path string, now time.Time) {
+	if !doingModePrints(m.DoingMode) || m.NonInteractive || f.entrypoint == entrypointSDK || in.SessionID == "" {
+		return "", "", time.Time{}
+	}
+	if m.ClaudeSessionID != in.SessionID {
+		r.log.Debug("the map names another conversation; no doing line")
+		return "", "", time.Time{}
+	}
+	path = doingStampPath(f.stateDir, f.pid)
+	stamp := readDoingStamp(path, in.SessionID)
+	// The caller has already refreshed the map's permission_mode from the
+	// document, so the map's word is the document's, else the last seen.
+	if !doingLineEligible(m.DoingMode, m.PermissionMode) {
+		if stamp.ours && !stamp.at.IsZero() {
+			r.writeDoingStamp(path, time.Time{}, in.SessionID)
+		}
+		return "", "", time.Time{}
+	}
+	now = r.deps.Now()
+	line = doingLineFor(stamp, now)
+	if line == "" {
+		return "", "", time.Time{}
+	}
+	return r.commandIn(f, line), path, now
 }
 
 // doingModePrints reports whether a map's doing_mode admits any reminder
