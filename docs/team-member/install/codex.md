@@ -73,7 +73,9 @@ once.)
 
 It works: a message sent to an idle Codex session starts a turn there and is answered (Codex CLI 0.166.0 on macOS
 arm64, 2026-11-22: the reply was stored 14 seconds after the send; again on 2026-11-23, on the build that
-follows 0.57.0: 10 seconds).
+follows 0.57.0: 10 seconds). On a team that lives on a Brigade server the same was seen once (2026-11-24, a
+server on the same machine: the session registered, stood on the server's roster and answered another member's
+message; the reply was stored 88 seconds after the send, two approvals included).
 
 - **Codex asks you to review Brigade's hooks again once for every release**, and until you trust them nothing
   of Brigade runs: no registration, no message. Its trust covers every file of the installed package (measured
@@ -85,12 +87,12 @@ follows 0.57.0: 10 seconds).
 - **A launch flag can slow delivery to a poll.** `-c`, `--enable`, `--disable`, `--no-daemon` and
   `--dangerously-bypass-hook-trust` put Codex in embedded mode ([Keep Codex in daemon mode](#keep-codex-in-daemon-mode)).
 - **Under the default profile each `brigade` command that reaches the backend asks for your approval**: the
-  model's shell has no network there. What that profile's sandbox does to Brigade was not measured.
+  model's shell has no network there, and a server on the same machine is no exception (2026-11-24). What else
+  that profile's sandbox does to Brigade was not measured.
 - **A quit is not an end.** The session stays `idle` on the roster for up to 30 minutes after `/quit`, and a
   message sent meanwhile waits for your `codex resume`.
 - **One platform.** The measurements are on macOS arm64; Linux is not measured, and the package does not run on
   Windows.
-- **No Codex CLI session has been seen on a team that lives on a Brigade server.**
 
 ## What differs from Claude Code
 

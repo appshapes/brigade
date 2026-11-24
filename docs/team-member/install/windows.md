@@ -59,6 +59,9 @@ the same three.
   toast as to any other.
 - **The Muse Code, Codex CLI and Grok Build packages** are macOS and Linux only; on Windows, Brigade is the
   Claude Code plugin.
+- **A team on a Brigade server is not tried from Windows.** No Windows session has been seen on a team that
+  lives on a server. The part of Brigade that talks to a server is the same code as on macOS and Linux, and
+  CI's Windows job runs almost none of its tests.
 - **Private files.** On macOS and Linux Brigade refuses a credential or a session map that any other user could
   read. Windows has no such mode bits; Brigade trusts the user profile directories above, which Windows gives
   each user a private ACL on. [docs/security.md](../../security.md) §10 says so, and what it means.
