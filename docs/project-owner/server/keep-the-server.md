@@ -201,3 +201,11 @@ One instance. One member's installation is bounded ([Run the server](run-the-ser
 nothing bounds the teams on a server or the members a join secret admits.
 [Change the server](../../developer/change/server.md#known-limits) lists the limits the reviews of the code left
 open.
+
+**A power loss is not tried.** The server has been killed in the middle of its work and has started again from
+its log; the machine under it has never lost power. A start refuses a log entry that fails its seal, with `a
+record failed its seal: it was damaged, or sealed under another key`, and whether a power loss can leave such
+an entry at the end of the log is not known. If a start after one says so, change nothing inside the data
+directory. Move it aside whole and keep it: everything but that entry may still be in it. Then put your last
+copy back as in [What is lost with the disk](#what-is-lost-with-the-disk), which loses what happened since
+the copy. This advice is not tried either.

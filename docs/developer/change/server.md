@@ -559,7 +559,9 @@ Found by two reviews of the code on 2026-11-12 and left for a decision or a meas
   request that leaves a record, leaves that client with a credential the server does not know and no key
   file (ADR 0006). After that record the key has ended, and such a request is a stranger's join.
 - An entry that fails its seal refuses the start, wherever it is in the log. Whether a power loss can leave such
-  an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here.
+  an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here, and no
+  power loss on a real disk has been tried: no session had a machine whose power it could cut, and the owner
+  ruled on 2026-11-24 (work item 313) that the pages name it. The operator's page says what to do then.
 - The seal has one key and no rotation. Nonces are random, which is sound for about four thousand million
   entries under one key: decades at a team's pace, and a number to revisit before then.
 - A request nested more than 128 levels deep is refused, where the reference reads 10,000.

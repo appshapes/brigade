@@ -59,14 +59,16 @@ nothing.
 
 What is proven: a Muse Code session registers, and once its monitor is armed a team message wakes it and it
 answers (Muse Code 1.4.25 on macOS arm64, 2026-11-22: the reply was stored 5 seconds after the send; again on
-2026-11-23, on the build that follows 0.57.0: 13 seconds).
+2026-11-23, on the build that follows 0.57.0: 13 seconds). On a team that lives on a Brigade server the same was
+seen once (2026-11-24, a server on the same machine: 13 seconds).
 
 What may not work for you yet:
 
 - **Receiving depends on the model.** A Muse session takes messages only after its model has armed a monitor,
   which a line in the session's context asks it to do. In the live sessions of 2026-11-22 and 2026-11-23 the
-  model did not do it after a plain first prompt, and the session was a mailbox until it was asked. If a message
-  you expect does not arrive, tell the session to do what its session-start context asks.
+  model did not do it after a plain first prompt, and the session was a mailbox until it was asked; in one of
+  2026-11-24 it did. If a message you expect does not arrive, tell the session to do what its session-start
+  context asks.
 - **Two faults of the first of those sessions are fixed after 0.57.0, and were seen fixed on 2026-11-23.** The
   arming line had led the model to a command that failed once, and a reminder had named a command the session's
   shell does not have. In the second session, once the model was asked, its arming command succeeded at the

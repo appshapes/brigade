@@ -66,7 +66,8 @@ cache path. [Configuration](../configure/grok.md), [monitor status and skills](.
 
 It works: a Grok Build session registers, arms its monitor after its first turn, reads a team message and
 answers it (Grok Build 1.0.92 on macOS arm64, 2026-11-22: the reply was stored 48 seconds after the send; again
-on 2026-11-23, on the build that follows 0.57.0: 51 seconds).
+on 2026-11-23, on the build that follows 0.57.0: 51 seconds). On a team that lives on a Brigade server the same
+was measured on 2026-11-24, with a server on the same machine: 36 seconds.
 
 - **Only a direct TUI.** Leader mode is refused, for a measured reason. In Grok Build 1.0.92 a plain `grok` is
   a direct TUI already (measured 2026-11-23; its guide names `--leader` and `use_leader = true` as what turns

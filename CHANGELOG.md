@@ -78,6 +78,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   version=<v> work_item=<n>` finishes it, and the package checks print
   `behind:` until it has
   ([Cut a release](docs/developer/release/cut-a-release.md#the-last-step)).
+- **The install pages say what was seen on a team on a Brigade server**
+  (work item 313). A Muse Code, a Codex CLI and a Grok Build session
+  each registered on a Brigade server, stood on its roster and answered
+  another member's message, on 2026-11-24 with a server on the same
+  machine. Each harness's install page says so, and Codex CLI's no
+  longer lists a team on a server as a gap. Two things are not tried,
+  and the pages now say it where each belongs: a Windows session on a
+  team on a server
+  ([Install on Windows](docs/team-member/install/windows.md#what-differs)),
+  and a power loss under a server, with what its operator does if a
+  start is refused after one
+  ([Keep the server](docs/project-owner/server/keep-the-server.md#what-it-does-not-do-yet)).
 
 ### Fixed
 
