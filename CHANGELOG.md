@@ -11,6 +11,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 **Who must act**
 
+- **Team Member:** nothing.
+- **Team Admin:** nothing.
+- **Project Owner:** nothing.
+
+## [0.61.0] — 2026-11-25
+
+**Who must act**
+
 - **Team Member:** on Muse Code, Codex CLI or Grok Build, with a
   `status` key in your options file: the key is read from this release
   on, where it was passed over. Check its value: `"on"` and `"off"`, in
