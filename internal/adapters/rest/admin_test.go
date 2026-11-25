@@ -305,7 +305,7 @@ func TestTeamRevokeMember(t *testing.T) {
 	w.ready()
 	eventually(t, "the long poll", func() bool { return len(receives(b, p.bobSes)) >= 2 })
 
-	started := time.Now()
+	asked := len(receives(b, p.bobSes))
 	revoked := p.alice.ok("", "team", "revoke-member", "--principal", bob)
 	if len(revoked) != 5 || revoked["team_ref"] != teamRef || revoked["principal_ref"] != bob ||
 		revoked["status"] != "revoked" || revoked["changed"] != true || revoked["sessions_closed"] != float64(1) {
@@ -318,8 +318,11 @@ func TestTeamRevokeMember(t *testing.T) {
 	if code := w.exit(); code != protocol.CodeUnauthorized.Exit() {
 		t.Errorf("the watch exited %d, want %d", code, protocol.CodeUnauthorized.Exit())
 	}
-	if took := time.Since(started); took > 5*time.Second {
-		t.Errorf("the watch took %s to end after the revocation; the suite gives it 5 s", took)
+	// It ended through the long poll that was waiting, having asked nothing
+	// more (work item 448; TestWatchEndsWhenTheMemberLeaves says why that
+	// is held by what the server saw, and not by a stopwatch).
+	if now := len(receives(b, p.bobSes)); now != asked {
+		t.Errorf("the watch asked %d receives, %d when the member was revoked: it did not end through the long poll that was waiting", now, asked)
 	}
 
 	// The revoked member's profile still names the team, so its commands

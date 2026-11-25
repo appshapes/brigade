@@ -24,6 +24,18 @@ func receives(b *backend, session string) []map[string]any {
 	return out
 }
 
+// receivesAnswered is how many receives for the session the stub has
+// answered with a result: a long poll it still holds is not counted.
+func receivesAnswered(b *backend, session string) int {
+	n := 0
+	for _, r := range b.answeredWithAResult(pathMessageReceive) {
+		if r.Body["session_id"] == session {
+			n++
+		}
+	}
+	return n
+}
+
 // eventually polls cond until it holds or hangCatcher passes.
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
@@ -242,6 +254,12 @@ func TestWatchStdinCommands(t *testing.T) {
 // TestWatchExitRules: stdin EOF and the stop SIGTERM produces each end the
 // watch with exit 0 while a long poll is waiting, and the request in
 // flight is abandoned rather than waited for (4.4.9, C-38).
+//
+// "Abandoned rather than waited for" is held by what the server saw, and
+// not by a stopwatch (work item 448): when the watch has exited, the long
+// poll that was waiting has not been answered. A watch that waited for it
+// would exit only after the server answered it, when its 25 seconds had
+// passed. The wait for the exit itself is the hang catcher.
 func TestWatchExitRules(t *testing.T) {
 	t.Parallel()
 	b := newBackend(t)
@@ -250,10 +268,14 @@ func TestWatchExitRules(t *testing.T) {
 	tm.wait = 25 * time.Second // production's: the exit must not wait for it
 
 	for _, how := range []string{"stdin EOF", "the stop signal"} {
+		// This watch's own two receives, counted from what the session had
+		// asked before it: the catch-up, answered, and the long poll, held.
+		asked, answered := len(receives(b, p.aliceSes))+2, receivesAnswered(b, p.aliceSes)+1
 		w := p.alice.watch(tm, "--session", p.aliceSes)
 		w.ready()
-		eventually(t, "the long poll", func() bool { return len(receives(b, p.aliceSes)) >= 2 })
-		started := time.Now()
+		eventually(t, "the long poll", func() bool {
+			return len(receives(b, p.aliceSes)) == asked && receivesAnswered(b, p.aliceSes) == answered
+		})
 		if how == "stdin EOF" {
 			_ = w.stdin.Close()
 		} else {
@@ -262,8 +284,9 @@ func TestWatchExitRules(t *testing.T) {
 		if code := w.exit(); code != 0 {
 			t.Errorf("%s: the watch exited %d, want 0", how, code)
 		}
-		if took := time.Since(started); took > 5*time.Second {
-			t.Errorf("%s: the watch took %s to exit, want well under the 5 s of 4.4.9", how, took)
+		if now := receivesAnswered(b, p.aliceSes); now != answered || len(receives(b, p.aliceSes)) != asked {
+			t.Errorf("%s: the watch exited after the server answered its long poll (%d answered, were %d; %d asked, were %d): it waited for the request in flight",
+				how, now, answered, len(receives(b, p.aliceSes)), asked)
 		}
 		select {
 		case line, open := <-w.lines:
@@ -321,6 +344,13 @@ func TestWatchRefusals(t *testing.T) {
 // TestWatchEndsWhenTheMemberLeaves: the uniform `unauthorized` reaches a
 // running watch through the long poll that was waiting when the member
 // left, and ends it with exit 5 (4.5.7, C-08).
+//
+// "Through the long poll that was waiting" is held by what the server saw
+// (work item 448): the watch ends having asked nothing more. A watch that
+// learned of the leave only from its next request would have asked once
+// more, after the server had answered the waiting one empty at its 25
+// seconds. How soon the server answers a held receive is the stand-in's
+// own, held in its package.
 func TestWatchEndsWhenTheMemberLeaves(t *testing.T) {
 	t.Parallel()
 	b := newBackend(t)
@@ -330,7 +360,7 @@ func TestWatchEndsWhenTheMemberLeaves(t *testing.T) {
 	w := p.bob.watch(tm, "--session", p.bobSes)
 	w.ready()
 	eventually(t, "the long poll", func() bool { return len(receives(b, p.bobSes)) >= 2 })
-	started := time.Now()
+	asked := len(receives(b, p.bobSes))
 	p.bob.ok("", "team", "leave")
 	object, _ := w.expect(protocol.EventError)["error"].(map[string]any)
 	if object["code"] != "unauthorized" || object["retryable"] != false {
@@ -339,8 +369,8 @@ func TestWatchEndsWhenTheMemberLeaves(t *testing.T) {
 	if code := w.exit(); code != protocol.CodeUnauthorized.Exit() {
 		t.Errorf("the watch exited %d, want %d", code, protocol.CodeUnauthorized.Exit())
 	}
-	if took := time.Since(started); took > 5*time.Second {
-		t.Errorf("the watch took %s to end after the leave; C-08 gives it 5 s", took)
+	if now := len(receives(b, p.bobSes)); now != asked {
+		t.Errorf("the watch asked %d receives, %d when the member left: it did not end through the long poll that was waiting", now, asked)
 	}
 }
 

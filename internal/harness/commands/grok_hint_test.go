@@ -50,14 +50,14 @@ func TestGrokHintsCoalesceAndEndWithTUI(t *testing.T) {
 		alive.Store(false)
 		select {
 		case <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(followHangCatcher):
 			t.Error("follower did not settle after TUI death")
 		}
 	})
 	var first time.Time
 	select {
 	case first = <-events:
-	case <-time.After(3 * time.Second):
+	case <-time.After(followHangCatcher):
 		t.Fatal("retained backlog did not wake")
 	}
 	// Many appends become one trailing hint; no body or delivery cursor is consumed.
@@ -76,13 +76,13 @@ func TestGrokHintsCoalesceAndEndWithTUI(t *testing.T) {
 		if next.Sub(first) < 5*time.Second {
 			t.Fatal("hint pacing violated")
 		}
-	case <-time.After(6 * time.Second):
+	case <-time.After(followHangCatcher):
 		t.Fatal("trailing change lost")
 	}
 	alive.Store(false)
 	select {
 	case <-events:
-	case <-time.After(time.Second):
+	case <-time.After(followHangCatcher):
 		t.Fatal("receiver end was not reported")
 	}
 }

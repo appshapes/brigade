@@ -53,6 +53,11 @@ func servePipe(t *testing.T) (path string, lines <-chan []string) {
 	return path, out
 }
 
+// pipeHangCatcher bounds the wait for the server to read a post: long
+// enough that only a hang reaches it, never a measure of this machine
+// (work item 448; it was five seconds).
+const pipeHangCatcher = 30 * time.Second
+
 func TestPostWritesTheAuthLineThenTheUserLineIntoANamedPipe(t *testing.T) {
 	path, lines := servePipe(t)
 	target := Target{Path: path, Token: "tok-123"}
@@ -70,8 +75,8 @@ func TestPostWritesTheAuthLineThenTheUserLineIntoANamedPipe(t *testing.T) {
 		if !strings.HasPrefix(got[1], `{"type":"user","message":{"role":"user","content":"hello from windows"}`) {
 			t.Fatalf("line 2 = %s", got[1])
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the server saw nothing within 5 s")
+	case <-time.After(pipeHangCatcher):
+		t.Fatal("the server saw nothing of the post")
 	}
 }
 

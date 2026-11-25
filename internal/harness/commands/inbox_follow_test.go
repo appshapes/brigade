@@ -17,6 +17,12 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
+// followHangCatcher bounds every wait of these tests for something a
+// follower is to do: long enough that only a hang reaches it, and never a
+// measure of how fast this machine does it (work item 448; the waits were
+// 1 to 15 seconds).
+const followHangCatcher = 30 * time.Second
+
 func TestRenderRecord(t *testing.T) {
 	t.Parallel()
 	frame := "<brigade-message team=\"ops\" message-id=\"m1\">\npreamble\n----\nSender summary (untrusted): hi\nline one\nline two\n</brigade-message>"
@@ -112,7 +118,7 @@ func TestInboxFollow(t *testing.T) {
 	}
 	waitFor := func(what string) {
 		t.Helper()
-		deadline := time.Now().Add(10 * time.Second)
+		deadline := time.Now().Add(followHangCatcher)
 		for !strings.Contains(out.String(), what) {
 			if time.Now().After(deadline) {
 				t.Fatalf("waiting for %q in %q", what, out.String())
@@ -149,7 +155,7 @@ func TestInboxFollow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("follow returned %v", err)
 		}
-	case <-time.After(15 * time.Second):
+	case <-time.After(followHangCatcher):
 		t.Fatal("the follower did not stop after the map was removed")
 	}
 	if !strings.HasSuffix(out.String(), FollowEndedLine+"\n") {

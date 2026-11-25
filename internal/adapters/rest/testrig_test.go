@@ -37,6 +37,7 @@ type backend struct {
 
 	mu       sync.Mutex
 	requests []seenRequest
+	results  []seenRequest
 	fault    func(*seenRequest) *canned
 	lose     func(*seenRequest) loss
 }
@@ -145,7 +146,13 @@ func newBackendServing(t *testing.T, o stub.Options, overTLS bool) *backend {
 			}
 		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
-		server.ServeHTTP(w, r)
+		// Counted before the first byte of the answer leaves: a test that
+		// looks when its client has read the answer never looks too early.
+		server.ServeHTTP(&resultWriter{ResponseWriter: w, result: func() {
+			b.mu.Lock()
+			b.results = append(b.results, seen)
+			b.mu.Unlock()
+		}}, r)
 	})
 	if overTLS {
 		b.srv = httptest.NewTLSServer(handler)
@@ -188,11 +195,65 @@ func (b *backend) seen(path string) []seenRequest {
 	return out
 }
 
+// A resultWriter calls result, once, when the stub answers a request with
+// a result: status 200 and an envelope that begins `{"ok":true`. A refusal
+// is none, and neither is the answer the stub gives a caller that has
+// gone. It calls it before the bytes that show it go on to the client.
+type resultWriter struct {
+	http.ResponseWriter
+	result func()
+	status int
+	head   []byte
+	told   bool
+}
+
+// resultBegins is how the envelope of a result begins.
+const resultBegins = `{"ok":true`
+
+func (w *resultWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *resultWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	if room := len(resultBegins) - len(w.head); room > 0 {
+		w.head = append(w.head, p[:min(room, len(p))]...)
+	}
+	if !w.told && w.status == http.StatusOK && string(w.head) == resultBegins {
+		w.told = true
+		w.result()
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *resultWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// answeredWithAResult returns the requests to path that the stub has
+// answered with a result so far, in the order it answered them. A request
+// the stub still holds, a long poll for one, is not among them, and it
+// never will be when its caller goes away before the answer.
+func (b *backend) answeredWithAResult(path string) []seenRequest {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []seenRequest
+	for _, r := range b.results {
+		if path == "" || r.Path == path {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // forget drops the recorded requests.
 func (b *backend) forget() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.requests = nil
+	b.requests, b.results = nil, nil
 }
 
 // A rig is one isolated adapter installation: its own configuration

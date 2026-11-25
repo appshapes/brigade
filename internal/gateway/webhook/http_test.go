@@ -192,17 +192,22 @@ func TestAReplysAnswerSaysWhenItsSessionIsGone(t *testing.T) {
 		t.Fatalf("a reply to a session the roster no longer lists: %d %s", code, raw)
 	}
 	// A roster that does not answer costs a reply its own short wait and
-	// nothing of the time the send has.
+	// nothing of the time the send has. Held by the wait the roster read
+	// was given, which the fake reads off its context, and not by how long
+	// the reply took on this machine (work item 448): a read under the
+	// request's own context would have had the request's thirty seconds.
 	fb.mu.Lock()
 	fb.listHangs = true
 	fb.mu.Unlock()
 	g.replyRoster = 50 * time.Millisecond
-	began := time.Now()
 	if code, resp, raw := reply("the roster does not answer", "five"); code != http.StatusAccepted || !resp.OK || resp.MessageID == "" || resp.Waiting != nil {
 		t.Fatalf("a reply while the roster does not answer: %d %s; want it sent, and nothing said of waiting", code, raw)
 	}
-	if took := time.Since(began); took > inboundTimeout/2 {
-		t.Fatalf("a reply waited %s on a roster that does not answer; its own wait is %s", took, g.replyRoster)
+	fb.mu.Lock()
+	wait, bounded := fb.listWait, fb.listBounded
+	fb.mu.Unlock()
+	if !bounded || wait > g.replyRoster {
+		t.Fatalf("the roster read of a reply was given %s to answer (a deadline: %v); its own wait is %s", wait, bounded, g.replyRoster)
 	}
 	if sent, _ := fb.snapshot(); len(sent) != 5 {
 		t.Fatalf("%d replies were sent, want 5", len(sent))

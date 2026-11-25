@@ -31,6 +31,12 @@ type fakeBackend struct {
 	// listHangs makes ListSessions wait for its context to end, as a
 	// backend whose roster does not answer.
 	listHangs bool
+	// listWait is how long the context of the last roster read that hung
+	// had left when the read began, and listBounded whether it had a
+	// deadline at all: what the caller was prepared to wait, which the
+	// fake reads off the context and no stopwatch measures.
+	listWait    time.Duration
+	listBounded bool
 }
 
 func newFake() *fakeBackend {
@@ -88,6 +94,10 @@ func (f *fakeBackend) ListSessions(ctx context.Context, includeOffline bool) (*a
 	hangs := f.listHangs
 	f.mu.Unlock()
 	if hangs {
+		deadline, bounded := ctx.Deadline()
+		f.mu.Lock()
+		f.listWait, f.listBounded = time.Until(deadline), bounded
+		f.mu.Unlock()
 		<-ctx.Done()
 		return nil, perr(protocol.CodeUnavailable)
 	}

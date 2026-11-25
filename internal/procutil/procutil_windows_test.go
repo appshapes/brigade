@@ -12,6 +12,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// windowsHangCatcher bounds a wait of these tests for something that is to
+// come: long enough that only a hang reaches it, never a measure of this
+// machine (work item 448; the waits were five and ten seconds).
+const windowsHangCatcher = 30 * time.Second
+
 func TestDetachAttrGivesAHiddenConsoleNotNone(t *testing.T) {
 	t.Parallel()
 	flags := DetachAttr().CreationFlags
@@ -65,7 +70,7 @@ func TestAnExitedChildReadsAsAZombieWhileItsHandleIsHeld(t *testing.T) {
 		t.Skip("cmd.exe not runnable here:", err)
 	}
 	pid := cmd.Process.Pid
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(windowsHangCatcher)
 	for {
 		info, err := Lookup(pid)
 		if err != nil {
@@ -101,8 +106,8 @@ func TestTerminateSetsTheStopEventOfAListeningProcess(t *testing.T) {
 	}
 	select {
 	case <-stop:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Terminate did not reach the stop channel within 5 s")
+	case <-time.After(windowsHangCatcher):
+		t.Fatal("Terminate did not reach the stop channel")
 	}
 }
 

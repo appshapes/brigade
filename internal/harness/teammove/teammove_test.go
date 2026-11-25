@@ -72,7 +72,16 @@ type backends struct {
 	// newMovedHangs has the new backend's `team moved` wait for as long as
 	// its caller does: a server that accepts the connection and says nothing.
 	newMovedHangs bool
+	// newMovedWait is how long the context of that question had left when
+	// it was asked, and newMovedBounded whether it had a deadline at all:
+	// what the follow was prepared to wait, read off the context.
+	newMovedWait    time.Duration
+	newMovedBounded bool
 }
+
+// hangCatcher bounds a wait of these tests for something that is to come:
+// long enough that only a hang reaches it, never a measure of this machine.
+const hangCatcher = 30 * time.Second
 
 type fakeCaller struct {
 	b                *backends
@@ -95,6 +104,8 @@ func (c fakeCaller) Call(ctx context.Context, group, verb string, flags []string
 	b := c.b
 	if b.newMovedHangs && c.adapter == "rest" && group+" "+verb == "team moved" {
 		b.calls = append(b.calls, call{adapter: c.adapter, profile: c.profile, verb: group + " " + verb})
+		deadline, bounded := ctx.Deadline()
+		b.newMovedWait, b.newMovedBounded = time.Until(deadline), bounded
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -1626,23 +1637,45 @@ func TestSameAddress(t *testing.T) {
 // that every follow and every join of the machine takes. A server that
 // accepts the connection and says nothing held that lock until the hook's
 // own deadline, as the old backend's question can. The question has a
-// bound of its own: the follow gives up on it long before its caller would,
-// changes nothing, and the next follow asks again. It is not run beside the
-// other tests: it measures time.
+// bound of its own: the follow gives up on it by itself, changes nothing,
+// and the next follow asks again.
+//
+// That is held without a stopwatch (work item 448): the caller here sets no
+// deadline at all and the backend answers nothing for as long as it is
+// asked, so a follow that comes back came back by its own bound. One that
+// has none never comes back, and the hang catcher says so. It is not run
+// beside the other tests, because it shortens that bound for the package.
 func TestFollowGivesTheNewBackendsAnswerABoundOfItsOwn(t *testing.T) {
-	defer teammove.SetNewBackendWait(200 * time.Millisecond)()
+	const own = 200 * time.Millisecond
+	defer teammove.SetNewBackendWait(own)()
 	r := newRig(t)
 	r.memberAtTheNewBackend()
 	r.b.newRecords, r.b.newMovedHangs = true, true
-	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
-	defer cancel()
-	began := time.Now()
-	out, _ := teammove.Follow(ctx, teammove.Inputs{
-		ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin, Client: r.b.client,
-		Now: func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) },
-	})
-	if took := time.Since(began); out.Followed || out.Reason != teammove.ReasonNewBackendFailed || took > 2*time.Second {
-		t.Fatalf("a follow whose new backend says nothing: %+v after %s, want %s well inside the caller's 4s", out, took, teammove.ReasonNewBackendFailed)
+	ctx := t.Context()
+	if _, bounded := ctx.Deadline(); bounded {
+		t.Fatal("the caller's context has a deadline: the follow's own bound would not be what ends the question")
+	}
+	answered := make(chan teammove.Outcome, 1)
+	go func() {
+		out, _ := teammove.Follow(ctx, teammove.Inputs{
+			ConfigDir: r.configDir, Checkout: r.checkout, File: r.file, Pin: &r.pin, Client: r.b.client,
+			Now: func() time.Time { return time.Date(2026, 11, 14, 13, 0, 0, 0, time.UTC) },
+		})
+		answered <- out
+	}()
+	var out teammove.Outcome
+	select {
+	case out = <-answered:
+	case <-time.After(hangCatcher):
+		t.Fatal("a follow whose new backend says nothing did not come back: the question has no bound of its own")
+	}
+	if out.Followed || out.Reason != teammove.ReasonNewBackendFailed {
+		t.Fatalf("a follow whose new backend says nothing: %+v, want %s", out, teammove.ReasonNewBackendFailed)
+	}
+	// And the bound is the question's own short one, read off the context
+	// it was asked under, not merely one that ends before the hang catcher.
+	if !r.b.newMovedBounded || r.b.newMovedWait > own {
+		t.Fatalf("the question was given %s to be answered (a deadline: %v); its own bound is %s", r.b.newMovedWait, r.b.newMovedBounded, own)
 	}
 	if pin := r.currentPin(); pin != r.pin || len(r.b.called("team join")) != 0 {
 		t.Fatalf("the pin moved (%+v) or the machine joined: %v", pin, r.b.verbs())
