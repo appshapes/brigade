@@ -170,18 +170,16 @@ func TestGrokUsage(t *testing.T) {
 	// bad JSON, another session's id, a cache-read count larger than the
 	// input, a window of zero. A file mended is read again.
 	good := usageFixture(t, filepath.Join("grok", "usage.json"))
-	// In this order, each a new file: a file rewritten in place with the
-	// same size and time reads as unchanged, which is the reader's rule.
-	for _, c := range []struct{ name, body string }{
+	// In this order, each with a time of its own (putNew): a file
+	// rewritten with the same size and time reads as unchanged, which is
+	// the reader's rule.
+	for i, c := range []struct{ name, body string }{
 		{"another session", strings.ReplaceAll(good, id, "44444444-4444-4444-8444-444444444444")},
 		{"bad JSON", "{not json"},
 		{"cache over input", strings.Replace(good, `"cachedReadTokens": 17921280`, `"cachedReadTokens": 99999999999`, 1)},
 	} {
 		name, body := c.name, c.body
-		if err := os.Remove(filepath.Join(dir, "usage.json")); err != nil {
-			t.Fatal(err)
-		}
-		putFacts(t, filepath.Join(dir, "usage.json"), body)
+		putNew(t, filepath.Join(dir, "usage.json"), body, i+1)
 		use = r.refresh().use
 		if use.Total.Input.Known() || use.Total.Input.Unavailable != usage.BadShape {
 			t.Fatalf("%s: input %+v", name, use.Total.Input)
@@ -190,16 +188,10 @@ func TestGrokUsage(t *testing.T) {
 			t.Fatalf("%s: calls %+v cost %+v", name, use.Calls, use.Cost)
 		}
 	}
-	if err := os.Remove(filepath.Join(dir, "usage.json")); err != nil {
-		t.Fatal(err)
-	}
-	putFacts(t, filepath.Join(dir, "usage.json"), good)
+	putNew(t, filepath.Join(dir, "usage.json"), good, 10)
 	val(t, "input when mended", r.refresh().use.Total.Input, int64(19663836-17921280))
 	signals := usageFixture(t, filepath.Join("grok", "signals.json"))
-	if err := os.Remove(filepath.Join(dir, "signals.json")); err != nil {
-		t.Fatal(err)
-	}
-	putFacts(t, filepath.Join(dir, "signals.json"), strings.Replace(signals, `"contextWindowTokens": 256000`, `"contextWindowTokens": 0`, 1))
+	putNew(t, filepath.Join(dir, "signals.json"), strings.Replace(signals, `"contextWindowTokens": 256000`, `"contextWindowTokens": 0`, 1), 11)
 	if use = r.refresh().use; use.ContextWindow.Known() || use.ContextUsed.Known() {
 		t.Fatalf("a window of zero: %+v %+v", use.ContextWindow, use.ContextUsed)
 	}
@@ -220,6 +212,18 @@ func TestGrokUsageOfAnotherSession(t *testing.T) {
 	r := hostFactsReader{host: config.HostGrok, root: filepath.Join(home, ".grok"), id: id, cwd: "/work/project"}
 	if use := r.refresh().use; use.ContextUsed.Known() || use.ContextWindow.Known() || use.Total.Input.Known() {
 		t.Fatalf("another session's usage: %+v", use)
+	}
+}
+
+// putNew writes a file the reader must see as changed: a time of its own,
+// as a file rewritten with the same size can keep its inode number and,
+// on a coarse clock, its time; the reader takes such a file as unchanged.
+func putNew(t *testing.T, path, text string, n int) {
+	t.Helper()
+	putFacts(t, path, text)
+	at := time.Date(2026, 11, 26, 12, 0, n, 0, time.UTC)
+	if err := os.Chtimes(path, at, at); err != nil {
+		t.Fatal(err)
 	}
 }
 
