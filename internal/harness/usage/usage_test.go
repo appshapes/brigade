@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/appshapes/brigade/internal/adapterkit"
 )
 
 // TestParseStatus reads the example document of Claude Code's status line
@@ -60,7 +62,9 @@ func TestWriteReadList(t *testing.T) {
 	if none, err := Read(dir, "nobody"); none != nil || err != nil {
 		t.Fatalf("read nobody: %+v %v", none, err)
 	}
-	if fi, err := os.Stat(Path(dir, "a")); err != nil || fi.Mode().Perm() != 0o600 {
+	// 0600 on unix; Windows has no mode bits and trusts the profile
+	// directory (adapterkit.OwnerReadWriteOnly).
+	if fi, err := os.Stat(Path(dir, "a")); err != nil || !adapterkit.OwnerReadWriteOnly(fi) {
 		t.Fatalf("mode: %v %v", fi.Mode(), err)
 	}
 	// A copy under another name is not that session's.
