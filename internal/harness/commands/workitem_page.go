@@ -300,6 +300,9 @@ type boardPageLimit struct {
 // its context.
 type boardPageAgent struct {
 	Session string `json:"session"`
+	// Member is the teammate whose session it is, for usage shared through
+	// the board (work item 348); "" for a session of this machine.
+	Member  string `json:"member"`
 	Harness string `json:"harness"`
 	Model   string `json:"model"`
 	Current bool   `json:"current"`
@@ -767,7 +770,7 @@ const pageScript = `
   (function () {
     var box = byId("limits");
     if (data.limits.length === 0) { box.remove(); return; }
-    box.appendChild(el("h2", null, "Plan limits of the sessions on this machine"));
+    box.appendChild(el("h2", null, "Plan limits"));
     data.limits.forEach(function (l) {
       var p = el("p", l.near ? "near" : null, l.harness + ": " + l.text + (l.near ? " (near a limit)" : ""));
       if (l.extra !== "") { p.appendChild(document.createTextNode("; extra usage: " + l.extra)); }
@@ -831,12 +834,12 @@ const pageScript = `
     body.textContent = "";
     if (it.description !== "") { body.appendChild(el("p", "text", it.description)); }
     if (it.agents.length > 0) {
-      body.appendChild(el("h3", "d-section", "Agents on this machine"));
+      body.appendChild(el("h3", "d-section", "Agents"));
       it.agents.forEach(function (a) {
         var w = el("div", "agent");
         var who = el("div");
         who.appendChild(el("strong", null, a.session));
-        who.appendChild(document.createTextNode(" (" + a.harness + (a.model ? ", " + a.model : "") + ")"));
+        who.appendChild(document.createTextNode(" (" + (a.member ? a.member + ", " : "") + a.harness + (a.model ? ", " + a.model : "") + ")"));
         if (a.current) { who.appendChild(el("span", "now", " works on it now" + (a.context ? ", context " + a.context : ""))); }
         w.appendChild(who);
         w.appendChild(el("div", null, a.tokens + "; " + a.cost));
@@ -956,7 +959,30 @@ func (inv Invocation) pageUsage(data *boardPageData, folder string) {
 	if err != nil {
 		links = nil
 	}
+	// Teammates' sessions that shared their usage through the board (work
+	// item 348), after this machine's own: a session this machine has a
+	// record of shows that record.
+	// shared marks a record that came through the board, by where it came
+	// from (a share may name no member), and member names its teammate.
 	now := inv.Deps.now()
+	shared, member := map[string]bool{}, map[string]string{}
+	mine := map[string]bool{}
+	for _, r := range records {
+		mine[r.SessionID] = true
+	}
+	if shares, _, err := workitem.ReadSharedUsage(folder); err == nil {
+		for id, u := range shares {
+			// A share no watcher wrote again in usageKeep is a session long
+			// ended, as a local record that old is pruned.
+			if mine[id] || now.Sub(u.ReadAt) > pageUsageKeep {
+				continue
+			}
+			records = append(records, recordOfShared(u))
+			shared[id], member[id] = true, cmp.Or(labelLine(u.By), "a teammate")
+		}
+	} else {
+		inv.logger().Debug("work-item page: the shared usage could not be read", log.Err(err))
+	}
 	byID := map[string]int{}
 	for i := range data.Items {
 		byID[data.Items[i].id] = i
@@ -979,7 +1005,7 @@ func (inv Invocation) pageUsage(data *boardPageData, folder string) {
 				current = true
 			}
 			a := boardPageAgent{
-				Session: nameLine(cmp.Or(r.Session, shortSession(r.SessionID))),
+				Session: nameLine(cmp.Or(r.Session, shortSession(r.SessionID))), Member: member[r.SessionID],
 				Harness: r.Harness, Model: r.Model.Or(""), Current: current,
 				Tokens: countsText(u.Tokens), Cost: itemCostText(u),
 			}
@@ -1023,12 +1049,17 @@ func (inv Invocation) pageUsage(data *boardPageData, folder string) {
 	seen := map[string]bool{}
 	for _, r := range withLimits {
 		l := *r.Limits.V
-		key := r.Harness + "|" + l.Plan
-		if seen[key] || len(l.Windows) == 0 {
+		key := strconv.FormatBool(shared[r.SessionID]) + "|" + member[r.SessionID] + "|" + r.Harness + "|" + l.Plan
+		// Limits read longer ago than a week are of a window that has passed.
+		if seen[key] || len(l.Windows) == 0 || !r.LimitsAt.IsZero() && now.Sub(r.LimitsAt) > pageLimitsKeep {
 			continue
 		}
 		seen[key] = true
-		lim := boardPageLimit{Harness: r.Harness, Text: limitsText(l, r.LimitsAt, now)}
+		harness := r.Harness
+		if shared[r.SessionID] {
+			harness = member[r.SessionID] + ", " + harness
+		}
+		lim := boardPageLimit{Harness: harness, Text: limitsText(l, r.LimitsAt, now)}
 		for _, w := range l.Windows {
 			if w.UsedPercent >= 80 && (w.ResetsAt.IsZero() || w.ResetsAt.After(now)) {
 				lim.Near = true
@@ -1056,4 +1087,41 @@ func itemCostText(u *use.ItemUsage) string {
 		text += ", part not priced"
 	}
 	return text
+}
+
+// pageUsageKeep is how old a teammate's share may be and still show, as a
+// local record is kept (the watcher's usageKeep); pageLimitsKeep how old
+// limits may be, a week and a day: the longest window has passed by then.
+const (
+	pageUsageKeep  = 30 * 24 * time.Hour
+	pageLimitsKeep = 8 * 24 * time.Hour
+)
+
+// recordOfShared is a teammate's shared usage as a record of the page's
+// own, its texts cleaned as a record's are.
+func recordOfShared(u *workitem.Usage) *use.Record {
+	r := &use.Record{
+		SessionID: u.SessionID, Session: protocol.OneLineName(u.Session), Harness: attrLine(u.Harness), ReadAt: u.ReadAt,
+		LimitsAt: u.LimitsAt, WorkItems: map[string]*use.ItemUsage{},
+	}
+	if m := modelLine(u.Model); m != "" {
+		r.Model = use.Of(m)
+	}
+	if u.ContextUsed != nil {
+		r.ContextUsed = use.Of(*u.ContextUsed)
+	}
+	if u.ContextWindow != nil {
+		r.ContextWindow = use.Of(*u.ContextWindow)
+	}
+	if u.Limits != nil {
+		r.Limits = use.Of(*u.Limits)
+	}
+	if u.Extra != nil {
+		r.Extra = use.Of(*u.Extra)
+	}
+	for _, it := range u.Items {
+		iu := it.ItemUsage
+		r.WorkItems[it.Item] = &iu
+	}
+	return r
 }

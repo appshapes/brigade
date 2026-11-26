@@ -516,3 +516,50 @@ func TestAddToWorkItemDoesNotBridgeAnOldRecord(t *testing.T) {
 		t.Fatalf("the work item's input: %+v", u)
 	}
 }
+
+// TestShareUsageOnlyWhenTheMemberChoseIt is work item 348's last done
+// criterion: a session whose member did not turn `share_usage` on writes
+// no usage into the board folder; one whose member did writes its one
+// file, again only when what it shares changed and at most once in
+// usageRewrite.
+func TestShareUsageOnlyWhenTheMemberChoseIt(t *testing.T) {
+	t.Parallel()
+	for _, share := range []bool{false, true} {
+		board := t.TempDir()
+		now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+		w := &watcher{sessionID: "brigade-5", sync: syncSetup{board: board, shareUsage: share}, rc: runConfig{env: config.WatcherEnv{StateDir: t.TempDir(), ConfigDir: t.TempDir()}},
+			log: slog.New(slog.DiscardHandler), deps: Deps{Clock: func() time.Time { return now }}, state: &shared{name: "348", labelOption: "dev"}}
+		rec := func(model string, limitsAt time.Time) *usage.Record {
+			return &usage.Record{SessionID: "brigade-5", Harness: "claude-code", Model: usage.Of(model),
+				Limits: usage.Of(usage.Limits{Windows: []usage.Limit{{Name: usage.LimitWeekly, UsedPercent: 10}}}), LimitsAt: limitsAt}
+		}
+		read := func() *workitem.Usage {
+			got, _, _ := workitem.ReadSharedUsage(board)
+			return got["brigade-5"]
+		}
+		w.shareUsage(rec("claude-opus-5-5", now), w.state.snapshot(), now)
+		if !share {
+			if _, err := os.Stat(filepath.Join(board, workitem.UsageDir)); !os.IsNotExist(err) {
+				t.Fatalf("share_usage off wrote into the board: %v", err)
+			}
+			continue
+		}
+		first := read()
+		if first == nil || first.Model != "claude-opus-5-5" || first.By != "dev" || !first.ReadAt.Equal(now) {
+			t.Fatalf("share_usage on: %+v", first)
+		}
+		// Within the interval: nothing. After it, a new reading of the same
+		// limits is no change: nothing.
+		now = now.Add(time.Minute)
+		w.shareUsage(rec("claude-fable-5-2", now), w.state.snapshot(), now)
+		now = now.Add(usageRewrite)
+		w.shareUsage(rec("claude-opus-5-5", now), w.state.snapshot(), now)
+		if got := read(); !got.ReadAt.Equal(first.ReadAt) {
+			t.Fatalf("shared within its interval, or unchanged: %+v", got)
+		}
+		w.shareUsage(rec("claude-fable-5-2", now), w.state.snapshot(), now)
+		if got := read(); got.Model != "claude-fable-5-2" || !got.ReadAt.Equal(now) {
+			t.Fatalf("a changed usage after its interval: %+v", got)
+		}
+	}
+}

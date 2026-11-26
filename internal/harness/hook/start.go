@@ -1615,6 +1615,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		SyncScope:              res.sync.scope,
 		StateFolder:            res.sync.stateFolder,
 		BoardFolder:            res.sync.boardFolder,
+		ShareUsage:             res.opts.ShareUsage && res.sync.boardFolder != "",
 		MessageSound:           res.messageSound,
 		MessageNotification:    res.messageNotification,
 		MessageIntervalSeconds: int(res.opts.MessageInterval / time.Second),

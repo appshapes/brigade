@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/appshapes/brigade/internal/harness/usage"
 )
 
 // sessionWork is ReadSessionWork for a folder the test expects to be
@@ -244,5 +246,45 @@ func TestWorkSessionsDirectoryIsNoSymlink(t *testing.T) {
 	l, err := ReadWork(s.Folder)
 	if err != nil || len(l.Sessions) != 0 || l.Skipped != 1 {
 		t.Fatalf("ReadWork through a symlink: %+v %v", l, err)
+	}
+}
+
+// TestShareUsage is work item 348: a session's shared usage is one file
+// of the board, written again in place; the reader cleans it, and passes
+// over a file whose session id is not its name's, or of another shape.
+func TestShareUsage(t *testing.T) {
+	s := Store{Folder: t.TempDir(), Now: newClock().now}
+	a := add(t, s, "first", Author{})
+	at := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	for i, cost := range []float64{1.5, 2.5} {
+		u := &Usage{SessionID: "session-a", Harness: "claude-code", Model: "claude-opus-5-5", ReadAt: at.Add(time.Duration(i) * time.Minute),
+			Items: []UsageItem{{Item: a, ItemUsage: usage.ItemUsage{Number: 1, CostUSD: cost, Priced: 1}}, {Item: "not-an-id"}}}
+		if err := s.ShareUsage(u, Author{Member: "ann@example.com", Session: "one"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, skipped, err := ReadSharedUsage(s.Folder)
+	if err != nil || skipped != 0 {
+		t.Fatalf("read: %v, %d skipped", err, skipped)
+	}
+	u := got["session-a"]
+	if u == nil || u.By != "ann@example.com" || u.Session != "one" || len(u.Items) != 1 || u.Items[0].CostUSD != 2.5 {
+		t.Fatalf("shared usage: %+v", u)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(s.Folder, UsageDir)); len(entries) != 1 {
+		t.Fatalf("a share grew the board: %d files", len(entries))
+	}
+	// A copy under another session's name, and a file of another shape.
+	data, _ := os.ReadFile(filepath.Join(s.Folder, UsageDir, SessionKey("session-a")+".json"))
+	for name, body := range map[string][]byte{SessionKey("session-b") + ".json": data, SessionKey("session-c") + ".json": []byte("{}"), "notes.txt": []byte("x")} {
+		if err := os.WriteFile(filepath.Join(s.Folder, UsageDir, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, skipped, _ = ReadSharedUsage(s.Folder); len(got) != 1 || skipped != 3 {
+		t.Fatalf("foreign files: %d shares, %d skipped", len(got), skipped)
+	}
+	if err := s.ShareUsage(&Usage{SessionID: "two words", ReadAt: at}, Author{}); err == nil {
+		t.Fatal("a share for a session id that is no id was written")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	use "github.com/appshapes/brigade/internal/harness/usage"
+	"github.com/appshapes/brigade/internal/harness/workitem"
 )
 
 // TestWorkItemPageShowsTheAgents is work item 349 on the local page: a
@@ -75,7 +76,7 @@ func TestWorkItemPageShowsTheAgents(t *testing.T) {
 	if len(data.Limits) != 2 || !data.Limits[0].Near || data.Limits[1].Near || data.Limits[1].Extra != "credits yes, balance 17.50" {
 		t.Fatalf("limits: %+v", data.Limits)
 	}
-	if !strings.Contains(script, "Plan limits of the sessions on this machine") {
+	if !strings.Contains(script, "Plan limits") {
 		t.Fatal("the script shows no limits")
 	}
 }
@@ -98,5 +99,86 @@ func TestWorkItemPageLimitsResetAreNotNear(t *testing.T) {
 	data, _, _ := pageParts(t, string(page))
 	if len(data.Limits) != 1 || data.Limits[0].Near {
 		t.Fatalf("a reset window is near: %+v", data.Limits)
+	}
+}
+
+// TestWorkItemPageShowsSharedUsage is work item 348 on the page: a
+// teammate's session that shared its usage through the board shows on the
+// card with the teammate's label, and its limits under the teammate's
+// name; a session this machine has a record of shows that record.
+func TestWorkItemPageShowsSharedUsage(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	folder := f.withBoard(t)
+	f.workItem(t, WorkItemOptions{}, "Shared", "add")
+	id := readBoard(t, folder).ByNumber(1)[0].ID
+	store := workitem.Store{Folder: folder}
+	share := func(sid, member string, cost float64) {
+		t.Helper()
+		u := &workitem.Usage{SessionID: sid, Harness: "codex", Model: "gpt-6.2-astra", ReadAt: fixtureNow, LimitsAt: fixtureNow,
+			Limits: &use.Limits{Plan: "pro", Windows: []use.Limit{{Name: use.LimitWeekly, UsedPercent: 90, WindowMinutes: 10080}}},
+			Items:  []workitem.UsageItem{{Item: id, ItemUsage: use.ItemUsage{Number: 1, Tokens: use.Counts{Input: 1000}, CostUSD: cost, Priced: 1}}}}
+		if err := store.ShareUsage(u, workitem.Author{Member: member, Session: "teammate-session"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	share("cccccccccccccccccccccccccccccccc", "carol@example.com", 1.25)
+	share(selfSessionID, "alice@example.com", 9.99)
+	// This machine's own record of its session: it wins over its share.
+	if err := use.Write(f.stateDir, &use.Record{SessionID: selfSessionID, Session: selfSessionName, Harness: "claude-code", ReadAt: fixtureNow,
+		WorkItems: map[string]*use.ItemUsage{id: {Number: 1, CostUSD: 0.5, Priced: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(f.dirs.Root, "board.html")
+	f.workItem(t, WorkItemOptions{Out: out}, "", "page")
+	page, _ := os.ReadFile(out)
+	data, _, _ := pageParts(t, string(page))
+	agents := data.Items[0].Agents
+	if len(agents) != 2 {
+		t.Fatalf("agents: %+v", agents)
+	}
+	var carol, mine *boardPageAgent
+	for i := range agents {
+		switch agents[i].Member {
+		case "carol@example.com":
+			carol = &agents[i]
+		case "":
+			mine = &agents[i]
+		}
+	}
+	if carol == nil || carol.Session != "teammate-session" || carol.Cost != "$1.25 estimated at list price" {
+		t.Fatalf("carol's share: %+v", agents)
+	}
+	if mine == nil || mine.Cost != "$0.50 estimated at list price" {
+		t.Fatalf("this machine's own record: %+v", agents)
+	}
+	if len(data.Limits) != 1 || data.Limits[0].Harness != "carol@example.com, codex" || !data.Limits[0].Near {
+		t.Fatalf("limits: %+v", data.Limits)
+	}
+}
+
+// TestWorkItemPageSharedUsageWithNoNameAndOld: a share that names no
+// member is still a teammate's, not this machine's; a share no watcher
+// wrote in 30 days shows nowhere.
+func TestWorkItemPageSharedUsageWithNoNameAndOld(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	folder := f.withBoard(t)
+	f.workItem(t, WorkItemOptions{}, "Shared", "add")
+	id := readBoard(t, folder).ByNumber(1)[0].ID
+	store := workitem.Store{Folder: folder}
+	for sid, at := range map[string]time.Time{"dddddddddddddddddddddddddddddddd": fixtureNow, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee": fixtureNow.Add(-40 * 24 * time.Hour)} {
+		u := &workitem.Usage{SessionID: sid, Harness: "grok", ReadAt: at,
+			Items: []workitem.UsageItem{{Item: id, ItemUsage: use.ItemUsage{Number: 1, Tokens: use.Counts{Input: 10}}}}}
+		if err := store.ShareUsage(u, workitem.Author{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(f.dirs.Root, "board.html")
+	f.workItem(t, WorkItemOptions{Out: out}, "", "page")
+	page, _ := os.ReadFile(out)
+	data, _, _ := pageParts(t, string(page))
+	if a := data.Items[0].Agents; len(a) != 1 || a[0].Member != "a teammate" {
+		t.Fatalf("agents: %+v", a)
 	}
 }

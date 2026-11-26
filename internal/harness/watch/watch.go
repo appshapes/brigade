@@ -869,7 +869,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath, m.ClaudeSessionID),
 		sync: syncSetup{
-			adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin, board: m.BoardFolder,
+			adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin, board: m.BoardFolder, shareUsage: m.ShareUsage,
 			configDir: rc.env.ConfigDir,
 		},
 		stateFolder: m.StateFolder,

@@ -59,6 +59,9 @@ type syncSetup struct {
 	// (card 263), "" for a team with none: a folder of the team's, not of
 	// this repository, shared with every teammate's peer.
 	board string
+	// shareUsage is the `share_usage` option (work item 348): the session's
+	// usage goes into board for every teammate.
+	shareUsage bool
 	// configDir is this member's store, where the team of the checkout
 	// the folders are in is on record (leftOver); "" in a map that does
 	// not carry it, and the question is then not asked.

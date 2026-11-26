@@ -166,11 +166,21 @@ which model a session is running and how full its context is, Brigade reports tw
 **model identity** (`claude-opus-5[1m]`) and the **context occupancy in tokens**. It gets both by reading your
 session's own transcript file, locally, in the background watcher on your own machine, at each heartbeat (every 30
 seconds unless the team sets another interval) — and
-it sends **only those two values**, the one string and the one number. Nothing else from the transcript is read out,
+it sends **only those two values**, the one string and the one number. It also reads each model call's token
+counts, which it keeps in a file in Brigade's state directory on this machine (mode 0600) and sends nowhere unless
+you share your usage (below). Nothing else from the transcript is read out,
 kept or transmitted: no prompt, no answer, no file name, no tool call. The transcript is never uploaded, and **its
 path is never sent** either — it is held only in Brigade's own 0600 state directory, where the background watcher
 finds it. The model string is handled like every other display string on the wire — capped, sanitised, and never taken
 as fact — because it is a harness's word about itself, not something the backend can check.
+
+**Your sessions' usage, only if you share it.** With the plugin option `share_usage` on (it is off unless you turn
+it on), each of your sessions writes into the team's board folder, at most every five minutes while it changes:
+its model, its context in use, its plan's limits and paid extra usage, and for each work item it worked on, its
+tokens and their estimated cost at list price. *Who sees it:* every teammate whose machine holds the board,
+whatever repository they work in; it never goes to the backend. *How long:* the board keeps every file it was
+given; turning the option off stops new ones and recalls none. *How to stop it:* set `share_usage` to `false`; it
+takes effect at the next session start.
 
 **One fact about Brigade itself.** From 0.10.0 each session also reports the **version of the Brigade plugin it
 is running** (`0.10.0`), at registration and with every heartbeat, so that `brigade sessions` can show your team

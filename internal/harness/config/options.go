@@ -21,6 +21,7 @@ const (
 	OptionTeamInbound          = "CLAUDE_PLUGIN_OPTION_TEAM_INBOUND"
 	OptionShareWorkspaceLabel  = "CLAUDE_PLUGIN_OPTION_SHARE_WORKSPACE_LABEL"
 	OptionShareDoing           = "CLAUDE_PLUGIN_OPTION_SHARE_DOING"
+	OptionShareUsage           = "CLAUDE_PLUGIN_OPTION_SHARE_USAGE"
 	OptionWorkspaceLabel       = "CLAUDE_PLUGIN_OPTION_WORKSPACE_LABEL"
 	OptionPollOnPrompt         = "CLAUDE_PLUGIN_OPTION_POLL_ON_PROMPT"
 	OptionFrame                = "CLAUDE_PLUGIN_OPTION_FRAME"
@@ -423,6 +424,12 @@ type Options struct {
 	// the mode to `off`: the verb refuses to publish and `--clear` still
 	// works.
 	ShareDoing bool
+	// ShareUsage is off unless the option says true (work item 348, ADR
+	// 0038; the owner's ruling of 2026-11-24: one option, off by default):
+	// the session's watcher writes its usage into the board folder, which
+	// file sync gives every teammate. The hook freezes it into the by-pid
+	// map for the watcher.
+	ShareUsage bool
 	// PollOnPrompt enables the prompt-hook poll (6.3).
 	PollOnPrompt bool
 	// ClaudeInboundSetting is on unless the option says false (card 50):
@@ -560,6 +567,14 @@ func ParseOptions(environ []string) (Options, error) {
 			return Options{}, optionErr("share_doing", ReasonInvalidBoolean, errInvalidBool.Message)
 		}
 		o.ShareDoing = share
+	}
+
+	if raw := opt(OptionShareUsage); raw != "" {
+		share, err := ParseBool(raw)
+		if err != nil {
+			return Options{}, optionErr("share_usage", ReasonInvalidBoolean, errInvalidBool.Message)
+		}
+		o.ShareUsage = share
 	}
 
 	poll, err := ParseBool(opt(OptionPollOnPrompt))

@@ -223,6 +223,12 @@ type ByPID struct {
 	// and in a map from before it existed. The watcher reads it once,
 	// when it starts; `brigade work-item` reads it at every call.
 	BoardFolder string `json:"board_folder,omitzero"`
+	// ShareUsage is the `share_usage` option as the hook resolved it (work
+	// item 348, ADR 0038): true when the watcher writes the session's usage
+	// into BoardFolder for every teammate. Off by default, and absent
+	// (omitzero) when off or with no board. The watcher reads it once,
+	// when it starts.
+	ShareUsage bool `json:"share_usage,omitzero"`
 	// MessageSound is the `message_sound` option as the hook resolved it
 	// (card 35): true when this session's watcher plays one quiet sound
 	// as a message arrives. The watcher re-reads it on every liveness

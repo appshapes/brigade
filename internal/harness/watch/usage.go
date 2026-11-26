@@ -5,11 +5,13 @@ import (
 	"encoding/json/v2"
 	"log/slog"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/transcript"
 	"github.com/appshapes/brigade/internal/harness/usage"
 	"github.com/appshapes/brigade/internal/harness/workitem"
@@ -49,8 +51,12 @@ type usageState struct {
 	seeded    bool
 	prev      usage.Counts
 	prevKnown bool
-	items     map[string]*usage.ItemUsage
-	prices    usage.Prices
+	// shared and sharedAt are what was last shared on the board, read_at
+	// aside, and when (work item 348).
+	shared   []byte
+	sharedAt time.Time
+	items    map[string]*usage.ItemUsage
+	prices   usage.Prices
 }
 
 // runUsageCommand is the production Deps.UsageCommand.
@@ -91,6 +97,80 @@ func (w *watcher) recordUsage(snap sharedSnapshot) {
 		return
 	}
 	w.usage.last, w.usage.written = body, now
+	w.shareUsage(r, snap, now)
+}
+
+// shareUsage writes the session's usage into the board folder for every
+// teammate (work item 348, ADR 0038), when its member turned the
+// `share_usage` option on: off by default, and nothing is written then. It
+// writes the session's one file when what is shared changed, at most once
+// in usageRewrite. The caller holds transcriptMu.
+func (w *watcher) shareUsage(r *usage.Record, snap sharedSnapshot, now time.Time) {
+	if !w.sync.shareUsage || w.sync.board == "" || !workitem.SessionIDOK(w.sessionID) {
+		return
+	}
+	if !w.usage.sharedAt.IsZero() && now.Sub(w.usage.sharedAt) < usageRewrite {
+		return
+	}
+	u := sharedUsage(r)
+	// What changed is what is shared: a new reading of the same limits is
+	// not a change.
+	at := u.LimitsAt
+	u.LimitsAt = time.Time{}
+	body, err := json.Marshal(u)
+	if err != nil || string(body) == string(w.usage.shared) {
+		return
+	}
+	u.LimitsAt, u.ReadAt = at, now.UTC()
+	who := workitem.Author{Member: w.memberLabel(snap.labelOption), Session: protocol.OneLineName(snap.name)}
+	store := workitem.Store{Folder: w.sync.board}
+	if err := store.ShareUsage(u, who); err != nil {
+		w.log.Warn("usage: the session's usage was not shared", adlog.Err(err))
+		return
+	}
+	w.usage.shared, w.usage.sharedAt = body, now
+}
+
+// memberLabel is the member's label as `brigade work-item` writes it: the
+// team binding's, else the label the option gives.
+func (w *watcher) memberLabel(option string) string {
+	if b, err := teamstore.LoadBinding(w.rc.env.ConfigDir, w.rc.env.Profile); err == nil && b.HumanLabel != "" {
+		return protocol.SanitizeLabel(workitem.Line(b.HumanLabel))
+	}
+	return protocol.SanitizeLabel(w.humanLabel(option))
+}
+
+// sharedUsage is what a session shares of its record: the values that are
+// there, and its sums by work item. ReadAt is the caller's.
+func sharedUsage(r *usage.Record) *workitem.Usage {
+	u := &workitem.Usage{SessionID: r.SessionID, Harness: r.Harness, Model: r.Model.Or("")}
+	if r.ContextUsed.Known() {
+		v := *r.ContextUsed.V
+		u.ContextUsed = &v
+	}
+	if r.ContextWindow.Known() {
+		v := *r.ContextWindow.V
+		u.ContextWindow = &v
+	}
+	if r.Limits.Known() {
+		l := *r.Limits.V
+		u.Limits, u.LimitsAt = &l, r.LimitsAt
+	}
+	if r.Extra.Known() {
+		x := *r.Extra.V
+		u.Extra = &x
+	}
+	ids := make([]string, 0, len(r.WorkItems))
+	for id := range r.WorkItems {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		if it := r.WorkItems[id]; it != nil {
+			u.Items = append(u.Items, workitem.UsageItem{Item: id, ItemUsage: *it})
+		}
+	}
+	return u
 }
 
 // usageBridge is how old the last watcher's record may be for a new

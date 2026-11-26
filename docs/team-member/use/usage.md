@@ -2,7 +2,8 @@
 
 Each session's watcher reads what the session spent, from the harness's own records on your machine. The
 values are the model, the context in use, the tokens, the cost, the plan's limits and the paid extra usage.
-`brigade usage` shows them. They stay on your machine: nothing goes to the team, the backend or a gateway
+`brigade usage` shows them. They stay on your machine, unless you share them with the team through the board
+([Share it with the team](#share-it-with-the-team)); nothing goes to the backend or a gateway
 ([ADR 0036](../../decisions/0036-read-each-sessions-usage-from-its-harnesss-own-records.md)).
 
 ## Show it
@@ -83,8 +84,27 @@ The estimated cost is the tokens times a price table, at list price. It is never
 - **No price.** A model with no price shows `cost not available: no price for <model>`, and its tokens still
   count. A work item with some sessions priced and some not says `part not priced`.
 
+## Share it with the team
+
+Your usage stays on your machine unless you turn the plugin option `share_usage` on
+([Know the options](../configure/options.md)). It is off by default.
+
+With it on, each of your sessions writes its usage into the team's board folder, at most every five minutes while
+it changes: its model, its context in use, its plan's limits and paid extra usage, and its tokens and estimated
+cost on each work item. File sync gives that folder to every teammate, whatever repository they work in, so their
+`brigade work-item page` shows your sessions on the cards and your limits under your name. Nothing goes to the
+backend.
+
+- **It starts at the next session start**, and stops there when you turn it off.
+- **The board keeps what it was given.** Turning the option off stops new shares and recalls none, as for every
+  file of the board ([Security](../../security.md#19-the-board-and-its-work-items), section 19).
+- **A teammate's machine can write anything into the board**, a share under your name included. The page shows a
+  share as its writer's word.
+
 ## Where it is
 
 One file for each session, `usage/<key>.json` in Brigade's state directory, mode 0600, and the status line's
 under `usage/statusline/`. The watcher writes a session's file when a value changes, and every 5 minutes while it
-runs. Whether a member shares any of it with the team is work item 348, off by default.
+runs. A share with the team is one file of the board for each session, `usage/<key>.json`, which the session
+writes again as its usage changes
+([ADR 0038](../../decisions/0038-share-a-members-usage-through-the-board-folder-when-they-choose.md)).

@@ -45,6 +45,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0035. Record which work item a session works on in the board folder](0035-record-which-work-item-a-session-works-on-in-the-board-folder.md)
 - [0036. Read each session's usage from its harness's own records](0036-read-each-sessions-usage-from-its-harnesss-own-records.md)
 - [0037. Estimate a work item's cost from a shipped price table and a member's file](0037-estimate-a-work-items-cost-from-a-shipped-price-table-and-a-members-file.md)
+- [0038. Share a member's usage through the board folder when they choose](0038-share-a-members-usage-through-the-board-folder-when-they-choose.md)
 
 ## Record a decision
 

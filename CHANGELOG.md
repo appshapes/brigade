@@ -17,6 +17,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **Share your sessions' usage with the team, if you choose** (work
+  item 348, ADR 0038). The plugin option `share_usage`, off by default,
+  writes each session's usage into the team's board folder, at most
+  every five minutes while it changes: its model, context, plan limits
+  and extra usage, and its tokens and estimated cost on each work item.
+  Every teammate's `brigade work-item page` then shows them under your
+  name. Nothing goes to the backend; with the option off nothing is
+  shared. `docs/security.md` says what is shared, and that the token
+  counts the watcher reads stay on your machine otherwise.
 - **The board's page shows the agents and the cost on each work item**
   (work item 349, ADR 0037). Each session's watcher adds what the
   session spends to the work item it works on (`brigade work-item
