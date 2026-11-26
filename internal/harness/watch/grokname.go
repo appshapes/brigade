@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/usage"
 )
 
 const grokSummaryBytes = 1 << 20
@@ -99,7 +101,10 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 	if !grokLaunchCwd(r.cwd) {
 		return r.facts
 	}
-	return r.refreshPinned(r.readGrokSummary)
+	return r.refreshPinned(func(root *os.File) {
+		r.readGrokSummary(root)
+		r.readGrokUsage(root)
+	})
 }
 
 // readGrokSummary brings the facts up to date from the session's
@@ -114,7 +119,7 @@ func (r *hostFactsReader) readGrokSummary(root *os.File) {
 		// A restored summary may reuse the same inode, size and timestamp, and
 		// the group may have been renamed: require a fresh read and a fresh
 		// discovery, exactly as the journal reader does.
-		r.logInfo, r.path = nil, ""
+		r.logInfo, r.path, r.grokOwned = nil, "", false
 		return
 	}
 	defer func() { _ = f.Close() }()
@@ -123,6 +128,7 @@ func (r *hostFactsReader) readGrokSummary(root *os.File) {
 	}
 	if r.logInfo != nil && (!os.SameFile(r.logInfo, fi) || fi.Size() < r.logInfo.Size()) {
 		r.facts = localHostFacts{}
+		r.usageInfo, r.signalsInfo = nil, nil
 	}
 	r.logInfo = fi
 	if fi.Size() <= 0 || fi.Size() > grokSummaryBytes {
@@ -143,9 +149,11 @@ func (r *hostFactsReader) readGrokSummary(root *os.File) {
 	if json.Unmarshal(buf[:n], &doc, hostJSON) != nil {
 		return
 	}
+	r.grokOwned = doc.Info.ID == r.id
 	if doc.Info.ID != r.id {
 		// A summary that names another session is not evidence for this one.
 		r.facts = localHostFacts{}
+		r.usageInfo, r.signalsInfo = nil, nil
 		return
 	}
 	if name := oneLineName(doc.Title); name != "" {
@@ -156,6 +164,148 @@ func (r *hostFactsReader) readGrokSummary(root *os.File) {
 	if model := oneLineModel(doc.Model); model != "" {
 		r.facts.model = model
 	}
+}
+
+// grokUsageBytes caps usage.json and signals.json: a session of 211 turns
+// wrote 156 KB of usage.json.
+const grokUsageBytes = 8 << 20
+
+// readGrokUsage brings the usage up to date from the usage.json and
+// signals.json beside the session's summary (work item 347): the session's
+// totals, its model calls and its cost, and the context in use with its
+// window. Each is read again only when it changed.
+func (r *hostFactsReader) readGrokUsage(root *os.File) {
+	// Only beside a summary that names this session: signals.json names
+	// none itself.
+	if r.path == "" || !r.grokOwned {
+		return
+	}
+	dir := filepath.Dir(r.path)
+	bad := usage.Missing[int64](usage.BadShape)
+	var doc struct {
+		ID      string     `json:"sessionId"`
+		Session *grokUsage `json:"session"`
+		Turns   []struct {
+			grokUsage
+		} `json:"turns"`
+	}
+	if changed, ok := r.readGrokFile(root, filepath.Join(dir, "usage.json"), &r.usageInfo, &doc); changed {
+		// The file is what these values come from: a file that is not this
+		// session's, or not of the shape read here, leaves none of the last
+		// one's numbers standing.
+		use := &r.facts.use
+		use.Total, use.Last = usage.Tokens{Input: bad}, usage.Tokens{Input: bad}
+		use.Calls, use.Cost = bad, usage.Missing[usage.Cost](usage.BadShape)
+		if ok && doc.ID == r.id && doc.Session != nil {
+			u := doc.Session
+			if total, ok := u.tokens(); ok {
+				use.Total = total
+			}
+			if n := len(doc.Turns); n > 0 {
+				if last, ok := doc.Turns[n-1].tokens(); ok {
+					use.Last = last
+				}
+			} else {
+				use.Last = usage.Tokens{Input: usage.Missing[int64](usage.NotYet)}
+			}
+			if n, ok := hostTokenCount(u.Calls); ok {
+				use.Calls = usage.Of(int64(n))
+			}
+			if ticks, ok := hostTokenCount(u.Cost); ok {
+				// 10^10 ticks to the dollar (Grok's user guide, "The grok
+				// usage Subcommand"); whether it is a list price or a bill,
+				// the guide does not say.
+				use.Cost = usage.Of(usage.Cost{USD: float64(ticks) / 1e10, Kind: usage.KindUnknown})
+			}
+		}
+	}
+	var sig struct {
+		Used   jsontext.Value `json:"contextTokensUsed"`
+		Window jsontext.Value `json:"contextWindowTokens"`
+	}
+	if changed, ok := r.readGrokFile(root, filepath.Join(dir, "signals.json"), &r.signalsInfo, &sig); changed {
+		r.facts.use.ContextWindow, r.facts.use.ContextUsed = bad, bad
+		if n, okw := hostTokenCount(sig.Window); ok && okw && n > 0 {
+			r.facts.use.ContextWindow = usage.Of(int64(n))
+			if used, ok := hostTokenCount(sig.Used); ok {
+				r.facts.use.ContextUsed = usage.Of(int64(used))
+			}
+		}
+	}
+}
+
+// grokUsage is the session's totals, or one turn's, in usage.json.
+type grokUsage struct {
+	Input      jsontext.Value `json:"inputTokens"`
+	Output     jsontext.Value `json:"outputTokens"`
+	CacheRead  jsontext.Value `json:"cachedReadTokens"`
+	CacheWrite jsontext.Value `json:"cacheCreationTokens"`
+	Reasoning  jsontext.Value `json:"reasoningTokens"`
+	Calls      jsontext.Value `json:"modelCalls"`
+	Cost       jsontext.Value `json:"costUsdTicks"`
+}
+
+// tokens is the counts as Brigade counts them: Grok's input includes the
+// cache reads, so the input is what is left.
+func (g grokUsage) tokens() (usage.Tokens, bool) {
+	in, ok1 := hostTokenCount(g.Input)
+	out, ok2 := hostTokenCount(g.Output)
+	if !ok1 || !ok2 {
+		return usage.Tokens{}, false
+	}
+	t := usage.Tokens{Output: usage.Of(int64(out))}
+	// Grok's input includes the cache reads; without a cache-read count
+	// that fits in it, the input not read from the cache is not known.
+	if cr, ok := hostTokenCount(g.CacheRead); ok && cr <= in {
+		t.Input, t.CacheRead = usage.Of(int64(in-cr)), usage.Of(int64(cr))
+	} else {
+		t.Input, t.CacheRead = usage.Missing[int64](usage.BadShape), usage.Missing[int64](usage.BadShape)
+	}
+	for _, v := range []struct {
+		raw jsontext.Value
+		to  *usage.Value[int64]
+	}{{g.CacheWrite, &t.CacheWrite}, {g.Reasoning, &t.Reasoning}} {
+		if n, ok := hostTokenCount(v.raw); ok {
+			*v.to = usage.Of(int64(n))
+		} else {
+			*v.to = usage.Missing[int64](usage.NotGiven)
+		}
+	}
+	return t, true
+}
+
+// readGrokFile decodes one file of the session's directory into doc:
+// changed is false when the file did not change since info (nothing to
+// do), and ok whether it decoded. A file that is gone, too large or not
+// JSON is changed and not ok, so its values do not stand; its stat is
+// kept only after it decoded, so a file that is mended is read again.
+func (r *hostFactsReader) readGrokFile(root *os.File, path string, info *os.FileInfo, doc any) (changed, ok bool) {
+	f, fi := openHostPath(root, path, false)
+	if f == nil {
+		had := *info != nil
+		*info = nil
+		return had, false
+	}
+	defer func() { _ = f.Close() }()
+	if unchangedHostFile(*info, fi) {
+		return false, false
+	}
+	if fi.Size() <= 0 || fi.Size() > grokUsageBytes {
+		*info = nil
+		return true, false
+	}
+	buf := make([]byte, fi.Size())
+	n, err := f.ReadAt(buf, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		*info = nil
+		return true, false
+	}
+	if json.Unmarshal(buf[:n], doc, hostJSON) != nil {
+		*info = nil
+		return true, false
+	}
+	*info = fi
+	return true, true
 }
 
 // grokSummaryPath caches the resolved path in r.path, as the journal reader

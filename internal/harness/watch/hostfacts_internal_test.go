@@ -13,6 +13,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/usage"
 )
 
 const factsID = "0199aa11-bb22-7333-8444-555566667777"
@@ -25,6 +26,13 @@ func factsFixture(t *testing.T, file string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// baseFacts is the facts without their usage, which these tests do not
+// assert (hostfacts_usage_test.go does).
+func baseFacts(f localHostFacts) localHostFacts {
+	f.use = usage.Record{}
+	return f
 }
 
 func putFacts(t *testing.T, path, text string) {
@@ -63,21 +71,21 @@ func TestHostFactsFixtures(t *testing.T) {
 			putFacts(t, path, original)
 			r := hostFactsReader{host: host, root: root, id: factsID}
 			want := localHostFacts{name: name, tokens: contextCount, hasContext: true}
-			if got := r.refresh(); got != want {
+			if got := baseFacts(r.refresh()); got != want {
 				t.Fatalf("got %+v, want %+v", got, want)
 			}
-			if got := r.refresh(); got != want {
+			if got := baseFacts(r.refresh()); got != want {
 				t.Fatalf("unchanged: %+v", got)
 			}
 			// Corruption after a valid usage must not erase the facts.
 			putFacts(t, path, original+"not json\n[]\n{\"payload\":false}\n")
-			if got := r.refresh(); got != want {
+			if got := baseFacts(r.refresh()); got != want {
 				t.Fatalf("malformed: %+v", got)
 			}
 			if err := os.Remove(path); err != nil {
 				t.Fatal(err)
 			}
-			if got := r.refresh(); got != want {
+			if got := baseFacts(r.refresh()); got != want {
 				t.Fatalf("missing: %+v", got)
 			}
 			// A replacement naming a foreign ID is never this session's usage.
@@ -114,7 +122,7 @@ func TestHostFactsPartialRenameAndUsage(t *testing.T) {
 				renamePath = path
 			}
 			putFacts(t, path, original+line)
-			if got := r.refresh(); got != before {
+			if got := baseFacts(r.refresh()); got != baseFacts(before) {
 				t.Fatalf("partial applied: %+v", got)
 			}
 			putFacts(t, path, original+line+"\n")

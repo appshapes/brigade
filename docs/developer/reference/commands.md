@@ -21,6 +21,8 @@ Commands:
   send <session_id> | --member <who> [--summary <text> | --invite <plan>] [--reply-to <message_id>] [--body-file <path>]
                                               send a message to another session, by its id or its SESSION characters, or to a member's best session (body on stdin)
   whoami                                      print this session's identity
+  usage [--all]                               show this session's usage as its harness's own records give it, read by the session's watcher on this machine: model, context, tokens, cost, the plan's limits and extra usage, each with its reason when it is not available (--all: every session on this machine; outside a session every one); nothing is sent
+  statusline                                  a step for your own Claude Code status line script: reads the status line document on stdin and keeps the session's cost, context window and plan limits for `brigade usage`; prints nothing and never fails
   doing [--clear]                             publish one sentence about what this session is working on (on stdin)
   rename [--clear]                            name this Claude Code session (the name on stdin): the prompt hook applies it at the user's next prompt, and the team roster follows
   note                                        record one line about the work for the digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)
@@ -109,6 +111,26 @@ send a message to another session, by its id or its SESSION characters, or to a 
 Usage: brigade whoami [--json] [--log-level debug|info|warn|error]
 
 print this session's identity
+```
+
+## brigade usage
+
+```text
+Usage: brigade usage [--all] [--json] [--log-level debug|info|warn|error]
+
+show this session's usage as its harness's own records give it, read by the session's watcher on this machine: model, context, tokens, cost, the plan's limits and extra usage, each with its reason when it is not available (--all: every session on this machine; outside a session every one); nothing is sent
+```
+
+| Flag | What it does |
+| --- | --- |
+| `--all` | every session whose watcher ran on this machine |
+
+## brigade statusline
+
+```text
+Usage: brigade statusline [--json] [--log-level debug|info|warn|error]
+
+a step for your own Claude Code status line script: reads the status line document on stdin and keeps the session's cost, context window and plan limits for `brigade usage`; prints nothing and never fails
 ```
 
 ## brigade doing

@@ -17,6 +17,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **See what your sessions spend** (work item 347, ADR 0036). Each
+  session's watcher reads its usage from the harness's own records on
+  your machine: the model, the context in use and its window, the
+  tokens, the model calls, the cost, the plan's limits and the paid
+  extra usage. `brigade usage` shows it, each value or the reason it is
+  not available; `--all` shows every session on this machine. Nothing of
+  it leaves your machine. On Claude Code, the cost and the limits come
+  only from your status line: add `brigade statusline` to your status
+  line script to give them to `brigade usage`.
 - **The board records which work item a session works on** (work
   item 346, ADR 0035). `brigade work-item start <number>` records that
   this session works on that work item from now on, and `brigade

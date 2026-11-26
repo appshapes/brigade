@@ -413,6 +413,55 @@ func RunQuiet(ctx context.Context, spec QuietSpec) error {
 	return cmd.Run()
 }
 
+// RunOutput runs one child that speaks no protocol and returns its stdout,
+// at most max bytes: a harness's own command whose JSON Brigade reads
+// (work item 347, `muse usage --json`). The rules are RunQuiet's: the
+// environment the caller built, no shell, SIGTERM then SIGKILL on cancel,
+// stderr discarded. Output past max is an error, and nothing of it is
+// kept.
+func RunOutput(ctx context.Context, spec QuietSpec, maxBytes int) ([]byte, error) {
+	if len(spec.Argv) == 0 {
+		return nil, errors.New("adapterkit: RunOutput called with an empty argv")
+	}
+	//nolint:forbidigo // adapterkit/spawn.go IS the spawn seam the 7.3 forbidigo rule points callers at.
+	cmd := exec.CommandContext(ctx, spec.Argv[0], spec.Argv[1:]...)
+	// Never nil: a nil cmd.Env would inherit this process's environment.
+	cmd.Env = append(make([]string, 0, len(spec.Env)), spec.Env...)
+	out := &cappedBuffer{max: maxBytes}
+	cmd.Stdout = out
+	cmd.Stderr = io.Discard
+	cmd.Cancel = func() error { return cancelProcess(cmd.Process) }
+	cmd.WaitDelay = spec.WaitDelay
+	if cmd.WaitDelay <= 0 {
+		cmd.WaitDelay = DefaultWaitDelay
+	}
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	if out.over {
+		return nil, errors.New("adapterkit: the command's output is larger than it can be")
+	}
+	return out.buf.Bytes(), nil
+}
+
+// cappedBuffer keeps at most max bytes and notes what went past.
+type cappedBuffer struct {
+	buf  bytes.Buffer
+	max  int
+	over bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if room := c.max - c.buf.Len(); room < len(p) {
+		c.over = true
+		if room > 0 {
+			c.buf.Write(p[:room])
+		}
+		return len(p), nil
+	}
+	return c.buf.Write(p)
+}
+
 // CancelProcess is what a context cancel does to a long-running child
 // another package supervises (the adapter's `message watch` child in
 // adapterclient): SIGTERM on unix, TerminateProcess on Windows.

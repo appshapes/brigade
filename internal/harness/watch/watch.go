@@ -241,6 +241,10 @@ type Deps struct {
 	// from-scratch child environment; nil means adapterkit.RunQuiet. A test
 	// injects a recorder.
 	Announce func(ctx context.Context, argv, env []string) error
+	// UsageCommand runs a harness's own usage command and returns its
+	// stdout (work item 347, usage.go: `muse usage --json`); nil means
+	// adapterkit.RunOutput. A test injects a fake.
+	UsageCommand func(ctx context.Context, argv, env []string) ([]byte, error)
 	// SoundCommand and BannerCommand, when set, are the player's and the
 	// notifier's argv instead of the ones the notify package finds on
 	// PATH; nil in production, a test sets them so the machine's own
@@ -296,6 +300,7 @@ func RealDeps() Deps {
 		Registry:           registry.Dir,
 		Post:               socketpost.Post,
 		Announce:           runQuiet,
+		UsageCommand:       runUsageCommand,
 		Signals:            []os.Signal{syscall.SIGTERM, syscall.SIGINT},
 		Stop:               stopRequests,
 		PollInterval:       DefaultPollInterval,
@@ -355,6 +360,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.Announce == nil {
 		d.Announce = prod.Announce
+	}
+	if d.UsageCommand == nil {
+		d.UsageCommand = prod.UsageCommand
 	}
 	if d.BrigadeVersion == nil {
 		d.BrigadeVersion = buildinfo.Claimed
@@ -665,6 +673,11 @@ type watcher struct {
 	transcriptMu sync.Mutex
 	transcript   *transcript.Reader
 	lastModel    string
+	// transcriptUsage is the transcript's facts at the last heartbeat, and
+	// usage what recordUsage keeps between heartbeats (usage.go); both are
+	// guarded by transcriptMu.
+	transcriptUsage transcript.Facts
+	usage           usageState
 	// hostFacts is guarded by transcriptMu, like the Claude reader. Only
 	// heartbeat's command writer reads host history; hooks never do.
 	hostFacts hostFactsReader

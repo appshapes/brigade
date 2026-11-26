@@ -166,7 +166,23 @@ type hostRow struct {
 	// unnamed: `brigade whoami` has no `host:` line for it, as it had
 	// none before there was a second host.
 	unnamed bool
+	// usage is what the host gives of a session's usage (work item 347).
+	usage UsageGaps
 }
+
+// UsageGaps are the values of a session's usage that a host gives nowhere
+// Brigade reads, each the reason a record says (work item 347, ADR 0036):
+// "" for a value the host gives. LimitsCommand is the host's own command
+// whose JSON gives the plan's limits, nil for none.
+type UsageGaps struct {
+	Calls, ContextWindow, Cost, Limits, Extra, Reasoning string
+	LimitsCommand                                        []string
+}
+
+// The reasons of the gaps, fixed text a reader can count.
+const (
+	usageNotGiven = "the harness does not give it"
+)
 
 // hosts is the table, in the order HostOf asks: Claude Code first, so
 // another host's variable leaking into a Claude session changes nothing,
@@ -182,6 +198,10 @@ var hosts = []struct {
 		rename:        true,
 		stop:          true,
 		unnamed:       true,
+		usage: UsageGaps{
+			Extra:     usageNotGiven,
+			Reasoning: "Claude Code counts thinking in the output",
+		},
 	}},
 	{HostMuse, hostRow{
 		name:          "Muse Code",
@@ -195,6 +215,12 @@ var hosts = []struct {
 		history:       HistoryDatedStore,
 		delivery:      DeliverFollowedSink,
 		dialect:       DialectMonitor,
+		usage: UsageGaps{
+			ContextWindow: usageNotGiven,
+			Cost:          usageNotGiven,
+			Extra:         usageNotGiven,
+			LimitsCommand: []string{"muse", "usage", "--json"},
+		},
 	}},
 	{HostCodex, hostRow{
 		name:           "Codex CLI",
@@ -210,6 +236,10 @@ var hosts = []struct {
 		delivery:       DeliverQueue,
 		dialect:        DialectThread,
 		hookNamed:      true,
+		usage: UsageGaps{
+			Calls: usageNotGiven,
+			Cost:  usageNotGiven,
+		},
 	}},
 	{HostGrok, hostRow{
 		name:            "Grok Build",
@@ -232,6 +262,12 @@ var hosts = []struct {
 		stop:            true,
 		promptDiscarded: true,
 		staysOnMove:     true,
+		usage: UsageGaps{
+			// `grok usage` shows the plan's usage only on its background
+			// service's route and refuses on the shell's (2026-11-26).
+			Limits: "Brigade does not run grok usage, which refuses on the shell route; Grok Build's own /usage shows the limit",
+			Extra:  usageNotGiven,
+		},
 	}},
 }
 
@@ -253,6 +289,18 @@ func (h Host) row() hostRow {
 		}
 	}
 	return hostRow{}
+}
+
+// Usage is what the host gives of a session's usage (work item 347).
+func (h Host) Usage() UsageGaps { return h.row().usage }
+
+// OrClaude is h, or Claude Code for the empty host a map written before
+// there was a second host names.
+func (h Host) OrClaude() Host {
+	if h == "" {
+		return HostClaude
+	}
+	return h
 }
 
 // Name is the host's product name for a line a person reads.

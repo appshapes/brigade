@@ -60,6 +60,9 @@ func (w *watcher) heartbeat(s *session) {
 	} else {
 		model, tokens = w.transcriptFacts(snap.transcriptPath)
 	}
+	// The session's usage, on this machine only (work item 347): after the
+	// facts above, which it reads too.
+	w.recordUsage(snap)
 	activity := snap.activity
 	inbound := snap.inbound
 	var name *string
@@ -128,6 +131,7 @@ func (w *watcher) transcriptFacts(path string) (model *string, tokens *int) {
 	defer w.transcriptMu.Unlock()
 	if path == "" {
 		w.transcript = nil
+		w.transcriptUsage = transcript.Facts{}
 		return nil, nil
 	}
 	if w.transcript == nil || w.transcript.Path() != path {
@@ -137,6 +141,7 @@ func (w *watcher) transcriptFacts(path string) (model *string, tokens *int) {
 	if err != nil {
 		w.log.Debug("transcript not refreshed; the last facts stand", adlog.Err(err))
 	}
+	w.transcriptUsage = facts
 	if m := oneLineModel(facts.Model); m != "" {
 		if m != w.lastModel {
 			w.log.Info("model updated from the transcript", slog.String("model", m))
