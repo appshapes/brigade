@@ -176,6 +176,10 @@ type Record struct {
 	Limits   Value[Limits] `json:"limits"`
 	LimitsAt time.Time     `json:"limits_at,omitzero"`
 	Extra    Value[Extra]  `json:"extra"`
+	// WorkItems is what the session spent on each work item, by the work
+	// item's id (work item 349): at each heartbeat, the tokens since the
+	// one before go to the work item the session worked on then (ADR 0035).
+	WorkItems map[string]*ItemUsage `json:"work_items,omitzero"`
 }
 
 // Key is the name of a session's file: the first 32 hex digits of the

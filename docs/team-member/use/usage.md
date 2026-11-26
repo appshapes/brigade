@@ -57,6 +57,32 @@ printf '%s' "$input" | brigade statusline
 fails, so your line stays as it was. Without the step, a Claude Code session shows its tokens and context, and
 the other three values say why they are not available.
 
+## By work item
+
+At each heartbeat, the watcher adds what the session spent since the heartbeat before to the work item it
+works on then: the one `brigade work-item start` recorded
+([Say which work item a session works on](work-items.md#say-which-work-item-a-session-works-on)). What a
+session spends with no work item open goes to none. `brigade usage` lists the sums under `work item <number>`,
+and each card of `brigade work-item page` shows them.
+
+The estimated cost is the tokens times a price table, at list price. It is never what anyone is billed:
+
+- **Shipped prices.** Brigade ships the prices it can cite, each with its source and the day it was read: the
+  current Claude models, from Anthropic's pricing page. Cache writes are priced at the 5-minute rate. Claude
+  Haiku 5.5 costs more for a prompt over 100,000 tokens; a sum of tokens has lost each prompt's size, so its
+  lower price stands for all.
+- **Your prices.** `prices.json` in Brigade's config directory adds a price, or changes a shipped one, in US
+  dollars for each million tokens:
+
+  ```json
+  {"models": {"gpt-6.2-astra": {"input": 1.25, "output": 10, "cache_read": 0.125, "cache_write": 0, "source": "the vendor's pricing page", "as_of": "2026-11-26"}}}
+  ```
+
+  A file that is not usable leaves the shipped prices, and the watcher's log says so. A session reads the file
+  when its watcher starts.
+- **No price.** A model with no price shows `cost not available: no price for <model>`, and its tokens still
+  count. A work item with some sessions priced and some not says `part not priced`.
+
 ## Where it is
 
 One file for each session, `usage/<key>.json` in Brigade's state directory, mode 0600, and the status line's

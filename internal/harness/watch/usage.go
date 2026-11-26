@@ -12,6 +12,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/transcript"
 	"github.com/appshapes/brigade/internal/harness/usage"
+	"github.com/appshapes/brigade/internal/harness/workitem"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -41,6 +42,15 @@ type usageState struct {
 	limitsRun time.Time
 	limits    usage.Value[usage.Limits]
 	limitsAt  time.Time
+	// The sums by work item (work item 349): the totals at the last
+	// heartbeat, the sums so far, and whether they were taken up from the
+	// record a watcher before this one wrote. prices is the price table,
+	// read once.
+	seeded    bool
+	prev      usage.Counts
+	prevKnown bool
+	items     map[string]*usage.ItemUsage
+	prices    usage.Prices
 }
 
 // runUsageCommand is the production Deps.UsageCommand.
@@ -59,6 +69,7 @@ func (w *watcher) recordUsage(snap sharedSnapshot) {
 	w.transcriptMu.Lock()
 	defer w.transcriptMu.Unlock()
 	r := w.usageRecord(snap)
+	w.addToWorkItem(r)
 	r.ReadAt = time.Time{}
 	body, err := json.Marshal(r)
 	if err != nil {
@@ -81,6 +92,10 @@ func (w *watcher) recordUsage(snap sharedSnapshot) {
 	}
 	w.usage.last, w.usage.written = body, now
 }
+
+// usageBridge is how old the last watcher's record may be for a new
+// watcher to count from its total: two of its rewrites.
+const usageBridge = 2 * usageRewrite
 
 // usageKeep is how long a record no watcher wrote again is kept.
 const usageKeep = 30 * 24 * time.Hour
@@ -237,6 +252,9 @@ func museLimitsOf(out []byte) (usage.Value[usage.Limits], time.Time) {
 	var doc struct {
 		Schema    int `json:"schemaVersion"`
 		Allowance *struct {
+			// asOfMs in what Muse Code 1.4.25 printed (2026-11-26);
+			// observedAtMs in its published SubscriptionUsage type.
+			AsOf       *int64  `json:"asOfMs"`
 			ObservedAt *int64  `json:"observedAtMs"`
 			Tier       *string `json:"tier"`
 			Window     *struct {
@@ -284,8 +302,10 @@ func museLimitsOf(out []byte) (usage.Value[usage.Limits], time.Time) {
 		limits.Windows = append(limits.Windows, l)
 	}
 	var at time.Time
-	if a.ObservedAt != nil && *a.ObservedAt > 0 {
-		at = time.UnixMilli(*a.ObservedAt).UTC()
+	for _, ms := range []*int64{a.AsOf, a.ObservedAt} {
+		if ms != nil && *ms > 0 && at.IsZero() {
+			at = time.UnixMilli(*ms).UTC()
+		}
 	}
 	return usage.Of(limits), at
 }
@@ -311,4 +331,80 @@ func fillReasons(r *usage.Record) {
 			notYet(*v, &v.Unavailable)
 		}
 	}
+}
+
+// addToWorkItem adds what the session spent since the last heartbeat to
+// the work item it works on now, as `brigade work-item start` recorded it
+// on the board (work item 349, ADR 0035), and puts the sums in the record.
+// A watcher that starts again takes the sums up from the record its
+// session's last watcher wrote. What was spent with no work item open goes
+// to none. The caller holds transcriptMu.
+func (w *watcher) addToWorkItem(r *usage.Record) {
+	if !w.usage.seeded {
+		w.usage.seeded, w.usage.items = true, map[string]*usage.ItemUsage{}
+		if old, err := usage.Read(w.rc.env.StateDir, w.sessionID); err == nil && old != nil {
+			// The last watcher's total bridges the gap only when it is
+			// recent: what a session spent while no watcher read it (a
+			// build without this reader, a watcher that was down) is no
+			// work item's, though the work item open now would take it.
+			if totalKnown(old.Total) && w.deps.Clock().Sub(old.ReadAt) <= usageBridge {
+				w.usage.prev, w.usage.prevKnown = usage.CountsOf(old.Total), true
+			}
+			for id, u := range old.WorkItems {
+				if u != nil {
+					w.usage.items[id] = u
+				}
+			}
+		}
+		// The hook's resolved config directory: a session ignores the
+		// BRIGADE_* variables it inherited (invariants.md).
+		prices, err := usage.LoadPrices(w.rc.env.ConfigDir)
+		if err != nil {
+			w.log.Warn("usage: the prices file is not usable; the shipped prices stand", adlog.Err(err))
+		}
+		w.usage.prices = prices
+	}
+	// A total that is not known now (no call yet, or a record read in the
+	// middle of a write) is no reading: the last one stands, so the next
+	// known total is not taken for a reset and counted again.
+	if totalKnown(r.Total) {
+		now := usage.CountsOf(r.Total)
+		if !w.usage.prevKnown {
+			// The first known total: what was spent before it is no work
+			// item's.
+			w.usage.prev, w.usage.prevKnown = now, true
+		}
+		spent := usage.Since(w.usage.prev, now)
+		w.usage.prev = now
+		w.addSpent(r, spent)
+	}
+	if len(w.usage.items) > 0 {
+		r.WorkItems = w.usage.items
+	}
+}
+
+// totalKnown reports whether a total is a reading: its input or its
+// output is known.
+func totalKnown(t usage.Tokens) bool { return t.Input.Known() || t.Output.Known() }
+
+// addSpent adds one stretch to the work item the session works on now.
+func (w *watcher) addSpent(r *usage.Record, spent usage.Counts) {
+	if spent.Zero() || w.sync.board == "" || !workitem.SessionIDOK(w.sessionID) {
+		return
+	}
+	sw, err := workitem.ReadSessionWork(w.sync.board, w.sessionID)
+	if err != nil {
+		w.log.Debug("usage: the session's work item is unreadable", adlog.Err(err))
+		return
+	}
+	cur := sw.Current()
+	if cur == nil {
+		return
+	}
+	u := w.usage.items[cur.Item]
+	if u == nil {
+		u = &usage.ItemUsage{}
+		w.usage.items[cur.Item] = u
+	}
+	u.Add(cur.Number, r.Model.Or(""), spent, w.usage.prices)
 }

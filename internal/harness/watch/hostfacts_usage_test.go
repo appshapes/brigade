@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/usage"
+	"github.com/appshapes/brigade/internal/harness/workitem"
 )
 
 func usageFixture(t *testing.T, file string) string {
@@ -214,10 +216,12 @@ func TestGrokUsageOfAnotherSession(t *testing.T) {
 func TestMuseLimitsOf(t *testing.T) {
 	t.Parallel()
 	limits, at := museLimitsOf([]byte(usageFixture(t, "muse-usage.json")))
-	if !limits.Known() || limits.V.Plan != "pro" || len(limits.V.Windows) != 2 || at.IsZero() {
+	// The fixture is what Muse Code 1.4.25 printed on 2026-11-26, with the
+	// two percentages changed: asOfMs, and a window with no length.
+	if !limits.Known() || limits.V.Plan != "Muse Code Everyday Usage" || len(limits.V.Windows) != 2 || !at.Equal(time.UnixMilli(1795711091896)) {
 		t.Fatalf("limits: %+v %v", limits, at)
 	}
-	if w := limits.V.Windows; w[0].Name != usage.LimitShort || w[0].UsedPercent != 37 || w[0].WindowMinutes != 300 || w[1].UsedPercent != 112 {
+	if w := limits.V.Windows; w[0].Name != usage.LimitShort || w[0].UsedPercent != 37 || w[0].WindowMinutes != 0 || w[1].UsedPercent != 112 {
 		t.Fatalf("windows: %+v", w)
 	}
 	none, _ := museLimitsOf([]byte(usageFixture(t, "muse-usage-none.json")))
@@ -349,5 +353,150 @@ func assertNoBlank(t *testing.T, r *usage.Record) {
 		for _, v := range []usage.Value[int64]{tk.Input, tk.Output, tk.CacheRead, tk.CacheWrite, tk.Reasoning} {
 			check("a token count", v.Known(), v.Unavailable)
 		}
+	}
+}
+
+// TestRecordUsageAddsToTheWorkItem is work item 349: at each heartbeat,
+// what the session spent since the one before goes to the work item it
+// works on then, priced at its model's price; what it spent before the
+// watcher's first record is no work item's; a watcher that starts again
+// carries the sums on.
+func TestRecordUsageAddsToTheWorkItem(t *testing.T) {
+	t.Parallel()
+	state, board := t.TempDir(), t.TempDir()
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	msg := func(id string, in int) string {
+		return `{"type":"assistant","message":{"id":"` + id + `","model":"claude-opus-5-5","usage":{"input_tokens":` + strconv.Itoa(in) +
+			`,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}` + "\n"
+	}
+	putFacts(t, path, msg("m0", 500))
+	store := workitem.Store{Folder: board}
+	b, _ := workitem.Read(board)
+	list := b.Lists[0].Key
+	ids := map[string]string{}
+	for _, title := range []string{"first", "second"} {
+		ti := title
+		id, err := store.Add(b, workitem.Fields{Title: &ti, List: &list}, workitem.Author{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[title] = id
+		b, _ = workitem.Read(board)
+	}
+	start := func(title string) {
+		t.Helper()
+		sw, _ := workitem.ReadSessionWork(board, "brigade-9")
+		if err := store.StartWork(sw, b.ByID(ids[title]), workitem.Author{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newWatcher := func() *watcher {
+		return &watcher{
+			sessionID: "brigade-9", sync: syncSetup{board: board}, rc: runConfig{env: config.WatcherEnv{StateDir: state}},
+			log: slog.New(slog.DiscardHandler), deps: Deps{Clock: time.Now},
+			state: &shared{name: "349", transcriptPath: path, nativeID: "native-9"},
+		}
+	}
+	beat := func(w *watcher) *usage.Record {
+		t.Helper()
+		w.transcriptFacts(path)
+		w.usage.written = time.Time{} // write at once, as a changed record is
+		w.recordUsage(w.state.snapshot())
+		rec, err := usage.Read(state, "brigade-9")
+		if err != nil || rec == nil {
+			t.Fatalf("no record: %v", err)
+		}
+		return rec
+	}
+	w := newWatcher()
+	start("first")
+	if rec := beat(w); len(rec.WorkItems) != 0 {
+		t.Fatalf("what was spent before the first record went to a work item: %+v", rec.WorkItems)
+	}
+	putFacts(t, path, msg("m0", 500)+msg("m1", 1000))
+	rec := beat(w)
+	first := rec.WorkItems[ids["first"]]
+	if first == nil || first.Number != 1 || first.Tokens.Input != 1000 || first.CostUSD != 0.004 || first.Priced != 1 {
+		t.Fatalf("first: %+v", first)
+	}
+	start("second")
+	putFacts(t, path, msg("m0", 500)+msg("m1", 1000)+msg("m2", 2000))
+	rec = beat(w)
+	if second := rec.WorkItems[ids["second"]]; second == nil || second.Tokens.Input != 2000 || rec.WorkItems[ids["first"]].Tokens.Input != 1000 {
+		t.Fatalf("second: %+v", rec.WorkItems)
+	}
+
+	// A new watcher takes the sums up from a recent record.
+	w2 := newWatcher()
+	putFacts(t, path, msg("m0", 500)+msg("m1", 1000)+msg("m2", 2000)+msg("m3", 4000))
+	rec = beat(w2)
+	if second := rec.WorkItems[ids["second"]]; second == nil || second.Tokens.Input != 6000 || rec.WorkItems[ids["first"]] == nil {
+		t.Fatalf("after a new watcher: %+v", rec.WorkItems)
+	}
+}
+
+// TestAddToWorkItemPassesOverAnUnknownTotal: a heartbeat whose total is
+// not known (a record read in the middle of a write) is no reading, so the
+// next known total is not taken for a reset and counted again.
+func TestAddToWorkItemPassesOverAnUnknownTotal(t *testing.T) {
+	t.Parallel()
+	board := t.TempDir()
+	store := workitem.Store{Folder: board}
+	b, _ := workitem.Read(board)
+	title, list := "one", b.Lists[0].Key
+	id, err := store.Add(b, workitem.Fields{Title: &title, List: &list}, workitem.Author{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = workitem.Read(board)
+	if err := store.StartWork(&workitem.SessionWork{SessionID: "brigade-7"}, b.ByID(id), workitem.Author{}); err != nil {
+		t.Fatal(err)
+	}
+	w := &watcher{sessionID: "brigade-7", sync: syncSetup{board: board}, rc: runConfig{env: config.WatcherEnv{StateDir: t.TempDir()}}, log: slog.New(slog.DiscardHandler)}
+	total := func(in int64) *usage.Record {
+		return &usage.Record{Model: usage.Of("claude-opus-5-5"), Total: usage.Tokens{Input: usage.Of(in), Output: usage.Of(int64(0))}}
+	}
+	unknown := &usage.Record{Total: usage.Tokens{Input: usage.Missing[int64](usage.BadShape)}}
+	for _, r := range []*usage.Record{unknown, total(2_000_000), total(2_000_100), unknown, total(2_000_300)} {
+		w.addToWorkItem(r)
+	}
+	if u := w.usage.items[id]; u == nil || u.Tokens.Input != 300 {
+		t.Fatalf("the work item's input: %+v", u)
+	}
+}
+
+// TestAddToWorkItemDoesNotBridgeAnOldRecord: a new watcher carries the
+// sums of a record older than usageBridge, but gives what was spent since
+// that record to no work item.
+func TestAddToWorkItemDoesNotBridgeAnOldRecord(t *testing.T) {
+	t.Parallel()
+	state, board := t.TempDir(), t.TempDir()
+	store := workitem.Store{Folder: board}
+	b, _ := workitem.Read(board)
+	title, list := "one", b.Lists[0].Key
+	id, err := store.Add(b, workitem.Fields{Title: &title, List: &list}, workitem.Author{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = workitem.Read(board)
+	if err := store.StartWork(&workitem.SessionWork{SessionID: "brigade-8"}, b.ByID(id), workitem.Author{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	old := &usage.Record{SessionID: "brigade-8", Harness: "claude-code", ReadAt: now.Add(-time.Hour),
+		Total:     usage.Tokens{Input: usage.Of(int64(1000)), Output: usage.Of(int64(0))},
+		WorkItems: map[string]*usage.ItemUsage{id: {Number: 1, Tokens: usage.Counts{Input: 10}}}}
+	if err := usage.Write(state, old); err != nil {
+		t.Fatal(err)
+	}
+	w := &watcher{sessionID: "brigade-8", sync: syncSetup{board: board}, rc: runConfig{env: config.WatcherEnv{StateDir: state}},
+		log: slog.New(slog.DiscardHandler), deps: Deps{Clock: func() time.Time { return now }}}
+	r := func(in int64) *usage.Record {
+		return &usage.Record{Total: usage.Tokens{Input: usage.Of(in), Output: usage.Of(int64(0))}}
+	}
+	w.addToWorkItem(r(900_000)) // the gap of an hour: no work item's
+	w.addToWorkItem(r(900_050))
+	if u := w.usage.items[id]; u == nil || u.Tokens.Input != 60 {
+		t.Fatalf("the work item's input: %+v", u)
 	}
 }

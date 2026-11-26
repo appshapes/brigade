@@ -213,14 +213,20 @@ the Brigade Board as one read-only page: 12 open and 30 closed work items in 4 l
 ```
 
 - **One file, read-only.** Each list is a column. Each open work item is a card with its number, its whole
-  title, its assignee and its tags. A click on a card shows its description and its comments. Nothing on the
-  page changes the board: `brigade work-item` does that.
+  title, its assignee and its tags. A click on a card, or Enter on it, opens the work item in a dialog over the
+  board: its description, the agents on it and its comments, however long. Escape, Close or a click outside the
+  dialog closes it. Nothing on the page changes the board: `brigade work-item` does that.
 - **Filters.** Filter by assignee (or nobody), by tag and by list. Two switches add the lists the team hid and
   the closed work items. The filters stay in the page's address, so a reload keeps them.
 - **By roadmap item.** "Group by" turns the columns into the roadmap: one for each roadmap item, in order,
   headed by its number, its title and how many of its work items are finished, and a last one for the work
   items under none. Each card then shows its list. Grouped by list, a roadmap item is a card that says so. A
   closed roadmap item is a column only with the closed work items switched on.
+- **Agents and their cost.** A card shows each session of this machine that worked on the work item: its
+  harness and model, its tokens, its estimated cost at list price, and its context while it works on it still.
+  The card adds them up. The plan limits of this machine's sessions stand apart, above the board, and a window
+  at 80 percent or more is marked. Only this machine's sessions show: a teammate's usage stays on their machine
+  ([See what your sessions spend](usage.md#by-work-item)).
 - **No network.** The page carries its own style, script and data. Its Content-Security-Policy lets it load
   nothing else, so it opens with the backend down and the machine offline.
 - **A snapshot.** The page shows the board as this machine had it when the command ran. Its footer gives that

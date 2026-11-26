@@ -2,6 +2,7 @@ package commands
 
 import (
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -161,6 +162,18 @@ func usageBlock(r *use.Record, now time.Time) []string {
 		add("extra usage", extraText(*r.Extra.V))
 	default:
 		add("extra usage", "not available: "+reasonText(r.Extra.Unavailable))
+	}
+	// What the session spent on each work item it worked on (work item
+	// 349), by number.
+	items := make([]*use.ItemUsage, 0, len(r.WorkItems))
+	for _, u := range r.WorkItems {
+		if u != nil {
+			items = append(items, u)
+		}
+	}
+	slices.SortFunc(items, func(a, b *use.ItemUsage) int { return a.Number - b.Number })
+	for _, u := range items {
+		add("work item "+itoa(u.Number), countsText(u.Tokens)+"; "+itemCostText(u))
 	}
 	return lines
 }

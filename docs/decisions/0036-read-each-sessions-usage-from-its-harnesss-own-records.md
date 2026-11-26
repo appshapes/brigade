@@ -3,6 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Supersedes:** none
+- **Corrected:** 2026-11-26: the assumption on `muse usage --json` was in part wrong. Muse Code 1.4.25 printed its
+  data as `allowance`, as assumed, but with the time as `asOfMs`, not `observedAtMs`, and a window with no
+  `windowDurationMins`. The reader takes `asOfMs`, and `observedAtMs` where `asOfMs` is not there (work item 349).
 
 ## Context
 

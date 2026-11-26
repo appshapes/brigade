@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -20,6 +21,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	use "github.com/appshapes/brigade/internal/harness/usage"
 	"github.com/appshapes/brigade/internal/harness/workitem"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -126,6 +128,7 @@ func (inv Invocation) workItemPageRun(ask *workItemAsk) error {
 		return err
 	}
 	data := boardPageFrom(board, where.team, inv.Deps.now())
+	inv.pageUsage(&data, where.folder)
 	page, err := renderBoardPage(data)
 	if err != nil {
 		return &protocol.Error{Code: protocol.CodeInternal, Message: "the page could not be made; nothing was written"}
@@ -276,6 +279,33 @@ type boardPageData struct {
 	// Roadmap is the open roadmap items in order, then the closed ones by
 	// number (work item 404): the groups of the page's other view.
 	Roadmap []boardPageRoadmap `json:"roadmap"`
+	// Limits is the plan limits of the sessions on this machine, one for
+	// each harness and plan (work item 349): a limit belongs to an
+	// account, not to a work item, so the page shows it apart.
+	Limits []boardPageLimit `json:"limits"`
+}
+
+// boardPageLimit is one harness's plan limits, as its latest record gave
+// them: Near when a window is at 80 percent or more, Extra the paid usage
+// beyond the plan when the harness gives it.
+type boardPageLimit struct {
+	Harness string `json:"harness"`
+	Text    string `json:"text"`
+	Near    bool   `json:"near"`
+	Extra   string `json:"extra"`
+}
+
+// boardPageAgent is one session of this machine that worked on a work
+// item (work item 349): its usage on it, and while it works on it still,
+// its context.
+type boardPageAgent struct {
+	Session string `json:"session"`
+	Harness string `json:"harness"`
+	Model   string `json:"model"`
+	Current bool   `json:"current"`
+	Context string `json:"context"`
+	Tokens  string `json:"tokens"`
+	Cost    string `json:"cost"`
 }
 
 // boardPageRoadmap is one roadmap item as a group of the page: Total is
@@ -326,6 +356,12 @@ type boardPageItem struct {
 	Kind     string `json:"kind"`
 	Roadmap  int    `json:"roadmap"`
 	Finished bool   `json:"finished"`
+	// Agents is the sessions of this machine that worked on it, and Spent
+	// their total: tokens and estimated cost (work item 349).
+	Agents []boardPageAgent `json:"agents"`
+	Spent  string           `json:"spent"`
+
+	id string
 }
 
 // boardPageComment is one comment on a card.
@@ -343,6 +379,7 @@ const pageStamp = workItemStamp
 // cleaned as the human form of `show` cleans it.
 func boardPageFrom(board *workitem.Board, team string, now time.Time) boardPageData {
 	data := boardPageData{
+		Limits:    []boardPageLimit{},
 		Team:      oneLine(protocol.Sanitize(team)),
 		Generated: now.UTC().Format(pageStamp),
 		Lists:     make([]boardPageList, 0, len(board.Lists)),
@@ -402,6 +439,8 @@ func boardPageFrom(board *workitem.Board, team string, now time.Time) boardPageD
 			Updated:     it.UpdatedAt.UTC().Format(pageStamp),
 			Kind:        it.Kind,
 			Finished:    board.Finished(it),
+			Agents:      []boardPageAgent{},
+			id:          it.ID,
 		}
 		if r := board.RoadmapOf(it); r != nil {
 			card.Roadmap = r.Number
@@ -540,8 +579,14 @@ const pageBody = `</style>
 <label class="check"><input type="checkbox" id="f-closed"> closed work items</label>
 </div>
 <p id="summary" class="summary"></p>
+<section id="limits" class="limits"></section>
 </header>
 <main id="board" class="board"></main>
+<dialog id="detail" class="detail-dialog" aria-labelledby="d-title">
+<div class="d-head"><h2 id="d-title"></h2><button type="button" id="d-close">Close</button></div>
+<div id="d-meta" class="meta"></div>
+<div id="d-body"></div>
+</dialog>
 <footer><p id="generated"></p><p>This page is read-only. Change a work item with <code>brigade work-item</code>, then run <code>brigade work-item page</code> again and reload.</p></footer>
 <script id="board-data" type="application/json">`
 
@@ -564,8 +609,16 @@ h1 { margin: 0 0 8px; font-size: 20px; }
 .cards { display: flex; flex-direction: column; gap: 8px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
 .card.closed { opacity: 0.6; }
-.card summary { cursor: pointer; list-style: none; }
-.card summary::-webkit-details-marker { display: none; }
+.card.openable { cursor: pointer; }
+.card.openable:hover, .card.openable:focus { border-color: var(--accent); outline: none; }
+.detail-dialog { width: min(760px, calc(100vw - 32px)); max-height: 85vh; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); }
+.detail-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.d-head { position: sticky; top: 0; display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+.d-head h2 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.d-head button { flex: 0 0 auto; }
+#d-meta { padding: 8px 16px 0; }
+#d-body { padding: 8px 16px 16px; }
+.d-section { margin: 12px 0 4px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .num { color: var(--muted); margin-right: 4px; }
 .title { font-weight: 600; overflow-wrap: anywhere; }
 .meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; color: var(--muted); font-size: 12px; }
@@ -577,6 +630,13 @@ h1 { margin: 0 0 8px; font-size: 20px; }
 .comment { margin-top: 8px; }
 .comment .by { color: var(--muted); font-size: 12px; }
 .empty { color: var(--muted); font-style: italic; }
+.limits { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.limits h2 { margin: 0 0 4px; font-size: 13px; }
+.limits p { margin: 2px 0; }
+.near { color: #b3261e; font-weight: 600; }
+.spent { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.agent { margin-top: 6px; font-size: 12px; }
+.agent .now { color: var(--accent); }
 code { font-size: 13px; }
 `
 
@@ -702,6 +762,18 @@ const pageScript = `
   byId("generated").textContent = "Written " + data.generated + " from the board folder on this machine." +
     (data.latest ? " Its newest change is from " + data.latest + "." : "");
 
+  // The plan limits of this machine's sessions, apart from the cards: a
+  // limit belongs to an account, not to a work item.
+  (function () {
+    var box = byId("limits");
+    if (data.limits.length === 0) { box.remove(); return; }
+    box.appendChild(el("h2", null, "Plan limits of the sessions on this machine"));
+    data.limits.forEach(function (l) {
+      var p = el("p", l.near ? "near" : null, l.harness + ": " + l.text + (l.near ? " (near a limit)" : ""));
+      if (l.extra !== "") { p.appendChild(document.createTextNode("; extra usage: " + l.extra)); }
+      box.appendChild(p);
+    });
+  })();
   function filters() {
     return { assignee: fAssignee.value, tag: fTag.value, list: fList.value, hidden: fHidden.checked, closed: fClosed.checked, by: fBy.value };
   }
@@ -710,43 +782,84 @@ const pageScript = `
     data.lists.forEach(function (l) { if (l.key === key) { name = l.name; } });
     return name;
   }
+  // meta: a work item's assignee, list, tags and flags, as a card and the
+  // dialog show them.
+  function meta(it, inList) {
+    var m = el("div", "meta");
+    m.appendChild(el("span", "who", it.assignee !== "" ? it.assignee : "nobody"));
+    if (inList) { m.appendChild(el("span", "chip", inList)); }
+    it.tags.forEach(function (t) { m.appendChild(el("span", "chip", t)); });
+    if (it.kind === "roadmap") { m.appendChild(el("span", "kind-flag", "roadmap item")); }
+    if (it.closed) { m.appendChild(el("span", "closed-flag", "closed")); }
+    return m;
+  }
   // card: one work item. inList is the name of its list, shown as a chip
-  // where the cards are not grouped by list.
+  // where the cards are not grouped by list. A card with more to read
+  // opens it in the dialog, over the board.
   function card(it, inList) {
     var c = el("article", "card" + (it.closed ? " closed" : ""));
-    var head = el("div");
     var line = el("div");
     line.appendChild(el("span", "num", "#" + it.number));
     line.appendChild(el("span", "title", it.title));
-    head.appendChild(line);
-    var meta = el("div", "meta");
-    meta.appendChild(el("span", "who", it.assignee !== "" ? it.assignee : "nobody"));
-    if (inList) { meta.appendChild(el("span", "chip", inList)); }
-    it.tags.forEach(function (t) { meta.appendChild(el("span", "chip", t)); });
-    if (it.kind === "roadmap") { meta.appendChild(el("span", "kind-flag", "roadmap item")); }
-    if (it.closed) { meta.appendChild(el("span", "closed-flag", "closed")); }
-    head.appendChild(meta);
-    if (it.description === "" && it.comments.length === 0) {
-      c.appendChild(head);
-      return c;
-    }
-    var d = el("details");
-    var s = el("summary");
-    s.appendChild(head);
-    d.appendChild(s);
-    var body = el("div", "detail");
-    if (it.description !== "") { body.appendChild(el("p", "text", it.description)); }
-    it.comments.forEach(function (cm) {
-      var w = el("div", "comment");
-      w.appendChild(el("div", "by", cm.at + (cm.by ? " by " + cm.by : "") + (cm.session ? " (session " + cm.session + ")" : "")));
-      w.appendChild(el("p", "text", cm.text));
-      body.appendChild(w);
+    c.appendChild(line);
+    c.appendChild(meta(it, inList));
+    if (it.spent !== "") { c.appendChild(el("div", "spent", it.spent)); }
+    if (it.description === "" && it.comments.length === 0 && it.agents.length === 0) { return c; }
+    c.className += " openable";
+    c.tabIndex = 0;
+    c.setAttribute("role", "button");
+    c.setAttribute("aria-haspopup", "dialog");
+    c.addEventListener("click", function () { openDetail(it); });
+    c.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(it); }
     });
-    body.appendChild(el("div", "by", "updated " + it.updated));
-    d.appendChild(body);
-    c.appendChild(d);
     return c;
   }
+  // openDetail: the work item whole in the dialog: its description, the
+  // sessions that worked on it, its comments. Escape, Close, or a click
+  // outside it closes it, and the card it came from has the focus again.
+  var dialog = byId("detail");
+  var opener = null;
+  function openDetail(it) {
+    opener = document.activeElement;
+    byId("d-title").textContent = "#" + it.number + " " + it.title;
+    var m = byId("d-meta");
+    m.textContent = "";
+    m.appendChild(meta(it, listName(it.list)));
+    if (it.spent !== "") { m.appendChild(el("span", "spent", it.spent)); }
+    var body = byId("d-body");
+    body.textContent = "";
+    if (it.description !== "") { body.appendChild(el("p", "text", it.description)); }
+    if (it.agents.length > 0) {
+      body.appendChild(el("h3", "d-section", "Agents on this machine"));
+      it.agents.forEach(function (a) {
+        var w = el("div", "agent");
+        var who = el("div");
+        who.appendChild(el("strong", null, a.session));
+        who.appendChild(document.createTextNode(" (" + a.harness + (a.model ? ", " + a.model : "") + ")"));
+        if (a.current) { who.appendChild(el("span", "now", " works on it now" + (a.context ? ", context " + a.context : ""))); }
+        w.appendChild(who);
+        w.appendChild(el("div", null, a.tokens + "; " + a.cost));
+        body.appendChild(w);
+      });
+    }
+    if (it.comments.length > 0) {
+      body.appendChild(el("h3", "d-section", "Comments"));
+      it.comments.forEach(function (cm) {
+        var w = el("div", "comment");
+        w.appendChild(el("div", "by", cm.at + (cm.by ? " by " + cm.by : "") + (cm.session ? " (session " + cm.session + ")" : "")));
+        w.appendChild(el("p", "text", cm.text));
+        body.appendChild(w);
+      });
+    }
+    body.appendChild(el("div", "by", "updated " + it.updated));
+    dialog.showModal();
+    dialog.scrollTop = 0;
+    byId("d-close").focus();
+  }
+  byId("d-close").addEventListener("click", function () { dialog.close(); });
+  dialog.addEventListener("click", function (e) { if (e.target === dialog) { dialog.close(); } });
+  dialog.addEventListener("close", function () { if (opener && opener.focus) { opener.focus(); } });
   // renderRoadmap: one column for each roadmap item, in order, headed by
   // its number, its title and how far it is, then one for the work items
   // under none.
@@ -823,3 +936,124 @@ const pageScript = `
   render();
 })(this);
 `
+
+// pageUsage puts this machine's usage on the page (work item 349): on each
+// card the sessions that worked on it, from their usage records (ADR
+// 0036), and their total; and the plan limits apart from the cards. A
+// state directory or a record that cannot be read leaves the page as it
+// was, without them.
+func (inv Invocation) pageUsage(data *boardPageData, folder string) {
+	stateDir, err := config.BrigadeStateDir(inv.Environ)
+	if err != nil {
+		return
+	}
+	records, err := usageList(stateDir)
+	if err != nil {
+		inv.logger().Debug("work-item page: the usage records could not be read", log.Err(err))
+		return
+	}
+	links, err := workitem.ReadWork(folder)
+	if err != nil {
+		links = nil
+	}
+	now := inv.Deps.now()
+	byID := map[string]int{}
+	for i := range data.Items {
+		byID[data.Items[i].id] = i
+	}
+	type sum struct {
+		tokens  use.Counts
+		cost    float64
+		priced  bool
+		partial bool
+	}
+	sums := map[int]*sum{}
+	for _, r := range records {
+		for id, u := range r.WorkItems {
+			i, ok := byID[id]
+			if !ok || u == nil {
+				continue
+			}
+			current := false
+			if cur := links.Session(r.SessionID).Current(); cur != nil && cur.Item == id {
+				current = true
+			}
+			a := boardPageAgent{
+				Session: nameLine(cmp.Or(r.Session, shortSession(r.SessionID))),
+				Harness: r.Harness, Model: r.Model.Or(""), Current: current,
+				Tokens: countsText(u.Tokens), Cost: itemCostText(u),
+			}
+			if current && r.ContextUsed.Known() {
+				a.Context = countText(*r.ContextUsed.V)
+				if r.ContextWindow.Known() {
+					a.Context += " of " + countText(*r.ContextWindow.V)
+				}
+			}
+			data.Items[i].Agents = append(data.Items[i].Agents, a)
+			t := sums[i]
+			if t == nil {
+				t = &sum{}
+				sums[i] = t
+			}
+			t.tokens.Add(u.Tokens)
+			t.cost += u.CostUSD
+			t.priced = t.priced || u.Priced > 0
+			t.partial = t.partial || u.Unpriced > 0
+		}
+	}
+	for i, t := range sums {
+		cost := "cost not available: no price for its models"
+		if t.priced {
+			cost = "$" + strconv.FormatFloat(t.cost, 'f', 2, 64) + " estimated"
+			if t.partial {
+				cost += ", part not priced"
+			}
+		}
+		n := len(data.Items[i].Agents)
+		agents := itoa(n) + " agents"
+		if n == 1 {
+			agents = "1 agent"
+		}
+		data.Items[i].Spent = agents + ", " + countsText(t.tokens) + ", " + cost
+	}
+	// The limits: of each harness and plan, the record whose limits are the
+	// newest. A window that has reset since is no longer near.
+	withLimits := slices.DeleteFunc(slices.Clone(records), func(r *use.Record) bool { return !r.Limits.Known() })
+	slices.SortStableFunc(withLimits, func(a, b *use.Record) int { return b.LimitsAt.Compare(a.LimitsAt) })
+	seen := map[string]bool{}
+	for _, r := range withLimits {
+		l := *r.Limits.V
+		key := r.Harness + "|" + l.Plan
+		if seen[key] || len(l.Windows) == 0 {
+			continue
+		}
+		seen[key] = true
+		lim := boardPageLimit{Harness: r.Harness, Text: limitsText(l, r.LimitsAt, now)}
+		for _, w := range l.Windows {
+			if w.UsedPercent >= 80 && (w.ResetsAt.IsZero() || w.ResetsAt.After(now)) {
+				lim.Near = true
+			}
+		}
+		if r.Extra.Known() {
+			lim.Extra = extraText(*r.Extra.V)
+		}
+		data.Limits = append(data.Limits, lim)
+	}
+}
+
+// countsText is a stretch's tokens as a card shows them.
+func countsText(c use.Counts) string {
+	return "input " + countText(c.Input) + ", output " + countText(c.Output) + ", cache read " + countText(c.CacheRead) + ", cache write " + countText(c.CacheWrite)
+}
+
+// itemCostText is one session's estimated cost on a work item.
+func itemCostText(u *use.ItemUsage) string {
+	if u.Priced == 0 {
+		return "cost not available: no price for " + attrLine(cmp.Or(u.Model, "its model"))
+	}
+	text := "$" + strconv.FormatFloat(u.CostUSD, 'f', 2, 64) + " estimated at list price"
+	if u.Unpriced > 0 {
+		text += ", part not priced"
+	}
+	return text
+}

@@ -17,6 +17,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **The board's page shows the agents and the cost on each work item**
+  (work item 349, ADR 0037). Each session's watcher adds what the
+  session spends to the work item it works on (`brigade work-item
+  start`). A card of `brigade work-item page` shows each session of
+  this machine that worked on it, with its tokens and its estimated
+  cost at list price, and their total; the plan limits stand apart, a
+  window at 80 percent or more marked. `brigade usage` lists the sums
+  by work item. Brigade ships the prices of the current Claude models;
+  add or change a price in `prices.json` in Brigade's config directory.
+  A click on a card now opens the work item in a dialog over the board,
+  where a long description reads at full width, in place of folding the
+  card open in its column.
 - **See what your sessions spend** (work item 347, ADR 0036). Each
   session's watcher reads its usage from the harness's own records on
   your machine: the model, the context in use and its window, the

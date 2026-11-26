@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/usage"
@@ -44,7 +45,18 @@ type localHostFacts struct {
 	// tokens, the context window, the cost, the limits and the extra
 	// usage, each set where the record has it. It stays on this machine
 	// (usage.Record); nothing of it rides a heartbeat.
-	use usage.Record
+	use hostUse
+}
+
+// hostUse is the part of a usage record a host's own record gives.
+type hostUse struct {
+	Total, Last                usage.Tokens
+	Calls                      usage.Value[int64]
+	ContextWindow, ContextUsed usage.Value[int64]
+	Cost                       usage.Value[usage.Cost]
+	Limits                     usage.Value[usage.Limits]
+	LimitsAt                   time.Time
+	Extra                      usage.Value[usage.Extra]
 }
 
 type hostFactsReader struct {

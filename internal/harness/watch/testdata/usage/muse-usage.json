@@ -1,1 +1,1 @@
-{"schemaVersion":1,"allowance":{"observedAtMs":1764150000000,"tier":"pro","window":{"resetsAtMs":1764158400000,"usedPercent":37,"windowDurationMins":300},"weekly":{"resetsAtMs":1764590400000,"usedPercent":112}},"reason":null}
+{"schemaVersion":1,"allowance":{"tier":"Muse Code Everyday Usage","window":{"usedPercent":37,"resetsAtMs":1795718652000},"weekly":{"usedPercent":112,"resetsAtMs":1795996800000},"asOfMs":1795711091896,"source":"mint"},"reason":null,"hint":null}

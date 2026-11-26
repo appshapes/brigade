@@ -44,6 +44,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0034. Say the roster-line reminder from Grok Build's Stop hook](0034-say-the-roster-line-reminder-from-grok-builds-stop-hook.md)
 - [0035. Record which work item a session works on in the board folder](0035-record-which-work-item-a-session-works-on-in-the-board-folder.md)
 - [0036. Read each session's usage from its harness's own records](0036-read-each-sessions-usage-from-its-harnesss-own-records.md)
+- [0037. Estimate a work item's cost from a shipped price table and a member's file](0037-estimate-a-work-items-cost-from-a-shipped-price-table-and-a-members-file.md)
 
 ## Record a decision
 

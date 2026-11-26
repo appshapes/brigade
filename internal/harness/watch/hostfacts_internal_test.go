@@ -13,7 +13,6 @@ import (
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
-	"github.com/appshapes/brigade/internal/harness/usage"
 )
 
 const factsID = "0199aa11-bb22-7333-8444-555566667777"
@@ -31,7 +30,7 @@ func factsFixture(t *testing.T, file string) string {
 // baseFacts is the facts without their usage, which these tests do not
 // assert (hostfacts_usage_test.go does).
 func baseFacts(f localHostFacts) localHostFacts {
-	f.use = usage.Record{}
+	f.use = hostUse{}
 	return f
 }
 
