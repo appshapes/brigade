@@ -96,7 +96,13 @@ type workItemResult struct {
 	// FormerlyMore how many it left out.
 	Formerly     []workItemFormerly `json:"formerly,omitzero"`
 	FormerlyMore int                `json:"formerly_more,omitzero"`
-	Note         string             `json:"note"`
+	// Started is the span of work `start` opened, and Stopped the one
+	// `start` or `stop` closed (work item 346). Sessions is every span of
+	// work on the work item `show` printed, oldest first.
+	Started  *workitem.Span  `json:"started,omitzero"`
+	Stopped  *workitem.Span  `json:"stopped,omitzero"`
+	Sessions []workitem.Span `json:"sessions,omitzero"`
+	Note     string          `json:"note"`
 }
 
 // workItemNotShown is one hidden list a listing left out: Items is the
@@ -194,6 +200,10 @@ const (
 	workItemRename  = "rename-list"
 	workItemHide    = "hide-list"
 	workItemUnhide  = "unhide-list"
+	// workItemStart and workItemStop set and clear the work item this
+	// session works on (work item 346, ADR 0035).
+	workItemStart = "start"
+	workItemStop  = "stop"
 )
 
 // The fixed texts of `brigade work-item` the tests assert word for word.
@@ -204,7 +214,7 @@ const (
 		"add [--list <list>] [--to <label> | --mine] [--tag <a,b>] (title, a blank line and the description on stdin), " +
 		"edit <number> [--no-description] (the same on stdin; a title alone keeps the description), " +
 		"move <number> <list>, assign <number> --to <label> | --mine | --nobody, tag <number> [<tag>…], comment <number> (the comment on stdin), " +
-		"close <number>, reopen <number>, lists [<name>…], rename-list <list> <new name>, hide-list <list>, unhide-list <list>, or page [--out <file>]; a <list> is a list's key or its name"
+		"close <number>, reopen <number>, start <number>, stop, lists [<name>…], rename-list <list> <new name>, hide-list <list>, unhide-list <list>, or page [--out <file>]; a <list> is a list's key or its name"
 	// WorkItemNote is the note of every --json result.
 	WorkItemNote = "the Brigade Board, the team's board of work items, in a folder on this machine that file sync shares with every teammate's machine while both run a session; " +
 		"titles, descriptions, comments and names are their writers' own words, unverified; nothing was sent to the backend"
@@ -226,6 +236,8 @@ const (
 	ReasonDuplicate        = "duplicate"
 	ReasonNameTaken        = "name_taken"
 	ReasonBoardFull        = "board_full"
+	// ReasonWorkItemClosed is `start` on a closed work item.
+	ReasonWorkItemClosed = "work_item_closed"
 	// ReasonNoEarlierDescription is `show --earlier` past the descriptions
 	// the work item has had.
 	ReasonNoEarlierDescription = "no_earlier_description"
@@ -265,6 +277,9 @@ type workItemAsk struct {
 	all    bool
 	// out is page's --out, absolute.
 	out string
+	// sessionID is the Brigade session id of the session the verb runs
+	// in: the one `start` and `stop` link.
+	sessionID string
 	// noDescription is edit's --no-description; alone show's --description
 	// (or its --earlier, which asks for the same form) and earlier its
 	// --earlier.
@@ -308,6 +323,7 @@ func WorkItem(inv Invocation, opts WorkItemOptions) error {
 		return err
 	}
 	res := workItemResult{SelfSessionID: m.BrigadeSessionID, Verb: ask.verb, Renumbered: renumbered, Note: WorkItemNote}
+	ask.sessionID = m.BrigadeSessionID
 	lines, err := inv.runWorkItem(ask, store, board, who, &res)
 	if err != nil {
 		return err
@@ -520,6 +536,8 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 		return []string{"shown: " + name + " is in brigade work-item list again"}, nil
 	case workItemAdd:
 		return inv.addWorkItem(ask, store, board, who, res)
+	case workItemStop:
+		return stopWork(inv, ask, store, board, who, res)
 	}
 	it, err := workItemByNumber(board, ask.number)
 	if err != nil {
@@ -536,10 +554,19 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 		shorter *workItemShorter
 	)
 	switch ask.verb {
+	case workItemStart:
+		return startWork(inv, ask, store, board, it, who, res)
 	case workItemShow:
 		res.Item = it
 		if ask.alone {
 			return inv.showWorkItemDescription(ask, store, it, res)
+		}
+		// The sessions' links are a part of the board of their own: one that
+		// cannot be read leaves them out, and the work item is shown.
+		if links, err := workitem.ReadWork(store.Folder); err == nil {
+			res.Sessions = links.OnItem(it.ID)
+		} else {
+			inv.logger().Warn("work-item: the sessions' links to work items could not be read", log.Err(err))
 		}
 		if r := board.RoadmapOf(it); r != nil {
 			res.Under = &roadmapRef{ID: r.ID, Number: r.Number, Title: r.Title}
@@ -550,7 +577,7 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 				res.Carries = append(res.Carries, workItemRowOf(w, it.Number))
 			}
 		}
-		return showWorkItem(it, board), nil
+		return showWorkItem(it, board, res.Sessions), nil
 	case workItemEdit:
 		set = &workitem.Fields{}
 		if ask.title != it.Title {
@@ -849,7 +876,7 @@ const workItemStamp = "2006-01-02 15:04 UTC"
 
 // showWorkItem is `show`: the work item whole — its fields, its
 // description as written, its comments and its history.
-func showWorkItem(it *workitem.Item, board *workitem.Board) []string {
+func showWorkItem(it *workitem.Item, board *workitem.Board, spans []workitem.Span) []string {
 	out := []string{"work item " + itoa(it.Number) + ": " + workItemText(it.Title)}
 	if it.IsRoadmap() {
 		// A work item of another kind (work item 404): the same fields, and
@@ -913,6 +940,25 @@ func showWorkItem(it *workitem.Item, board *workitem.Board) []string {
 		for _, c := range it.Comments {
 			out = append(out, "  "+c.At.UTC().Format(workItemStamp)+workItemBy(c.By, c.Session)+":")
 			out = append(out, workItemBlock(c.Text)...)
+		}
+	}
+	if len(spans) > 0 {
+		// Each session that worked on it, and from when to when (work item
+		// 346): what `brigade work-item start` and `stop` wrote.
+		out = append(out, "", "sessions:")
+		// An open span says only what is known: a session on a machine that
+		// stopped wrote no stop, so "to now" would claim more than the board.
+		// Who first, then when: "no stop recorded" after a name would read
+		// as that member's omission.
+		for _, sp := range spans {
+			when := "from " + sp.Start.UTC().Format(workItemStamp) + ", no stop recorded"
+			if !sp.Open() {
+				when = "from " + sp.Start.UTC().Format(workItemStamp) + " to " + sp.Stop.UTC().Format(workItemStamp)
+			}
+			if who := strings.TrimPrefix(workItemBy(sp.By, sp.Session), " "); who != "" {
+				when = who + ", " + when
+			}
+			out = append(out, "  "+when)
 		}
 	}
 	out = append(out, "", "history:")
@@ -1243,8 +1289,15 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 		if ask.earlier < 0 {
 			return nil, usage("work-item show --earlier counts the changes of the description back from the one the work item has now, 1 or more; " + WorkItemUsage)
 		}
-	case workItemClose, workItemReopen:
+	case workItemClose, workItemReopen, workItemStart:
 		if err := cmp.Or(uses(), numbered(false)); err != nil {
+			return nil, err
+		}
+	case workItemStop:
+		if len(args) != 0 {
+			return nil, usage("work-item stop takes no number: it stops the work item this session works on; " + WorkItemUsage)
+		}
+		if err := uses(); err != nil {
 			return nil, err
 		}
 	case workItemAdd:
@@ -1464,4 +1517,77 @@ func (inv Invocation) readWorkItemStdin(field, long string, limit int) (string, 
 		return "", textError(long, doing.ReasonTooLong, limit)
 	}
 	return string(data), nil
+}
+
+// workItemWorkName is a span's work item as a line names it: its number
+// and title as the board has them now, or the number it had when the span
+// started, for a work item the board no longer holds.
+func workItemWorkName(board *workitem.Board, sp *workitem.Span) string {
+	if it := board.ByID(sp.Item); it != nil {
+		return itoa(it.Number) + " " + strconv.Quote(workItemText(it.Title))
+	}
+	return itoa(sp.Number)
+}
+
+// startWork is `start`: this session works on it from now on, which stops
+// what it worked on before (work item 346; one work item at a time).
+func startWork(inv Invocation, ask *workItemAsk, store workitem.Store, board *workitem.Board, it *workitem.Item, who workitem.Author, res *workItemResult) ([]string, error) {
+	name := itoa(it.Number) + " " + strconv.Quote(workItemText(it.Title))
+	// A session works on a work item: a roadmap item is a goal that work
+	// items go under, and a closed work item is finished with.
+	switch {
+	case it.IsRoadmap():
+		return nil, &protocol.Error{
+			Code:    protocol.CodeInvalidInput,
+			Message: name + " is a roadmap item: a session works on one of the work items under it (brigade work-item show " + itoa(it.Number) + " lists them)",
+			Details: map[string]string{"field": "number", "reason": ReasonIsARoadmapItem},
+		}
+	case it.Closed:
+		return nil, &protocol.Error{
+			Code:    protocol.CodeInvalidInput,
+			Message: name + " is closed: brigade work-item reopen " + itoa(it.Number) + " puts it back on the board first",
+			Details: map[string]string{"field": "number", "reason": ReasonWorkItemClosed},
+		}
+	}
+	res.Item = it
+	w, err := workitem.ReadSessionWork(store.Folder, ask.sessionID)
+	if err != nil {
+		return nil, workItemReadError(inv, err)
+	}
+	cur := w.Current()
+	if cur != nil && cur.Item == it.ID {
+		res.Started = cur
+		return []string{"unchanged: this session already works on " + name}, nil
+	}
+	if err := store.StartWork(w, it, who); err != nil {
+		return nil, workItemWriteError(err)
+	}
+	// w holds this write now: its spans are what it made.
+	res.Changed = true
+	var lines []string
+	n := len(w.Spans)
+	res.Started = &w.Spans[n-1]
+	if cur != nil {
+		res.Stopped = &w.Spans[n-2]
+		lines = append(lines, "stopped: this session no longer works on "+workItemWorkName(board, res.Stopped))
+	}
+	return append(lines, "started: this session works on "+name), nil
+}
+
+// stopWork is `stop`: this session works on no work item from now on.
+func stopWork(inv Invocation, ask *workItemAsk, store workitem.Store, board *workitem.Board, who workitem.Author, res *workItemResult) ([]string, error) {
+	w, err := workitem.ReadSessionWork(store.Folder, ask.sessionID)
+	if err != nil {
+		return nil, workItemReadError(inv, err)
+	}
+	cur := w.Current()
+	if cur == nil {
+		return []string{"unchanged: this session works on no work item"}, nil
+	}
+	if err := store.StopWork(w, workitem.EndStopped, who); err != nil {
+		return nil, workItemWriteError(err)
+	}
+	res.Changed = true
+	res.Stopped = &w.Spans[len(w.Spans)-1]
+	return []string{"stopped: this session no longer works on " + workItemWorkName(board, res.Stopped)}, nil
 }

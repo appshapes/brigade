@@ -12,7 +12,10 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/harness/workitem"
 	"github.com/appshapes/brigade/internal/procutil"
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // sessionEnd is `brigade hook session-end` (6.3, 3.8): for `clear` and
@@ -110,6 +113,10 @@ func (r *run) sessionEnd() int {
 	if rerr := os.Remove(doingStampPath(f.stateDir, f.pid)); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 		r.log.Debug("session-end: doing stamp not removed", log.Err(rerr))
 	}
+	// The session's work on a work item stops with it (work item 346):
+	// after the watcher's signal, which is the close on a host whose hook
+	// has a fraction of a second, so the board's write never delays it.
+	r.workEnd(m)
 	if m == nil {
 		return 0
 	}
@@ -133,4 +140,31 @@ func (r *run) sessionEnd() int {
 		r.log.Info("session-end: close did not complete; lease expiry is authoritative", log.Err(err))
 	}
 	return 0
+}
+
+// workEnd stops the work item the session works on, if any, as its end
+// (work item 346): `brigade work-item start` set it, and the session ended
+// without a `stop`. The span keeps its start; this writes its stop. A
+// session that dies without a SessionEnd has its stop written by the
+// watcher (watch/work.go).
+func (r *run) workEnd(m *sessionmap.ByPID) {
+	if m == nil || m.BoardFolder == "" || !workitem.SessionIDOK(m.BrigadeSessionID) {
+		return
+	}
+	store := workitem.Store{Folder: m.BoardFolder, Now: r.deps.Now}
+	w, err := workitem.ReadSessionWork(store.Folder, m.BrigadeSessionID)
+	if err != nil {
+		r.log.Debug("session-end: the session's work is unreadable", log.Err(err))
+		return
+	}
+	if w.Current() == nil {
+		return
+	}
+	who := workitem.Author{Session: protocol.OneLineName(m.SessionName)}
+	if b, err := teamstore.LoadBinding(m.ConfigDir, m.TeamKey); err == nil {
+		who.Member = protocol.SanitizeLabel(workitem.Line(b.HumanLabel))
+	}
+	if err := store.StopWork(w, workitem.EndSessionEnd, who); err != nil {
+		r.log.Warn("session-end: the session's work on a work item was not stopped", log.Err(err))
+	}
 }

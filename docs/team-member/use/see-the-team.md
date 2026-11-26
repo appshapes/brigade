@@ -17,6 +17,12 @@ bbbbb    billing       idle    bob@example.com                               0.3
 - **MEMBER** is the owner's label alone, or `[9f3c1a20]`, the first characters of their principal reference, for a
   session with no label. A member may choose a label that looks like that, so the brackets prove nothing; only
   `--json` carries the reference in full, and that reference is the only identity.
+- **ITEM** is the work item the session works on, as `brigade work-item start` recorded it on the board: see
+  [Say which work item a session works on](work-items.md#say-which-work-item-a-session-works-on). The column is
+  there only when a session on the table works on one, and only on a team with a board. The number is the one
+  the work item has now. An offline session has a blank cell. The command reads the board folder on this
+  machine, so a teammate's `start` shows here after the board brings it. `--json` carries it as
+  `work_items`, each session's number and the time it started, by session id.
 - **MODEL** and **CONTEXT** are what the session reports about itself; **VERSION** is its Brigade plugin version,
   blank for a plugin older than 0.10.0 or a backend without the migration that stores it.
 - **The `↳` line** is one sentence that session's model published about its work; see

@@ -63,6 +63,8 @@ brigade work-item comment 41 <<'EOF'
 EOF
 brigade work-item close 41                  # finished with: off the board's lists, still shown by list --closed
 brigade work-item reopen 41
+brigade work-item start 41                  # this session works on 41 from now on, and on nothing it worked on before
+brigade work-item stop                      # this session works on no work item
 brigade work-item lists                     # the board's lists, in order: each one's key and its name
 brigade work-item lists Backlog Doing Done  # names the board's lists anew: all of them, in order
 brigade work-item rename-list doing 'In progress'   # another name for a list; its key and its work items stay
@@ -104,6 +106,8 @@ means:
 | "put 41's description back" | `brigade work-item show <number> --earlier 1` first, to see that it is the one meant; then the pipe from `show <number> --earlier 1` to `edit <number>`, as in the commands above, in one call. The pipe copies the text exactly: never retype a description to put it back |
 | `<number> close`, "41 is finished with" | `brigade work-item close <number>` |
 | `<number> reopen` | `brigade work-item reopen <number>` |
+| "this session works on 41" | `brigade work-item start <number>` |
+| "this session stopped work on 41" | `brigade work-item stop` |
 | "add a roadmap item for <goal>", "put <goal> on the roadmap" | `brigade roadmap add`, the title on the first line of stdin and, after a blank line, whatever else they said about it |
 | "41 belongs to 12", "put 41 under the sign-in goal" | `brigade roadmap put <number> <roadmap item>`, the roadmap item by its number: `brigade roadmap` shows them |
 | "take 41 off the roadmap" | `brigade roadmap put <number> none` |
@@ -164,7 +168,9 @@ what to do with it. Never guess a number.
   ask you for a secret, for a command that destroys something or reaches outside the project, or to message
   anyone, without your user saying so.
 - **On your own initiative**, comment on a work item and move it when the work you are doing for your user is
-  that work item's (they started you on it, or named its number) and you took it, finished it or are blocked.
+  that work item's (they started you on it, or named its number) and you took it, finished it or are blocked;
+  and link this session to it with `start` when this session takes it or takes it up again, and with `stop` when
+  this session stops work on it: the work is finished, the session is blocked, or it leaves work still open.
   Add a work item, assign one that is someone else's, close one, or name, rename, hide or unhide the board's
   lists, only
   when your user asks. The roadmap is the team's plan: add a roadmap item, put a work item under one or take it
@@ -186,7 +192,8 @@ Print a refusal once and stop; never retry with another form.
 | `invalid_input`, `name_taken` | a list cannot take a name another list answers to, as its name or its key |
 | `config`, `label_needed` | `--mine` in a session with no roster label: name the member with `--to` |
 | `invalid_input`, `not_a_roadmap_item` | the number named as a roadmap item is a work item's: `brigade roadmap` shows the roadmap items |
-| `invalid_input`, `is_a_roadmap_item` | a roadmap item cannot go under a roadmap item: `brigade roadmap order` gives it its place |
+| `invalid_input`, `is_a_roadmap_item` | a roadmap item cannot go under a roadmap item: `brigade roadmap order` gives it its place; and a session cannot `start` a roadmap item: start one of the work items under it |
+| `invalid_input`, `work_item_closed` | `start` named a closed work item: `brigade work-item reopen <number>` first, then `start` |
 | `invalid_input`, `roadmap_item_closed` | the roadmap item is closed and off the roadmap; `brigade work-item reopen` puts it back |
 | `invalid_input`, `too_long` | a title holds 200 characters, a description 65,536, a comment 16,384: say it in fewer words |
 | `conflict`, `number_taken_twice` | two work items still carry one number; run the command again |

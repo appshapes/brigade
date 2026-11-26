@@ -15,6 +15,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
 
+### Added
+
+- **The board records which work item a session works on** (work
+  item 346, ADR 0035). `brigade work-item start <number>` records that
+  this session works on that work item from now on, and `brigade
+  work-item stop` that this session stopped work on it. A session works
+  on one work item at a time: a start on another stops the one before,
+  and the session's end stops it too; when the machine itself stops,
+  the work stays open on the board. `brigade work-item show` lists each session that
+  worked on the work item, with its times, and `brigade sessions` shows
+  the number in an `ITEM` column. `/brigade:work-item-start` runs
+  `start` when it takes a work item and `stop` when it lands it or is
+  blocked. The record is a file in the board folder, so it goes to
+  every teammate's machine and never to the backend.
+
 ## [0.61.0] — 2026-11-25
 
 **Who must act**

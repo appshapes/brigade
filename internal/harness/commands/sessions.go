@@ -2,14 +2,19 @@ package commands
 
 import (
 	"context"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
+	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/workitem"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -62,7 +67,17 @@ type sessionsResult struct {
 	Here          string `json:"here,omitzero"`
 	FilterNote    string `json:"filter_note,omitzero"`
 	SelfSessionID string `json:"self_session_id,omitzero"`
-	Note          string `json:"note"`
+	// WorkItems is the work item each shown session works on, by its
+	// session id: what `brigade work-item start` set (work item 346), read
+	// from the board folder on this machine. Absent with no board here.
+	WorkItems map[string]sessionWorkItem `json:"work_items,omitzero"`
+	Note      string                     `json:"note"`
+}
+
+// sessionWorkItem is the work item a session works on, and since when.
+type sessionWorkItem struct {
+	Number    int       `json:"number"`
+	StartedAt time.Time `json:"started_at"`
 }
 
 // Sessions implements `brigade sessions [--all] [--json]` (6.4): a padded
@@ -139,6 +154,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		return stateRank(a.State) - stateRank(b.State)
 	})
 
+	work := inv.sessionsWork(t, list.TeamRef, records)
 	if inv.JSON {
 		for i := range records {
 			sanitizeRecord(&records[i])
@@ -154,6 +170,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 			Here:          filter.here,
 			FilterNote:    filter.unfiltered,
 			SelfSessionID: self,
+			WorkItems:     work,
 			Note:          SessionsNote,
 		})
 	}
@@ -197,6 +214,12 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	}
 
 	header := []string{"SESSION", "NAME"}
+	// ITEM is the work item a session works on (work item 346), optional
+	// and table-wide like MODEL: present when a shown session has one.
+	hasWork := len(work) > 0
+	if hasWork {
+		header = append(header, "ITEM")
+	}
 	if hasRepo {
 		header = append(header, "REPO")
 	}
@@ -220,6 +243,13 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	rows = append(rows, header)
 	for i, r := range records {
 		cells := []string{shortSession(r.SessionID), tableName(r.SessionName)}
+		if hasWork {
+			item := ""
+			if w, ok := work[sanitizeID(r.SessionID)]; ok {
+				item = itoa(w.Number)
+			}
+			cells = append(cells, item)
+		}
 		if hasRepo {
 			repo := ""
 			if r.WorkspaceLabel != nil {
@@ -430,4 +460,79 @@ func stateRank(state string) int {
 	default:
 		return 3
 	}
+}
+
+// sessionsWork is the work item each record's session works on, by
+// session id (work item 346): its open span in the board folder on this
+// machine, under the number the work item has now. An offline session has
+// none: it works on nothing now, though its span may be open because it
+// ended without its SessionEnd hook. Nil when there is no board here or
+// it cannot be read; the roster is shown all the same.
+func (inv Invocation) sessionsWork(t *target, teamRef string, records []protocol.SessionRecord) map[string]sessionWorkItem {
+	folder := inv.sessionsBoardFolder(t, teamRef)
+	if folder == "" {
+		return nil
+	}
+	// Each shown live session's own directory, and no other: the board
+	// keeps every session that ever linked, and the roster shows a few.
+	var board *workitem.Board
+	out := map[string]sessionWorkItem{}
+	for _, r := range records {
+		if r.State == protocol.SessionStateOffline {
+			continue
+		}
+		w, err := workitem.ReadSessionWork(folder, r.SessionID)
+		if err != nil {
+			inv.logger().Debug("sessions: a session's link to a work item is unreadable", log.Err(err))
+			continue
+		}
+		cur := w.Current()
+		if cur == nil {
+			continue
+		}
+		if board == nil {
+			if board, err = workitem.Read(folder); err != nil {
+				inv.logger().Debug("sessions: the board is unreadable", log.Err(err))
+				return nil
+			}
+		}
+		number := cur.Number
+		if it := board.ByID(cur.Item); it != nil {
+			number = it.Number
+		}
+		// Keyed as --json prints the record's own id: sanitised.
+		out[sanitizeID(r.SessionID)] = sessionWorkItem{Number: number, StartedAt: cur.Start}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// sessionsBoardFolder is the board folder of the team the roster is of:
+// the session's own inside one; in a terminal, the one the team file of
+// the working directory's checkout names, when that file is the same
+// team's and turns the board on. "" otherwise.
+func (inv Invocation) sessionsBoardFolder(t *target, teamRef string) string {
+	if t.session != nil {
+		return t.session.BoardFolder
+	}
+	path, ok := teamfile.Discover(inv.mustGetwd())
+	if !ok {
+		return ""
+	}
+	f, err := teamfile.Parse(path)
+	if err != nil || f.Sync == nil || !f.Sync.Board || f.TeamRef != teamRef {
+		return ""
+	}
+	stateDir, err := config.BrigadeStateDir(inv.Environ)
+	if err != nil {
+		return ""
+	}
+	// The board folder itself must be a real directory, as for `page`.
+	folder := foldersync.BoardPath(stateDir, f.TeamRef)
+	if fi, err := os.Lstat(folder); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return folder
 }

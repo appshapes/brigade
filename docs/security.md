@@ -1320,12 +1320,15 @@ rides on file sync, section 12).
 - **What a work item carries.** What a member or their session wrote on purpose: a title, a description,
   comments, tags, a list, an assignee's roster label, and with every change the writer's label, their session's
   name and the time. The command refuses a text that carries a credential's shape and asks nothing else of it: a
-  work item may name a path, a host, a person or a customer, and the judgement is the writer's.
+  work item may name a path, a host, a person or a customer, and the judgement is the writer's. The board also
+  holds one record for each session that ran `brigade work-item start` (work item 346, ADR 0035). The record has
+  the session id, the session's name, the member's label, the work item, the start time, and the stop time when
+  the work has stopped.
 - **A work item is a teammate's text.** Any member's machine can write any file into the folder, and overwrite or
   delete one, as it can in any synced folder. A change that says it is by someone is that machine's word for it;
   nothing signs it. A forged change can retitle, move, assign, close or renumber any work item, put it under another roadmap
-  item, reorder the roadmap, or add a comment
-  under any name. The readers take only files with a change's name, size and shape, follow no symlink (a
+  item, reorder the roadmap, add a comment
+  under any name, or say that any session worked on any work item. The readers take only files with a change's name, size and shape, follow no symlink (a
   change, a work item's directory, or `items`, `lists` and `roadmap` themselves, through which nothing is written either),
   and cap and sanitise every string; the human form of `brigade work-item show` indents a description and a comment under
   their headings, so no line of them stands where a field would.

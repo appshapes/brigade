@@ -42,6 +42,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0032. Run each scheduled job as one workflow, named by a standing work item](0032-run-each-scheduled-job-as-one-workflow-named-by-a-standing-work-item.md)
 - [0033. Hand an agent the job's own token, and name the jobs that hold the Claude App's](0033-hand-an-agent-the-jobs-own-token-and-name-the-jobs-that-hold-the-claude-apps.md)
 - [0034. Say the roster-line reminder from Grok Build's Stop hook](0034-say-the-roster-line-reminder-from-grok-builds-stop-hook.md)
+- [0035. Record which work item a session works on in the board folder](0035-record-which-work-item-a-session-works-on-in-the-board-folder.md)
 
 ## Record a decision
 
