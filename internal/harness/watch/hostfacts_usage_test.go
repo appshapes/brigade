@@ -170,11 +170,17 @@ func TestGrokUsage(t *testing.T) {
 	// bad JSON, another session's id, a cache-read count larger than the
 	// input, a window of zero. A file mended is read again.
 	good := usageFixture(t, filepath.Join("grok", "usage.json"))
-	for name, body := range map[string]string{
-		"bad JSON":         "{not json",
-		"another session":  strings.ReplaceAll(good, id, "44444444-4444-4444-8444-444444444444"),
-		"cache over input": strings.Replace(good, `"cachedReadTokens": 17921280`, `"cachedReadTokens": 99999999999`, 1),
+	// In this order, each a new file: a file rewritten in place with the
+	// same size and time reads as unchanged, which is the reader's rule.
+	for _, c := range []struct{ name, body string }{
+		{"another session", strings.ReplaceAll(good, id, "44444444-4444-4444-8444-444444444444")},
+		{"bad JSON", "{not json"},
+		{"cache over input", strings.Replace(good, `"cachedReadTokens": 17921280`, `"cachedReadTokens": 99999999999`, 1)},
 	} {
+		name, body := c.name, c.body
+		if err := os.Remove(filepath.Join(dir, "usage.json")); err != nil {
+			t.Fatal(err)
+		}
 		putFacts(t, filepath.Join(dir, "usage.json"), body)
 		use = r.refresh().use
 		if use.Total.Input.Known() || use.Total.Input.Unavailable != usage.BadShape {
@@ -184,9 +190,15 @@ func TestGrokUsage(t *testing.T) {
 			t.Fatalf("%s: calls %+v cost %+v", name, use.Calls, use.Cost)
 		}
 	}
+	if err := os.Remove(filepath.Join(dir, "usage.json")); err != nil {
+		t.Fatal(err)
+	}
 	putFacts(t, filepath.Join(dir, "usage.json"), good)
 	val(t, "input when mended", r.refresh().use.Total.Input, int64(19663836-17921280))
 	signals := usageFixture(t, filepath.Join("grok", "signals.json"))
+	if err := os.Remove(filepath.Join(dir, "signals.json")); err != nil {
+		t.Fatal(err)
+	}
 	putFacts(t, filepath.Join(dir, "signals.json"), strings.Replace(signals, `"contextWindowTokens": 256000`, `"contextWindowTokens": 0`, 1))
 	if use = r.refresh().use; use.ContextWindow.Known() || use.ContextUsed.Known() {
 		t.Fatalf("a window of zero: %+v %+v", use.ContextWindow, use.ContextUsed)
