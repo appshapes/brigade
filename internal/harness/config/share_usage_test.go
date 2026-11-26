@@ -11,7 +11,11 @@ import (
 // value that is no boolean is refused.
 func TestShareUsageIsOffByDefault(t *testing.T) {
 	t.Parallel()
-	home := []string{"HOME=" + t.TempDir()}
+	// An environment that resolves Brigade's directories on every
+	// platform: HOME on unix, USERPROFILE, APPDATA and LOCALAPPDATA on
+	// Windows.
+	root := t.TempDir()
+	home := []string{"HOME=" + root, "USERPROFILE=" + root, "APPDATA=" + root, "LOCALAPPDATA=" + root}
 	o, err := config.ParseOptions(home)
 	if err != nil || o.ShareUsage {
 		t.Fatalf("default: %v %v", o.ShareUsage, err)
