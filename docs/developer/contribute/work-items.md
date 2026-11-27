@@ -1,9 +1,9 @@
 # Work from the Brigade Board
 
 Brigade's own work is on the Brigade Board of the team `appshapes`, on the Brigade server at
-`https://brigade.appshapes.com`: on a board since 2026-11-11, on this team and server since 2026-11-13. Five
-repositories are on the team (brigade, cavalry, muster, telder and appshapes-www) and share one board and one
-number sequence. A work item's number is the commit prefix ([Commit and push](commits.md)).
+`https://brigade.appshapes.com`: on a board since 2026-11-11, on this team and server since 2026-11-13. Six
+repositories are on the team (brigade, cavalry, muster, telder, appshapes-www and tally) and share one board
+and one number sequence. A work item's number is the commit prefix ([Commit and push](commits.md)).
 
 ## What you need
 

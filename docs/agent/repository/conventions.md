@@ -61,15 +61,16 @@
   labelled `maintenance` is exempt, owner ruling 2026-09-09).
 - **Work items.** Brigade's own work is on the team's Brigade Board (owner, 2026-11-11, card 263). Since
   2026-11-13 (work item 272) the team is `appshapes`, on the Brigade server at `https://brigade.appshapes.com`,
-  with the mail address `appshapes-team@appshapes.com`. This repository shares it with cavalry, muster, telder
-  and appshapes-www: one team, one board and one number sequence for the five repositories. Reading, adding and
+  with the mail address `appshapes-team@appshapes.com`. This repository shares it with cavalry, muster, telder,
+  appshapes-www and, since 2026-11-27 (work item 538), tally: one team, one board and one number sequence for
+  the six repositories. Reading, adding and
   changing a work item is the product's own, `brigade work-item show|list|add|move|assign|comment` and the
   plugin's skills `brigade:work-item` and `brigade:work-items`. This repository has no skill of its own for it
   and none for Trello (owner, 2026-11-13, work item 272: `trello-create`, `trello-read` and `trello-done` are
   removed, the reading one too). The word is "work item" (2026-11-13, the choice of the session leading work
   item 272 under the owner's standing rule that a session decides on its own recommendation; the owner may
   overrule it): `make release` takes `work_item=<n>`, and `card=<n>` is still accepted with the same meaning.
-  A work item of this repository carries the tag `brigade` from work item 289 on, as the other four
+  A work item of this repository carries the tag `brigade` from work item 289 on, as the other five
   repositories' carry theirs, so one listing shows a repository's work (the same session's choice; the earlier
   ones carry none).
   A `card N` in a commit, a comment or a plan is a Trello card of the time before the board; the Brigade cards

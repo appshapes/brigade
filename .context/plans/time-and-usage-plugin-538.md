@@ -5,6 +5,11 @@ for the owner. This is the hand-over to the session that does the work. It has s
 what the review found, taking the four work items out of Brigade (work item 537), the plugin (work item 538),
 what is still the owner's to decide, and the board. ADR 0040 records the decision.
 
+**Added later on 2026-11-27:** the plugin has its name and its repository, both the owner's: Tally, in
+`appshapes/tally`. That repository's `.context/plans/tally-plan.md` is the plan the build follows and replaces
+section 4 below; its `docs/agent/repository/invariants.md` holds the owner's rules. Point 1 of section 5 is
+decided. Work item 534 was reworded to the roster's context alone, and work item 350 carries the tag `tally`.
+
 ## 1. The ruling
 
 On 2026-11-27 the owner read what work items 346 to 349 had built. The quoted words are the owner's.
