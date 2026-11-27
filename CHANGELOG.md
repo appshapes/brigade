@@ -27,48 +27,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   https://github.com/appshapes/brigade/tree/v<version>/antigravity/brigade`
   ([Install in Antigravity CLI](https://github.com/appshapes/brigade/blob/master/docs/team-member/install/antigravity.md)).
   `docs/security.md` section 22 says what differs for its sessions.
-- **Share your sessions' usage with the team, if you choose** (work
-  item 348, ADR 0038). The plugin option `share_usage`, off by default,
-  writes each session's usage into the team's board folder, at most
-  every five minutes while it changes: its model, context, plan limits
-  and extra usage, and its tokens and estimated cost on each work item.
-  Every teammate's `brigade work-item page` then shows them under your
-  name. Nothing goes to the backend; with the option off nothing is
-  shared. `docs/security.md` says what is shared, and that the token
-  counts the watcher reads stay on your machine otherwise.
-- **The board's page shows the agents and the cost on each work item**
-  (work item 349, ADR 0037). Each session's watcher adds what the
-  session spends to the work item it works on (`brigade work-item
-  start`). A card of `brigade work-item page` shows each session of
-  this machine that worked on it, with its tokens and its estimated
-  cost at list price, and their total; the plan limits stand apart, a
-  window at 80 percent or more marked. `brigade usage` lists the sums
-  by work item. Brigade ships the prices of the current Claude models;
-  add or change a price in `prices.json` in Brigade's config directory.
-  A click on a card now opens the work item in a dialog over the board,
-  where a long description reads at full width, in place of folding the
-  card open in its column.
-- **See what your sessions spend** (work item 347, ADR 0036). Each
-  session's watcher reads its usage from the harness's own records on
-  your machine: the model, the context in use and its window, the
-  tokens, the model calls, the cost, the plan's limits and the paid
-  extra usage. `brigade usage` shows it, each value or the reason it is
-  not available; `--all` shows every session on this machine. Nothing of
-  it leaves your machine. On Claude Code, the cost and the limits come
-  only from your status line: add `brigade statusline` to your status
-  line script to give them to `brigade usage`.
-- **The board records which work item a session works on** (work
-  item 346, ADR 0035). `brigade work-item start <number>` records that
-  this session works on that work item from now on, and `brigade
-  work-item stop` that this session stopped work on it. A session works
-  on one work item at a time: a start on another stops the one before,
-  and the session's end stops it too; when the machine itself stops,
-  the work stays open on the board. `brigade work-item show` lists each session that
-  worked on the work item, with its times, and `brigade sessions` shows
-  the number in an `ITEM` column. `/brigade:work-item-start` runs
-  `start` when it takes a work item and `stop` when it lands it or is
-  blocked. The record is a file in the board folder, so it goes to
-  every teammate's machine and never to the backend.
+
+### Fixed
+
+- **The work-item skills no longer name a command the released binary
+  lacks** (work item 537, ADR 0040). A Claude Code install that was
+  made, or that moved to 0.61.0, after 2026-11-26 took skills from
+  `master` that told the model to run `brigade work-item start` and
+  `brigade work-item stop`, which the 0.61.0 binary refuses, and an
+  option `share_usage` that did nothing. Both are gone. Brigade does
+  not record which work item a session works on, reads no usage and
+  estimates no cost: that work goes on as a separate plugin.
 
 ## [0.61.0] — 2026-11-25
 

@@ -27,13 +27,6 @@ func factsFixture(t *testing.T, file string) string {
 	return string(b)
 }
 
-// baseFacts is the facts without their usage, which these tests do not
-// assert (hostfacts_usage_test.go does).
-func baseFacts(f localHostFacts) localHostFacts {
-	f.use = hostUse{}
-	return f
-}
-
 func putFacts(t *testing.T, path, text string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -70,21 +63,21 @@ func TestHostFactsFixtures(t *testing.T) {
 			putFacts(t, path, original)
 			r := hostFactsReader{host: host, root: root, id: factsID}
 			want := localHostFacts{name: name, tokens: contextCount, hasContext: true}
-			if got := baseFacts(r.refresh()); got != want {
+			if got := r.refresh(); got != want {
 				t.Fatalf("got %+v, want %+v", got, want)
 			}
-			if got := baseFacts(r.refresh()); got != want {
+			if got := r.refresh(); got != want {
 				t.Fatalf("unchanged: %+v", got)
 			}
 			// Corruption after a valid usage must not erase the facts.
 			putFacts(t, path, original+"not json\n[]\n{\"payload\":false}\n")
-			if got := baseFacts(r.refresh()); got != want {
+			if got := r.refresh(); got != want {
 				t.Fatalf("malformed: %+v", got)
 			}
 			if err := os.Remove(path); err != nil {
 				t.Fatal(err)
 			}
-			if got := baseFacts(r.refresh()); got != want {
+			if got := r.refresh(); got != want {
 				t.Fatalf("missing: %+v", got)
 			}
 			// A replacement naming a foreign ID is never this session's usage.
@@ -121,7 +114,7 @@ func TestHostFactsPartialRenameAndUsage(t *testing.T) {
 				renamePath = path
 			}
 			putFacts(t, path, original+line)
-			if got := baseFacts(r.refresh()); got != baseFacts(before) {
+			if got := r.refresh(); got != before {
 				t.Fatalf("partial applied: %+v", got)
 			}
 			putFacts(t, path, original+line+"\n")

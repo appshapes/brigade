@@ -115,37 +115,6 @@ type Facts struct {
 	ContextUsedTokens int
 	// HasContext reports whether any usage was seen.
 	HasContext bool
-	// Total is the tokens of every model call so far, each message counted
-	// once: Claude Code writes one assistant record for each content block
-	// and repeats the message's usage on each (work item 347). A
-	// subagent's call in the same file counts, because it costs; the
-	// context does not. Last is the latest call's, and Calls how many
-	// messages were counted.
-	Total Tokens
-	Last  Tokens
-	Calls int64
-}
-
-// Tokens are the four counts of a call's usage.
-type Tokens struct {
-	Input, Output, CacheWrite, CacheRead int64
-}
-
-// add adds u to t, saturating.
-func (t *Tokens) add(u Tokens) {
-	t.Input = addSaturating64(t.Input, u.Input)
-	t.Output = addSaturating64(t.Output, u.Output)
-	t.CacheWrite = addSaturating64(t.CacheWrite, u.CacheWrite)
-	t.CacheRead = addSaturating64(t.CacheRead, u.CacheRead)
-}
-
-// addSaturating64 adds two non-negative counts and saturates at
-// math.MaxInt64.
-func addSaturating64(a, b int64) int64 {
-	if s := a + b; s >= a {
-		return s
-	}
-	return math.MaxInt64
 }
 
 // A record is the minimal shape the reader decodes from one line: every
@@ -156,9 +125,12 @@ type record struct {
 	Type        string `json:"type"`
 	IsSidechain bool   `json:"isSidechain"`
 	Message     *struct {
-		ID    string `json:"id"`
 		Model string `json:"model"`
-		Usage *usage `json:"usage"`
+		Usage *struct {
+			InputTokens              int `json:"input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+		} `json:"usage"`
 	} `json:"message"`
 	Attachment *struct {
 		Type     string `json:"type"`
@@ -166,14 +138,6 @@ type record struct {
 			ModelID string `json:"modelId"`
 		} `json:"identity"`
 	} `json:"attachment"`
-}
-
-// usage is a message's usage, the four counts the reader takes.
-type usage struct {
-	InputTokens              int `json:"input_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
 }
 
 // A Reader is the incremental reader of one transcript file. It is not
@@ -197,18 +161,7 @@ type Reader struct {
 	// The context facts: the latest usage sum and whether one was seen.
 	tokens     int
 	hasContext bool
-	// The token facts: the totals, the latest call and the message ids
-	// counted. Past maxCounted ids a message is told from the one before
-	// by its id alone, as Claude Code writes a message's records one after
-	// the other.
-	total, last Tokens
-	calls       int64
-	counted     map[string]struct{}
-	lastID      string
 }
-
-// maxCounted caps the message ids a reader remembers.
-const maxCounted = 1 << 20
 
 // NewReader returns a reader positioned at the start of path. Nothing is
 // opened until Refresh.
@@ -340,9 +293,6 @@ func (r *Reader) apply(line []byte) {
 	if err := json.Unmarshal(line, &rec, lenient); err != nil {
 		return
 	}
-	if rec.Type == typeAssistant && rec.Message != nil && rec.Message.Model != syntheticModel {
-		r.count(rec.Message.ID, rec.Message.Usage)
-	}
 	if rec.IsSidechain {
 		return
 	}
@@ -367,29 +317,6 @@ func (r *Reader) apply(line []byte) {
 	}
 }
 
-// count adds one message's usage to the totals, once for each message id.
-// A message with no id is not counted: nothing tells its repeated records
-// apart.
-func (r *Reader) count(id string, u *usage) {
-	if id == "" || u == nil || u.InputTokens < 0 || u.OutputTokens < 0 || u.CacheCreationInputTokens < 0 || u.CacheReadInputTokens < 0 {
-		return
-	}
-	if _, seen := r.counted[id]; seen || id == r.lastID {
-		return
-	}
-	if r.counted == nil {
-		r.counted = map[string]struct{}{}
-	}
-	if len(r.counted) < maxCounted {
-		r.counted[id] = struct{}{}
-	}
-	r.lastID = id
-	call := Tokens{Input: int64(u.InputTokens), Output: int64(u.OutputTokens), CacheWrite: int64(u.CacheCreationInputTokens), CacheRead: int64(u.CacheReadInputTokens)}
-	r.total.add(call)
-	r.last = call
-	r.calls++
-}
-
 // addSaturating adds two non-negative counts and saturates at math.MaxInt
 // instead of wrapping, so a corrupt usage can make the sum meaningless
 // but never negative — a heartbeat carrying a negative count would be
@@ -407,7 +334,7 @@ func addSaturating(a, b int) int {
 // (a switch the attachment missed); else the attachment's full id, "[1m]"
 // suffix and all.
 func (r *Reader) facts() Facts {
-	f := Facts{ContextUsedTokens: r.tokens, HasContext: r.hasContext, Total: r.total, Last: r.last, Calls: r.calls}
+	f := Facts{ContextUsedTokens: r.tokens, HasContext: r.hasContext}
 	switch {
 	case r.attModel == "":
 		f.Model = r.asstModel

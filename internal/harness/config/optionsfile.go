@@ -55,7 +55,6 @@ var optionsFileKeys = map[string]string{
 	"team_inbound":           OptionTeamInbound,
 	"share_workspace_label":  OptionShareWorkspaceLabel,
 	"share_doing":            OptionShareDoing,
-	"share_usage":            OptionShareUsage,
 	"workspace_label":        OptionWorkspaceLabel,
 	"poll_on_prompt":         OptionPollOnPrompt,
 	"frame":                  OptionFrame,

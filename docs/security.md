@@ -166,21 +166,11 @@ which model a session is running and how full its context is, Brigade reports tw
 **model identity** (`claude-opus-5[1m]`) and the **context occupancy in tokens**. It gets both by reading your
 session's own transcript file, locally, in the background watcher on your own machine, at each heartbeat (every 30
 seconds unless the team sets another interval) — and
-it sends **only those two values**, the one string and the one number. It also reads each model call's token
-counts, which it keeps in a file in Brigade's state directory on this machine (mode 0600) and sends nowhere unless
-you share your usage (below). Nothing else from the transcript is read out,
+it sends **only those two values**, the one string and the one number. Nothing else from the transcript is read out,
 kept or transmitted: no prompt, no answer, no file name, no tool call. The transcript is never uploaded, and **its
 path is never sent** either — it is held only in Brigade's own 0600 state directory, where the background watcher
 finds it. The model string is handled like every other display string on the wire — capped, sanitised, and never taken
 as fact — because it is a harness's word about itself, not something the backend can check.
-
-**Your sessions' usage, only if you share it.** With the plugin option `share_usage` on (it is off unless you turn
-it on), each of your sessions writes into the team's board folder, at most every five minutes while it changes:
-its model, its context in use, its plan's limits and paid extra usage, and for each work item it worked on, its
-tokens and their estimated cost at list price. *Who sees it:* every teammate whose machine holds the board,
-whatever repository they work in; it never goes to the backend. *How long:* the board keeps every file it was
-given; turning the option off stops new ones and recalls none. *How to stop it:* set `share_usage` to `false`; it
-takes effect at the next session start.
 
 **One fact about Brigade itself.** From 0.10.0 each session also reports the **version of the Brigade plugin it
 is running** (`0.10.0`), at registration and with every heartbeat, so that `brigade sessions` can show your team
@@ -1330,15 +1320,12 @@ rides on file sync, section 12).
 - **What a work item carries.** What a member or their session wrote on purpose: a title, a description,
   comments, tags, a list, an assignee's roster label, and with every change the writer's label, their session's
   name and the time. The command refuses a text that carries a credential's shape and asks nothing else of it: a
-  work item may name a path, a host, a person or a customer, and the judgement is the writer's. The board also
-  holds one record for each session that ran `brigade work-item start` (work item 346, ADR 0035). The record has
-  the session id, the session's name, the member's label, the work item, the start time, and the stop time when
-  the work has stopped.
+  work item may name a path, a host, a person or a customer, and the judgement is the writer's.
 - **A work item is a teammate's text.** Any member's machine can write any file into the folder, and overwrite or
   delete one, as it can in any synced folder. A change that says it is by someone is that machine's word for it;
   nothing signs it. A forged change can retitle, move, assign, close or renumber any work item, put it under another roadmap
-  item, reorder the roadmap, add a comment
-  under any name, or say that any session worked on any work item. The readers take only files with a change's name, size and shape, follow no symlink (a
+  item, reorder the roadmap, or add a comment
+  under any name. The readers take only files with a change's name, size and shape, follow no symlink (a
   change, a work item's directory, or `items`, `lists` and `roadmap` themselves, through which nothing is written either),
   and cap and sanitise every string; the human form of `brigade work-item show` indents a description and a comment under
   their headings, so no line of them stands where a field would.

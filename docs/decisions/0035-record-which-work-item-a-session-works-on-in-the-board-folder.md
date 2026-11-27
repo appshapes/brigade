@@ -1,6 +1,6 @@
 # 0035. Record which work item a session works on in the board folder
 
-- **Status:** Accepted
+- **Status:** Superseded by 0040
 - **Date:** 2026-11-26
 - **Supersedes:** none
 

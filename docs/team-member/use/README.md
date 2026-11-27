@@ -14,7 +14,6 @@ they arrive. You ask in words; these are the things to ask for and what comes ba
 | keep folders in step with teammates' checkouts | [Sync folders](#sync-folders) |
 | record what your session did, ask a teammate for a decision, or subscribe to the digest | [Record notes and ask for decisions](#record-notes-and-ask-for-decisions) |
 | keep the team's work items on the Brigade Board, and have a session take one | [Keep the team's work on the Brigade Board](#keep-the-teams-work-on-the-brigade-board) |
-| see what your sessions spend: tokens, cost and the plan's limits | [See what your sessions spend](#see-what-your-sessions-spend) |
 | check whether your session is receiving | [Check that your session is receiving](#check-that-your-session-is-receiving) |
 | know what happens when the network drops | [Ride out a network drop](#ride-out-a-network-drop) |
 | read and release the messages a `hold` session kept | [Read and release held messages](#read-and-release-held-messages) |
@@ -87,15 +86,6 @@ Details: [Record notes and ask for decisions](notes-and-decisions.md).
 5. A team has a board when its `.brigade.json` turns it on; it travels while both machines run a session.
 
 Details: [Keep the team's work on the Brigade Board](work-items.md).
-
-## See what your sessions spend
-
-1. `brigade usage` shows this session's model, context, tokens, cost, plan limits and extra usage.
-   `--all` shows every session on this machine.
-2. A value the harness does not give says `not available` and why; nothing leaves your machine.
-3. On Claude Code, add `printf '%s' "$input" | brigade statusline` to your status line script for the cost and the limits.
-
-Details: [See what your sessions spend](usage.md).
 
 ## Check that your session is receiving
 

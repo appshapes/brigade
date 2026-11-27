@@ -1,6 +1,6 @@
 # 0036. Read each session's usage from its harness's own records
 
-- **Status:** Accepted
+- **Status:** Superseded by 0040
 - **Date:** 2026-11-26
 - **Supersedes:** none
 - **Corrected:** 2026-11-26: the assumption on `muse usage --json` was in part wrong. Muse Code 1.4.25 printed its

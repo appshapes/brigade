@@ -19,10 +19,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/appshapes/brigade/internal/harness/config"
-	"github.com/appshapes/brigade/internal/harness/usage"
 )
 
 const (
@@ -41,22 +39,6 @@ type localHostFacts struct {
 	// model is Grok's current_model_id. Codex and Muse leave it empty:
 	// their model still comes from the hook-written map.
 	model string
-	// use is the usage the host's record gives (work item 347): the
-	// tokens, the context window, the cost, the limits and the extra
-	// usage, each set where the record has it. It stays on this machine
-	// (usage.Record); nothing of it rides a heartbeat.
-	use hostUse
-}
-
-// hostUse is the part of a usage record a host's own record gives.
-type hostUse struct {
-	Total, Last                usage.Tokens
-	Calls                      usage.Value[int64]
-	ContextWindow, ContextUsed usage.Value[int64]
-	Cost                       usage.Value[usage.Cost]
-	Limits                     usage.Value[usage.Limits]
-	LimitsAt                   time.Time
-	Extra                      usage.Value[usage.Extra]
 }
 
 type hostFactsReader struct {
@@ -70,27 +52,6 @@ type hostFactsReader struct {
 	// The last run configuration is enough for the sequential foreground
 	// run. A completion from another run needs its explicit prompt_tokens.
 	runID, provider string
-	// The token sums of a host whose record gives each call alone (Muse
-	// Code's journal; work item 347): the offset counted up to, the file
-	// it was in, and the sums so far. refreshLog reads windows again, so
-	// sums are made here, each complete line once.
-	sumOffset int64
-	sumInfo   os.FileInfo
-	sums      hostSums
-	// usageInfo and signalsInfo are Grok's usage.json and signals.json as
-	// last read, and grokOwned whether the summary beside them names this
-	// session.
-	usageInfo, signalsInfo os.FileInfo
-	grokOwned              bool
-	// codexRecords: the rollout has token_usage_record lines, whose
-	// running totals stand over token_count's.
-	codexRecords bool
-}
-
-// hostSums are the token sums of a record read once, line by line.
-type hostSums struct {
-	total, last usage.Tokens
-	calls       int64
 }
 
 // A history is how one host's own record of a session is read (work item
@@ -321,7 +282,6 @@ func (r *hostFactsReader) refreshLog(root *os.File, head, tail func(line []byte)
 		r.facts = localHostFacts{}
 		r.indexInfo = nil
 		r.runID, r.provider = "", ""
-		r.codexRecords = false
 		r.logInfo = nil
 	}
 	readHostLines(f, 0, min(fi.Size(), hostHeadBytes), head)

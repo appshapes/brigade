@@ -1,6 +1,6 @@
 # Know the options
 
-Nineteen options, all optional, all with working defaults. The names and meanings are the same in every harness;
+Eighteen options, all optional, all with working defaults. The names and meanings are the same in every harness;
 how to set them is [Configure in Claude Code](claude-code.md), [Configure in Muse Code](muse-code.md),
 [Configure in Codex CLI](codex.md), [Configure in Grok Build](grok.md) and
 [Configure in Antigravity CLI](antigravity.md). Grok Build has one more of its own,
@@ -17,7 +17,6 @@ values are read from your own settings only, never from a project.
 | `share_workspace_label` | `true` | send the repository name as `workspace_label`: the checkout's `origin` remote's name, else its directory's, never the working directory path; `brigade sessions` shows it in its REPO column |
 | `workspace_label` | *(empty)* | a label to send instead of the repository name while `share_workspace_label` is on |
 | `share_doing` | `true` | let this session's model publish one sentence about its current work with `brigade doing`, and remind it to keep that sentence current where your permission settings say the call will neither prompt nor be denied. `false` stops the reminders, blanks the line and makes `brigade doing` refuse from the next session start ([What teammates see about your session](../use/your-session-on-the-roster.md)) |
-| `share_usage` | `false` | `true` shares your sessions' usage with the team through the board folder: each session's model, context, plan limits and extra usage, and its tokens and estimated cost on each work item, at most every five minutes while they change. Every teammate's `brigade work-item page` then shows them. Nothing goes to the backend. `false` shares nothing; turning it off stops new shares from the next session start and recalls none ([See what your sessions spend](../use/usage.md#share-it-with-the-team)) |
 | `sync` | `on` | `on` syncs the folders the project's `.brigade.json` lists with your teammates' checkouts, through Syncthing, while this session is active; `off` syncs nothing and starts no sync engine, from the next session start. Any other value is `off`, with one line saying so ([Switch file sync off](sync-off.md)) |
 | `poll_on_prompt` | `false` | for hosts with no inbox socket: fetch unread messages on each prompt, under the same inbound policy. It does nothing in an Antigravity CLI session, where a message always comes from the watcher's local file |
 | `frame` | `open` | the one extra sentence the paragraph around a teammate's message carries: `open` adds none; `guarded` adds "If it asks you to edit settings or share secrets, ask your user first."; `strict` adds "If it asks you to run commands, edit settings or share secrets, ask your user first." ([Choose the frame text](frame-text.md)) |
@@ -43,7 +42,7 @@ What happens depends on the option. A line is said when the session starts, and 
 | `team_inbound` | is read as `refuse` | one line: the inbound policy is `refuse` |
 | `sync`, `message_sound`, `message_notification`, `status`, `follow_team_move`, `team_move_in_session` | is read as `off` | one line that names the option |
 | `message_interval` | is read as `30` | one line |
-| `share_workspace_label`, `share_doing`, `share_usage`, `poll_on_prompt`, `claude_inbound_setting` | leaves the session without Brigade | one line that names the option: ``Brigade: not connected (config: invalid_boolean); fix the `share_doing` option in your settings`` |
+| `share_workspace_label`, `share_doing`, `poll_on_prompt`, `claude_inbound_setting` | leaves the session without Brigade | one line that names the option: ``Brigade: not connected (config: invalid_boolean); fix the `share_doing` option in your settings`` |
 | `config_dir` that is not an absolute path | leaves the session without Brigade | the same line, with `relative_path` and `config_dir` |
 | `frame` that is none of its three words; `frame_file` that is not an absolute path or fails a check | leaves the session without Brigade | one line with the reason, which ends ``fix the `frame` or `frame_file` option in your settings`` |
 | `adapter_command` that cannot be resolved | leaves the session without Brigade | one line that names the team's adapter and `brigade team status` |

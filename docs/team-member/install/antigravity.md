@@ -61,8 +61,7 @@ The measurements are on agy 1.5.18 on macOS, on 2026-11-27
 
 - **Nothing wakes an idle session yet** (work item 533). A message to an idle session waits for your next
   prompt.
-- **No usage is read yet** (work item 534): no tokens and no cost. The roster shows the model, which the hook
-  gives.
+- **The roster shows no context yet** (work item 534). It shows the model, which the hook gives.
 - **Only the CLI was tested.** The Antigravity App and the Antigravity IDE were not tested.
 - **One platform.** Only macOS was measured. The package does not run on Windows.
 - **The injection test set was not run** against Antigravity's models.

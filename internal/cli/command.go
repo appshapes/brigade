@@ -100,18 +100,6 @@ func init() {
 			Run:     runWhoami,
 		},
 		{
-			Name:    "usage",
-			Args:    "[--all]",
-			Summary: "show this session's usage as its harness's own records give it, read by the session's watcher on this machine: model, context, tokens, cost, the plan's limits and extra usage, each with its reason when it is not available (--all: every session on this machine; outside a session every one); nothing is sent",
-			Flags:   func(fs *flag.FlagSet) { fs.Bool("all", false, "every session whose watcher ran on this machine") },
-			Run:     runUsage,
-		},
-		{
-			Name:    "statusline",
-			Summary: "a step for your own Claude Code status line script: reads the status line document on stdin and keeps the session's cost, context window and plan limits for `brigade usage`; prints nothing and never fails",
-			Run:     runStatusline,
-		},
-		{
 			Name:    "doing",
 			Args:    "[--clear]",
 			Summary: "publish one sentence about what this session is working on (on stdin)",
@@ -161,8 +149,8 @@ func init() {
 		},
 		{
 			Name:    "work-item",
-			Args:    "list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all] | show <number> [--description | --earlier <n>] | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> [--no-description] | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | start <number> | stop | lists [<name>…] | rename-list <list> <new name> | hide-list <list> | unhide-list <list> | page [--out <file>]",
-			Summary: "read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one (--description: its title and description alone, the form edit reads; --earlier <n>: a description it had before), add one (title, a blank line and the description on stdin), edit one (the same on stdin; a title alone keeps the description), move, assign, tag, comment on, close or reopen one, start or stop this session's work on one (show lists the sessions that worked on it, and when), and show, name or rename the board's lists, or hide one from the listing (a list is named by its key or its name; a listing leaves a hidden list out unless --all or --list asks for it); page writes the whole board as one read-only HTML page to open in a browser, in a session or in a terminal in the team's checkout",
+			Args:    "list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all] | show <number> [--description | --earlier <n>] | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> [--no-description] | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name> | hide-list <list> | unhide-list <list> | page [--out <file>]",
+			Summary: "read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one (--description: its title and description alone, the form edit reads; --earlier <n>: a description it had before), add one (title, a blank line and the description on stdin), edit one (the same on stdin; a title alone keeps the description), move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists, or hide one from the listing (a list is named by its key or its name; a listing leaves a hidden list out unless --all or --list asks for it); page writes the whole board as one read-only HTML page to open in a browser, in a session or in a terminal in the team's checkout",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("list", "", "one of the board's lists, by its key or its name. add: the list the new work item goes into (the board's first shown list when unset); list: only the work items in this list, a hidden one too")
 				fs.String("to", "", "a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them")
@@ -393,16 +381,6 @@ func runSend(cx *Context, args []string) error {
 // runWhoami is the table's Run for `whoami`.
 func runWhoami(cx *Context, args []string) error {
 	return harnesscmd.Whoami(invocation(cx, args))
-}
-
-// runUsage is the table's Run for `usage` (work item 347).
-func runUsage(cx *Context, args []string) error {
-	return harnesscmd.Usage(invocation(cx, args), harnesscmd.UsageOptions{All: cx.Bool("all")})
-}
-
-// runStatusline is the table's Run for `statusline` (work item 347).
-func runStatusline(cx *Context, args []string) error {
-	return harnesscmd.Statusline(invocation(cx, args))
 }
 
 // runDoing is the table's Run for `doing` (card 25).

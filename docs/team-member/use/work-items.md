@@ -54,34 +54,6 @@ Name other sessions of yours after the number, and the session leads them:
   item's number and words of its title, so the session leaves out of its name a customer, a host or a person
   that the title names. The board itself still goes to neither.
 
-## Say which work item a session works on
-
-`brigade work-item start 41` records on the board that this session works on work item 41, from now on.
-`brigade work-item stop` records that this session stopped work on that work item. `/brigade:work-item-start` runs `start` when it takes a work
-item and `stop` when it lands it or is blocked.
-
-```
-$ brigade work-item start 41
-started: this session works on 41 "Fix the login redirect"
-$ brigade work-item start 43
-stopped: this session no longer works on 41 "Fix the login redirect"
-started: this session works on 43 "Add a board"
-```
-
-- **One work item at a time.** A `start` on another work item stops the one before.
-- **The session's end stops it too.** When the session ends, its SessionEnd hook writes the stop. When its
-  process is killed, the session's watcher writes it. A clear of the conversation, or a resume of the same
-  session, keeps that session, so the work goes on. When the machine itself stops, nothing writes the stop: the work stays open on the board, and the
-  roster shows no work item for a session that is offline.
-- **Where it shows.** `brigade work-item show 41` lists under `sessions:` each period of work on it, with the
-  member and the session, from when to when; a period that is still open says `no stop recorded`. `brigade sessions` shows the number in
-  its `ITEM` column ([See the team](see-the-team.md)).
-- **What it is.** A file for each start and each stop, in a directory of the board for that session. That
-  session writes its files there; another machine can write a file that says the same
-  ([Security](../../security.md#19-the-board-and-its-work-items), section 19).
-  It goes where the board goes, to every teammate's machine, and never to the backend
-  ([ADR 0035](../../decisions/0035-record-which-work-item-a-session-works-on-in-the-board-folder.md)).
-
 ## The commands
 
 ```bash
@@ -113,8 +85,6 @@ Reproduced on staging with a fresh invite.
 EOF
 brigade work-item close 41                   # finished with: off the lists, still under list --closed
 brigade work-item reopen 41
-brigade work-item start 41                   # this session works on 41 from now on, and on nothing it worked on before
-brigade work-item stop                       # this session works on no work item
 brigade work-item lists                      # the board's lists, in order: each one's key and its name
 brigade work-item lists Backlog Doing Review Done   # names them anew: all of them, in order
 brigade work-item rename-list doing 'In progress'   # another name for a list; its key and its work items stay
@@ -213,20 +183,14 @@ the Brigade Board as one read-only page: 12 open and 30 closed work items in 4 l
 ```
 
 - **One file, read-only.** Each list is a column. Each open work item is a card with its number, its whole
-  title, its assignee and its tags. A click on a card, or Enter on it, opens the work item in a dialog over the
-  board: its description, the agents on it and its comments, however long. Escape, Close or a click outside the
-  dialog closes it. Nothing on the page changes the board: `brigade work-item` does that.
+  title, its assignee and its tags. A click on a card shows its description and its comments. Nothing on the
+  page changes the board: `brigade work-item` does that.
 - **Filters.** Filter by assignee (or nobody), by tag and by list. Two switches add the lists the team hid and
   the closed work items. The filters stay in the page's address, so a reload keeps them.
 - **By roadmap item.** "Group by" turns the columns into the roadmap: one for each roadmap item, in order,
   headed by its number, its title and how many of its work items are finished, and a last one for the work
   items under none. Each card then shows its list. Grouped by list, a roadmap item is a card that says so. A
   closed roadmap item is a column only with the closed work items switched on.
-- **Agents and their cost.** A card shows each session of this machine that worked on the work item: its
-  harness and model, its tokens, its estimated cost at list price, and its context while it works on it still.
-  The card adds them up. The plan limits of this machine's sessions stand apart, above the board, and a window
-  at 80 percent or more is marked. Only this machine's sessions show: a teammate's usage stays on their machine
-  ([See what your sessions spend](usage.md#by-work-item)).
 - **No network.** The page carries its own style, script and data. Its Content-Security-Policy lets it load
   nothing else, so it opens with the backend down and the machine offline.
 - **A snapshot.** The page shows the board as this machine had it when the command ran. Its footer gives that
@@ -391,8 +355,7 @@ Where both set the same field, the later change wins.
 | `invalid_input`, `no_such_list` | the board has no list of that name or key; the message names the ones it has |
 | `invalid_input`, `name_taken` | a list cannot take a name another list answers to |
 | `invalid_input`, `not_a_roadmap_item` | `roadmap put` or `roadmap order` named a work item where a roadmap item belongs |
-| `invalid_input`, `is_a_roadmap_item` | `roadmap put` was asked to put a roadmap item under one, or `start` named a roadmap item: start one of the work items under it |
-| `invalid_input`, `work_item_closed` | `start` named a closed work item: reopen it first, then run `start` |
+| `invalid_input`, `is_a_roadmap_item` | `roadmap put` was asked to put a roadmap item under one |
 | `invalid_input`, `roadmap_item_closed` | the roadmap item named is closed: `brigade work-item reopen` puts it back on the roadmap |
 | `invalid_input`, `out_in_board` | `page --out` named a file in the board folder, which file sync shares with every teammate |
 | `invalid_input`, `no_directory` | `page --out` named a directory, or a file in a directory that does not exist |

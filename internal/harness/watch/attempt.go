@@ -481,9 +481,6 @@ func (w *watcher) shutdown(s *session, r *attemptResult) {
 	budget := w.deps.CloseWaitClean
 	if reason == "claude_gone" {
 		budget = w.deps.CloseWaitDeath
-		// The session's process is gone and its SessionEnd hook may not
-		// have run: its work on a work item stops here (work item 346).
-		w.stopWork()
 	}
 	w.log.Info("closing the session", slog.String("reason", reason), slog.Duration("budget", budget))
 	w.injector.stopDraining()

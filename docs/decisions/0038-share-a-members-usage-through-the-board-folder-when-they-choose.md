@@ -1,6 +1,6 @@
 # 0038. Share a member's usage through the board folder when they choose
 
-- **Status:** Accepted
+- **Status:** Superseded by 0040
 - **Date:** 2026-11-26
 - **Supersedes:** none
 

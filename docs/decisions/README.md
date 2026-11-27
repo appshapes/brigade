@@ -47,6 +47,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0037. Estimate a work item's cost from a shipped price table and a member's file](0037-estimate-a-work-items-cost-from-a-shipped-price-table-and-a-members-file.md)
 - [0038. Share a member's usage through the board folder when they choose](0038-share-a-members-usage-through-the-board-folder-when-they-choose.md)
 - [0039. Take Antigravity CLI in as a harness that gets a message at its next model call](0039-take-antigravity-cli-in-as-a-harness-that-gets-a-message-at-its-next-model-call.md)
+- [0040. Keep usage, cost and time per work item out of Brigade, in a separate plugin](0040-keep-usage-cost-and-time-per-work-item-out-of-brigade-in-a-separate-plugin.md)
 
 ## Record a decision
 

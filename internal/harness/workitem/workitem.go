@@ -163,9 +163,6 @@ type Change struct {
 	// Order, in a change of the roadmap, is the roadmap items' ids in
 	// order (roadmap.go).
 	Order []string `json:"order,omitzero"`
-	// Work, in a change of a session's directory, is the work item the
-	// session starts on, or its stop (work.go).
-	Work *Work `json:"work,omitzero"`
 
 	// name is the file's name, the last key of the fold's order.
 	name string
@@ -508,7 +505,6 @@ func (c *Change) sanitize() {
 	c.Comment = protocol.TruncateRunes(Block(c.Comment), MaxCommentChars)
 	c.Lists = cleanLists(c.Lists)
 	c.Order = cleanOrder(c.Order)
-	c.sanitizeWork()
 	if r := c.Rename; r != nil {
 		r.Name = protocol.TruncateRunes(Line(r.Name), MaxListChars)
 		if !ValidListKey(r.Key) || r.Name == "" {

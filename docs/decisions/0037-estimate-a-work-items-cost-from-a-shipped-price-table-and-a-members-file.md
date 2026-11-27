@@ -1,6 +1,6 @@
 # 0037. Estimate a work item's cost from a shipped price table and a member's file
 
-- **Status:** Accepted
+- **Status:** Superseded by 0040
 - **Date:** 2026-11-26
 - **Supersedes:** none
 
