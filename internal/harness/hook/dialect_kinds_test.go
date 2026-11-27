@@ -36,7 +36,9 @@ func TestEveryKindOfDialectTheTableNamesHasAnImplementation(t *testing.T) {
 
 // TestTheKeyIsTheParentUnlessTheDialectSaysOtherwise: a session is keyed
 // by its hook's parent process, and by its thread where the parent is a
-// daemon the host's sessions share, which is then kept for liveness.
+// daemon the host's sessions share, or a process that holds one
+// conversation after another (Antigravity CLI), which is then kept for
+// liveness.
 func TestTheKeyIsTheParentUnlessTheDialectSaysOtherwise(t *testing.T) {
 	t.Parallel()
 	const thread, parent = "0199c0de-0000-7000-8000-000000000042", 4242
@@ -46,8 +48,12 @@ func TestTheKeyIsTheParentUnlessTheDialectSaysOtherwise(t *testing.T) {
 			continue
 		}
 		pid, hostProcess := dialectOf(host).key(thread, parent)
-		if host.Dialect() == config.DialectThread {
-			if pid != codexKey(thread) || hostProcess != parent {
+		if host.Dialect() == config.DialectThread || host.Dialect() == config.DialectInjectSteps {
+			want := codexKey(thread)
+			if host.Dialect() == config.DialectInjectSteps {
+				want = conversationKey(thread)
+			}
+			if pid != want || hostProcess != parent {
 				t.Errorf("%s: key %d with process %d, want the thread's key and the parent kept", host, pid, hostProcess)
 			}
 			continue

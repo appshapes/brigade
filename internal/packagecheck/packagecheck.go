@@ -1,8 +1,9 @@
 // Package packagecheck is the one check of the harness packages (work item
 // 382): the static rules that `make plugin-check`, `muse-plugin-check`,
-// `codex-plugin-check` and `grok-plugin-check` hold of plugin/,
-// muse/brigade/, codex/brigade/ and grok/brigade/. It was four shell
-// scripts, one per package, each with its own copy of what the four share:
+// `codex-plugin-check`, `grok-plugin-check` and `antigravity-plugin-check`
+// hold of plugin/, muse/brigade/, codex/brigade/, grok/brigade/ and
+// antigravity/brigade/. It was four shell scripts, one per package, each
+// with its own copy of what they share:
 // the allow-list of files, the assets equal to plugin/bin's, the
 // bootstrap's mode in git, the version the manifest declares, the shells
 // the scripts parse under, and that no skill takes the model's reach away.
@@ -54,12 +55,13 @@ type check struct {
 	run  func(c *checker)
 }
 
-// checks holds the four, by the harness's id in docs/harnesses.json.
+// checks holds the five, by the harness's id in docs/harnesses.json.
 var checks = map[string]check{
 	"claude-code": {"plugin-check", (*checker).claude},
 	"muse-code":   {"muse-plugin-check", (*checker).muse},
 	"codex":       {"codex-plugin-check", (*checker).codex},
 	"grok":        {"grok-plugin-check", (*checker).grok},
+	"antigravity": {"antigravity-plugin-check", (*checker).antigravity},
 }
 
 // IDs are the harnesses that have a check, sorted.

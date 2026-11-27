@@ -953,6 +953,9 @@ func (f *fixture) key() int {
 	if f.codex() {
 		return codexKey(f.nativeID)
 	}
+	if f.host == config.HostAntigravity {
+		return conversationKey(f.nativeID)
+	}
 	return f.pid
 }
 

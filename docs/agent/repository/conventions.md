@@ -142,8 +142,8 @@
   instead of retelling its reasons. A runner has no board: an agent there writes the ADR in its change and names
   the work item its pull request's title names.
 - **Skills of this repository** live in `.claude/skills/`: `commit`, `playwright-cli`. The Brigade plugin's own
-  skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`, `grok/brigade/skills/`) are the
-  product. Never edit a `SKILL.md` there: change the skill's one source, `skills/<name>.md`, then run
+  skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`, `grok/brigade/skills/`,
+  `antigravity/brigade/skills/`) are the product. Never edit a `SKILL.md` there: change the skill's one source, `skills/<name>.md`, then run
   `make skills-generate` and `make muse-digest` (ADR 0024, `docs/developer/change/skills.md`).
 - **Dates** in plans and logs are absolute (`2026-10-17`), never relative.
 - **Wording.** Say "the 26 test messages" or "the injection test set", never "corpus".

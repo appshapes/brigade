@@ -9,7 +9,7 @@ bootstrap, version pin and checksums as the Claude Code package (`plugin/`), a n
 root's `.agents/plugins/marketplace.json` is the marketplace that names it, at the commit of the last published
 release: a member has that release's package, and a change here reaches them with the next release and not
 with its push (work item 424, [ADR 0030](../../docs/decisions/0030-pin-the-codex-cli-and-grok-build-packages-to-the-last-release-in-their-marketplace-files.md)).
-One Brigade team, one backend, four kinds of session.
+One Brigade team, one backend, five kinds of session.
 
 The procedures are in the documentation tree: [install](../../docs/team-member/install/codex.md),
 [join](../../docs/team-member/join/codex.md), [update](../../docs/team-member/update/codex.md),

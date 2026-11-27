@@ -1,0 +1,12 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "brigade",
+  "displayName": "Brigade",
+  "version": "0.61.0",
+  "description": "Team messaging for Antigravity CLI sessions: join a Brigade team, show on its roster, and take teammates' messages at the next model call.",
+  "author": {
+    "name": "appshapes",
+    "url": "https://github.com/appshapes"
+  },
+  "keywords": ["team", "messaging", "sessions", "brigade"]
+}

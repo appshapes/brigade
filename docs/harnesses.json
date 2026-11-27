@@ -36,6 +36,15 @@
       "package": "grok/brigade",
       "skills": "grok/brigade/skills",
       "status": "Supported, with known gaps"
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity CLI",
+      "vendor": "Google",
+      "host": "antigravity",
+      "package": "antigravity/brigade",
+      "skills": "antigravity/brigade/skills",
+      "status": "In trial"
     }
   ]
 }

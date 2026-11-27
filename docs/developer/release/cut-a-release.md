@@ -21,13 +21,13 @@ is still accepted with the same meaning; given both, they must agree. `scripts/r
    tag `v<v>` yet, here or on origin, `git pull --no-edit`, and a head that origin has. Then **the commit's CI**: `ci.yml`'s run on the commit the release
    starts from must be green ([The two CI checks](#the-two-ci-checks)); otherwise it stops with nothing changed.
 1. **Bump the pins**: `plugin/bin/VERSION`, `plugin/.claude-plugin/plugin.json`, `muse/brigade/.muse-plugin/plugin.json`,
-   `codex/brigade/.codex-plugin/plugin.json`, `grok/brigade/.grok-plugin/plugin.json`.
+   `codex/brigade/.codex-plugin/plugin.json`, `grok/brigade/.grok-plugin/plugin.json`, `antigravity/brigade/plugin.json`.
 2. **Reproducible build**: `make cross version=<v>` builds the six targets (darwin, linux and windows, amd64 and
    arm64) with `GOTOOLCHAIN` forced, `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false` and a version-only `-X`, so
    the bytes do not depend on the commit.
 3. **Cross-check**: goreleaser's own build of the same six targets must produce an identical `checksums.txt`.
 4. **Commit**: `cp dist/checksums.txt plugin/bin/checksums.txt`, the same into `muse/brigade/bin/`,
-   `codex/brigade/bin/` and `grok/brigade/bin/`,
+   `codex/brigade/bin/`, `grok/brigade/bin/` and `antigravity/brigade/bin/`,
    `go run ./cmd/brigade-muse-digest write` (the digest Muse computes over the final `muse/brigade/`, and the
    version, into `marketplace.json`), then `make push message="<work item>: Release <v>"` (typecheck, pull, lint, build, test with the
    documentation gate, commit, push).
@@ -41,8 +41,8 @@ is still accepted with the same meaning; given both, they must agree. `scripts/r
 
 `release.yml` then checks the tag is not already published, asks the CI check again
 ([The workflow asks again](#the-workflow-asks-again)), guards that the plugin pins this tag, the four
-manifests and the Muse catalog agree, the four `checksums.txt` are equal (`make grok-plugin-check` is what holds the
-Grok package's manifest and assets), the catalog's digest is the package digest of `muse/brigade/` at the tag
+manifests and the Muse catalog agree, the four `checksums.txt` are equal (`make grok-plugin-check` and
+`make antigravity-plugin-check` hold the Grok and Antigravity packages' manifests and assets), the catalog's digest is the package digest of `muse/brigade/` at the tag
 (`brigade-muse-digest check`), `make docs-check` passes and `make cross` reproduces the committed
 checksums; goreleaser builds a draft; `scripts/ci/release-verify.sh` compares its checksums with the committed
 file; the draft is published and the release-notes workflow dispatched. A failure deletes the draft and publishes

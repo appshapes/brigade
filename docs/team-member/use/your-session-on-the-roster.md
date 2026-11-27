@@ -46,6 +46,10 @@ end says one thing, the ask for a note when that is due, else this line. Under t
 stays blank unless you ask the model to set it
 ([ADR 0034](../../decisions/0034-say-the-roster-line-reminder-from-grok-builds-stop-hook.md)).
 
+**In Antigravity CLI** Brigade never asks. The hook documents of `agy` carry no permission mode, so Brigade
+cannot tell whether the call will prompt. In `auto` mode a `brigade doing` can also need approval to run outside
+the sandbox. The line stays blank unless you ask the model to set it.
+
 **To stop it:** set `share_doing` to `false` (from the next session start the line is blanked, the reminders stop
 and `brigade doing` refuses), run `brigade doing --clear`, put an ask or deny on `Bash(brigade doing*)` in your
 settings, or answer No to the harness's dialog where one is raised. What the refusals cannot recognise (a
@@ -61,6 +65,8 @@ own history, matched by exact native session ID; their model still comes from th
 Grok Build supplies the name from that session's `summary.json` title and the model from that file's
 `current_model_id`, matched by the same native session id and the working directory the session was launched
 in. Its context stays blank.
+Antigravity CLI supplies no history yet (work item 534): the model comes from the hook's document, and the
+context stays blank.
 Only the roster name and the two derived facts, model and context, are shared. File contents and paths stay local.
 
 | Host | Name changes | CONTEXT |
@@ -69,6 +75,7 @@ Only the roster name and the two derived facts, model and context, are shared. F
 | Muse Code | Journal `session.name.changed`, next heartbeat | Latest model completion's counted-once prompt tokens; native Meta input count as a fallback |
 | Codex CLI | Thread title index, next heartbeat | Latest rollout `token_count` input tokens, including cache once |
 | Grok Build | `summary.json` `generated_title`, at registration and the next heartbeat | Blank |
+| Antigravity CLI | Not read | Blank |
 
 CONTEXT is the last reported input context, not lifetime usage, output tokens or a percentage of the model's
 window. Compaction can reduce it. Until a supported usage record exists it stays blank; temporarily missing
@@ -98,7 +105,7 @@ heartbeat, as it does after `/rename`. `brigade whoami` says the new name from t
 writes the name it applies into the session's map, which `whoami` reads, and brings the map level with the
 registry at every later prompt, so a `/rename` you type reaches `whoami` at the prompt after it. The name is the
 model's own words, under the rules of the sentence under your row: no secrets, no paths, no customer names. On
-Muse Code, Codex CLI and Grok Build the command records nothing and says so: their hooks have no field that sets
+Muse Code, Codex CLI, Grok Build and Antigravity CLI the command records nothing and says so: their hooks have no field that sets
 a title.
 
 ## The repository name

@@ -613,6 +613,13 @@ func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 	if f.host.DiscardsPromptOutput() {
 		return
 	} // Native prompt hook stdout is discarded, never injection.
+	if f.host.Delivery() == config.DeliverNextCall {
+		// Antigravity CLI (work item 532): every message comes through the
+		// watcher's sink and is handed over as a user message. What this
+		// hook prints is Brigade's own text, which agy puts in a system
+		// message, so a frame is never printed here.
+		return
+	}
 	opts, err := r.options()
 	if err != nil {
 		r.log.Warn("prompt: options unreadable; no poll", log.Err(err))

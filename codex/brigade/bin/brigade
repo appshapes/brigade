@@ -14,19 +14,43 @@ set -u
 
 # Grok hooks and model tools share HOME. Ignore inherited repository options
 # before resolving the cache/developer pointer as the Go resolvers do, and
-# only when Grok is the host. A Claude, Muse or Codex session started from
-# Grok inherits GROK_SESSION_ID; those hosts win and keep their own paths.
+# only when Grok is the host. A Claude, Muse, Codex or Antigravity session
+# started from Grok inherits GROK_SESSION_ID; those hosts win and keep their
+# own paths. Antigravity CLI (work item 532) is the same: its hooks print
+# JSON only, and an Antigravity session started from another host's keeps
+# that host's paths.
 grok_host=0
-if [ -n "${GROK_SESSION_ID:-}" ] && [ -z "${CLAUDE_PID:-}" ] && [ -z "${MUSE_SESSION_ID:-}" ] && [ -z "${CODEX_THREAD_ID:-}" ]; then
+if [ -n "${GROK_SESSION_ID:-}" ] && [ -z "${CLAUDE_PID:-}" ] && [ -z "${MUSE_SESSION_ID:-}" ] && [ -z "${CODEX_THREAD_ID:-}" ] && [ -z "${ANTIGRAVITY_CONVERSATION_ID:-}" ]; then
   grok_host=1
 fi
-if [ "$grok_host" = 1 ]; then
+agy_host=0
+if [ -n "${ANTIGRAVITY_CONVERSATION_ID:-}" ] && [ -z "${CLAUDE_PID:-}" ] && [ -z "${MUSE_SESSION_ID:-}" ] && [ -z "${CODEX_THREAD_ID:-}" ]; then
+  agy_host=1
+fi
+# What an Antigravity CLI hook prints is JSON and nothing else. Its argv names the host (`--host antigravity`),
+# which decides the output's form even where the environment names another host or none.
+agy_json=0
+if [ "${1:-}" = hook ]; then
+  brigade_prev=
+  for brigade_arg in "$@"; do
+    if [ "$brigade_prev" = --host ] && [ "$brigade_arg" = antigravity ]; then agy_json=1; fi
+    if [ "$brigade_arg" = --host=antigravity ]; then agy_json=1; fi
+    brigade_prev=$brigade_arg
+  done
+  if [ "$agy_host" = 1 ]; then agy_json=1; fi
+fi
+if [ "$grok_host" = 1 ] || [ "$agy_host" = 1 ]; then
   for brigade_env_name in $(env | sed -nE 's/^((BRIGADE_|XDG_)[A-Za-z0-9_]*)=.*/\1/p'); do
     unset "$brigade_env_name"
   done
 fi
 
-fail() { printf 'brigade: %s\n' "$2" >&2; exit "$1"; }   # 9 = unavailable (network); 11 = config (pins, platform, integrity)
+fail() {   # 9 = unavailable (network); 11 = config (pins, platform, integrity)
+  printf 'brigade: %s\n' "$2" >&2
+  # An Antigravity hook says why on stderr and answers with the empty JSON document: no exit code stops agy's turn.
+  if [ "$agy_json" = 1 ]; then printf '%s\n' '{}'; exit 0; fi
+  exit "$1"
+}
 
 # ---- where am I (follow symlinks, e.g. ~/.local/bin/brigade -> plugin/bin/brigade) ------------------------------
 script=$0
@@ -146,7 +170,9 @@ if [ $# -ge 2 ] && [ "$1" = hook ] && [ "$2" = session-start ]; then
     install_verified "$tmp"
     trap - EXIT HUP INT TERM
   ) </dev/null >/dev/null 2>&1 &
-  if [ "$grok_host" = 1 ]; then
+  if [ "$agy_json" = 1 ]; then
+    printf '%s\n' '{"injectSteps":[{"userMessage":"Brigade: installing the brigade binary in the background; team messaging becomes available at your next prompt."}]}'
+  elif [ "$grok_host" = 1 ]; then
     printf '%s\n' '{"systemMessage":"Brigade: installing the binary in the background; the next prompt retries registration. Monitor setup follows a completed turn."}'
   else
     printf 'Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt\n'
@@ -176,8 +202,12 @@ if [ $# -ge 2 ] && [ "$1" = hook ]; then
         # 200 characters at 200 columns, and after 161 characters, wrapped, at 80 columns), so the remedy and the
         # sha256/install path at the end are the part that is lost on screen; they stay intact in the transcript.
         printf 'Brigade: not installed: %s. Team messaging is off in this session; /clear or a new session retries the install\n' "${reason:-unknown reason}" >&2
+        # Antigravity CLI reads a hook's stdout as JSON and nothing else: the empty answer, and no exit code
+        # that could stop its turn.
+        if [ "$agy_json" = 1 ]; then printf '%s\n' '{}'; exit 0; fi
         exit "$code"
       fi
+      if [ "$agy_json" = 1 ]; then printf '%s\n' '{}'; fi
       exit 0 ;;
     session-end) exit 0 ;;
   esac

@@ -23,8 +23,8 @@ the team is:
 
 ## 1. Run the one command
 
-In a session, ask it to move the team (`/brigade:move` in Claude Code and Grok Build, `$brigade:move` in Codex
-CLI, the `move` skill in Muse Code). It asks you for the values above, one at a time, and runs the command. It
+In a session, ask it to move the team (`/brigade:move` in Claude Code, Grok Build and Antigravity CLI,
+`$brigade:move` in Codex CLI, the `move` skill in Muse Code). It asks you for the values above, one at a time, and runs the command. It
 never asks for the secret itself: it asks for the path of its file. Or run the command yourself, in a terminal
 or with `!` in a session, in the checkout:
 

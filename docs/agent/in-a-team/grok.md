@@ -7,7 +7,7 @@ Grok hook transactions are serialized by actual TUI PID and native UUID, includi
 Startup `systemMessage` is UI-only. UserPromptSubmit maintains registration/watcher state and prints no frames.
 A genuine Stop offers one setup continuation; its marker and recursion guard prevent repeated attempts.
 
-The package (`grok/brigade/`) ships the same fifteen skills as the other three, worded for Grok Build; a user
+The package (`grok/brigade/`) ships the same fifteen skills as the other four, worded for Grok Build; a user
 invokes one as `/brigade:<name>`. `team-messaging`, `setup` and `update` are the other packages' text since
 work item 383, with Grok Build's own monitor sections kept. Where `brigade whoami` prints `strict: on`, the
 member set the option `grok_strict`, and the three skills hold back as they did before work item 377: a doing

@@ -17,6 +17,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **Antigravity CLI joins a team, in trial** (work item 532, ADR 0039).
+  A package for Google's Antigravity CLI (`agy`) registers each
+  conversation as a session on the team's roster. A teammate's message
+  reaches it before its next model call, as a message the user did not
+  type. A message that arrives during a turn follows when the turn ends.
+  Nothing wakes an idle session yet. Install one release with
+  `agy plugin install
+  https://github.com/appshapes/brigade/tree/v<version>/antigravity/brigade`
+  ([Install in Antigravity CLI](https://github.com/appshapes/brigade/blob/master/docs/team-member/install/antigravity.md)).
+  `docs/security.md` section 22 says what differs for its sessions.
 - **Share your sessions' usage with the team, if you choose** (work
   item 348, ADR 0038). The plugin option `share_usage`, off by default,
   writes each session's usage into the team's board folder, at most

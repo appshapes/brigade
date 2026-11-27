@@ -9,7 +9,7 @@
 | write a sync adapter or a mail connector | [Write a sync adapter or a mail connector](#write-a-sync-adapter-or-a-mail-connector) |
 | add a migration, a function, or change the Supabase adapter | [Change the backend](#change-the-backend) |
 | change the Brigade server, the backend with no Supabase project | [Change the server](#change-the-server) |
-| change what a skill says, in all four packages or in one | [Change a skill](#change-a-skill) |
+| change what a skill says, in all five packages or in one | [Change a skill](#change-a-skill) |
 | add Brigade support for another harness | [Add a harness](#add-a-harness) |
 | know where things are | [Know the layout](#know-the-layout) |
 

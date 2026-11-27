@@ -469,7 +469,7 @@ advisor-lints: ## Security Advisor lint mirrors, run with the psql inside the lo
 
 # ========== Plugin ==========
 
-# The four package checks are names over one check (work item 382): internal/packagecheck, run by
+# The five package checks are names over one check (work item 382): internal/packagecheck, run by
 # cmd/brigade-packages for the harness's id in docs/harnesses.json. They were four shell scripts under scripts/ci/.
 # `go run ./cmd/brigade-packages check` with no id holds every package the registry lists.
 .PHONY: plugin-check
@@ -498,8 +498,12 @@ docs-check: ## The documentation gate (cards 110, 112; work item 309): README an
 grok-plugin-check: ## Validate Grok native package, four hooks, fifteen skills and canonical release assets (CI)
 	go run ./cmd/brigade-packages check grok
 
+.PHONY: antigravity-plugin-check
+antigravity-plugin-check: ## Validate the Antigravity CLI package, its three hooks, fifteen skills and canonical release assets (CI)
+	go run ./cmd/brigade-packages check antigravity
+
 .PHONY: skills-generate
-skills-generate: ## Write the four packages' skills from their one source each, skills/<name>.md (work item 393, ADR 0024): after any change to a source; then `make muse-digest`
+skills-generate: ## Write the five packages' skills from their one source each, skills/<name>.md (work item 393, ADR 0024): after any change to a source; then `make muse-digest`
 	go run ./cmd/brigade-skills write
 
 .PHONY: skills-check

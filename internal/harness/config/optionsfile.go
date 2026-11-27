@@ -28,6 +28,8 @@ const (
 	MuseOptionsFile  = "muse-options.json"
 	CodexOptionsFile = "codex-options.json"
 	GrokOptionsFile  = "grok-options.json"
+	// AntigravityOptionsFile is Antigravity CLI's (work item 532).
+	AntigravityOptionsFile = "antigravity-options.json"
 	// MaxOptionsFileBytes bounds what is read of the file.
 	MaxOptionsFileBytes = 64 << 10
 )

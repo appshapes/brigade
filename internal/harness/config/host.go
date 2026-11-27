@@ -28,6 +28,8 @@ const (
 	HostMuse   Host = "muse"
 	HostCodex  Host = "codex"
 	HostGrok   Host = "grok"
+	// HostAntigravity is Google's Antigravity CLI, `agy` (work item 532).
+	HostAntigravity Host = "antigravity"
 )
 
 // A HistoryKind names a way a host keeps its own record of a session.
@@ -71,6 +73,11 @@ const (
 	// DeliverPagedSink: a private sink file, bound to one live receiver,
 	// that the model reads in pages (`brigade inbox read --cursor`).
 	DeliverPagedSink DeliveryKind = "paged-sink"
+	// DeliverNextCall: the sink file of DeliverFollowedSink, which the
+	// watcher appends to as it does there, read by the host's own hook at
+	// the session's next model call and put in front of the model then.
+	// Nothing outside the session wakes it (work item 532, ADR 0039).
+	DeliverNextCall DeliveryKind = "next-call"
 )
 
 // A DialectKind names what a host's hook is handed and may print, and how
@@ -97,6 +104,11 @@ const (
 	// DialectNative: the host's own protocol, JSON in and JSON out, which
 	// the hook speaks whole.
 	DialectNative DialectKind = "native"
+	// DialectInjectSteps: the host's own JSON in and out, as DialectNative,
+	// where what the hook says reaches the model as a step the hook adds
+	// to the conversation (`injectSteps`), and a Stop answer goes on with
+	// `"decision": "continue"` (work item 532, ADR 0039).
+	DialectInjectSteps DialectKind = "inject-steps"
 )
 
 // hostRow is what the table holds for one host. Every yes or no is worded
@@ -135,6 +147,11 @@ type hostRow struct {
 	// pluginRootVar is the variable that names it otherwise, "" for none.
 	pluginRootFlag bool
 	pluginRootVar  string
+	// pluginRootHere: the host runs a plugin's hook in the package's root,
+	// so a relative --plugin-root (`.`) is the hook's working directory
+	// (Antigravity CLI, work item 532). Another host's relative one names
+	// nothing.
+	pluginRootHere bool
 	// frame is the wording a message is framed in for this host's model:
 	// the key frame.BuildFor takes, "" for the text it has always had.
 	frame string
@@ -239,6 +256,31 @@ var hosts = []struct {
 		usage: UsageGaps{
 			Calls: usageNotGiven,
 			Cost:  usageNotGiven,
+		},
+	}},
+	{HostAntigravity, hostRow{
+		name:           "Antigravity CLI",
+		marker:         AntigravitySessionIDVar,
+		pointed:        true,
+		homeOnly:       true,
+		exclusive:      true,
+		optionsFile:    AntigravityOptionsFile,
+		ownOptions:     true,
+		pluginRootFlag: true,
+		pluginRootHere: true,
+		frame:          frame.HostAntigravity,
+		delivery:       DeliverNextCall,
+		dialect:        DialectInjectSteps,
+		hookNamed:      true,
+		stop:           true,
+		usage: UsageGaps{
+			// Work item 534 reads the transcript; until then nothing.
+			Calls:         usageNotGiven,
+			ContextWindow: usageNotGiven,
+			Cost:          usageNotGiven,
+			Limits:        usageNotGiven,
+			Extra:         usageNotGiven,
+			Reasoning:     usageNotGiven,
 		},
 	}},
 	{HostGrok, hostRow{
@@ -375,6 +417,11 @@ func (h Host) HistoryRoot(environ []string) string {
 	return filepath.Join(append([]string{home}, r.historyDir...)...)
 }
 
+// PluginRootIsWorkingDir reports whether the host runs a plugin's hook in
+// the package's root, so that a relative --plugin-root names the hook's
+// working directory: Antigravity CLI.
+func (h Host) PluginRootIsWorkingDir() bool { return h.row().pluginRootHere }
+
 // Dialect is what the host's hook is handed and may print: DialectPlugin
 // for Claude Code, and for a host the table does not hold.
 func (h Host) Dialect() DialectKind { return h.row().dialect }
@@ -446,8 +493,8 @@ func (h Host) NamedInWhoami() bool { return !h.row().unnamed }
 
 // HostOf names the host environ belongs to: Claude Code when CLAUDE_PID is
 // set (it wins, so another host's variable leaking into a Claude session
-// changes nothing), then Muse Code, then Codex CLI, then Grok Build, then
-// a terminal. Grok is LAST for the same reason Claude is first: a
+// changes nothing), then Muse Code, then Codex CLI, then Antigravity CLI,
+// then Grok Build, then a terminal. Grok is LAST for the same reason Claude is first: a
 // GROK_SESSION_ID a Grok terminal tool exports is inherited by every
 // session started from it, and relabelling such a session would route its
 // hooks into the Grok path, where they register nothing and receive
@@ -455,6 +502,9 @@ func (h Host) NamedInWhoami() bool { return !h.row().unnamed }
 // resolved: NativeID answers ambiguous_host for Grok Build when a
 // competing marker is set, and the Grok hooks — which name their host with
 // --host grok and so do not depend on this function — fail closed there.
+// Antigravity CLI is refused the same way (work item 532): an agy started
+// from another host's shell inherits that host's marker, and its hook,
+// which names --host antigravity, must not take that host's session.
 // The order is the table's.
 func HostOf(environ []string) Host {
 	for i := range hosts {

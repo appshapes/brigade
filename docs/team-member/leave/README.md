@@ -12,6 +12,7 @@ second, remove the package last.
 | remove Brigade from Muse Code | [Uninstall from Muse Code](#uninstall-from-muse-code) |
 | remove Brigade from Codex CLI | [Uninstall from Codex CLI](#uninstall-from-codex-cli) |
 | remove Brigade from Grok Build | [Uninstall from Grok Build](#uninstall-from-grok-build) |
+| remove Brigade from Antigravity CLI | [Uninstall from Antigravity CLI](#uninstall-from-antigravity-cli) |
 
 ## Leave the team
 
@@ -54,3 +55,12 @@ Details: [Uninstall from Codex CLI](codex.md).
    harness on this machine still uses Brigade.
 
 Details: [Uninstall from Grok Build](grok.md).
+
+## Uninstall from Antigravity CLI
+
+1. Steps 1 and 2 of Leave the team, for each team.
+2. `agy plugin uninstall brigade`.
+3. `rm -rf ~/.local/state/brigade ~/.local/share/brigade`, then `rm -rf ~/.config/brigade`, unless another
+   harness on this machine still uses Brigade.
+
+Details: [Uninstall from Antigravity CLI](antigravity.md).

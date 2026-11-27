@@ -41,6 +41,7 @@ var deliveries = map[config.DeliveryKind]delivery{
 	config.DeliverFollowedSink: followedSink{},
 	config.DeliverQueue:        queue{},
 	config.DeliverPagedSink:    pagedSink{},
+	config.DeliverNextCall:     followedSink{},
 }
 
 // deliveryOf is the delivery of a host by its registration's word.

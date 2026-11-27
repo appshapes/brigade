@@ -198,8 +198,8 @@ The order matters. Every step is optional except step 3 when the goal is to remo
    person takes it out of that list in an editor.
 4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
    removes the session maps, pidfiles, logs and the cached binaries. Steps 4 and 5 are left out while a Claude
-   Code, Muse Code or Codex CLI package on this machine still uses Brigade: the four share that state and the
-   credential store. Keep
+   Code, Muse Code, Codex CLI or Antigravity CLI package on this machine still uses Brigade: the five share that
+   state and the credential store. Keep
    `~/.local/state/brigade/sessions/by-native` if a later reinstall should resume your old Brigade sessions.
 5. `rm -rf ~/.config/brigade` (or the directory named by the `config_dir` option) removes every team's credential.
    Do this only after step 2 for each team: a deleted credential whose family was never revoked stays usable by

@@ -1,0 +1,25 @@
+{
+  "brigade": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "./bin/brigade hook session-start --host antigravity --plugin-root .",
+        "timeout": 60
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "./bin/brigade hook prompt --host antigravity --plugin-root .",
+        "timeout": 10
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "./bin/brigade hook stop --host antigravity --plugin-root .",
+        "timeout": 10
+      }
+    ]
+  }
+}

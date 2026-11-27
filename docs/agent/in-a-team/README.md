@@ -1,6 +1,6 @@
 # In a team
 
-Each harness Brigade supports — Claude Code, Muse Code, Codex CLI, Grok Build — ships the same fifteen skills, worded for that harness. The model-facing one is
+Each harness Brigade supports — Claude Code, Muse Code, Codex CLI, Grok Build, Antigravity CLI — ships the same fifteen skills, worded for that harness. The model-facing one is
 `team-messaging`; the rest are slash commands a person types. The frame keeps the same structure and trust rules, with host-specific tool
 and delivery wording.
 
@@ -17,6 +17,7 @@ nothing.
 | know the skills a Muse Code session loads, and how a Muse session is woken | [Muse Code](#muse-code) |
 | know the skills a Codex CLI session loads, and how a Codex session is woken | [Codex CLI](#codex-cli) |
 | know the skills a Grok Build session loads, and how its inbox monitor is armed | [Grok Build](#grok-build) |
+| know the skills an Antigravity CLI session loads, and how a message reaches it | [Antigravity CLI](#antigravity-cli) |
 | read what a team message looks like when it reaches you, and what it can never do | [The frame around a message](#the-frame-around-a-message) |
 
 ## Claude Code
@@ -57,6 +58,15 @@ Details: [Codex CLI](codex.md).
    that `brigade whoami --json` prints, under normal permissions, and retry only when the user asks.
 
 Details: [Grok Build](grok.md).
+
+## Antigravity CLI
+
+1. The package loads the same fifteen skills from `antigravity/brigade/skills/`, worded for Antigravity CLI.
+2. Nothing to arm: before the next model call, the PreInvocation hook adds each new team message as a user
+   message, a `<brigade-message>` frame your user did not type. Nothing wakes an idle session yet.
+3. `brigade` is the bootstrap the session-start line names: run it by that path.
+
+Details: [Antigravity CLI](antigravity.md).
 
 ## The frame around a message
 

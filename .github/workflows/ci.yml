@@ -131,7 +131,7 @@ jobs:
       # limit, a hang was cancelled by the job with no test named (run 43896319385, attempt 1). The slowest
       # package took 97 s to 121 s on the runs measured, so 5m is a hang and not a slow day. It must stay UNDER
       # the job's `timeout-minutes` by the sum the comment there gives.
-      # BRIGADE_PACKAGE_CHECKS_FOLLOW: the four package checks run on the real tree as steps of their own
+      # BRIGADE_PACKAGE_CHECKS_FOLLOW: the five package checks run on the real tree as steps of their own
       # below, so the tests that would run them here a first time leave it to those (work item 382;
       # scripts/ci/package_check_test.go). No other job and no agent sets it, and for them the tests are the check.
       - run: make build test go_test_p=4 go_test_timeout=5m
@@ -155,6 +155,7 @@ jobs:
       - run: make muse-plugin-check     # the Muse Code package, card 88: muse/brigade/ against the same pins
       - run: make codex-plugin-check    # the Codex CLI package, card 107: codex/brigade/ and the marketplace file against the same pins
       - run: make grok-plugin-check     # Grok native monitor package and canonical release assets
+      - run: make antigravity-plugin-check  # the Antigravity CLI package, work item 532: antigravity/brigade/ against the same pins
       - run: make docs-check            # the documentation gate, card 110: the tree's shape, links, harness pages, the changelog section
       - run: make skills-check          # work item 393: each package's copy of a skill is what its one source under skills/ renders
       # The mail gateway's Edge Functions (card 48): `deno fmt --check`, `deno check` and the unit tests under

@@ -29,6 +29,7 @@ func invitationGoldenCases() []goldenCase {
 		{"invitation-muse", func() string { return BuildFor(HostMuse, invitationEnvelope(), "ops", open) }},
 		{"invitation-codex", func() string { return BuildFor(HostCodex, invitationEnvelope(), "ops", open) }},
 		{"invitation-grok", func() string { return BuildFor(HostGrok, invitationEnvelope(), "ops", open) }},
+		{"invitation-antigravity", func() string { return BuildFor(HostAntigravity, invitationEnvelope(), "ops", open) }},
 	}
 }
 
@@ -70,7 +71,7 @@ func TestInvitationClauseShape(t *testing.T) {
 func TestInvitationAddsOnlyTheClause(t *testing.T) {
 	t.Parallel()
 	m := invitationEnvelope()
-	for _, host := range []string{"", HostMuse, HostCodex, HostGrok} {
+	for _, host := range []string{"", HostMuse, HostCodex, HostGrok, HostAntigravity} {
 		strictFrame := BuildFor(host, m, "ops", strict)
 		if strings.Contains(strictFrame, invitationClause) {
 			t.Errorf("host %q: the strict frame carries the invitation clause", host)

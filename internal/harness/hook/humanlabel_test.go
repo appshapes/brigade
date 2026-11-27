@@ -131,7 +131,7 @@ func TestTheByPIDMapCarriesTheOptionAndNeverTheEmail(t *testing.T) {
 // TestSessionStartRegistersTheAccountLabelOnEveryHost is ADR 0014 at the
 // hook (work item 379): the registration a SessionStart sends carries the
 // Claude account's email as the member's default label in a session of
-// each of the four harnesses, read from the home directory's own file as
+// each of the five harnesses, read from the home directory's own file as
 // an install with no CLAUDE_CONFIG_DIR keeps it, and `label: none` sends
 // none on each. Until then the hook sent a label in a Claude Code session
 // alone, while a Muse Code or Codex CLI session's `team join` and watcher
@@ -139,13 +139,16 @@ func TestTheByPIDMapCarriesTheOptionAndNeverTheEmail(t *testing.T) {
 // of the three had spoken last.
 func TestSessionStartRegistersTheAccountLabelOnEveryHost(t *testing.T) {
 	t.Parallel()
-	for _, host := range []config.Host{config.HostClaude, config.HostMuse, config.HostCodex, config.HostGrok} {
+	for _, host := range []config.Host{config.HostClaude, config.HostMuse, config.HostCodex, config.HostGrok, config.HostAntigravity} {
 		for _, tc := range []struct{ option, want string }{{"", accountEmail}, {config.LabelNone, ""}} {
 			t.Run(string(host)+" label "+tc.option, func(t *testing.T) {
 				t.Parallel()
 				var f *fixture
-				if host == config.HostGrok {
-					f = grokFixture(t)
+				// The hosts whose options are a file of their own have a
+				// fixture that writes it.
+				own := map[config.Host]func(*testing.T) *fixture{config.HostGrok: grokFixture, config.HostAntigravity: agyFixture}
+				if build, ok := own[host]; ok {
+					f = build(t)
 				} else {
 					f = buildFixture(t, host)
 					f.spawner.watcherPID = testutil.NewSleeper(t)
@@ -169,6 +172,17 @@ func TestSessionStartRegistersTheAccountLabelOnEveryHost(t *testing.T) {
 						}
 					}
 					exit, _, errOut = grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+				case config.HostAntigravity:
+					// Antigravity CLI's options are a file too (work item 532).
+					opts := map[string]string{"adapter_command": f.adapterOption(), "sync": "off"}
+					if tc.option != "" {
+						opts["label"] = tc.option
+					}
+					body, _ := json.Marshal(opts)
+					if err := os.WriteFile(filepath.Join(f.configDir, config.AntigravityOptionsFile), body, 0o600); err != nil {
+						t.Fatal(err)
+					}
+					exit, _, errOut = agyRun(f, SubSessionStart, agyDoc(f, "SessionStart", nil))
 				case config.HostMuse:
 					exit, _, errOut = f.run(SubSessionStart, f.museStartDoc("default"), hostLabelEnv(tc.option)...)
 				case config.HostCodex:

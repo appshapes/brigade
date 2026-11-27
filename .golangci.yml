@@ -69,7 +69,7 @@ linters:
         # tree asks config.Host for it. Matched at the end of the name, so that the qualified config.HostGrok,
         # the bare HostGrok inside the package and the frame's own HostGrok are all one rule. The files it does
         # not bind are listed by name in the exclusions below.
-        - pattern: Host(Claude|Muse|Codex|Grok)$
+        - pattern: Host(Claude|Muse|Codex|Grok|Antigravity)$
           msg: a host is named in internal/harness/config/host.go alone -- ask config.Host for what differs, or add a column (ADR 0019)
     depguard:
       rules:

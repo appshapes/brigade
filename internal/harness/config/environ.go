@@ -63,6 +63,13 @@ const (
 	// GrokSessionIDVar names the native Grok conversation, never its leader.
 	// Recognition isolates configuration; it does not enable delivery.
 	GrokSessionIDVar = "GROK_SESSION_ID"
+	// AntigravitySessionIDVar is set by Antigravity CLI (agy) in its hooks'
+	// environment and in the agent's commands: the conversation's id, the
+	// one `agy agentapi send-message` addresses (measured on 1.5.18, work
+	// item 531). A hook gets it and nothing else of agy's, so it is the
+	// marker for a hook and for a command alike. As strong as CLAUDE_PID and
+	// no stronger.
+	AntigravitySessionIDVar = "ANTIGRAVITY_CONVERSATION_ID"
 )
 
 // claudeConfigDefaultDir is the directory under HOME that Claude Code uses
@@ -98,7 +105,8 @@ const (
 )
 
 // InSession reports whether environ belongs to a session of any host:
-// CLAUDE_PID, MUSE_SESSION_ID, CODEX_THREAD_ID or GROK_SESSION_ID is non-empty. The
+// CLAUDE_PID, MUSE_SESSION_ID, CODEX_THREAD_ID, GROK_SESSION_ID or
+// ANTIGRAVITY_CONVERSATION_ID is non-empty. The
 // value is not parsed here (ClaudePID and NativeID do that) because the
 // strip rule must apply even to a malformed one.
 func InSession(environ []string) bool {

@@ -59,7 +59,7 @@ In the checkout of the team, one {{say "claude" "Bash" "*" "shell"}} call, each 
 brigade team move --to "<url>" --secret-file "<path>" [--certificate "<sha256:…>"] [--create-token-file "<path>"]
 ```
 
-{{if in "muse" "codex"}}`brigade` here is the command the `Brigade:` line of this session named: the bare word when it is on your PATH,
+{{if in "muse" "codex" "antigravity"}}`brigade` here is the command the `Brigade:` line of this session named: the bare word when it is on your PATH,
 else the bootstrap's path that line gave. {{end}}Nothing else, and no second try with other values. {{if in "grok"}}{{commandAt}}
 {{end}}The command checks first and changes nothing
 until its checks pass, but for the date of a record of a move the old backend already holds, which it records
@@ -88,7 +88,7 @@ move itself is not one of them: it meets the session's own permission rule, as a
   own server, and a server's new certificate is a change of `.brigade.json` and a join, which the message says.
 - If it says that the server is the same server under another address, or a copy of its data, relay it and
   stop: a team is not moved to either, and the server's address is its operator's to change.
-- If it says that the option `team_move_in_session` is off, the user turned moves off for their sessions{{say "claude" "" "muse" "\n  (`team_move_in_session` in `~/.config/brigade/muse-options.json`)" "codex" "\n  (`team_move_in_session` in `~/.config/brigade/codex-options.json`)" "grok" "\n  (`team_move_in_session` in `~/.config/brigade/grok-options.json`)"}}:
+- If it says that the option `team_move_in_session` is off, the user turned moves off for their sessions{{say "claude" "" "muse" "\n  (`team_move_in_session` in `~/.config/brigade/muse-options.json`)" "codex" "\n  (`team_move_in_session` in `~/.config/brigade/codex-options.json`)" "grok" "\n  (`team_move_in_session` in `~/.config/brigade/grok-options.json`)" "antigravity" "\n  (`team_move_in_session` in `~/.config/brigade/antigravity-options.json`)"}}:
   give them the command to run in their own terminal, and stop.
 
 ## 3. Say what is left

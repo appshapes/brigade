@@ -21,8 +21,8 @@ knows the name (measured in Grok Build 1.0.92). Take the name out of that list i
 
 Then [Leave the team](leave-the-team.md), steps 3 and 4: the state, the cached binaries, then the credential
 store. `~/.config/brigade/grok-options.json` goes with the credential store. Leave both steps out while a
-Claude Code, Muse Code or Codex CLI package on this machine still uses Brigade: the state and the credential
-store are shared by the four.
+Claude Code, Muse Code, Codex CLI or Antigravity CLI package on this machine still uses Brigade: the state and the
+credential store are shared by the five.
 
 Normal SessionEnd signals only this receiver's watcher, which closes its backend session within a bounded
 budget. If the TUI crashes or the hook is missed, the watcher independently observes the actual TUI's death or

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"bufio"
-	"encoding/json/v2"
 	"errors"
 	"io"
 	"io/fs"
@@ -200,42 +199,9 @@ func (f *follower) drain() error {
 	}
 }
 
-// renderRecord turns one sink line into what the model reads: a message as
-// its frame between a `team message … follows` line (with the line count,
-// so a split delivery is visible) and an `end of message` line; a notice as
-// one line of Brigade's own text; an unreadable line as nothing but a
-// one-line note. Every id is sanitised as an attribute would be.
-func renderRecord(line []byte) string {
-	var rec inbound.SinkRecord
-	if err := json.Unmarshal(line, &rec); err != nil {
-		return "Brigade: an inbox record could not be read; it was skipped.\n"
-	}
-	frame := strings.TrimRight(rec.Frame, "\n")
-	if rec.MessageID == "" {
-		return "Brigade: " + oneLineText(frame) + "\n"
-	}
-	id := sanitizeID(rec.MessageID)
-	lines := strings.Count(frame, "\n") + 1
-	var b strings.Builder
-	b.Grow(len(frame) + 160)
-	b.WriteString("Brigade: team message " + id + " follows (" + strconv.Itoa(lines) + " lines)\n")
-	b.WriteString(frame)
-	b.WriteString("\nBrigade: end of message " + id + "\n")
-	return b.String()
-}
-
-// oneLineText folds a notice onto one sanitised line.
-func oneLineText(s string) string {
-	s = protocol.Sanitize(s)
-	s = strings.Map(func(r rune) rune {
-		switch r {
-		case '\n', '\r', '\t':
-			return ' '
-		}
-		return r
-	}, s)
-	return strings.TrimSpace(s)
-}
+// renderRecord is inbound.RenderRecord: one sink line as the model reads
+// it.
+func renderRecord(line []byte) string { return inbound.RenderRecord(line) }
 
 // write puts text on stdout in one call; a closed stdout ends the follower
 // quietly, since whoever read it is gone.

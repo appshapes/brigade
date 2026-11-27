@@ -92,6 +92,8 @@ codex_json=codex/brigade/.codex-plugin/plugin.json
 codex_bin=codex/brigade/bin
 grok_json=grok/brigade/.grok-plugin/plugin.json
 grok_bin=grok/brigade/bin
+agy_json=antigravity/brigade/plugin.json
+agy_bin=antigravity/brigade/bin
 
 v=${1:-}
 # The commit message's work item: `<work item>: Release <v>` is the house rule, the number being the one the
@@ -272,6 +274,15 @@ if [ -f "$grok_json" ]; then
   cp "$version_file" "$grok_bin/VERSION"
   cp plugin/bin/brigade "$grok_bin/brigade"
 fi
+if [ -f "$agy_json" ]; then
+  mkdir -p "$agy_bin"
+  sed -i.bak -E "s/^([[:space:]]*\"version\":[[:space:]]*)\"[^\"]+\"/\1\"$v\"/" "$agy_json"
+  rm -f "$agy_json.bak"
+  agy_manifest=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$agy_json" | head -n 1)
+  [ "$agy_manifest" = "$v" ] || die "the bump did not take in $agy_json"
+  cp "$version_file" "$agy_bin/VERSION"
+  cp plugin/bin/brigade "$agy_bin/brigade"
+fi
 say "1. pinned $version_file, $plugin_json, $muse_json and $codex_json to $v"
 
 # ---- 2. the reproducible build ---------------------------------------------------------------------------------
@@ -305,6 +316,8 @@ cp dist/checksums.txt "$committed"
 [ ! -f "$codex_json" ] || cp "$committed" "$codex_bin/checksums.txt"
 [ ! -f "$grok_json" ] || cp "$committed" "$grok_bin/checksums.txt"
 [ ! -f "$grok_json" ] || go run ./cmd/brigade-packages check grok
+[ ! -f "$agy_json" ] || cp "$committed" "$agy_bin/checksums.txt"
+[ ! -f "$agy_json" ] || go run ./cmd/brigade-packages check antigravity
 # The package's bin/ is final now, so its digest is the release's (card 115); step 4's `make push` verifies the
 # written catalog again through `make test`.
 [ ! -f "$muse_json" ] || go run ./cmd/brigade-muse-digest write

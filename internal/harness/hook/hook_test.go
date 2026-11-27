@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -129,6 +130,10 @@ func TestParseArgsLogLevel(t *testing.T) {
 		{[]string{"prompt", "--host=codex", "--plugin-root=/p"}, SubPrompt, "info", config.HostCodex, "/p"},
 		// A relative root is not a root: the map then carries no plugin_bin.
 		{[]string{"session-end", "--host", "codex", "--plugin-root", "rel"}, SubSessionEnd, "info", config.HostCodex, ""},
+		// But for Antigravity CLI, which runs a plugin's hook in the plugin's
+		// root, it is the working directory (work item 532), in either order.
+		{[]string{"session-start", "--host", "antigravity", "--plugin-root", "."}, SubSessionStart, "info", config.HostAntigravity, mustAbs(t, ".")},
+		{[]string{"stop", "--plugin-root", ".", "--host", "antigravity"}, SubStop, "info", config.HostAntigravity, mustAbs(t, ".")},
 	} {
 		a, usage := parseArgs(tc.args)
 		if usage != "" || a.sub != tc.sub || a.level != tc.level || a.host != tc.host || a.pluginRoot != tc.root {
@@ -562,4 +567,14 @@ func TestOneLineHelpers(t *testing.T) {
 	if got := adapterLine("p", os.ErrNotExist); !strings.Contains(got, "from its configuration") {
 		t.Errorf("adapterLine fallback = %q", got)
 	}
+}
+
+// mustAbs is filepath.Abs of p, which a test of the parser compares with.
+func mustAbs(t *testing.T, p string) string {
+	t.Helper()
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
 }

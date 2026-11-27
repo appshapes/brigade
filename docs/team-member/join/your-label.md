@@ -6,8 +6,8 @@ Your sessions carry a display label. Teammates see it in the MEMBER column of `b
 ## The default
 
 The default is **the email address of the Claude account on this machine**, on every harness: in Claude Code the
-account this install is signed in to, and in a Muse Code, Codex CLI or Grok Build session the account Claude Code
-is signed in to on the same machine. Brigade reads it from Claude Code's own configuration (`.claude.json`, under
+account this install is signed in to, and in a Muse Code, Codex CLI, Grok Build or Antigravity CLI session the account
+Claude Code is signed in to on the same machine. Brigade reads it from Claude Code's own configuration (`.claude.json`, under
 `CLAUDE_CONFIG_DIR` when the session's environment carries one, else in your home directory), never writes it,
 and sends it with the `team join` that makes you a member. So joining shares that address with everyone on the
 team and with whoever runs its backend. On a machine with no Claude account there is no default: the join sends

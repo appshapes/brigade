@@ -88,10 +88,11 @@ func TestCheckFindsAStaleAndAMissingCopy(t *testing.T) {
 		t.Fatalf("a tree just written: %v, %v", stale, err)
 	}
 	want := map[string]string{
-		"claude": "---\nname: hello\ndescription: Says hello.\nuser-invocable: true\nallowed-tools: Bash(brigade:*)\n---\n\nType `/brigade:hello`, in one Bash call.\n",
-		"muse":   "---\nname: hello\ndescription: Says hello.\nuser-invocable: true\n---\n\nType `brigade:hello`, in one shell call.\n",
-		"codex":  "---\nname: hello\ndescription: Says hello.\n---\n\nType `$brigade:hello`, in one shell call.\n",
-		"grok":   "---\nname: hello\ndescription: Says hello.\n---\n\nType `/brigade:hello` in a direct TUI, in one shell call.\n",
+		"claude":      "---\nname: hello\ndescription: Says hello.\nuser-invocable: true\nallowed-tools: Bash(brigade:*)\n---\n\nType `/brigade:hello`, in one Bash call.\n",
+		"muse":        "---\nname: hello\ndescription: Says hello.\nuser-invocable: true\n---\n\nType `brigade:hello`, in one shell call.\n",
+		"codex":       "---\nname: hello\ndescription: Says hello.\n---\n\nType `$brigade:hello`, in one shell call.\n",
+		"grok":        "---\nname: hello\ndescription: Says hello.\n---\n\nType `/brigade:hello` in a direct TUI, in one shell call.\n",
+		"antigravity": "---\nname: hello\ndescription: Says hello.\n---\n\nType `/brigade:hello`, in one shell call.\n",
 	}
 	for _, h := range skillgen.Harnesses {
 		got, err := os.ReadFile(filepath.Join(root, skillgen.Copy(h, "hello")))
@@ -308,9 +309,10 @@ func TestASkillThatRunsBrigadeSaysWhereItIs(t *testing.T) {
 			}
 		}
 	}
-	// The ten skills of the work item in three packages, and join, move
-	// and update in Grok Build.
-	if said != 33 {
-		t.Errorf("%d copies carry the sentence, want 33", said)
+	// The ten skills of the work item in three packages, join, move and
+	// update in Grok Build, and the same ten in Antigravity CLI (work item
+	// 532).
+	if said != 43 {
+		t.Errorf("%d copies carry the sentence, want 43", said)
 	}
 }

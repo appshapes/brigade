@@ -87,7 +87,7 @@ Rules that hold throughout:
 - No secrets, local paths, hostnames or customer names in the roster line; `<where>` is passed as the user
   wrote it, and the command refuses a credential shape or a path.
 - A subagent never runs any of this: the policy and the line are the session's.
-- `{{invoke "quiet"}}` changes this session only. The `team_inbound` option{{say "claude" ", Claude Code's `crossSessionInbound`\n  setting" "muse" " in the Muse options file" "codex" " in the Codex options file" "grok" " in the Grok options file"}} and the user's other sessions are left exactly as they are. A quiet session stays quiet until the user
+- `{{invoke "quiet"}}` changes this session only. The `team_inbound` option{{say "claude" ", Claude Code's `crossSessionInbound`\n  setting" "muse" " in the Muse options file" "codex" " in the Codex options file" "grok" " in the Grok options file" "antigravity" " in the Antigravity options file"}} and the user's other sessions are left exactly as they are. A quiet session stays quiet until the user
   says `off` or closes the session; `/clear` and `/compact` keep it.
 
 Everything else about team messages — the frame, the routing rules, the gateways — is in `brigade:team-messaging`.

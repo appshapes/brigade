@@ -11,6 +11,7 @@ owner migrates when they like, and nothing has to be sequenced.
 | update Brigade in Muse Code | [Update in Muse Code](#update-in-muse-code) |
 | update Brigade in Codex CLI | [Update in Codex CLI](#update-in-codex-cli) |
 | update Brigade in Grok Build | [Update in Grok Build](#update-in-grok-build) |
+| update Brigade in Antigravity CLI | [Update in Antigravity CLI](#update-in-antigravity-cli) |
 | know what an update can change about what your sessions share, and who is behind | [Know what an update changes](#know-what-an-update-changes) |
 
 ## Update in Claude Code
@@ -48,6 +49,14 @@ registry` and keeps working as it is: once, `grok plugin uninstall brigade`, the
 --trust`.
 
 Details: [Update in Grok Build](grok.md).
+
+## Update in Antigravity CLI
+
+1. `agy plugin install https://github.com/appshapes/brigade/tree/v<version>/antigravity/brigade`, with the newer
+   release number. The install replaces the installed copy.
+2. Start a new `agy` session and type one prompt.
+
+Details: [Update in Antigravity CLI](antigravity.md).
 
 ## Know what an update changes
 

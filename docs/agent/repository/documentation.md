@@ -21,7 +21,7 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   `docs/experiments/`, `docs/research/`, `docs/decisions/` (the ADRs, below), `scripts/ci/README.md`,
   `internal/adapters/fs/README.md`, and the
   package page of every registered harness (`plugin/README.md`, `muse/brigade/README.md`,
-  `codex/brigade/README.md`, `grok/brigade/README.md`).
+  `codex/brigade/README.md`, `grok/brigade/README.md`, `antigravity/brigade/README.md`).
 - **A changelog section opens with who must act** (work item 396; the owner's ruling of 2026-11-22: a rule, and
   no check of `make docs-check`). In `CHANGELOG.md`, the first lines under `## [Unreleased]`, and so under
   every `## [<version>]` after 0.57.0, are `**Who must act**` and three bullets in this order:
@@ -63,7 +63,8 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   harness that is not `Primary` has a `## Known gaps` or `## In trial` section. The value is set from evidence,
   never from a wish, and whoever cuts a release reads it again first. A directory carrying a
   plugin manifest (`.claude-plugin/`, `.muse-plugin/`, `.codex-plugin/`, `.grok-plugin/`) that the registry does
-  not list fails the gate.
+  not list fails the gate. Antigravity CLI's manifest is `plugin.json` at the package's root, in no hidden
+  directory, so this rule does not find it: the package's registry entry is what lists it.
 - **The gate** is `make docs-check` (`internal/docscheck`, `cmd/brigade-docs`, `scripts/ci/docs_check_test.go`),
   offline, in `make test`, CI's `fast` job, `scripts/release-prep.sh` and `release.yml`. Its rules: the README
   shape; the persona and topic shapes above; every relative link and `#anchor` in the tree, the changelog and the

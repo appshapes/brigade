@@ -1,4 +1,4 @@
-// Command brigade-skills writes the four packages' skills from their one
+// Command brigade-skills writes the five packages' skills from their one
 // source each, and checks that none is stale (work item 393;
 // internal/skillgen). `make skills-generate` and `make skills-check` run it.
 //

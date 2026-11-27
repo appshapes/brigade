@@ -165,6 +165,12 @@ func goldenCases() []goldenCase {
 		// `codex queue` as the command that cannot reach a Brigade session.
 		{"host-codex", func() string { return BuildFor(HostCodex, e03Envelope(), "ops", Instruction{Level: LevelOpen}) }},
 		{"host-grok", func() string { return BuildFor(HostGrok, e03Envelope(), "ops", Instruction{Level: LevelOpen}) }},
+		// The Antigravity CLI variant (work item 532): the Muse opening, a
+		// tail naming agy's own two ways to message as the ones that cannot
+		// reach a Brigade session.
+		{"host-antigravity", func() string {
+			return BuildFor(HostAntigravity, e03Envelope(), "ops", Instruction{Level: LevelOpen})
+		}},
 	}...)
 }
 

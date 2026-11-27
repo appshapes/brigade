@@ -42,6 +42,9 @@ func TestTheHostTable(t *testing.T) {
 			history: config.HistorySummaries, delivery: config.DeliverPagedSink, dialect: config.DialectNative, hookNamed: true,
 			receiver: true, historyVar: "GROK_HOME",
 			pointed: true, stop: true, discardsPrompt: true, staysOnMove: true, inWhoami: true},
+		config.HostAntigravity: {name: "Antigravity CLI", nativeIDVar: "ANTIGRAVITY_CONVERSATION_ID",
+			optionsFile: "antigravity-options.json", frame: frame.HostAntigravity, delivery: config.DeliverNextCall,
+			dialect: config.DialectInjectSteps, hookNamed: true, pointed: true, stop: true, inWhoami: true},
 	} {
 		got := row{
 			name: host.Name(), nativeIDVar: host.NativeIDVar(), optionsFile: config.OptionsFile(host), frame: host.Frame(),
@@ -96,9 +99,16 @@ func TestThePluginRootIsNamedAsEachHostNamesIt(t *testing.T) {
 		{config.HostCodex, "", ""},
 		{config.HostGrok, "/flag", "/flag"},
 		{config.HostGrok, "", "/grok"},
+		{config.HostAntigravity, "/flag", "/flag"},
+		{config.HostAntigravity, "", ""},
 	} {
 		if got := tc.host.PluginRoot(env, tc.flag); got != tc.want {
 			t.Errorf("%s with --plugin-root %q: %q, want %q", tc.host, tc.flag, got, tc.want)
+		}
+	}
+	for _, host := range config.Hosts() {
+		if got := host.PluginRootIsWorkingDir(); got != (host == config.HostAntigravity) {
+			t.Errorf("%s: a relative --plugin-root is the working directory %v", host, got)
 		}
 	}
 }
@@ -181,6 +191,7 @@ func TestTheColumnsOnlyThisPackageAsks(t *testing.T) {
 	marker := map[config.Host]string{
 		config.HostClaude: "CLAUDE_PID=4242", config.HostMuse: "MUSE_SESSION_ID=" + id,
 		config.HostCodex: "CODEX_THREAD_ID=" + id, config.HostGrok: "GROK_SESSION_ID=" + id,
+		config.HostAntigravity: "ANTIGRAVITY_CONVERSATION_ID=" + id,
 	}
 	has := func(environ []string, entry string) bool {
 		for _, e := range environ {
@@ -198,6 +209,7 @@ func TestTheColumnsOnlyThisPackageAsks(t *testing.T) {
 		{config.HostMuse, true, false, false},
 		{config.HostCodex, true, false, false},
 		{config.HostGrok, true, true, true},
+		{config.HostAntigravity, true, true, true},
 	} {
 		environ := []string{marker[tc.host], "HOME=/home/x", "XDG_STATE_HOME=/elsewhere", "BRIGADE_PROFILE=other"}
 		trusted := config.Trusted(environ)
@@ -232,8 +244,8 @@ func TestTheColumnsOnlyThisPackageAsks(t *testing.T) {
 // whatever else the environment carries, and no host in a terminal.
 func TestHostOfAsksInTheTablesOrder(t *testing.T) {
 	t.Parallel()
-	all := []string{"GROK_SESSION_ID=g", "CODEX_THREAD_ID=c", "MUSE_SESSION_ID=m", "CLAUDE_PID=4242"}
-	for i, want := range []config.Host{config.HostGrok, config.HostCodex, config.HostMuse, config.HostClaude} {
+	all := []string{"GROK_SESSION_ID=g", "ANTIGRAVITY_CONVERSATION_ID=a", "CODEX_THREAD_ID=c", "MUSE_SESSION_ID=m", "CLAUDE_PID=4242"}
+	for i, want := range []config.Host{config.HostGrok, config.HostAntigravity, config.HostCodex, config.HostMuse, config.HostClaude} {
 		if got := config.HostOf(all[:i+1]); got != want {
 			t.Errorf("with %v: %q, want %q", all[:i+1], got, want)
 		}

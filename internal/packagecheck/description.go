@@ -15,7 +15,7 @@ import (
 // ruling of 2026-09-08 that CI does not police what a skill declares). It
 // is the smallest limit a host enforces, as read on 2026-11-23:
 //
-//   - The Agent Skills format, which all four hosts' skills follow
+//   - The Agent Skills format, which all five hosts' skills follow
 //     (https://agentskills.io/specification): "Must be 1-1024 characters."
 //   - Codex CLI refused the skill, "invalid description: exceeds maximum
 //     length of 1024 characters", through release 0.141.0

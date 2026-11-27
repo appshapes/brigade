@@ -888,6 +888,8 @@ func (r *run) sayMoved(ctx context.Context, f facts, in input, m *sessionmap.ByP
 		r.say(armLine(r.commandName(f)))
 	case config.DeliverQueue:
 		r.say(codexLine(r.commandName(f)))
+	case config.DeliverNextCall:
+		r.say(nextCallLine(r.commandName(f)))
 	case config.DeliverSocket, config.DeliverPagedSink:
 	}
 	// What the hook that moved the session left undone when it was stopped:

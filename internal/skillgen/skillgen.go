@@ -1,4 +1,4 @@
-// Package skillgen writes the four packages' skills from one source each
+// Package skillgen writes the five packages' skills from one source each
 // (work item 393). A skill is written once, in skills/<name>.md at the
 // repository's root, as the text the Claude Code package ships with the
 // places marked where a harness differs. A harness's copy is that text
@@ -53,6 +53,7 @@ var Harnesses = []Harness{
 	{ID: "muse", Skills: "muse/brigade/skills", Invoke: "brigade:", Frontmatter: []string{"user-invocable", "argument-hint"}},
 	{ID: "codex", Skills: "codex/brigade/skills", Invoke: "$brigade:"},
 	{ID: "grok", Skills: "grok/brigade/skills", Invoke: "/brigade:"},
+	{ID: "antigravity", Skills: "antigravity/brigade/skills", Invoke: "/brigade:"},
 }
 
 // ByID is the harness of that id.

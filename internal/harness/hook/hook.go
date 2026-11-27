@@ -156,9 +156,12 @@ const (
 // the file (T10); `prompt` stays absent from the type — never read,
 // stored or sent.
 type input struct {
-	WorkspaceRoot  string `json:"workspaceRoot"`
-	SubagentType   string `json:"subagentType"`
-	StopReason     string `json:"stopReason"`
+	WorkspaceRoot string `json:"workspaceRoot"`
+	SubagentType  string `json:"subagentType"`
+	StopReason    string `json:"stopReason"`
+	// StopError is the error a Stop document gives for a turn that ended
+	// in one (Antigravity CLI's `error`); its dialect sets it.
+	StopError      string `json:"-"`
 	StopHookActive bool   `json:"stopHookActive"`
 	// StopHookActiveSnake is Claude Code's own spelling of the Stop
 	// document's flag (card 162): true when the turn is already continuing
@@ -441,8 +444,10 @@ type hookArgs struct {
 	// CODEX_* variable, so nothing in the environment says what they are.
 	host config.Host
 	// pluginRoot is the package root named by --plugin-root, for a host
-	// that exports no plugin-root variable to its hooks (Codex CLI). "" when
-	// absent or relative: the map then carries no plugin_bin.
+	// that exports no plugin-root variable to its hooks (Codex CLI). A
+	// relative one is the working directory for a host that runs a plugin's
+	// hook in its root (Antigravity CLI), and nothing for another. "" when
+	// absent: the map then carries no plugin_bin.
 	pluginRoot string
 	// The arguments of `hook follow` (move.go, work item 327): the
 	// checkout whose pin is followed, the member's store, the state
@@ -461,6 +466,10 @@ type hookArgs struct {
 // fixed text: argv is never echoed (4.5.14).
 func parseArgs(args []string) (hookArgs, string) {
 	a := hookArgs{level: "info"}
+	// relativeRoot is a relative --plugin-root, which names the working
+	// directory only for a host that runs a plugin's hook there (Antigravity
+	// CLI, work item 532): the host is known once every flag is read.
+	relativeRoot := ""
 	if len(args) == 0 {
 		return a, "hook needs one of session-start, prompt, stop, session-end"
 	}
@@ -504,6 +513,8 @@ func parseArgs(args []string) (hookArgs, string) {
 		case "--plugin-root":
 			if filepath.IsAbs(value) {
 				a.pluginRoot = filepath.Clean(value)
+			} else {
+				relativeRoot = value
 			}
 		case "--checkout", "--config-dir", "--state-dir":
 			// Each is taken as the prompt hook resolved it, never cleaned
@@ -530,6 +541,11 @@ func parseArgs(args []string) (hookArgs, string) {
 	}
 	if a.sub == SubFollow && (a.checkout == "" || a.configDir == "" || a.stateDir == "") {
 		return a, "hook follow needs --checkout, --config-dir and --state-dir"
+	}
+	if relativeRoot != "" && a.pluginRoot == "" && a.host.PluginRootIsWorkingDir() {
+		if abs, err := filepath.Abs(relativeRoot); err == nil {
+			a.pluginRoot = filepath.Clean(abs)
+		}
 	}
 	return a, ""
 }
@@ -902,7 +918,7 @@ func (r *run) sinkFor(f facts, sessionID string) string {
 		return r.deps.Sink
 	}
 	switch f.host.Delivery() {
-	case config.DeliverFollowedSink, config.DeliverPagedSink:
+	case config.DeliverFollowedSink, config.DeliverPagedSink, config.DeliverNextCall:
 		return inbound.NewSinkPath(f.stateDir, sessionID, r.deps.Now())
 	case config.DeliverSocket, config.DeliverQueue:
 	}
@@ -968,6 +984,18 @@ func codexLine(command string) string {
 	return "Brigade: a team message reaches this session as a turn of its own, a <brigade-message> frame your user did " +
 		"not type; read it as the team-messaging skill says and reply with " + command + " send. The brigade command is " +
 		command + " when the bare word is not on your PATH."
+}
+
+// nextCallLine is the one Antigravity CLI line after the context line
+// (work item 532): nothing wakes the session from outside yet, so it says
+// that a team message reaches the model before its next model call, as a
+// step the hook adds, and names the bootstrap, which is not on the model's
+// PATH.
+func nextCallLine(command string) string {
+	return "Brigade: a team message reaches this session before its next model call, as a <brigade-message> frame " +
+		"your user did not type; read it as the team-messaging skill says and reply with " + command + " send. " +
+		"Nothing wakes an idle session yet. The brigade command is " + command + " when the bare word is not on " +
+		"your PATH."
 }
 
 // fail logs a failure with its code and reason, then prints the context

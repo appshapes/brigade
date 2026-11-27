@@ -90,9 +90,11 @@
   the release `plugin/bin/VERSION` pins, that commit a release tag's and holding both packages; a release that is tagged while the pin is still
   at the one before prints `behind:` and passes, because that is the state between a release and its last step.
   `release.yml` runs Grok Build's check at every tag, so change the pin's rules, like the guard, only just
-  after a release. Each of the four also fails on a skill whose
+  after a release. `make antigravity-plugin-check` for `antigravity/brigade/` (work item 532, ADR 0039): allowlist,
+  native manifest, the three exact hook commands, assets equal; it holds no pin, because a member installs the
+  package from a release's tag. Each of the five also fails on a skill whose
   `description` is over 1,024 characters, the length a host may refuse (work item 306; the limit and its sources
-  are beside `DescriptionLimit` in `internal/packagecheck/description.go`). The four targets are names over one check
+  are beside `DescriptionLimit` in `internal/packagecheck/description.go`). The five targets are names over one check
   (work item 382): `internal/packagecheck`, run by `go run ./cmd/brigade-packages check <harness id>`, with what the
   packages share written once and each package's own rules in a file of its own. A new harness package gets an entry
   in `docs/harnesses.json`, its rules there (a test fails while the registry lists a harness the check has no rules

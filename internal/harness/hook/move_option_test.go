@@ -45,7 +45,7 @@ func TestStartFactsCarryTheTeamMoveOptionFromEveryHostsSource(t *testing.T) {
 		{name: "off in another case", text: "OFF", doc: `"OFF"`, set: true, said: true},
 		{name: "false", text: "false", doc: `false`, set: true, said: true},
 	}
-	for _, host := range []config.Host{config.HostClaude, config.HostMuse, config.HostCodex, config.HostGrok} {
+	for _, host := range []config.Host{config.HostClaude, config.HostMuse, config.HostCodex, config.HostGrok, config.HostAntigravity} {
 		for _, v := range values {
 			t.Run(string(host)+"/"+v.name, func(t *testing.T) {
 				t.Parallel()
@@ -108,6 +108,16 @@ func TestStartFactsCarryTheTeamMoveOptionFromEveryHostsSource(t *testing.T) {
 						return exit, ui["systemMessage"], errOut
 					}
 					shell = []string{"HOME=" + f.dirs.Home, host.NativeIDVar() + "=" + f.nativeID, "GROK_WORKSPACE_ROOT=" + f.cwd}
+				case config.HostAntigravity:
+					f = agyFixture(t)
+					optionsFile(f, config.AntigravityOptionsFile)
+					start = func() (int, string, string) {
+						// agy takes one JSON document: its user message is
+						// what the session is told (work item 532).
+						exit, out, errOut := agyRun(f, SubSessionStart, agyDoc(f, "SessionStart", nil))
+						return exit, injected(t, agyAnswer(t, out)), errOut
+					}
+					shell = []string{"HOME=" + f.dirs.Home, host.NativeIDVar() + "=" + f.nativeID}
 				}
 				exit, out, errOut := start()
 				if exit != 0 {

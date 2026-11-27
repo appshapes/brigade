@@ -1752,6 +1752,8 @@ func (r *run) sayContext(f facts, m *sessionmap.ByPID) {
 		// Nothing to arm on Codex (card 107): the line says how a message
 		// arrives and where the command is.
 		r.say(codexLine(r.commandName(f)))
+	case config.DeliverNextCall:
+		r.say(nextCallLine(r.commandName(f)))
 	case config.DeliverSocket:
 	}
 }

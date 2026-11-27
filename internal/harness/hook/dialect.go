@@ -39,10 +39,11 @@ type dialect interface {
 // dialects holds the implementations, each under the kind the table names
 // it by. A kind that is not here is the plugin's: what Claude Code has.
 var dialects = map[config.DialectKind]dialect{
-	config.DialectPlugin:  plugin{},
-	config.DialectMonitor: monitor{},
-	config.DialectThread:  thread{},
-	config.DialectNative:  nativeJSON{},
+	config.DialectPlugin:      plugin{},
+	config.DialectMonitor:     monitor{},
+	config.DialectThread:      thread{},
+	config.DialectNative:      nativeJSON{},
+	config.DialectInjectSteps: injectSteps{},
 }
 
 // dialectOf is the dialect of a host.
@@ -59,7 +60,15 @@ func dialectOf(host config.Host) dialect {
 // in an environment that carries such a host's marker is that host's
 // whatever its argv says.
 func (r *run) spokenHost() config.Host {
-	for _, host := range []config.Host{r.args.host, config.HostOf(r.environ)} {
+	for i, host := range []config.Host{r.args.host, config.HostOf(r.environ)} {
+		// An inherited marker of a host that speaks inject-steps does not
+		// overrule a hook whose argv names another host: a Codex CLI started
+		// from an agy agent's command inherits ANTIGRAVITY_CONVERSATION_ID,
+		// and its hook is Codex's (Rjae's ruling of 2026-11-27, work item
+		// 532: this case only; the shared rule is not changed here).
+		if i == 1 && r.args.host != "" && r.args.host != host && host.Dialect() == config.DialectInjectSteps {
+			continue
+		}
 		if dialectOf(host).native() {
 			return host
 		}

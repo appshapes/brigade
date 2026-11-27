@@ -37,7 +37,9 @@ $ brigade usage
 | Extra usage | not given | rollout: credits and their balance | not given | not given |
 
 Input tokens are the ones not read from the cache. Codex CLI, Grok Build and Muse Code count the cache reads in
-their input; Brigade takes them out, so the four harnesses add up the same way.
+their input; Brigade takes them out, so the harnesses add up the same way.
+
+Antigravity CLI gives none of these values to Brigade yet (work item 534).
 
 On Claude Code, `/clear` starts a new transcript, so the tokens and the cost start again from zero, as Claude
 Code's own cost does. The record stays the session's.

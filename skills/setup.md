@@ -20,10 +20,10 @@ description: >-
 user-invocable: true
 ---
 
-{{end}}{{if in "codex"}}---
+{{end}}{{if in "codex" "antigravity"}}---
 name: setup
 description: >-
-  How a HUMAN creates or joins a Brigade team — `team create` from a terminal, `$brigade:join <path>` (or `brigade team
+  How a HUMAN creates or joins a Brigade team — `team create` from a terminal, `{{invoke "join"}} <path>` (or `brigade team
   join --secret-file <path>` in a terminal) to join — and how to leave and uninstall: the server form and the Supabase form of
   `team create` (which writes the project's committed `.brigade.json`), the one-line join, and
   the removal order. Use when someone asks how to set Brigade up, join a team, add a teammate, leave, or remove
@@ -88,6 +88,18 @@ join secret is a bearer capability: **never paste it into a Grok chat**, a commi
 saved outside the repository, and `--secret-file` names that file (its mode and owner are never checked). Two team commands run in a terminal only — `team revoke-member`
 and `team transfer` — and so does the release of a held message (`docs/team-member/use/held-messages.md`).
 
+{{end}}{{if in "antigravity"}}Every command below is the **person's** to run, in their own terminal, through the package's bootstrap: the
+installed package's absolute `bin/brigade` for `brigade`. The package is in `~/.gemini/config/plugins/brigade/`,
+and `brigade whoami` prints the path of the command on its `terminal:` line. Give the person that path with the
+command after it. Do not give a symlink or a copy, because the next update makes them stale. This is an
+Antigravity CLI session: when the person wants to run one of these commands, give them the command to paste into
+their terminal. The pages that this skill names are in the Brigade repository, `https://github.com/appshapes/brigade`,
+not on the member's machine: tell the person this when you name a page. The join secret is a bearer capability:
+**never paste it into an Antigravity chat**, a commit, an issue or a log. It is in the file that `team create` wrote,
+outside the repository, and `--secret-file` names that file (Brigade does not check its mode or owner). Two team
+commands run in a terminal only, `team revoke-member` and `team transfer`. The release of a held message also runs
+in a terminal only (`docs/team-member/use/held-messages.md`).
+
 {{end}}## 1. Administrator: create a team
 
 A team lives on a backend the project owner runs. A new team starts on a **Brigade server**, a program the
@@ -104,7 +116,7 @@ Run this **in the project checkout** (drop the `!` in a terminal):
   --name <team> --secret-file ~/brigade-<team>.secret
 ```
 
-{{end}}{{if in "muse" "codex" "grok"}}**On a Brigade server.** The project owner gives you the server's URL, and where they apply the fingerprint of
+{{end}}{{if in "muse" "codex" "grok" "antigravity"}}**On a Brigade server.** The project owner gives you the server's URL, and where they apply the fingerprint of
 its certificate and a file that holds a creation token. `docs/team-admin/create/create-on-a-server.md` in the
 Brigade repository is the administrator's page, and `docs/project-owner/server/README.md` the project owner's.
 Run this **in the project checkout**, in a terminal:
@@ -140,7 +152,7 @@ Anyone who can read the project's database can read every team in it.
   --name <team> --secret-file ~/brigade-<team>.secret
 ```
 
-{{end}}{{if in "muse" "codex" "grok"}}Run this **in the project checkout**, in a terminal:
+{{end}}{{if in "muse" "codex" "grok" "antigravity"}}Run this **in the project checkout**, in a terminal:
 
 ```sh
 brigade team create --url https://<ref>.supabase.co --key sb_publishable_… \
@@ -216,7 +228,7 @@ The `move` skill asks you for the server's URL and
 the path of the team's secret file and runs the one command, `brigade team move --to <url> --secret-file <path>`,
 in a session or a terminal. `docs/team-admin/members/move-the-team.md` in the Brigade repository has the procedure.
 
-{{end}}{{if in "codex"}}By default a member's label is **the email address of the Claude account their install is signed in to**, so the
+{{end}}{{if in "codex" "antigravity"}}By default a member's label is **the email address of the Claude account their install is signed in to**, so the
 roster you and every other member see will hold those addresses — and so will the backend you run. A member who
 would rather not can set the `label` plugin option to `none` or to any text before joining; tell them so when you
 send the secret if that matters to your team. The same default applies to you: `team create` sends your account
@@ -235,7 +247,7 @@ A team in a Supabase project, or on a Brigade server, can **move to a Brigade se
 its members run no command: each one's next session follows, and a session that is already running follows at its
 next prompts, from plugin 0.56.0 (a Grok Build session, when it next starts). A team that leaves a Brigade server
 is followed from plugin 0.57.0.
-`$brigade:move` (the `move` skill) asks you for the server's URL and
+`{{invoke "move"}}` (the `move` skill) asks you for the server's URL and
 the path of the team's secret file and runs the one command, `brigade team move --to <url> --secret-file <path>`,
 in a session or a terminal. `docs/team-admin/members/move-the-team.md` in the Brigade repository has the procedure.
 
@@ -369,6 +381,36 @@ at all (your sessions are listed by their principal reference alone), and any ot
 instead. On a machine with no Claude account the default sends no label. `--label <text>` on the command overrides
 the option for that one join. It is not prompted for, so choose it first.
 
+{{end}}{{if in "antigravity"}}Install the package from one release, in a terminal. Put the release's tag in the URL:
+
+```sh
+agy plugin install https://github.com/appshapes/brigade/tree/v<version>/antigravity/brigade
+```
+
+The command puts the plugin in `~/.gemini/config/plugins/brigade/`. The package has no marketplace entry. After
+the install, start a new `agy` session, because `agy` loads the hooks when a session starts.
+
+Clone the project, save the secret file your administrator sent you outside the repository, open an `agy`
+session in the checkout, and ask it to join with `/brigade:join`, naming the file:
+
+```
+/brigade:join ~/brigade-<team>.secret
+```
+
+That runs `brigade team join --secret-file ~/brigade-<team>.secret` and relays the output. `team join` reads the
+project's `.brigade.json`, prints the team and backend host it is joining (invoking it is the consent), reads the
+secret from the file and joins; its output never carries the secret, and this session attaches at your next prompt
+(one already attached to another team stays there until a new session). Delete the file once every machine
+that needs it has joined.
+
+**The join sends your Claude account email as your display label** where a Claude account is on this machine,
+unless you say otherwise: Brigade reads the address from Claude Code's own configuration, read-only, as it does in a
+Claude Code session, and every member of the team, and whoever runs its backend, will see it beside your sessions.
+To opt out, set the `label` option in `~/.config/brigade/antigravity-options.json` **before you join**: `none` sends no label
+at all (your sessions are listed by their principal reference alone), and any other text is used as your label
+instead. On a machine with no Claude account the default sends no label. `--label <text>` on the command overrides
+the option for that one join. It is not prompted for, so choose it first.
+
 {{end}}In your own terminal,
 `brigade team join` alone shows what the file names, asks you to confirm, then reads the secret without echo.
 Either way the secret never reaches your scrollback, your shell history or a chat. There is no `--profile`, no
@@ -403,6 +445,13 @@ Either way the secret never reaches your scrollback, your shell history or a cha
   model is receiving events: `brigade whoami` shows the last native monitor observation.
 - Grok options are in `~/.config/brigade/grok-options.json`: a JSON object whose keys are the option names. A
   missing file is the defaults.
+{{end}}{{if in "antigravity"}}- Joined from a terminal, start a new `agy` session in the checkout. Joined from a session, the session
+  attaches at your next prompt. The session-start line names your team, the name and id of this session, and
+  the inbound policy. It also tells the model where the `brigade` command is.
+- A team message gets to the model before its next model call, or at the end of a turn. Nothing wakes an idle
+  session yet: a message that arrives during an idle time waits for your next prompt.
+- Each `agy` conversation is one Brigade session. `/new` starts a new conversation and so a new Brigade session.
+  The old session stays on the roster until `agy` stops.
 {{end}}- A second checkout of the same project on this machine needs `team join` once too, but no secret. One team can
   span several repositories: commit the same `.brigade.json` in each and join each checkout once; a different
   `.brigade.json` is a different team. Either way, `cd` between checkouts — nothing is shared or switched.
@@ -414,7 +463,7 @@ Either way the secret never reaches your scrollback, your shell history or a cha
   files live under `%APPDATA%\brigade` and `%LOCALAPPDATA%\brigade`; the secret file path is
   `C:\Users\<you>\brigade-<team>.secret`, which Git Bash spells `~/brigade-<team>.secret`. No message sound and
   no desktop notification on Windows.
-{{end}}{{if in "muse" "codex" "grok"}}- A project that syncs folders (its `.brigade.json` has a `sync` member) needs Syncthing on your `PATH`:
+{{end}}{{if in "muse" "codex" "grok" "antigravity"}}- A project that syncs folders (its `.brigade.json` has a `sync` member) needs Syncthing on your `PATH`:
   `brew install syncthing` on macOS, `sudo apt install syncthing` on Debian or Ubuntu. Without it the session
   joins all the same and says file sync is off.
 {{end}}- The project file's `adapter` field names the backend's kind. `supabase` (or no name) and `rest`, a Brigade
@@ -429,7 +478,7 @@ The order matters. Every step is optional except step 3 when the goal is to remo
 {{if in "claude" "muse" "codex"}}1. `brigade team leave`{{say "muse" "" "*" " (with `!` in a session)"}} closes your open sessions in that team and revokes the
    membership; teammates stop seeing your sessions immediately. Skip it and the membership stays active
    indefinitely while your sessions merely go offline after the lease expires.
-{{end}}{{if in "grok"}}1. `brigade team leave` closes your open sessions in that team and revokes the
+{{end}}{{if in "grok" "antigravity"}}1. `brigade team leave` closes your open sessions in that team and revokes the
    membership; teammates stop seeing your sessions immediately. Skip it and the membership stays active
    indefinitely while your sessions merely go offline after the lease expires.
 {{end}}2. `brigade team reset` revokes the credential family on the backend and deletes the
@@ -458,7 +507,13 @@ The order matters. Every step is optional except step 3 when the goal is to remo
    person takes it out of that list in an editor.
 4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
    removes the session maps, pidfiles, logs and the cached binaries. Steps 4 and 5 are left out while a Claude
-   Code, Muse Code or Codex CLI package on this machine still uses Brigade: the four share that state and the
+   Code, Muse Code, Codex CLI or Antigravity CLI package on this machine still uses Brigade: the five share that
+   state and the credential store. Keep
+   `~/.local/state/brigade/sessions/by-native` if a later reinstall should resume your old Brigade sessions.
+{{end}}{{if in "antigravity"}}3. `agy plugin uninstall brigade` removes the plugin itself.
+4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
+   removes the session maps, pidfiles, logs and the cached binaries. Do not do steps 4 and 5 while a Claude Code,
+   Muse Code, Codex CLI or Grok Build package on this machine uses Brigade: the five share that state and the
    credential store. Keep
    `~/.local/state/brigade/sessions/by-native` if a later reinstall should resume your old Brigade sessions.
 {{end}}5. `rm -rf ~/.config/brigade` (or the directory named by the `config_dir` option) removes every team's credential.

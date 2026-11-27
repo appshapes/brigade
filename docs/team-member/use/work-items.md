@@ -27,8 +27,8 @@ harnesses name them their own way ([the skills, by harness](../../agent/in-a-tea
 `/brigade:work-item-start <number>` takes the work item, then names the session after it: `<number>-<slug>`, the
 slug made from the title (work item 12, "Add the tenant's export to the nightly job", gives
 `12-add-the-tenants-export-to-the`). A session whose name already begins with the number keeps it. On Claude
-Code the name is applied at your next prompt and the roster follows; Muse Code, Codex CLI and Grok Build cannot
-name a session from inside it, and the session keeps the name it has.
+Code the name is applied at your next prompt and the roster follows; Muse Code, Codex CLI, Grok Build and Antigravity
+CLI cannot name a session from inside it, and the session keeps the name it has.
 
 Name other sessions of yours after the number, and the session leads them:
 

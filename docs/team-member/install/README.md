@@ -1,7 +1,7 @@
 # Install
 
 Brigade installs into the harness your sessions run in. Nothing is compiled and no server is started: the package
-downloads one pinned, checksum-verified binary on first use. The four harnesses are not equally far along, and
+downloads one pinned, checksum-verified binary on first use. The five harnesses are not equally far along, and
 each section below opens with its status: Primary; Supported, with known gaps; or In trial.
 
 ## If you want to
@@ -12,6 +12,7 @@ each section below opens with its status: Primary; Supported, with known gaps; o
 | install Brigade in Muse Code | [Install in Muse Code](#install-in-muse-code) |
 | install Brigade in Codex CLI | [Install in Codex CLI](#install-in-codex-cli) |
 | install Brigade in Grok Build | [Install in Grok Build](#install-in-grok-build) |
+| install Brigade in Antigravity CLI | [Install in Antigravity CLI](#install-in-antigravity-cli) |
 | install Brigade on Windows | [Install on Windows](#install-on-windows) |
 | run `brigade` in your own terminal, or build it from source | [Use brigade in a terminal](#use-brigade-in-a-terminal) |
 
@@ -60,6 +61,17 @@ Status: Supported, with known gaps. It works, and [its gaps are named](grok.md#k
 3. After that first turn the session asks to arm its inbox monitor: approve the one command.
 
 Details: [Install in Grok Build](grok.md).
+
+## Install in Antigravity CLI
+
+Status: In trial. It may not work for you yet: [what is not proven](antigravity.md#in-trial).
+
+1. In a terminal: `agy plugin install https://github.com/appshapes/brigade/tree/v<version>/antigravity/brigade`,
+   with a release number from the repository's Releases page.
+2. Join in a terminal, then start a new `agy` session from a plain terminal in the checkout and type one prompt.
+3. Nothing wakes an idle session yet: a team message arrives before the next model call.
+
+Details: [Install in Antigravity CLI](antigravity.md).
 
 ## Install on Windows
 

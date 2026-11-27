@@ -73,6 +73,15 @@ if [ -f "$grok_json" ]; then
     cmp -s "plugin/bin/$asset" "grok/brigade/bin/$asset" || die "(a) grok/brigade/bin/$asset differs from plugin/bin/$asset"
   done
 fi
+agy_json=antigravity/brigade/plugin.json
+if [ -f "$agy_json" ]; then
+  # The Antigravity CLI package (work item 532): the same pin, the same three assets.
+  agy_version=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$agy_json" | head -n 1)
+  [ "$agy_version" = "$version" ] || die "(a) $agy_json version '$agy_version' != $version_file '$version'"
+  for asset in brigade VERSION checksums.txt; do
+    cmp -s "plugin/bin/$asset" "antigravity/brigade/bin/$asset" || die "(a) antigravity/brigade/bin/$asset differs from plugin/bin/$asset"
+  done
+fi
 printf 'checksums-check: (a) %s == %s == %s\n' "$version_file" "$plugin_json" "$version"
 
 # ---- (b) exactly the assets for this version: the four D33 ones, and the two Windows ones together or not at all ----

@@ -3,9 +3,9 @@
 Status: In trial. It may not work for you yet: [what is and is not proven](../../docs/team-member/install/muse-code.md#in-trial).
 
 This directory is the Muse Code package of Brigade: team messaging between the coding sessions of different people
-and machines, with a Muse Code session taking part beside Claude Code, Codex CLI and Grok Build ones. It ships the
+and machines, with a Muse Code session taking part beside Claude Code, Codex CLI, Grok Build and Antigravity CLI ones. It ships the
 same bootstrap, version pin and checksums as the Claude Code package (`plugin/`), a native Muse manifest with one
-wrapper per hook, and the fifteen skills worded for Muse. One Brigade team, one backend, four kinds of session.
+wrapper per hook, and the fifteen skills worded for Muse. One Brigade team, one backend, five kinds of session.
 
 The procedures are in the documentation tree: [install](../../docs/team-member/install/muse-code.md),
 [join](../../docs/team-member/join/muse-code.md), [update](../../docs/team-member/update/muse-code.md),

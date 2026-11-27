@@ -12,6 +12,7 @@ teammate's message cannot change them.
 | set an option in Muse Code | [Configure in Muse Code](#configure-in-muse-code) |
 | set an option in Codex CLI | [Configure in Codex CLI](#configure-in-codex-cli) |
 | set an option in Grok Build | [Configure in Grok Build](#configure-in-grok-build) |
+| set an option in Antigravity CLI | [Configure in Antigravity CLI](#configure-in-antigravity-cli) |
 | change the sentence your sessions receive with each message | [Choose the frame text](#choose-the-frame-text) |
 | hold messages for your review before your session sees them | [Hold messages for review](#hold-messages-for-review) |
 | hear a sound, or see a desktop notification, when a message arrives | [Be told when a message arrives](#be-told-when-a-message-arrives) |
@@ -59,6 +60,13 @@ Details: [Configure in Codex CLI](codex.md).
    registers the session and says what it found.
 
 Details: [Configure in Grok Build](grok.md).
+
+## Configure in Antigravity CLI
+
+1. Write `~/.config/brigade/antigravity-options.json`: a JSON object whose keys are the option names.
+2. Start a new `agy` session. With no file, the defaults apply.
+
+Details: [Configure in Antigravity CLI](antigravity.md).
 
 ## Choose the frame text
 

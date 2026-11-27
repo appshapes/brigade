@@ -57,7 +57,7 @@ the same three.
   notification-area balloon, which Windows presents as a toast headed "Brigade" for about six seconds (it is not
   kept in the notification centre). Nothing is started for either. Focus assist and do not disturb apply to the
   toast as to any other.
-- **The Muse Code, Codex CLI and Grok Build packages** are macOS and Linux only; on Windows, Brigade is the
+- **The Muse Code, Codex CLI, Grok Build and Antigravity CLI packages** are macOS and Linux only; on Windows, Brigade is the
   Claude Code plugin.
 - **A team on a Brigade server is not tried from Windows.** No Windows session has been seen on a team that
   lives on a server. The part of Brigade that talks to a server is the same code as on macOS and Linux, and
