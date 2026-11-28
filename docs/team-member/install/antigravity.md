@@ -68,7 +68,9 @@ The measurements are on agy 1.5.18 on macOS, on 2026-11-27
 - **The sandbox can ask for approval.** In `auto` mode, Antigravity's command sandbox applies to the commands
   of the agent. A `brigade send` that the agent runs may need to run outside the sandbox, which asks for your
   approval.
-- **A session cannot be renamed from inside it.**
+- **The roster shows the conversation's title.** That is the title that `agy` makes after the first turn, or the
+  name that you give with `/rename` in `agy`. Until a title exists, the roster shows the name of the folder.
+  `brigade rename` does not work in an `agy` session: use `/rename`.
 - **Brigade does not ask for the roster line.** Brigade never reminds the model to set the session's
   sentence on the roster, and never asks for a note at the end of a turn. Both need a permission mode, and the
   hooks of `agy` give none. In `auto` mode, a `brigade doing` can also need your approval to run outside the

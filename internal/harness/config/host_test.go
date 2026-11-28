@@ -43,7 +43,8 @@ func TestTheHostTable(t *testing.T) {
 			receiver: true, historyVar: "GROK_HOME",
 			pointed: true, stop: true, discardsPrompt: true, staysOnMove: true, inWhoami: true},
 		config.HostAntigravity: {name: "Antigravity CLI", nativeIDVar: "ANTIGRAVITY_CONVERSATION_ID",
-			optionsFile: "antigravity-options.json", frame: frame.HostAntigravity, delivery: config.DeliverNextCall,
+			optionsFile: "antigravity-options.json", frame: frame.HostAntigravity,
+			history: config.HistoryAnnotations, historyVar: "ANTIGRAVITY_APP_DATA_DIR", delivery: config.DeliverNextCall,
 			dialect: config.DialectInjectSteps, hookNamed: true, pointed: true, stop: true, inWhoami: true},
 	} {
 		got := row{
@@ -156,6 +157,7 @@ func TestAKindOfHistoryKnowsItsRoot(t *testing.T) {
 	environ := []string{adapterkit.HomeVar + "=" + home}
 	for kind, host := range map[config.HistoryKind]config.Host{
 		config.HistoryDatedStore: config.HostMuse, config.HistoryRollouts: config.HostCodex, config.HistorySummaries: config.HostGrok,
+		config.HistoryAnnotations: config.HostAntigravity,
 	} {
 		if got, want := kind.Root(environ), host.HistoryRoot(environ); got == "" || got != want {
 			t.Errorf("%s: root %q, want %s's, %q", kind, got, host, want)

@@ -51,6 +51,9 @@ const (
 	HistoryRollouts HistoryKind = "rollouts"
 	// HistorySummaries: sessions/<the launch directory>/<id>/summary.json.
 	HistorySummaries HistoryKind = "summaries"
+	// HistoryAnnotations: annotations/<id>.pbtxt, a protobuf text file
+	// whose title field is the conversation's title (work item 544).
+	HistoryAnnotations HistoryKind = "annotations"
 )
 
 // A DeliveryKind names a way a message is put in front of a host's model
@@ -239,6 +242,9 @@ var hosts = []struct {
 		pluginRootFlag: true,
 		pluginRootHere: true,
 		frame:          frame.HostAntigravity,
+		historyVar:     "ANTIGRAVITY_APP_DATA_DIR",
+		historyDir:     []string{".gemini", "antigravity-cli"},
+		history:        HistoryAnnotations,
 		delivery:       DeliverNextCall,
 		dialect:        DialectInjectSteps,
 		hookNamed:      true,

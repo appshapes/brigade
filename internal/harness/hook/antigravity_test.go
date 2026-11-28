@@ -434,3 +434,47 @@ func TestAntigravityStartWithWorkspacePathsAlone(t *testing.T) {
 		t.Fatalf("map %+v", *m)
 	}
 }
+
+// writeAgyTitle writes the conversation's annotation file as agy 1.5.19
+// does on a title or a /rename: one protobuf text line (work item 544).
+func writeAgyTitle(t *testing.T, f *fixture, title string) {
+	t.Helper()
+	dir := filepath.Join(f.dirs.Home, ".gemini", "antigravity-cli", "annotations")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, f.nativeID+".pbtxt"), []byte(`title:"`+title+`"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAntigravityRegistersUnderTheConversationsTitle: a session registers
+// under the conversation's title when agy has written one, and under its
+// folder's name while it has none; a later /rename reaches the map at the
+// first model call of the next turn (work item 544).
+func TestAntigravityRegistersUnderTheConversationsTitle(t *testing.T) {
+	t.Parallel()
+	f := agyFixture(t)
+	if exit, out, errOut := agyRun(f, SubSessionStart, agyDoc(f, "SessionStart", nil)); exit != 0 {
+		t.Fatalf("start exit %d: %s %s", exit, out, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != filepath.Base(f.cwd) {
+		t.Fatalf("with no title the name is %q, want the folder's, %q", m.SessionName, filepath.Base(f.cwd))
+	}
+	writeAgyTitle(t, f, "frank-brigade-antigravity-hydro")
+	if exit, out, errOut := agyRun(f, SubPrompt, agyDoc(f, "PreInvocation", map[string]any{"invocationNum": 0})); exit != 0 {
+		t.Fatalf("prompt exit %d: %s %s", exit, out, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "frank-brigade-antigravity-hydro" {
+		t.Fatalf("after a /rename the name is %q", m.SessionName)
+	}
+
+	g := agyFixture(t)
+	writeAgyTitle(t, g, "Brigade Sessions Command")
+	if exit, out, errOut := agyRun(g, SubSessionStart, agyDoc(g, "SessionStart", nil)); exit != 0 {
+		t.Fatalf("start exit %d: %s %s", exit, out, errOut)
+	}
+	if m := g.mustMap(); m.SessionName != "Brigade Sessions Command" {
+		t.Fatalf("a start with a title registers %q", m.SessionName)
+	}
+}

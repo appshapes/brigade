@@ -96,6 +96,20 @@ the session is opened. The summary is read only up to 1 MiB and `.cwd` only up t
 bytes. The sanitized title and, when present, the sanitized `current_model_id` leave
 the reader. Context stays blank. Chat history is not opened.
 
+## Antigravity CLI
+
+Measured 2026-11-28 on agy 1.5.19 (work item 544). Each conversation has one file
+`$HOME/.gemini/antigravity-cli/annotations/<conversation-id>.pbtxt`, in protobuf text format, with one field:
+`title:"<title>"`. It holds the title agy generates after the first turn, and the name that agy's `/rename`
+gives, which replaces it. Seven files measured were 30 to 43 bytes. The agent's shell has `ANTIGRAVITY_APP_DATA_DIR`, which names
+this directory; an absolute value is taken, and HOME's `.gemini/antigravity-cli` otherwise (a hook is given no
+such variable, measured on agy 1.5.18). The conversation id must be a lowercase UUID, as every agy id
+measured is; it is the hook's `ANTIGRAVITY_CONVERSATION_ID`. The reader takes only the top-level `title` field,
+as one double-quoted string with text format's escapes, and reads the file only up to 64 KiB. The sanitized
+title leaves the reader; with none, the session keeps the name it registered with, the base name of its folder.
+agy also keeps the title in `conversation_summaries.db` (SQLite), which Brigade does not open. The conversation
+stores (`conversations/<id>.db`) and `history.jsonl` are not opened. Context stays blank.
+
 ## Bounds and failure behaviour
 
 The watcher reads these files immediately before each heartbeat. Grok's `summary.json` is the one file the hook

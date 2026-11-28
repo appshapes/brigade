@@ -15,6 +15,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
 
+### Fixed
+
+- **An Antigravity CLI session shows its own title on the roster** (work item 544). The roster showed an `agy`
+  session under the name of its folder. It now shows the conversation's title: the one that `agy` makes after the
+  first turn, or the name that you give with `/rename`. A new name shows within one heartbeat. Brigade reads the
+  title from `agy`'s own small file for that conversation, and from no other file.
+
 ## [0.62.0] — 2026-11-28
 
 **Who must act**

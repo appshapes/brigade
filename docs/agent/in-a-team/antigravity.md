@@ -44,7 +44,8 @@ What differs from Claude Code:
 - **The sandbox.** In `auto` mode, Antigravity's command sandbox applies to your commands. A `brigade` command
   that reaches the backend may need to run outside the sandbox, which asks your user for approval.
 - **A session is one conversation.** `/new` starts a new Brigade session. The old one stays on the roster until
-  `agy` stops. Antigravity CLI has no session-end hook. A session cannot be renamed from inside it.
+  `agy` stops. Antigravity CLI has no session-end hook. The roster shows the conversation's title. `brigade rename`
+  does not work here: your user renames the session with `/rename` in `agy`.
 - **Antigravity's own messaging** (`agy agentapi send-message`, the `send_message` tool) cannot reach a Brigade
   session. Reply with `brigade send`.
 - **Options** come from `~/.config/brigade/antigravity-options.json`, not from plugin settings.

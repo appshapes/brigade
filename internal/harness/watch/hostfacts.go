@@ -71,9 +71,10 @@ type history interface {
 // histories holds the implementations, each under the kind the table
 // names it by. A host whose kind is not here has no local facts.
 var histories = map[config.HistoryKind]history{
-	config.HistoryDatedStore: datedStore{},
-	config.HistoryRollouts:   rollouts{},
-	config.HistorySummaries:  summaries{},
+	config.HistoryDatedStore:  datedStore{},
+	config.HistoryRollouts:    rollouts{},
+	config.HistorySummaries:   summaries{},
+	config.HistoryAnnotations: annotations{},
 }
 
 // history is the reader's: its own kind where the caller named one, else
@@ -139,7 +140,7 @@ func (r *hostFactsReader) refreshPinned(read func(root *os.File)) localHostFacts
 	return r.facts
 }
 
-// Both hosts use UUIDs. In particular, an untrusted native ID must never
+// Every host uses UUIDs. In particular, an untrusted native ID must never
 // become a path fragment, a glob, or a prefix match for another session.
 func hostSessionID(id string) bool {
 	if len(id) != 36 {

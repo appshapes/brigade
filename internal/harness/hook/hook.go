@@ -1538,7 +1538,9 @@ type identity struct {
 // version (registry version → unknown) and the entrypoint (environment →
 // registry; `kind` is ignored). A host whose dialect has an answer of its
 // own gives that instead: Grok Build's name and model are its summary's
-// (grok.go).
+// (grok.go). A dialect that has only a title of its own gives the name
+// in place of the registry's and the document's: Antigravity CLI's is its
+// annotation file's (work item 544), the folder's name while it has none.
 func (r *run) identity(f facts, in input) identity {
 	if id, ok := dialectOf(f.host).identity(r, f, in); ok {
 		return id
@@ -1557,6 +1559,9 @@ func (r *run) identity(f facts, in input) identity {
 	}
 	id.nonInteractive = id.entrypoint == entrypointSDK
 	id.name = titleOf(entry, in)
+	if title, ok := dialectOf(f.host).title(r, in); ok {
+		id.name = title
+	}
 	if id.name == "" {
 		id.name = registeredName(cwdName(in.Cwd))
 	}

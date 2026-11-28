@@ -14,6 +14,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -109,6 +110,14 @@ func (injectSteps) adopt(r *run, in input) error {
 // parent (measured on 1.5.18), is kept for liveness.
 func (injectSteps) key(nativeID string, parent int) (pid, hostProcess int) {
 	return conversationKey(nativeID), parent
+}
+
+// title: the conversation's title from agy's own annotation file, its
+// generated title or the name a /rename gave it (work item 544), "" while
+// it has none. ok is true, so the prompt hook never takes a title from
+// Claude Code's registry or the document for this host.
+func (injectSteps) title(r *run, in input) (string, bool) {
+	return watch.AntigravityTitle(r.environ, in.SessionID), true
 }
 
 // conversationKey is the session's key from its conversation's id: a
