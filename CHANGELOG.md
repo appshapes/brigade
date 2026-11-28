@@ -15,6 +15,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **Team Admin:** nothing.
 - **Project Owner:** nothing.
 
+## [0.62.0] — 2026-11-28
+
+**Who must act**
+
+- **Team Member:** nothing.
+- **Team Admin:** nothing.
+- **Project Owner:** nothing.
+
 ### Added
 
 - **Antigravity CLI joins a team, in trial** (work item 532, ADR 0039).
