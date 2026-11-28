@@ -10,7 +10,7 @@
         "source": "git-subdir",
         "url": "https://github.com/appshapes/brigade.git",
         "path": "codex/brigade",
-        "sha": "ead292c86048b7956c43e58474785e145f982c55"
+        "sha": "465715104064d1a8d6bd501cf2409d606042e9a7"
       },
       "policy": {
         "installation": "AVAILABLE",
